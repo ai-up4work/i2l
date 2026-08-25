@@ -112,6 +112,86 @@ body {
   background-image: url('https://cdn.simpleicons.org/googleplay/1a1a1a');
 }
 
+.account-page-stage {
+  animation: account-page-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.account-page-loading {
+  position: fixed;
+  inset: 0 0 0 260px;
+  z-index: 20;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-paper) 86%, transparent);
+  animation: account-loading-out 420ms ease-out both;
+}
+
+.account-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 34px 38px;
+}
+
+.account-skeleton__heading,
+.account-skeleton__subheading,
+.account-skeleton__card,
+.account-skeleton__row {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
+  background: color-mix(in srgb, var(--color-card) 80%, var(--color-paper));
+}
+
+.account-skeleton__heading::after,
+.account-skeleton__subheading::after,
+.account-skeleton__card::after,
+.account-skeleton__row::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  transform: translateX(-100%);
+  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--color-gold) 16%, transparent), transparent);
+  animation: account-shimmer 1.15s ease-in-out infinite;
+}
+
+.account-skeleton__heading { width: min(360px, 70%); height: 34px; border-radius: 10px; }
+.account-skeleton__subheading { width: min(520px, 85%); height: 16px; border-radius: 8px; }
+.account-skeleton__grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; margin-top: 16px; }
+.account-skeleton__card { height: 148px; border-radius: 18px; }
+.account-skeleton__card--large { height: 190px; }
+.account-skeleton__rows { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.account-skeleton__row { height: 58px; border-radius: 14px; }
+
+@keyframes account-page-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes account-loading-out {
+  from { opacity: 1; }
+  to { opacity: 0; visibility: hidden; }
+}
+@keyframes account-shimmer {
+  to { transform: translateX(100%); }
+}
+
+@media (max-width: 1023px) {
+  .account-page-loading { inset: 0; }
+  .account-skeleton { padding: 28px 20px 100px; }
+  .account-skeleton__grid { grid-template-columns: 1fr 1fr; }
+  .account-skeleton__card--large { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-page-stage,
+  .account-page-loading,
+  .account-skeleton__heading::after,
+  .account-skeleton__subheading::after,
+  .account-skeleton__card::after,
+  .account-skeleton__row::after { animation: none; }
+}
+
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }

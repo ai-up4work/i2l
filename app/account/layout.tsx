@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CircleHelp } from 'lucide-react'
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
@@ -12,6 +12,7 @@ import { pathForView, viewForPath } from '@/components/dashboard/routes'
 import type { View } from '@/components/dashboard/types'
 import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
 import AirmailStripe from '@/components/shared/AirmailStripe'
+import AccountPageSkeleton from '@/components/dashboard/AccountPageSkeleton'
 
 function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -19,6 +20,13 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   const view = viewForPath(pathname)
 
   const [bannerOpen, setBannerOpen] = useState(true)
+  const [pageLoading, setPageLoading] = useState(true)
+
+  useEffect(() => {
+    setPageLoading(true)
+    const timer = window.setTimeout(() => setPageLoading(false), 420)
+    return () => window.clearTimeout(timer)
+  }, [pathname])
 
   const { draft, setDraft, modalOpen, closeModal, saveItemInfo, lookupLoading, lookupError, autoFilled, resetDraft } =
     useDashboard()
@@ -48,7 +56,14 @@ function AccountShell({ children }: { children: React.ReactNode }) {
       <section className="content-scroll min-w-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
         {bannerOpen && view === 'home' && <WelcomeBanner onDismiss={() => setBannerOpen(false)} />}
         <Topbar view={view} onBack={handleBack} />
-        {children}
+        <div className="account-page-stage" key={pathname}>
+          {children}
+        </div>
+        {pageLoading && (
+          <div className="account-page-loading" aria-hidden="true">
+            <AccountPageSkeleton />
+          </div>
+        )}
       </section>
 
       <MobileBottomNav view={view} onNavigate={handleNavigate} />
