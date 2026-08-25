@@ -1,12 +1,59 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { ChevronRight, CircleX, MapPin, Plus } from 'lucide-react'
-import GavelIllustration from './illustrations/GavelIllustration'
-import TagPercentIllustration from './illustrations/TagPercentIllustration'
-import TruckIllustration from './illustrations/TruckIllustration'
-import { pathForView } from './routes'
-import type { View } from './types'
+import { ChevronRight, CircleX, Gavel, MapPin, Plus, Tag, Truck } from 'lucide-react'
+
+// ---------------------------------------------------------------------------
+// Stubs — replace these with your real modules when dropping this back in.
+// ---------------------------------------------------------------------------
+
+type View =
+  | 'requests'
+  | 'biddingRequests'
+  | 'shipmentOrders'
+  | 'addRequest'
+  | 'addShipment'
+
+function pathForView(view: View): string {
+  const map: Record<View, string> = {
+    requests: '/orders/requests',
+    biddingRequests: '/orders/bidding-requests',
+    shipmentOrders: '/orders/shipments',
+    addRequest: '/orders/requests/new',
+    addShipment: '/orders/shipments/new',
+  }
+  return map[view]
+}
+
+// Lightweight stand-ins for your illustration components. Swap these back
+// out for GavelIllustration / TagPercentIllustration / TruckIllustration.
+function GavelIllustration({ className }: { className?: string }) {
+  return (
+    <div className={`grid place-items-center rounded-xl bg-gold-soft/40 ${className ?? ''}`}>
+      <Gavel className="h-5 w-5 text-rust" />
+    </div>
+  )
+}
+
+function TagPercentIllustration({ className }: { className?: string }) {
+  return (
+    <div className={`grid place-items-center rounded-xl bg-gold-soft/40 ${className ?? ''}`}>
+      <Tag className="h-5 w-5 text-rust" />
+    </div>
+  )
+}
+
+function TruckIllustration({ className }: { className?: string }) {
+  return (
+    <div className={`grid place-items-center rounded-xl bg-gold-soft/40 ${className ?? ''}`}>
+      <Truck className="h-5 w-5 text-rust" />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 type OrderItem = { label: string; illustration: React.ComponentType<{ className?: string }>; view: View }
 type OrderSection = { heading: string; addView: View; items: OrderItem[] }

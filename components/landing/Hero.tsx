@@ -7,7 +7,7 @@ export default function Hero() {
     <section className="relative overflow-hidden px-6 pb-16 pt-14 lg:px-10 lg:pb-24 lg:pt-20">
       <div className="absolute inset-0 -z-10">
         <Image
-          src="/images/hero-parcel.png"
+          src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/all%20images%20needed-2-le28H68XWVq6LPFxzEjQemI5sZkQrf.png"
           alt=""
           fill
           priority

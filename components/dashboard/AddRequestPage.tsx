@@ -13,7 +13,7 @@ export default function AddRequestPage({ link, setLink, onSubmit }: AddRequestPa
   return (
     <div className="mx-auto max-w-7xl px-6 pb-16 pt-8 lg:px-10">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="font-display text-4xl text-ink sm:text-5xl">Add a new item request</h1>
+        <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">Add a new item request</h1>
         <a href="#faq" className="flex flex-none items-center gap-2 text-sm font-semibold text-ink">
           <CircleHelp size={18} /> FAQ
         </a>

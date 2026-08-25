@@ -13,7 +13,7 @@ export default function BiddingRequestsPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="font-display text-4xl text-ink sm:text-5xl">Bidding requests</h1>
+        <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">Bidding requests</h1>
         <span className="hidden items-center gap-2 rounded-full bg-gold-soft px-4 py-2 text-xs font-semibold text-rust sm:flex">
           <Gavel size={14} /> {biddingRequests.length} active
         </span>

@@ -32,9 +32,9 @@ export default function Header() {
       <header className="sticky top-0 z-50 bg-paper/95 backdrop-blur">
         <AirmailStripe />
 
-        <div className="mx-auto flex h-20 max-w-8xl items-center gap-4 px-6 lg:gap-6">
+        <div className="mx-auto flex h-16 max-w-8xl items-center gap-4 px-6 lg:gap-6">
           <Link href="/" className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight text-ink">
-            <BrandMark className="h-8 w-8" />
+            <BrandMark />
           </Link>
 
           <nav className="ml-auto hidden items-center gap-8 lg:flex">

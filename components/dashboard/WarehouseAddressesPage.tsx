@@ -19,7 +19,7 @@ export default function WarehouseAddressesPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 pb-16 pt-8 lg:px-10">
-      <h1 className="font-display text-4xl text-ink sm:text-5xl">Warehouse addresses</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">Warehouse addresses</h1>
 
       <div className="mt-8 overflow-hidden rounded-2xl border border-ink/10 bg-card">
         <p className="px-5 pt-5 font-mono text-[11px] uppercase tracking-[0.2em] text-rust">

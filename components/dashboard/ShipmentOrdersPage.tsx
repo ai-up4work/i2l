@@ -12,7 +12,7 @@ const statusStyles: Record<ShipmentOrderStatus, string> = {
 export default function ShipmentOrdersPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
-      <h1 className="font-display text-4xl text-ink sm:text-5xl">Shipment orders</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">Shipment orders</h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-ink/60">
         Every parcel forwarded through a warehouse address, tracked from check-in to your door.
       </p>

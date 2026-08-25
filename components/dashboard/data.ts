@@ -1,14 +1,15 @@
 import {
-  Box,
-  FileText,
+  Boxes,
   Gavel,
-  Gift,
   Home,
+  MapPin,
+  MessagesSquare,
   PackagePlus,
+  PiggyBank,
   ShoppingBag,
-  Store,
-  Users,
-  Wallet,
+  Ticket,
+  Truck,
+  UserPlus,
 } from 'lucide-react'
 import type {
   BiddingRequest,
@@ -77,31 +78,31 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     label: '',
     items: [
       { label: 'Member Centre', icon: Home, view: 'home' },
-      { label: 'Shopping Community', icon: FileText, view: 'shoppingCommunity' },
+      { label: 'Shopping Community', icon: MessagesSquare, view: 'shoppingCommunity' },
     ],
   },
   {
     label: 'Start Forwarding & Shopping',
     items: [
       { label: 'Add request', icon: PackagePlus, view: 'addRequest' },
-      { label: 'Add shipment', icon: Box, view: 'addShipment' },
-      { label: 'Warehouse addresses', icon: Store, view: 'warehouseAddresses' },
+      { label: 'Add shipment', icon: Truck, view: 'addShipment' },
+      { label: 'Warehouse addresses', icon: MapPin, view: 'warehouseAddresses' },
     ],
   },
   {
     label: 'Track & Manage',
     items: [
       { label: 'Buying requests', icon: ShoppingBag, view: 'requests' },
-      { label: 'Shipment orders', icon: FileText, view: 'shipmentOrders' },
+      { label: 'Shipment orders', icon: Boxes, view: 'shipmentOrders' },
       { label: 'Bidding requests', icon: Gavel, view: 'biddingRequests' },
     ],
   },
   {
     label: 'Coupons & Rewards',
     items: [
-      { label: 'Promo codes', icon: Gift, view: 'promoCodes' },
-      { label: 'My credits', icon: Wallet, view: 'credits' },
-      { label: 'My referrals', icon: Users, view: 'referrals' },
+      { label: 'Promo codes', icon: Ticket, view: 'promoCodes' },
+      { label: 'My credits', icon: PiggyBank, view: 'credits' },
+      { label: 'My referrals', icon: UserPlus, view: 'referrals' },
     ],
   },
 ]
