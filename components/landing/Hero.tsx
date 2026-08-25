@@ -5,20 +5,34 @@ import SignupCard from './SignupCard'
 export default function Hero() {
   return (
     <section className="relative overflow-hidden px-6 pb-16 pt-14 lg:px-10 lg:pb-24 lg:pt-20">
-      <div className="absolute inset-0 -z-10 overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="absolute inset-0 bg-paper" />
         <Image
-          src="/Refs/all images needed-2.png"
-          alt="India to Lanka shipping illustrations"
-          width={1536}
-          height={1024}
+          src="/images/landing-crops/route-plane.png"
+          alt="Airplane route from India to Sri Lanka"
+          width={610}
+          height={215}
           priority
-          className="absolute -right-44 top-0 h-[620px] w-[930px] max-w-none object-contain object-right opacity-20 mix-blend-multiply lg:-right-20 lg:h-[700px] lg:w-[1050px]"
+          className="absolute right-[-3rem] top-8 h-auto w-[30rem] max-w-none opacity-90 mix-blend-multiply lg:right-12 lg:top-10 lg:w-[38rem]"
+        />
+        <Image
+          src="/images/landing-crops/hero-parcel.png"
+          alt="Parcel ready for international delivery"
+          width={425}
+          height={265}
+          className="absolute bottom-0 right-[-2rem] h-auto w-[18rem] max-w-none opacity-90 mix-blend-multiply lg:right-8 lg:w-[25rem]"
+        />
+        <Image
+          src="/images/landing-crops/stamps.png"
+          alt="Colombo and Bengaluru shipping stamps"
+          width={415}
+          height={200}
+          className="absolute bottom-2 left-[-5rem] hidden h-auto w-[18rem] opacity-30 mix-blend-multiply lg:block"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-paper via-paper/90 to-paper/35" />
       </div>
 
-      <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+      <div className="relative z-10 mx-auto grid max-w-7xl gap-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.25em] text-rust">
             Tracking No. IN—2—LK &middot; Est. 2019

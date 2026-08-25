@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { ArrowRight } from 'lucide-react'
 import { steps } from './data'
 
@@ -41,6 +42,14 @@ export default function HowItWorks() {
           <div key={step.title} className="relative rounded-2xl border border-dashed border-ink/20 bg-card p-7">
             <span className="absolute -left-3 top-1/2 hidden h-6 w-6 -translate-y-1/2 rounded-full bg-paper lg:block" aria-hidden="true" />
             <p className="font-mono text-xs text-rust">0{stepIndex + 1}</p>
+            <Image
+              src={`/images/landing-crops/process-${['shop', 'receive', 'consolidate', 'ship', 'deliver'][stepIndex]}.png`}
+              alt=""
+              width={175}
+              height={170}
+              className="mt-3 h-20 w-full object-contain"
+              aria-hidden="true"
+            />
             <h3 className="mt-4 font-display text-lg text-ink">{step.title}</h3>
             <p className="mt-2 text-sm leading-relaxed text-ink/60">{step.text}</p>
           </div>

@@ -17,11 +17,17 @@ export default function TopChoices() {
             className="flex flex-col overflow-hidden rounded-3xl border border-ink/10 bg-card transition-shadow hover:shadow-lift"
           >
             <Image
-              src={index === 0 ? '/images/service-forwarding.png' : index === 1 ? '/images/service-shopping.png' : '/images/community-collage.png'}
-              alt=""
-              width={700}
-              height={420}
-              className="h-40 w-full object-cover"
+              src={
+                index === 0
+                  ? '/images/landing-crops/feature-rates.png'
+                  : index === 1
+                    ? '/images/landing-crops/feature-secure.png'
+                    : '/images/landing-crops/feature-fast.png'
+              }
+              alt={`${title} illustration`}
+              width={155}
+              height={170}
+              className="h-40 w-full object-contain bg-paper px-10 py-3"
             />
             <div className="p-8">
               <div className="grid h-12 w-12 place-items-center rounded-full border-2 border-dashed border-rust/50 text-rust">
