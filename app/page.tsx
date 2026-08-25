@@ -20,11 +20,10 @@ export default function Home() {
     <main className="bg-paper">
       <Header />
       <Hero />
-      <PromoStrip />
-      <TopChoices />
       <Partners />
-      <Destinations />
+      <TopChoices />
       <HowItWorks />
+      <PromoStrip />
       <Deals />
       <PromoCodesSection />
       <StatsBand />

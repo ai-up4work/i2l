@@ -5,15 +5,17 @@ import SignupCard from './SignupCard'
 export default function Hero() {
   return (
     <section className="relative overflow-hidden px-6 pb-16 pt-14 lg:px-10 lg:pb-24 lg:pt-20">
-      <div className="absolute inset-0 -z-10">
+      <div className="absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-0 bg-paper" />
         <Image
-          src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/all%20images%20needed-2-le28H68XWVq6LPFxzEjQemI5sZkQrf.png"
-          alt=""
-          fill
+          src="/Refs/all images needed-2.png"
+          alt="India to Lanka shipping illustrations"
+          width={1536}
+          height={1024}
           priority
-          className="object-cover opacity-20"
+          className="absolute -right-44 top-0 h-[620px] w-[930px] max-w-none object-contain object-right opacity-20 mix-blend-multiply lg:-right-20 lg:h-[700px] lg:w-[1050px]"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-paper/70 via-paper/85 to-paper" />
+        <div className="absolute inset-0 bg-gradient-to-r from-paper via-paper/90 to-paper/35" />
       </div>
 
       <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">

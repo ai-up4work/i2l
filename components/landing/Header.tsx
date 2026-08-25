@@ -7,10 +7,12 @@ import BrandMark from '@/components/shared/BrandMark'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 
 const navLinks = [
-  { href: '#shipping', label: 'Shipping', hasMenu: true },
-  { href: '#shopping', label: 'Shopping', hasMenu: true },
-  { href: '#destinations', label: 'Discovery', hasMenu: true },
-  { href: '#help', label: 'Support', hasMenu: false },
+  { href: '#how', label: 'How it Works', hasMenu: false },
+  { href: '#shipping', label: 'Services', hasMenu: false },
+  { href: '#destinations', label: 'Destinations', hasMenu: false },
+  { href: '#rates', label: 'Rates', hasMenu: false },
+  { href: '#deals', label: 'Deals', hasMenu: false },
+  { href: '#community', label: 'Community', hasMenu: false },
 ]
 
 
