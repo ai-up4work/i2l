@@ -21,12 +21,6 @@ import {
 } from './extractors/myntra'
 import type { MyntraSizeChartTable } from './extractors/myntra'
 import {
-  parseEbay,
-  SITE_ID as EBAY_SITE_ID,
-  REQUIRES_RENDER_FOR_VARIANTS as EBAY_REQUIRES_RENDER_FOR_VARIANTS,
-  consumeEbayMeta,
-} from './extractors/ebay'
-import {
   parseAjio,
   extractAjioOptions,
   SITE_ID as AJIO_SITE_ID,
@@ -48,6 +42,17 @@ import {
 } from './extractors/snapdeal'
 import { fetchShopifyProduct } from '@/lib/store-providers/shopify'
 import { fetchWooCommerceProduct } from '@/lib/store-providers/woocommerce'
+import {
+  parseEbayItemUrl,
+  fetchEbayItemByLegacyId,
+  ebayCredentialsConfigured,
+  ebayIsSandbox,
+  parseEbay,
+  extractEbayOptions,
+  SITE_ID as EBAY_SITE_ID,
+  REQUIRES_RENDER_FOR_VARIANTS as EBAY_REQUIRES_RENDER_FOR_VARIANTS,
+  consumeEbayMeta,
+} from '@/lib/scrape/extractors/ebay'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -69,7 +74,7 @@ export type ScrapeResult = {
   sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable)[] | null
   error?: string
   warning?: string
-  source?: 'direct' | 'scraperapi' | 'shopify_api' | 'woocommerce_api'
+  source?: 'direct' | 'scraperapi' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   _priceSource?: 'meta_description'
 }
@@ -178,7 +183,7 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['flipkart', 'flipkart'],
   [MEESHO_SITE_ID, MEESHO_SITE_ID],
   [MYNTRA_SITE_ID, MYNTRA_SITE_ID],
-  ['ebay', 'ebay'],
+  [EBAY_SITE_ID, EBAY_SITE_ID],
   [AJIO_SITE_ID, AJIO_SITE_ID],
   [SNAPDEAL_SITE_ID, SNAPDEAL_SITE_ID],
   [JIOMART_SITE_ID, JIOMART_SITE_ID],
@@ -532,29 +537,6 @@ function withFallbacks<T extends Record<string, any>>(primary: T, ...sourcesIn: 
   }
 
   return merged
-}
-
-// ---------- Selected-option extraction (size/color/etc) ----------
-
-function extractEbayOptions($: CheerioAPI): Record<string, string> | null {
-  const options: Record<string, string> = {}
-  $('select').each((_, el) => {
-    const $el = $(el)
-    const name = $el.attr('name') || $el.attr('id')
-    if (!name) return
-    const selectedText =
-      cleanText($el.find('option[selected]').first()) || cleanText($el.find('option:checked').first())
-    if (selectedText && !/^(select|choose|please select)/i.test(selectedText)) {
-      options[name.replace(/[_-]/g, ' ').trim()] = selectedText
-    }
-  })
-  $('.ux-labels-values__labels').each((_, el) => {
-    const label = cleanText($(el))
-    if (!label || !/^(size|colou?r|style|material)$/i.test(label)) return
-    const value = cleanText($(el).closest('.ux-labels-values').find('.ux-labels-values__values').first())
-    if (value) options[label] = value
-  })
-  return Object.keys(options).length ? options : null
 }
 
 const SITE_OPTIONS_EXTRACTORS: Partial<Record<SiteId, ($: CheerioAPI) => Record<string, string> | null>> = {
@@ -990,6 +972,77 @@ async function scrapeWooCommerceProduct(url: string): Promise<ScrapeResult> {
   return result
 }
 
+// ---------- eBay (real Browse API, no scraping) ----------
+//
+// Preferred path for eBay whenever EBAY_APP_ID/EBAY_CERT_ID are configured
+// (see lib/store-providers/ebay.ts) — this calls eBay's own Browse API
+// (getItemByLegacyId) instead of scraping the item page's JSON-LD/DOM.
+// scrapeProduct() only falls through to the legacy scraper-based
+// SITE_PARSERS.ebay path (parseEbay, below) when those env vars are unset.
+//
+// SCOPE NOTE: getItemByLegacyId returns full detail for the ONE item/
+// variation requested, not a browsable sibling-variant list — so
+// `variants` here is read-only info (color/size/etc from
+// localizedAspects), not a clickable re-fetching picker like the other
+// platform views. See buildVariantDimensions in ebay.ts.
+async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
+  const parsedId = parseEbayItemUrl(url)
+  if (!parsedId) {
+    return {
+      url,
+      site: 'ebay',
+      error:
+        "Couldn't find an /itm/<item id> path in this URL — eBay's Browse API is keyed off the numeric legacy item id.",
+    }
+  }
+
+  let item
+  try {
+    item = await fetchEbayItemByLegacyId(parsedId.legacyItemId, parsedId.legacyVariationId)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'eBay Browse API request failed'
+    return {
+      url,
+      site: 'ebay',
+      error: ebayIsSandbox()
+        ? `${msg} — using Sandbox credentials (EBAY_ENV=sandbox / EBAY_CERT_ID starts with SBX-); real item ids won't resolve there. Use Production keys for real listings.`
+        : msg,
+    }
+  }
+
+  // Extra fields EbayProductView.tsx reads defensively via `as any`
+  // (sellerFeedbackScore, sellerFeedbackPercent, condition, shipping) —
+  // same key names as the old scraper output, now sourced from the API.
+  const result: ScrapeResult & Record<string, any> = {
+    url,
+    site: 'ebay',
+    source: 'ebay_api',
+    title: item.title,
+    price: item.price,
+    mrp: item.originalPrice,
+    currencyCode: item.currencyCode,
+    rating: null,
+    review_count: null,
+    availability: item.availability,
+    seller: item.seller,
+    images: item.images,
+    variants: item.variants.length ? item.variants : undefined,
+    sellerFeedbackScore: item.sellerFeedbackScore != null ? String(item.sellerFeedbackScore) : null,
+    sellerFeedbackPercent: item.sellerFeedbackPercent,
+    condition: item.condition,
+    shipping: item.shipping,
+  }
+
+  if (item.ended || item.availability === 'Out of stock') {
+    result.unavailable = true
+  }
+  if (!item.buyingOptions.includes('FIXED_PRICE') && item.buyingOptions.includes('AUCTION')) {
+    result.warning = 'This listing is an auction — price shown is the current bid, not a fixed Buy It Now price.'
+  }
+
+  return result
+}
+
 // ---------- Site-specific parsers ----------
 //
 // Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, and Snapdeal each
@@ -997,6 +1050,11 @@ async function scrapeWooCommerceProduct(url: string): Promise<ScrapeResult> {
 // out because each has enough site-specific logic (variant swatches,
 // availability detection, grid-layout edge cases) to be worth testing in
 // isolation. (Nykaa and TataCliq have been removed entirely.)
+//
+// eBay's entry here (parseEbay/SITE_PARSERS.ebay) is now the FALLBACK
+// path only — used when EBAY_APP_ID/EBAY_CERT_ID aren't configured. See
+// scrapeEbayProductViaApi above and scrapeProduct's routing below for the
+// preferred, credentialed path via eBay's real Browse API.
 
 function parseGeneric($: CheerioAPI, url: string) {
   const domainHint = domainCurrency(url)
@@ -1084,6 +1142,7 @@ const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
   ...(AJIO_REQUIRES_RENDER_FOR_VARIANTS ? [AJIO_SITE_ID] : []),
   ...(JIOMART_REQUIRES_RENDER_FOR_VARIANTS ? [JIOMART_SITE_ID] : []),
   ...(SNAPDEAL_REQUIRES_RENDER_FOR_VARIANTS ? [SNAPDEAL_SITE_ID] : []),
+  
 ])
 
 function hasVariantData(parsed: Record<string, any>): boolean {
@@ -1104,6 +1163,14 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
 
   if (site === 'woocommerce') {
     return await scrapeWooCommerceProduct(url)
+  }
+
+  // Prefer the real eBay Browse API whenever credentials are configured —
+  // it's authoritative data straight from eBay, not a DOM/JSON-LD guess.
+  // Falls through to the legacy scraper below only if EBAY_APP_ID /
+  // EBAY_CERT_ID aren't set, so this stays a zero-config upgrade.
+  if (site === 'ebay' && ebayCredentialsConfigured()) {
+    return await scrapeEbayProductViaApi(url)
   }
 
   const { html, error } = await fetchDirectWithRetries(url, site)

@@ -440,81 +440,6 @@ function VariantPicker({
   )
 }
 
-/** Feedback widget shown under a live (non-error) scrape result. */
-function ResultFeedback({
-  url,
-  result,
-  entry,
-  onVerdict,
-  onComment,
-  onSubmit,
-}: {
-  url: string
-  result: ScrapeResult
-  entry: FeedbackEntry
-  onVerdict: (v: FeedbackVerdict) => void
-  onComment: (c: string) => void
-  onSubmit: () => void
-}) {
-  return (
-    <div className="mt-6 rounded-2xl border border-ink/10 bg-card px-4 py-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink/50">
-          <Flag size={12} strokeWidth={2.2} />
-          Report this result
-        </p>
-        {entry.submitted && (
-          <span className="text-[11px] font-semibold text-teal-deep">Thanks — feedback saved</span>
-        )}
-      </div>
-
-      <div className="mt-2.5 flex gap-2">
-        <button
-          type="button"
-          onClick={() => onVerdict('correct')}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
-            entry.verdict === 'correct'
-              ? 'bg-teal text-white'
-              : 'bg-white text-ink/55 ring-1 ring-inset ring-ink/12 hover:bg-teal/10'
-          }`}
-        >
-          <ThumbsUp size={13} /> Looks right
-        </button>
-        <button
-          type="button"
-          onClick={() => onVerdict('incorrect')}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
-            entry.verdict === 'incorrect'
-              ? 'bg-red-500 text-white'
-              : 'bg-white text-ink/55 ring-1 ring-inset ring-ink/12 hover:bg-red-50'
-          }`}
-        >
-          <ThumbsDown size={13} /> Something&apos;s wrong
-        </button>
-      </div>
-
-      {entry.verdict === 'incorrect' && (
-        <textarea
-          value={entry.comment}
-          onChange={(e) => onComment(e.target.value)}
-          placeholder="What's wrong — wrong price, wrong variant, listing is actually in stock, etc.?"
-          rows={2}
-          className="mt-2.5 w-full rounded-lg border border-ink/15 bg-white px-2.5 py-2 text-xs text-ink placeholder:text-ink/35 outline-none focus:border-teal"
-        />
-      )}
-
-      {entry.verdict && !entry.submitted && (
-        <button
-          type="button"
-          onClick={onSubmit}
-          className="mt-2.5 rounded-lg bg-ink px-3.5 py-1.5 text-xs font-bold text-white hover:bg-ink/85"
-        >
-          Submit feedback
-        </button>
-      )}
-    </div>
-  )
-}
 
 export default function ScraperQaClient() {
   const router = useRouter()
@@ -1064,15 +989,6 @@ export default function ScraperQaClient() {
                 </div>
               </div>
             )}
-
-            <ResultFeedback
-              url={result.url}
-              result={result}
-              entry={getFeedback(result.url)}
-              onVerdict={(v) => setFeedbackVerdict(result.url, v)}
-              onComment={(c) => setFeedbackComment(result.url, c)}
-              onSubmit={() => handleFeedbackSubmit(result.url, result)}
-            />
 
             <details className="group mt-6 rounded-2xl border border-ink/10 bg-card">
               <summary className="cursor-pointer list-none px-4 py-3 text-xs font-bold uppercase tracking-wide text-ink/55">
