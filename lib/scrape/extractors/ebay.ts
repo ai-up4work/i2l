@@ -67,7 +67,14 @@ export const SITE_ID = 'ebay'
 // The legacy scraper's variant picker is a plain server-rendered <select>/
 // label-value block, not a client-side-hydrated widget — so unlike
 // Flipkart/Meesho/etc it does NOT need a JS-rendering fetch tier for
-// variant data to show up in a static HTML fetch.
+// variant LABELS to show up in a static HTML fetch. Per-option PRICE and
+// IMAGE, however, are populated by eBay's client-side JS on selection
+// change and are NOT present in the static HTML — see the note on
+// extractEbayVariantDimensions below. If per-option price/image ever
+// becomes a hard requirement for the no-API-creds path, this constant is
+// the flag to flip (plus adding a render tier that clicks through each
+// option and re-scrapes), rather than trying to parse them out of a
+// static fetch.
 export const REQUIRES_RENDER_FOR_VARIANTS = false
 
 export type EbayApiVariantOption = {
@@ -488,9 +495,154 @@ export async function fetchEbayItemByLegacyId(
 // purpose — parseHtml()'s JSON-LD / OpenGraph merge chain (withFallbacks)
 // fills in title/price/currency/images from the page's own SEO metadata.
 // This function's job is just: (1) a raw <h1>/<title> fallback in case
-// JSON-LD is missing, and (2) selected variant options actually visible
-// in the static HTML (a plain <select> or the ux-labels-values blocks eBay
-// server-renders for the currently selected variant).
+// JSON-LD is missing, and (2) the full set of variant dimensions/options
+// actually present in the static HTML (a plain <select> per dimension,
+// plus the ux-labels-values blocks eBay server-renders for the currently
+// selected variant when no <select> is present).
+
+export type EbayLegacyVariantOption = {
+  label: string
+  value: string | null
+  // Best-effort re-derived link: eBay item pages accept `?var=<variation
+  // id>` to jump straight to that variation. We only know this id when
+  // the <select>'s option value (or a data-var-id/data-*-id attribute) is
+  // itself numeric — eBay doesn't always render that on the static page,
+  // so this is frequently null. It is never guessed/fabricated.
+  url: string | null
+  // Static HTML does NOT carry per-option pricing — see the block
+  // comment above extractEbayVariantDimensions. This is only ever
+  // non-null for the option that happens to be the currently-selected
+  // one, because that price is the page's own displayed price (picked up
+  // separately by parseHtml()'s JSON-LD/OpenGraph merge, not by this
+  // function) — everyone else's is unknown from a single static fetch.
+  price: string | null
+  selected: boolean
+}
+
+export type EbayLegacyVariantDimension = {
+  dimension: string
+  options: EbayLegacyVariantOption[]
+}
+
+
+
+// Mirrors the consumeXMeta(parsed) pattern used by Meesho/Myntra/Ajio/etc
+// in parsers.ts — those extractors stash warning/unavailable flags as
+// private keys on the parsed object for scrapeProduct() to pull off after
+// the fact. eBay's legacy scraper doesn't currently set any such flags
+// (its warnings come from the generic "no price found" / "no title found"
+// checks in scrapeProduct instead), so this is a no-op placeholder kept
+// for interface symmetry — safe to extend later if eBay-specific parsing
+// signals (e.g. "listing ended" text on the page) are added.
+export function consumeEbayMeta(_parsed: Record<string, any>): { warning?: string; unavailable?: boolean } {
+  return {}
+}
+
+// Non-variant selects that legitimately show up as <select> elements on
+// an eBay item page but aren't a product option (quantity, shipping
+// speed, etc.) — filtered out so they don't show up as a bogus "variant
+// dimension".
+const EBAY_NON_VARIANT_SELECT_RE = /qty|quantity|ship|deliver|zip|postal|country/i
+
+function buildEbayVariantUrl(pageUrl: string, varId: string): string | null {
+  try {
+    const u = new URL(pageUrl)
+    u.searchParams.set('var', varId)
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
+// Reuses EbayApiVariantDimension/EbayApiVariantOption (the same shape the
+// credentialed Browse API path returns) rather than a parallel "legacy"
+// type — so EbayProductView and the generic VariantPicker can render
+// either path's output identically. The one real difference: static HTML
+// carries no per-option price or image, so those fields come back `null`
+// here rather than guessed/backfilled — variantsNote (below) tells the
+// caller why.
+export function extractEbayVariantDimensions($: CheerioAPI, pageUrl: string): EbayApiVariantDimension[] {
+  const dimensions: EbayApiVariantDimension[] = []
+  const seenDimensionNames = new Set<string>()
+
+  // ---- Case 1: server-rendered <select> per dimension (most listings) ----
+  $('select').each((_, el) => {
+    const $el = $(el)
+    const rawName = $el.attr('name') || $el.attr('id')
+    if (!rawName || EBAY_NON_VARIANT_SELECT_RE.test(rawName)) return
+
+    const dimensionName = rawName.replace(/[_-]/g, ' ').trim()
+    const options: EbayApiVariantOption[] = []
+
+    $el.find('option').each((_, opt) => {
+      const $opt = $(opt)
+      const label = cleanText($opt)
+      if (!label || /^(select|choose|please select)/i.test(label)) return
+
+      const value = $opt.attr('value') || null
+      const selected = $opt.attr('selected') != null
+
+      // eBay variation selects commonly carry the numeric legacy
+      // variation id straight in the option's `value` (or a data-*
+      // attribute). Only treated as a variation id — and therefore only
+      // used to build a `?var=` redirect URL — when it's actually
+      // numeric; a purely descriptive value (e.g. value="Red") gives us
+      // no id to redirect to, so `url` stays null rather than pointing
+      // somewhere wrong.
+      const varId =
+        (value && /^\d+$/.test(value) && value) ||
+        $opt.attr('data-var-id') ||
+        $opt.attr('data-variation-id') ||
+        null
+
+      options.push({
+        label,
+        price: null, // not present in static HTML — see variantsNote
+        currencyCode: null,
+        image: null, // ditto
+        url: varId ? buildEbayVariantUrl(pageUrl, varId) : null,
+        selected,
+        outOfStock: false, // static HTML doesn't reliably flag this either
+      })
+    })
+
+    if (options.length) {
+      dimensions.push({ dimension: dimensionName, options })
+      seenDimensionNames.add(dimensionName.toLowerCase())
+    }
+  })
+
+  // ---- Case 2: no <select> at all — fall back to the single visible ----
+  // ---- selection eBay server-renders as a ux-labels-values block, so ----
+  // ---- at minimum the currently-active choice on each known axis is ----
+  // ---- still reported (as a one-option "dimension") rather than lost. ----
+  $('.ux-labels-values__labels').each((_, el) => {
+    const label = cleanText($(el))
+    if (!label || !/^(size|colou?r|style|material)$/i.test(label)) return
+    if (seenDimensionNames.has(label.toLowerCase())) return // already covered by a <select> above
+
+    const value = cleanText($(el).closest('.ux-labels-values').find('.ux-labels-values__values').first())
+    if (!value) return
+
+    dimensions.push({
+      dimension: label,
+      options: [
+        {
+          label: value,
+          price: null,
+          currencyCode: null,
+          image: null,
+          url: null, // no id to derive a redirect from in this markup shape
+          selected: true,
+          outOfStock: false,
+        },
+      ],
+    })
+    seenDimensionNames.add(label.toLowerCase())
+  })
+
+  return dimensions
+}
 
 export function extractEbayOptions($: CheerioAPI): Record<string, string> | null {
   const options: Record<string, string> = {}
@@ -518,6 +670,7 @@ export function extractEbayOptions($: CheerioAPI): Record<string, string> | null
 
 export function parseEbay($: CheerioAPI, url: string): Record<string, any> {
   const domainHint = domainCurrency(url)
+  const variants = extractEbayVariantDimensions($, url)
   return {
     title: cleanText($('h1').first()) || cleanText($('title')),
     price: null as string | null,
@@ -529,17 +682,14 @@ export function parseEbay($: CheerioAPI, url: string): Record<string, any> {
     seller: null,
     images: [] as string[],
     options: extractEbayOptions($),
+    variants,
+    // Flagged whenever we found a dimension/option to pick from but
+    // couldn't attach real per-option pricing/images (static HTML doesn't
+    // carry it — see extractEbayVariantDimensions). Downstream UI can use
+    // this to prompt "configure EBAY_APP_ID/EBAY_CERT_ID for real
+    // per-variant pricing" instead of silently showing blanks.
+    variantsNote: variants.length
+      ? 'Per-variant prices/images are not available without EBAY_APP_ID/EBAY_CERT_ID configured — only option labels and (where derivable) "?var=" redirect URLs were scraped from the static page.'
+      : null,
   }
-}
-
-// Mirrors the consumeXMeta(parsed) pattern used by Meesho/Myntra/Ajio/etc
-// in parsers.ts — those extractors stash warning/unavailable flags as
-// private keys on the parsed object for scrapeProduct() to pull off after
-// the fact. eBay's legacy scraper doesn't currently set any such flags
-// (its warnings come from the generic "no price found" / "no title found"
-// checks in scrapeProduct instead), so this is a no-op placeholder kept
-// for interface symmetry — safe to extend later if eBay-specific parsing
-// signals (e.g. "listing ended" text on the page) are added.
-export function consumeEbayMeta(_parsed: Record<string, any>): { warning?: string; unavailable?: boolean } {
-  return {}
 }

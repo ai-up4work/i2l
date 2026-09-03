@@ -98,6 +98,7 @@ function VariantRow({
         {dim.options.map((opt) => {
           const isSelected = opt.label === selectedLabel
           const clickable = !opt.outOfStock && !!opt.url
+          const priceLabel = fmt(opt.price, opt.currencyCode)
 
           return (
             <button
@@ -112,7 +113,7 @@ function VariantRow({
                     ? undefined
                     : `${opt.label} — no direct variation link found, selection is visual only`
               }
-              className={`flex min-h-9 items-center rounded-md border px-3 py-1.5 text-[13px] font-medium ${
+              className={`flex min-h-9 flex-col items-center justify-center rounded-md border px-3 py-1.5 text-[13px] font-medium leading-tight ${
                 opt.outOfStock
                   ? 'cursor-not-allowed border-[#e5e5e5] text-[#c7c7c7] line-through'
                   : isSelected
@@ -122,7 +123,10 @@ function VariantRow({
                       : 'cursor-default border-dashed border-[#d8d8d8] text-[#767676]'
               }`}
             >
-              {opt.label}
+              <span>{opt.label}</span>
+              {priceLabel && (
+                <span className="text-[10px] font-bold text-[#2e7d32]">{priceLabel}</span>
+              )}
             </button>
           )
         })}
@@ -426,6 +430,17 @@ export default function EbayProductView({
               generic layout) so a reviewer can at least confirm Size/
               Color were detected at all. Only shown when the Browse API
               path didn't already give us a real `variants` picker. */}
+          {/* Legacy scraper fallback path (no EBAY_APP_ID/EBAY_CERT_ID
+              configured): extractEbayVariantDimensions() in ebay.ts now
+              builds a real dimension/option picker from the static
+              page's own <select> elements or label/value blocks — same
+              VariantRow above renders it, just without per-option price
+              or image (static HTML doesn't carry those; see the
+              variantsNote banner below for why). This "Selected
+              options" block only shows up in the rare case NEITHER a
+              <select> nor a label/value block was found at all, so at
+              minimum the page's single currently-selected value (if
+              any) is still visible instead of nothing. */}
           {(!result.variants || result.variants.length === 0) &&
             result.options &&
             Object.keys(result.options).length > 0 && (
@@ -444,18 +459,11 @@ export default function EbayProductView({
                   ))}
                 </div>
                 <p className="mt-1.5 text-[11px] text-[#a8a8a8]">
-                  Detected from the static page's selected value only — the fallback
-                  scraper can't see sibling size/color options without a live API call.
+                  No dimension/option picker (&lt;select&gt; or label/value block) was
+                  found on the static page — showing only the currently selected value.
                 </p>
               </div>
             )}
-
-          {variantsNote && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs text-[#8a6d00]">
-              <AlertTriangle size={13} className="mt-0.5 flex-none" strokeWidth={2} />
-              {variantsNote}
-            </div>
-          )}
 
           <ItemSpecifics specs={allSpecs} />
 
