@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ExternalLink, Star, ShieldCheck, Truck } from 'lucide-react'
+import { ExternalLink, Star, ShieldCheck, Truck, MapPin, Gavel, AlertTriangle, Package } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 
@@ -26,8 +26,12 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
  *
  * Extra fields eBay's extractor captures beyond the typed ScrapeResult
  * shape (sellerFeedbackScore, sellerFeedbackPercent, condition,
- * shipping) are read defensively via `as any`, same pattern already
- * used for Myntra's countryOfOrigin/manufacturer/myntraStyleId.
+ * shipping, brand, mpn, gtin, categoryPath, itemSpecifics,
+ * quantityAvailable, quantitySold, itemLocation, returnsAccepted,
+ * returnPeriodDays, paymentMethods, topRatedBuying, discountPercentage,
+ * bidCount, currentBidPrice, itemEndDate, variantsNote) are read
+ * defensively via `as any`, same pattern already used for Myntra's
+ * countryOfOrigin/manufacturer/myntraStyleId.
  */
 
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
@@ -127,6 +131,80 @@ function VariantRow({
   )
 }
 
+/** "Item specifics" table — eBay's own name for this block (Brand,
+ * MPN, Color, Material, ...). Sourced from `itemSpecifics`
+ * (localizedAspects off the Browse API item), which is a superset of
+ * whatever subset happens to vary across sibling variants — so this is
+ * the only place a reviewer sees e.g. "Material: Cotton" when every
+ * sibling shares that value and it therefore never became a variant
+ * dimension. */
+function ItemSpecifics({ specs }: { specs: { name: string; value: string }[] | null | undefined }) {
+  if (!specs || !specs.length) return null
+  return (
+    <div className="mt-5 rounded-lg border border-[#e5e5e5]">
+      <p className="border-b border-[#e5e5e5] bg-[#f7f7f7] px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#535353]">
+        Item specifics
+      </p>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 px-3 py-2.5 text-[13px]">
+        {specs.map((spec) => (
+          <div key={spec.name} className="contents">
+            <dt className="text-[#767676]">{spec.name}</dt>
+            <dd className="text-[#191919]">{spec.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+/** Auction-specific block — current bid, bid count, and time-remaining
+ * text. Only rendered when `buyingOptions` includes AUCTION; a
+ * Buy-It-Now-only listing never shows this. Uses `currentBidPrice`
+ * (falls back to `price`, since the Browse API's top-level `price` on
+ * an active auction already reflects the current high bid) and
+ * `itemEndDate` for a plain relative-time string — no live countdown,
+ * since this is a read-only QA snapshot, not the real listing page. */
+function AuctionBlock({
+  currentBid,
+  bidCount,
+  itemEndDate,
+  currencyCode,
+  ended,
+}: {
+  currentBid: string | null | undefined
+  bidCount: number | null | undefined
+  itemEndDate: string | null | undefined
+  currencyCode: string | null | undefined
+  ended: boolean
+}) {
+  const bidLabel = fmt(currentBid, currencyCode)
+  let endsLabel: string | null = null
+  if (itemEndDate) {
+    const end = new Date(itemEndDate)
+    if (!Number.isNaN(end.getTime())) {
+      endsLabel = ended
+        ? `Ended ${end.toLocaleString()}`
+        : `Ends ${end.toLocaleString()}`
+    }
+  }
+  if (!bidLabel && bidCount == null && !endsLabel) return null
+
+  return (
+    <div className="mt-3 flex items-start gap-2 rounded-lg border border-[#e5e5e5] bg-[#fafafa] px-3 py-2.5">
+      <Gavel size={15} strokeWidth={2} className="mt-0.5 flex-none text-[#535353]" />
+      <div className="text-[13px] text-[#535353]">
+        {bidLabel && (
+          <p>
+            Current bid: <span className="font-bold text-[#191919]">{bidLabel}</span>
+            {bidCount != null && <span> · {bidCount} bid{bidCount === 1 ? '' : 's'}</span>}
+          </p>
+        )}
+        {endsLabel && <p className={ended ? 'text-[#c9330c]' : ''}>{endsLabel}</p>}
+      </div>
+    </div>
+  )
+}
+
 export default function EbayProductView({
   result,
   onSelectVariant,
@@ -165,7 +243,42 @@ export default function EbayProductView({
   const sellerFeedbackScore = (result as any).sellerFeedbackScore as string | null | undefined
   const sellerFeedbackPercent = (result as any).sellerFeedbackPercent as string | null | undefined
   const condition = (result as any).condition as string | null | undefined
+  const conditionDescription = (result as any).conditionDescription as string | null | undefined
   const shipping = (result as any).shipping as string | null | undefined
+  const brand = (result as any).brand as string | null | undefined
+  const mpn = (result as any).mpn as string | null | undefined
+  const gtin = (result as any).gtin as string | null | undefined
+  const categoryPath = (result as any).categoryPath as string | null | undefined
+  const itemSpecifics = (result as any).itemSpecifics as { name: string; value: string }[] | null | undefined
+  const quantityAvailable = (result as any).quantityAvailable as number | null | undefined
+  const quantitySold = (result as any).quantitySold as number | null | undefined
+  const itemLocation = (result as any).itemLocation as string | null | undefined
+  const returnsAccepted = (result as any).returnsAccepted as boolean | null | undefined
+  const returnPeriodDays = (result as any).returnPeriodDays as number | null | undefined
+  const paymentMethods = (result as any).paymentMethods as string[] | null | undefined
+  const topRatedBuying = (result as any).topRatedBuying as boolean | undefined
+  const discountPercentage = (result as any).discountPercentage as number | null | undefined
+  const bidCount = (result as any).bidCount as number | null | undefined
+  const currentBidPrice = (result as any).currentBidPrice as string | null | undefined
+  const itemEndDate = (result as any).itemEndDate as string | null | undefined
+  const variantsNote = (result as any).variantsNote as string | null | undefined
+  const buyingOptions = (result.warning ?? '').includes('auction')
+    ? ['AUCTION']
+    : (Array.isArray((result as any).buyingOptions) ? (result as any).buyingOptions : [])
+  const isAuction = buyingOptions.includes('AUCTION')
+
+  // Prepend brand/MPN/GTIN onto the itemSpecifics table when the API
+  // surfaced them as their own top-level fields rather than as an aspect
+  // in localizedAspects — avoids duplicate rows if they're already
+  // present in itemSpecifics.
+  const specsNames = new Set((itemSpecifics ?? []).map((s) => s.name.toLowerCase()))
+  const derivedSpecs: { name: string; value: string }[] = []
+  if (brand && !specsNames.has('brand')) derivedSpecs.push({ name: 'Brand', value: brand })
+  if (mpn && !specsNames.has('mpn')) derivedSpecs.push({ name: 'MPN', value: mpn })
+  if (gtin && !specsNames.has('gtin') && !specsNames.has('upc') && !specsNames.has('ean')) {
+    derivedSpecs.push({ name: 'GTIN', value: gtin })
+  }
+  const allSpecs = [...derivedSpecs, ...(itemSpecifics ?? [])]
 
   return (
     <div className="rounded-2xl border border-[#e5e5e5] bg-white p-5 font-sans">
@@ -201,10 +314,24 @@ export default function EbayProductView({
 
         {/* Buy box + details */}
         <div>
-          {condition && (
-            <span className="inline-block rounded bg-[#f5f5f5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#535353]">
-              {condition}
-            </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {condition && (
+              <span className="inline-block rounded bg-[#f5f5f5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#535353]">
+                {condition}
+              </span>
+            )}
+            {topRatedBuying && (
+              <span className="inline-flex items-center gap-1 rounded bg-[#fff4e5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#9a6700]">
+                Top Rated Plus
+              </span>
+            )}
+          </div>
+          {conditionDescription && (
+            <p className="mt-1 text-xs text-[#767676]">{conditionDescription}</p>
+          )}
+
+          {categoryPath && (
+            <p className="mt-1.5 truncate text-[11px] text-[#8e8e8e]">{categoryPath}</p>
           )}
 
           <h2 className="mt-1.5 text-[17px] font-semibold leading-snug text-[#191919]">
@@ -226,12 +353,55 @@ export default function EbayProductView({
               <span className="text-base font-semibold text-[#767676]">No price found</span>
             )}
             {mrp && <span className="text-sm font-medium text-[#767676] line-through">{mrp}</span>}
-            {pctOff !== null && <span className="text-sm font-bold text-[#c9330c]">({pctOff}% off)</span>}
+            {(pctOff !== null || discountPercentage != null) && (
+              <span className="text-sm font-bold text-[#c9330c]">
+                ({pctOff ?? discountPercentage}% off)
+              </span>
+            )}
           </div>
+
+          {isAuction && (
+            <AuctionBlock
+              currentBid={currentBidPrice ?? result.price}
+              bidCount={bidCount}
+              itemEndDate={itemEndDate}
+              currencyCode={result.currencyCode}
+              ended={!!result.unavailable && result.availability === 'Ended'}
+            />
+          )}
+
+          {(quantityAvailable != null || quantitySold != null) && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#535353]">
+              <Package size={13} strokeWidth={2} />
+              {quantityAvailable != null && <span>{quantityAvailable} available</span>}
+              {quantityAvailable != null && quantitySold != null && <span> · </span>}
+              {quantitySold != null && <span>{quantitySold} sold</span>}
+            </p>
+          )}
 
           {shipping && (
             <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#535353]">
               <Truck size={13} strokeWidth={2} /> {shipping}
+            </p>
+          )}
+
+          {itemLocation && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#535353]">
+              <MapPin size={13} strokeWidth={2} /> Located in {itemLocation}
+            </p>
+          )}
+
+          {returnsAccepted != null && (
+            <p className="mt-1.5 text-xs text-[#535353]">
+              {returnsAccepted
+                ? `Returns accepted${returnPeriodDays ? ` within ${returnPeriodDays} days` : ''}`
+                : 'Returns not accepted'}
+            </p>
+          )}
+
+          {paymentMethods && paymentMethods.length > 0 && (
+            <p className="mt-1.5 text-xs text-[#767676]">
+              Payment: {paymentMethods.join(', ')}
             </p>
           )}
 
@@ -245,6 +415,49 @@ export default function EbayProductView({
               />
             ))}
           </div>
+
+          {/* Legacy scraper fallback path (no EBAY_APP_ID/EBAY_CERT_ID
+              configured): extractEbayOptions() in ebay.ts only reads the
+              currently-SELECTED value out of each <select> — it has no
+              way to see the other options, since those aren't in the
+              static HTML for a native <select>. So there's no clickable
+              picker to offer here, just the selected values as static
+              badges (same convention as OptionsRow in ScraperQaClient's
+              generic layout) so a reviewer can at least confirm Size/
+              Color were detected at all. Only shown when the Browse API
+              path didn't already give us a real `variants` picker. */}
+          {(!result.variants || result.variants.length === 0) &&
+            result.options &&
+            Object.keys(result.options).length > 0 && (
+              <div className="mt-5">
+                <p className="text-xs font-bold uppercase tracking-wide text-[#767676]">
+                  Selected options
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(result.options).map(([label, value]) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center gap-1 rounded-full bg-[#f5f5f5] px-2.5 py-1 text-[11px] font-semibold text-[#535353]"
+                    >
+                      <span className="text-[#8e8e8e]">{label}:</span> {value}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[#a8a8a8]">
+                  Detected from the static page's selected value only — the fallback
+                  scraper can't see sibling size/color options without a live API call.
+                </p>
+              </div>
+            )}
+
+          {variantsNote && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs text-[#8a6d00]">
+              <AlertTriangle size={13} className="mt-0.5 flex-none" strokeWidth={2} />
+              {variantsNote}
+            </div>
+          )}
+
+          <ItemSpecifics specs={allSpecs} />
 
           <p className="mt-4 text-sm font-semibold">
             {result.unavailable ? (
@@ -263,7 +476,7 @@ export default function EbayProductView({
               title="Demo only — this QA tool does not place real orders"
               className="flex flex-1 cursor-not-allowed items-center justify-center rounded-full bg-[#3665F3] px-4 py-2.5 text-sm font-bold text-white opacity-70"
             >
-              Buy It Now
+              {isAuction ? 'Place Bid' : 'Buy It Now'}
             </button>
           </div>
 

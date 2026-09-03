@@ -77,6 +77,22 @@ export type ScrapeResult = {
   source?: 'direct' | 'scraperapi' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   _priceSource?: 'meta_description'
+  mpn?: string | null
+  gtin?: string | null
+  categoryPath?: string | null
+  itemSpecifics?: { name: string; value: string }[] | null
+  quantityAvailable?: number | null
+  quantitySold?: number | null
+  itemLocation?: string | null
+  returnsAccepted?: boolean | null
+  returnPeriodDays?: number | null
+  paymentMethods?: string[] | null
+  topRatedBuying?: boolean
+  discountPercentage?: number | null
+  bidCount?: number | null
+  currentBidPrice?: string | null
+  itemEndDate?: string | null
+  variantsNote?: string | null
 }
 
 // Nykaa and TataCliq have been removed entirely (see ScraperQaClient's
@@ -1030,7 +1046,25 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
     sellerFeedbackScore: item.sellerFeedbackScore != null ? String(item.sellerFeedbackScore) : null,
     sellerFeedbackPercent: item.sellerFeedbackPercent,
     condition: item.condition,
+    conditionDescription: item.conditionDescription,
     shipping: item.shipping,
+    brand: item.brand,
+    mpn: item.mpn,
+    gtin: item.gtin,
+    categoryPath: item.categoryPath,
+    itemSpecifics: item.itemSpecifics.length ? item.itemSpecifics : null,
+    quantityAvailable: item.quantityAvailable,
+    quantitySold: item.quantitySold,
+    itemLocation: item.itemLocation,
+    returnsAccepted: item.returnsAccepted,
+    returnPeriodDays: item.returnPeriodDays,
+    paymentMethods: item.paymentMethods.length ? item.paymentMethods : null,
+    topRatedBuying: item.topRatedBuying,
+    discountPercentage: item.discountPercentage,
+    bidCount: item.bidCount,
+    currentBidPrice: item.currentBidPrice,
+    itemEndDate: item.itemEndDate,
+    variantsNote: item.variantsNote,
   }
 
   if (item.ended || item.availability === 'Out of stock') {

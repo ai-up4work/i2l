@@ -28,9 +28,17 @@
 // (and use sandbox test item IDs), or swap in your Production keyset and
 // leave EBAY_ENV unset/'production' to hit real listings.
 //
+// VARIANT PICKER: getItemByLegacyId returns full detail for the ONE
+// item/variation you asked for — it never returns sibling options. To
+// build a real, clickable picker (all sizes/colors, not just the one
+// currently selected) this now makes a SECOND call, get_items_by_item_group,
+// whenever the fetched item belongs to a multi-variation listing. See
+// fetchEbayItemsByGroup / buildVariantDimensionsFromGroup below.
+//
 // Docs:
 //   OAuth (client credentials): https://developer.ebay.com/api-docs/static/oauth-client-credentials-grant.html
 //   Browse API getItemByLegacyId: https://developer.ebay.com/api-docs/buy/browse/resources/item/methods/getItemByLegacyId
+//   Browse API getItemsByItemGroup: https://developer.ebay.com/api-docs/buy/browse/resources/item/methods/getItemsByItemGroup
 
 import type { CheerioAPI } from 'cheerio'
 import { cleanText, domainCurrency } from '../shared'
@@ -45,6 +53,10 @@ const EBAY_OAUTH_URL = IS_SANDBOX
 const EBAY_BROWSE_ITEM_BY_LEGACY_ID_URL = IS_SANDBOX
   ? 'https://api.sandbox.ebay.com/buy/browse/v1/item/get_item_by_legacy_id'
   : 'https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id'
+
+const EBAY_BROWSE_ITEMS_BY_GROUP_URL = IS_SANDBOX
+  ? 'https://api.sandbox.ebay.com/buy/browse/v1/item/get_items_by_item_group'
+  : 'https://api.ebay.com/buy/browse/v1/item/get_items_by_item_group'
 
 const EBAY_OAUTH_SCOPE = 'https://api.ebay.com/oauth/api_scope'
 
@@ -80,18 +92,34 @@ export type EbayApiProduct = {
   price: string | null
   currencyCode: string | null
   originalPrice: string | null
+  discountPercentage: number | null
   condition: string | null
+  conditionDescription: string | null
   images: string[]
   seller: string | null
   sellerFeedbackScore: number | null
   sellerFeedbackPercent: string | null
   availability: string | null
   quantityAvailable: number | null
+  quantitySold: number | null
   shipping: string | null
+  itemLocation: string | null
+  topRatedBuying: boolean
+  returnsAccepted: boolean | null
+  returnPeriodDays: number | null
+  paymentMethods: string[]
+  brand: string | null
+  mpn: string | null
+  gtin: string | null
+  categoryPath: string | null
+  itemCreationDate: string | null
+  bidCount: number | null
+  currentBidPrice: string | null
   itemWebUrl: string
   buyingOptions: string[]
   itemEndDate: string | null
   variants: EbayApiVariantDimension[]
+  variantsNote: string | null
   itemSpecifics: { name: string; value: string }[]
   ended: boolean
 }
@@ -201,35 +229,147 @@ function formatShipping(shippingOptions: any[] | undefined): string | null {
   return opt.shippingCostType === 'FREE' ? 'Free shipping' : null
 }
 
-// NOTE ON VARIANTS: getItemByLegacyId returns full detail for the ONE
-// item/variation you requested — it does not return a full sibling-variant
-// picker (that requires the Browse API's item-group / search endpoints,
-// a separate call this function deliberately doesn't make). So rather than
-// fake a clickable picker the way the old scraper attempted to, this
-// surfaces the properties that vary (color/size/etc, from
-// `localizedAspects`) as read-only info. This is a real scope reduction
-// vs. the old (unverified) scraper — call it out to reviewers.
-function buildVariantDimensions(item: any): EbayApiVariantDimension[] {
-  const aspects: { name: string; value: string }[] = (item.localizedAspects ?? []).map((a: any) => ({
-    name: a.name,
-    value: a.value,
-  }))
-  const variantAspectNames = ['Color', 'Size', 'Style', 'Storage Capacity', 'Model']
-  return aspects
-    .filter((a) => variantAspectNames.includes(a.name))
-    .map((a) => ({
-      dimension: a.name,
-      options: [
-        {
-          label: a.value,
-          price: money(item.price),
-          currencyCode: item.price?.currency ?? null,
-          image: item.image?.imageUrl ?? null,
-          url: null, // no sibling-variant URL available from this endpoint
-          selected: true,
-        },
-      ],
-    }))
+// ---------- Sibling variation lookup (get_items_by_item_group) ----------
+//
+// getItemByLegacyId only ever describes the ONE item/variation you asked
+// for. When that item belongs to a multi-variation listing, eBay includes
+// an `itemGroupHref` HATEOAS link on the response — a second call to that
+// endpoint returns every sibling (each with its own itemId, price, image,
+// stock status, and aspect values), which is what actually lets us build
+// a real "click Size M to see Size M's price/photo" picker instead of a
+// single frozen value.
+
+type EbaySiblingItem = {
+  itemId: string
+  legacyItemId: string | null
+  itemWebUrl: string | null
+  price: { value?: string; currency?: string } | null
+  image: { imageUrl?: string } | null
+  localizedAspects: { name: string; value: string }[]
+  estimatedAvailabilities: any[]
+}
+
+function extractItemGroupId(item: any): string | null {
+  const href: string | undefined = item?.itemGroupHref
+  if (!href) return null
+  try {
+    const url = new URL(href)
+    return url.searchParams.get('item_group_id')
+  } catch {
+    // Some responses hand back a bare id or a malformed fragment instead
+    // of a full HATEOAS URL — fall back to using it as-is if it looks
+    // like a plausible id rather than throwing the whole lookup away.
+    return /^[\w|]+$/.test(href) ? href : null
+  }
+}
+
+function normalizeSibling(raw: any): EbaySiblingItem {
+  return {
+    itemId: raw.itemId,
+    legacyItemId: raw.legacyItemId ?? null,
+    itemWebUrl: raw.itemWebUrl ?? null,
+    price: raw.price ?? null,
+    image: raw.image ?? null,
+    localizedAspects: (raw.localizedAspects ?? []).map((a: any) => ({ name: a.name, value: a.value })),
+    estimatedAvailabilities: raw.estimatedAvailabilities ?? [],
+  }
+}
+
+function siblingAspectValue(sibling: EbaySiblingItem, name: string): string | undefined {
+  return sibling.localizedAspects.find((a) => a.name === name)?.value
+}
+
+function siblingOutOfStock(sibling: EbaySiblingItem): boolean {
+  const status = sibling.estimatedAvailabilities?.[0]?.estimatedAvailabilityStatus
+  return status === 'OUT_OF_STOCK'
+}
+
+async function fetchEbayItemsByGroup(itemGroupId: string, marketplaceId: string): Promise<any[]> {
+  const token = await getEbayAccessToken()
+  const params = new URLSearchParams({ item_group_id: itemGroupId })
+
+  const res = await fetch(`${EBAY_BROWSE_ITEMS_BY_GROUP_URL}?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
+  })
+
+  if (!res.ok) {
+    // Non-fatal by design — an expired/unavailable item group shouldn't
+    // fail the whole product lookup, it should just mean "no picker,
+    // show the single item we already have." The caller surfaces this
+    // via EbayApiProduct.variantsNote instead of throwing.
+    return []
+  }
+
+  const data = await res.json()
+  return Array.isArray(data.items) ? data.items : []
+}
+
+// Builds one dimension per aspect name that actually VARIES across the
+// sibling set — dynamic detection instead of a fixed whitelist
+// (Color/Size/Style/...), so this picks up whatever eBay actually varies
+// this specific listing by. Every distinct value on each axis gets its
+// own option (not just the currently-selected one), each carrying that
+// sibling's own price/image/stock/url so clicking it is a real re-fetch
+// of that variation's own page, same convention as every other platform
+// view in this tool.
+function buildVariantDimensionsFromGroup(currentItemId: string, siblings: EbaySiblingItem[]): EbayApiVariantDimension[] {
+  if (siblings.length <= 1) return []
+
+  const valuesByName = new Map<string, Set<string>>()
+  for (const sibling of siblings) {
+    for (const aspect of sibling.localizedAspects) {
+      if (!aspect.value) continue
+      if (!valuesByName.has(aspect.name)) valuesByName.set(aspect.name, new Set())
+      valuesByName.get(aspect.name)!.add(aspect.value)
+    }
+  }
+  const dimensionNames = [...valuesByName.entries()]
+    .filter(([, values]) => values.size > 1)
+    .map(([name]) => name)
+
+  if (!dimensionNames.length) return []
+
+  const current = siblings.find((s) => s.itemId === currentItemId) ?? siblings[0]
+
+  return dimensionNames.map((dimensionName) => {
+    // For each distinct value on this axis, prefer the sibling that also
+    // matches the current item on every OTHER axis (mirrors
+    // buildStoreVariantDimensions in parsers.ts, used for Shopify/
+    // WooCommerce) — falls back to the first sibling with that value if
+    // no exact cross-axis match exists (e.g. a Color that only comes in
+    // one Size).
+    const byLabel = new Map<string, EbaySiblingItem>()
+    for (const sibling of siblings) {
+      const label = siblingAspectValue(sibling, dimensionName)
+      if (!label) continue
+      const existing = byLabel.get(label)
+      const matchesOtherAxes = dimensionNames.every((otherName) => {
+        if (otherName === dimensionName) return true
+        return siblingAspectValue(sibling, otherName) === siblingAspectValue(current, otherName)
+      })
+      if (!existing || matchesOtherAxes) byLabel.set(label, sibling)
+    }
+
+    return {
+      dimension: dimensionName,
+      options: [...byLabel.entries()].map(([label, sibling]) => ({
+        label,
+        price: money(sibling.price),
+        currencyCode: sibling.price?.currency ?? null,
+        image: sibling.image?.imageUrl ?? null,
+        url:
+          sibling.itemWebUrl ||
+          (sibling.legacyItemId ? `https://www.ebay.com/itm/${sibling.legacyItemId}` : null),
+        selected: sibling.itemId === current.itemId,
+        outOfStock: siblingOutOfStock(sibling),
+      })),
+    }
+  })
 }
 
 export async function fetchEbayItemByLegacyId(
@@ -241,6 +381,10 @@ export async function fetchEbayItemByLegacyId(
 
   const params = new URLSearchParams({ legacy_item_id: legacyItemId })
   if (legacyVariationId) params.set('legacy_variation_id', legacyVariationId)
+  // PRODUCT fieldgroup pulls in extra data the default response omits —
+  // brand/MPN/GTIN (when eBay has them attached to the listing) and a
+  // fuller aspect list — so there's more to show, not less.
+  params.set('fieldgroups', 'PRODUCT')
 
   const res = await fetch(`${EBAY_BROWSE_ITEM_BY_LEGACY_ID_URL}?${params.toString()}`, {
     headers: {
@@ -272,6 +416,28 @@ export async function fetchEbayItemByLegacyId(
 
   const ended = !!item.itemEndDate && new Date(item.itemEndDate).getTime() < Date.now()
 
+  // Sibling variations (full picker) — only fetched when this item is
+  // actually part of a multi-variation listing.
+  const itemGroupId = extractItemGroupId(item)
+  const rawSiblings = itemGroupId ? await fetchEbayItemsByGroup(itemGroupId, marketplaceId) : []
+  const siblings = rawSiblings.map(normalizeSibling)
+  const variants = buildVariantDimensionsFromGroup(item.itemId, siblings)
+
+  let variantsNote: string | null = null
+  if (itemGroupId && siblings.length <= 1) {
+    variantsNote =
+      'This listing is part of a multi-variation group, but sibling variation data could not be fetched (API error or an expired item group) — showing only the single fetched item.'
+  } else if (itemGroupId && variants.length === 0) {
+    variantsNote =
+      'This listing is part of a multi-variation group, but no aspect that actually varies across the siblings could be detected.'
+  }
+
+  const returnTerms = item.returnTerms
+  const itemLocation = item.itemLocation
+  const paymentMethods: string[] = Array.isArray(item.paymentMethods)
+    ? item.paymentMethods.map((p: any) => p.paymentMethodType).filter(Boolean)
+    : []
+
   return {
     itemId: item.itemId,
     legacyItemId: item.legacyItemId ?? legacyItemId,
@@ -279,18 +445,37 @@ export async function fetchEbayItemByLegacyId(
     price: money(item.price),
     currencyCode: item.price?.currency ?? null,
     originalPrice: money(item.marketingPrice?.originalPrice),
+    discountPercentage:
+      item.marketingPrice?.discountPercentage != null ? Number(item.marketingPrice.discountPercentage) : null,
     condition: item.condition ?? null,
+    conditionDescription: item.conditionDescription ?? null,
     images,
     seller: item.seller?.username ?? null,
     sellerFeedbackScore: item.seller?.feedbackScore ?? null,
     sellerFeedbackPercent: item.seller?.feedbackPercentage ?? null,
     availability: normalizeAvailability(item.itemEndDate, item.estimatedAvailabilities?.[0]),
     quantityAvailable: item.estimatedAvailabilities?.[0]?.estimatedAvailableQuantity ?? null,
+    quantitySold: item.estimatedAvailabilities?.[0]?.estimatedSoldQuantity ?? null,
     shipping: formatShipping(item.shippingOptions),
+    itemLocation: itemLocation
+      ? [itemLocation.city, itemLocation.stateOrProvince, itemLocation.country].filter(Boolean).join(', ')
+      : null,
+    topRatedBuying: !!item.topRatedBuyingExperience,
+    returnsAccepted: returnTerms?.returnsAccepted ?? null,
+    returnPeriodDays: returnTerms?.returnPeriod?.value ?? null,
+    paymentMethods,
+    brand: item.brand ?? itemSpecifics.find((a) => a.name === 'Brand')?.value ?? null,
+    mpn: item.mpn ?? itemSpecifics.find((a) => a.name === 'MPN')?.value ?? null,
+    gtin: item.gtin ?? null,
+    categoryPath: item.categoryPath ?? null,
+    itemCreationDate: item.itemCreationDate ?? null,
+    bidCount: item.bidCount ?? null,
+    currentBidPrice: money(item.currentBidPrice),
     itemWebUrl: item.itemWebUrl ?? '',
     buyingOptions: item.buyingOptions ?? [],
     itemEndDate: item.itemEndDate ?? null,
-    variants: buildVariantDimensions(item),
+    variants,
+    variantsNote,
     itemSpecifics,
     ended,
   }
