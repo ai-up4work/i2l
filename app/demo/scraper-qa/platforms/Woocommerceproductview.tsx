@@ -1,6 +1,7 @@
 // app/demo/scraper-qa/platforms/WooCommerceProductView.tsx
 'use client'
 
+import { useState } from 'react'
 import { ExternalLink, Star, Store } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
@@ -88,14 +89,22 @@ function OptionsRow({ options }: { options: Record<string, string> | null | unde
   )
 }
 
-/** Informational variant grid — every tile the WooCommerce Store API
- * returns has `url: null` (see buildStoreVariantDimensions in
- * parsers.ts: the one API call already returns every variant's price/
- * image/stock, so there's nothing left to re-fetch by "selecting" a
- * tile). Tiles are therefore always non-clickable here, unlike the
- * generic VariantPicker which disables tile-by-tile based on whether a
- * URL happened to resolve. */
+/** Clickable variant grid — the WooCommerce Store API already returns
+ * every variant's price/image/stock in the one call that loaded this
+ * page, so clicking a tile is purely a local highlight (useState), never
+ * a network request. No re-fetch, no `url` needed on the option itself. */
 function WooCommerceVariantGrid({ variants }: { variants: NonNullable<ScrapeResult['variants']> }) {
+  // One selected label per dimension, keyed by dimension name. Seeded
+  // from whichever option the scraper marked `selected`.
+  const [selected, setSelected] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    for (const dim of variants) {
+      const preselected = dim.options.find((o) => o.selected)
+      if (preselected) initial[dim.dimension] = preselected.label
+    }
+    return initial
+  })
+
   return (
     <div className="mt-4 flex flex-col gap-3">
       {variants.map((dim) => (
@@ -104,17 +113,24 @@ function WooCommerceVariantGrid({ variants }: { variants: NonNullable<ScrapeResu
           <div className="flex flex-wrap gap-2">
             {dim.options.map((opt) => {
               const priceLabel = fmtPrice(opt.price, opt.currencyCode)
+              const isSelected = selected[dim.dimension] === opt.label
               return (
-                <div
+                <button
                   key={opt.label}
+                  type="button"
+                  disabled={opt.outOfStock}
+                  onClick={() =>
+                    setSelected((prev) => ({ ...prev, [dim.dimension]: opt.label }))
+                  }
                   title={opt.outOfStock ? 'Out of stock' : undefined}
-                  className={`flex flex-col items-center gap-1 rounded-xl border px-2.5 py-2 ${
-                    opt.selected
-                      ? 'border-violet-400 bg-violet-50'
+                  className={[
+                    'flex flex-col items-center gap-1 rounded-xl border px-2.5 py-2 text-left',
+                    isSelected
+                      ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200'
                       : opt.outOfStock
-                        ? 'border-ink/8 bg-card/50 opacity-40 grayscale'
-                        : 'border-ink/12 bg-card'
-                  }`}
+                        ? 'cursor-not-allowed border-ink/8 bg-card/50 opacity-40 grayscale'
+                        : 'border-ink/12 bg-card hover:border-violet-400 cursor-pointer',
+                  ].join(' ')}
                 >
                   {opt.image && (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -126,7 +142,7 @@ function WooCommerceVariantGrid({ variants }: { variants: NonNullable<ScrapeResu
                   ) : (
                     priceLabel && <span className="text-[10px] font-bold text-violet-700">{priceLabel}</span>
                   )}
-                </div>
+                </button>
               )
             })}
           </div>
@@ -138,8 +154,8 @@ function WooCommerceVariantGrid({ variants }: { variants: NonNullable<ScrapeResu
 
 /** Dedicated view for WooCommerce results. `onSelectVariant` is accepted
  * only to keep this component's prop contract identical to every other
- * platform view — it's never called, since WooCommerce tiles carry no
- * `url` to re-scrape (see WooCommerceVariantGrid above). */
+ * platform view — it's never called, since WooCommerce's variant tiles
+ * never need a re-fetch (see WooCommerceVariantGrid above). */
 export default function WooCommerceProductView({
   result,
 }: {

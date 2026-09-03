@@ -785,12 +785,13 @@ function buildAdHocShopifyConfig(origin: string, domainHint: string | null): Sho
 // single-product fetch already returns every variant's price/image/
 // availability in the one call the caller already made, so tiles render as
 // informational (price/stock visible) rather than clickable.
-function buildStoreVariantDimensions(product: StoreProduct): AmazonVariantDimension[] {
+function buildStoreVariantDimensions(
+  product: StoreProduct,
+  current: NonNullable<StoreProduct['variants']>[number] | undefined = product.variants?.[0]
+): AmazonVariantDimension[] {
   const options = product.options ?? []
   const variants = product.variants ?? []
-  if (!options.length || variants.length <= 1) return []
-
-  const current = variants[0]
+  if (!options.length || variants.length <= 1 || !current) return []
 
   return options.map((opt, axisIndex) => {
     const byLabel = new Map<string, (typeof variants)[number]>()
@@ -819,6 +820,8 @@ function buildStoreVariantDimensions(product: StoreProduct): AmazonVariantDimens
     }
   })
 }
+
+// lib/scrape/parsers.ts
 
 async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   const parsedHandle = extractShopifyHandle(url)
@@ -849,7 +852,15 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
     }
   }
 
-  const currentVariant = product.variants?.[0]
+  // Respect a ?variant=<id> query param on the pasted URL, same as a real
+  // Shopify storefront would pre-select that variant on page load. Falls
+  // back to the first variant in the response when absent or unmatched —
+  // same default as before.
+  const requestedVariantId = new URL(url).searchParams.get('variant')
+  const currentVariant =
+    (requestedVariantId && product.variants?.find((v) => v.id === requestedVariantId)) ||
+    product.variants?.[0]
+
   const currentOptions: Record<string, string> | null =
     product.options && currentVariant
       ? Object.fromEntries(
@@ -859,26 +870,31 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
         )
       : null
 
-  const variants = buildStoreVariantDimensions(product)
+  const variants = buildStoreVariantDimensions(product, currentVariant)
 
   const result: ScrapeResult = {
     url,
     site: 'shopify',
     source: 'shopify_api',
     title: product.name,
-    price: String(product.price),
-    mrp: product.compareAtPrice != null ? String(product.compareAtPrice) : null,
+    price: currentVariant ? String(currentVariant.price) : String(product.price),
+    mrp:
+      currentVariant?.compareAtPrice != null
+        ? String(currentVariant.compareAtPrice)
+        : product.compareAtPrice != null
+          ? String(product.compareAtPrice)
+          : null,
     currencyCode: product.currency,
     rating: null,
     review_count: null,
-    availability: product.inStock ? 'In stock' : 'Out of stock',
+    availability: (currentVariant ? currentVariant.available : product.inStock) ? 'In stock' : 'Out of stock',
     seller: product.vendor ?? null,
     images: product.images?.length ? product.images : product.image ? [product.image] : [],
     options: currentOptions,
     variants: variants.length ? variants : undefined,
   }
 
-  if (!product.inStock) result.unavailable = true
+  if (!(currentVariant ? currentVariant.available : product.inStock)) result.unavailable = true
 
   return result
 }

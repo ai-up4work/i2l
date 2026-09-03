@@ -236,33 +236,6 @@ function sortToWooParams(sort: ProviderFetchParams['sort']): { orderby: string; 
   return { orderby: 'date', order: 'desc' }; // 'newest' and 'sale' (sale sorted client-side below)
 }
 
-/**
- * Fetches from either WooCommerce API depending on resolveApiMode():
- * - wc_v3: authenticated REST API — better stock/category data, real
- *   total-pages header, requires consumerKeyEnv/consumerSecretEnv.
- * - store_v1: public, keyless Store API — works on any WooCommerce site
- *   with zero setup, slightly thinner data.
- *
- * Both branches send config.headers merged on top of their defaults, so a
- * site that 403s on a bare fetch (no recognizable User-Agent, geo-blocking,
- * etc.) can be fixed purely through config — no code change needed.
- *
- * Category filtering: wc/v3 expects a numeric category ID; the Store API
- * accepts a category slug. Set config.categoryMap accordingly for whichever
- * mode you're using. config.fixedCategoryValue (if set) is used whenever the
- * active UI category has no categoryMap entry — including "All" — so a
- * store that's really one brand's slice of a bigger multi-brand site (e.g.
- * Buckley London on theparfumerie.lk) never accidentally pulls the entire
- * site's catalog. An explicit categoryMap entry for the active category
- * still takes priority over fixedCategoryValue.
- *
- * Note: real per-variant price/stock isn't fetched here — both APIs need a
- * separate request per product for that, which doesn't scale across a
- * catalog listing page. sizes/colors still work off the product-level
- * attribute list, and store_v1 variants carry real ids/options (just
- * fallback price/stock). fetchWooCommerceProduct (single-product lookup,
- * below) does make that extra request, since it's only ever one product.
- */
 export async function fetchWooCommerceProducts(
   platform: string,
   config: WooCommerceProviderConfig,
@@ -346,12 +319,6 @@ export async function fetchWooCommerceProducts(
 }
 
 // ── Per-variation detail (single-product page only) ─────────────────────────
-// Both WooCommerce APIs require a *separate* request to get real per-variant
-// price/stock — the list-of-products endpoints only return the variation
-// id + which attribute values select it, not price/availability. That's an
-// acceptable gap for a catalog listing (would mean N extra requests per
-// page), but NOT for a single product detail page, where it's exactly one
-// extra request for the one product being viewed.
 
 interface WooV3VariationDetail {
   id: number;
@@ -375,11 +342,27 @@ interface WooStoreApiVariationDetail {
   };
 }
 
-/** Real per-variant price/stock, keyed by variation id (as string, matching StoreProductVariant.id). */
+/** Real per-variant price/stock, keyed by variation id (as string, matching StoreProductVariant.id).
+ * Also carries each variation's raw attribute name/option pairs (`attributes`) — the caller needs
+ * these to build a `.options` array aligned to the parent product's attribute order, the same way
+ * normaliseStoreApi already does for the Store API path below. Previously this was left out and the
+ * caller hardcoded `options: []` on every variant, which made buildStoreVariantDimensions (parsers.ts)
+ * unable to match ANY variant to ANY size/color label — every tile silently rendered as out of stock. */
 async function fetchWooV3VariationDetails(
   config: WooCommerceProviderConfig,
   parentId: number
-): Promise<Map<string, { price: number; compareAtPrice?: number; available: boolean; title: string }>> {
+): Promise<
+  Map<
+    string,
+    {
+      price: number
+      compareAtPrice?: number
+      available: boolean
+      title: string
+      attributes: { name: string; option: string }[]
+    }
+  >
+> {
   const key = process.env[config.consumerKeyEnv!]!;
   const secret = process.env[config.consumerSecretEnv!]!;
   const auth = Buffer.from(`${key}:${secret}`).toString('base64');
@@ -388,20 +371,29 @@ async function fetchWooV3VariationDetails(
     headers: { Authorization: `Basic ${auth}`, Accept: 'application/json', ...config.headers },
     next: { revalidate: CACHE_SECONDS },
   });
-  if (!res.ok) return new Map(); // best-effort — fall back to id-only title rather than fail the whole page
+  if (!res.ok) return new Map();
 
   const data = (await res.json()) as WooV3VariationDetail[];
-  const map = new Map<string, { price: number; compareAtPrice?: number; available: boolean; title: string }>();
+  const map = new Map<
+    string,
+    {
+      price: number
+      compareAtPrice?: number
+      available: boolean
+      title: string
+      attributes: { name: string; option: string }[]
+    }
+  >();
   for (const v of data) {
     const price = parseFloat(v.price || v.regular_price || '0');
     const compareAtPrice = v.sale_price && v.price !== v.regular_price ? parseFloat(v.regular_price) : undefined;
-    const title = (v.attributes ?? []).map((a) => a.option).join(' / ') || String(v.id);
-    map.set(String(v.id), { price, compareAtPrice, available: v.stock_status === 'instock', title });
+    const attributes = v.attributes ?? [];
+    const title = attributes.map((a) => a.option).join(' / ') || String(v.id);
+    map.set(String(v.id), { price, compareAtPrice, available: v.stock_status === 'instock', title, attributes });
   }
   return map;
 }
 
-/** Same as above, for the public Store API — undocumented-but-supported `?type=variation&parent=` filter on the products list endpoint. */
 async function fetchStoreApiVariationDetails(
   config: WooCommerceProviderConfig,
   parentId: number
@@ -411,7 +403,7 @@ async function fetchStoreApiVariationDetails(
     headers: { Accept: 'application/json', ...config.headers },
     next: { revalidate: CACHE_SECONDS },
   });
-  if (!res.ok) return new Map(); // best-effort — fall back to parent price/stock rather than fail the whole page
+  if (!res.ok) return new Map();
 
   const data = (await res.json()) as WooStoreApiVariationDetail[];
   const map = new Map<string, { price: number; compareAtPrice?: number; available: boolean }>();
@@ -429,18 +421,6 @@ async function fetchStoreApiVariationDetails(
 }
 
 
-/**
- * Single-product lookup for the product detail page, by slug/handle.
- * Both WooCommerce APIs accept ?slug= as a filter on the list endpoint —
- * there's no dedicated "get by slug" endpoint on either — so this queries
- * for exactly one match and returns null if nothing comes back.
- *
- * If the product is variable, this also fetches real per-variant price/
- * stock (one extra request) and merges it onto `variants`, replacing the
- * parent-product fallback values that normaliseV3/normaliseStoreApi use by
- * default. The fetch is best-effort: if it fails, variants keep the
- * fallback values rather than the whole page erroring out.
- */
 export async function fetchWooCommerceProduct(
   platform: string,
   config: WooCommerceProviderConfig,
@@ -474,19 +454,29 @@ export async function fetchWooCommerceProduct(
 
     const product = normaliseV3(found, platform, currency, config.baseUrl);
 
-    // wc/v3's product-list response never includes variants at all (see the
-    // comment on normaliseV3) — for a variable product on the detail page,
-    // build them here from the dedicated variations endpoint.
     if (found.type === 'variable') {
       const detailMap = await fetchWooV3VariationDetails(config, found.id);
       if (detailMap.size) {
+        // Align each variation's own attribute values to product.options'
+        // axis order (Size, Color, ...) — same approach normaliseStoreApi
+        // uses for the Store API path. This is what lets
+        // buildStoreVariantDimensions (parsers.ts) match a size/color
+        // label back to the right variant; leaving this as `[]` (the
+        // previous behavior) meant no variant could ever be matched, so
+        // every tile rendered as out of stock regardless of real
+        // availability.
         product.variants = Array.from(detailMap.entries()).map(([id, d]) => ({
           id,
           title: d.title,
           price: d.price,
           compareAtPrice: d.compareAtPrice,
           available: d.available,
-          options: [],
+          options: product.options
+            ? product.options.map(
+                (attr) =>
+                  d.attributes.find((va) => va.name.toLowerCase() === attr.name.toLowerCase())?.option ?? null
+              )
+            : d.attributes.map((a) => a.option),
         }));
       }
     }
@@ -510,11 +500,6 @@ export async function fetchWooCommerceProduct(
 
   const product = normaliseStoreApi(found, platform, config.baseUrl);
 
-  // normaliseStoreApi already builds `variants` with real ids/options from
-  // `found.variations`, but price/available on each entry are the parent
-  // product's values (the list response doesn't include per-variant price).
-  // Overwrite with real figures from the dedicated variation-detail fetch,
-  // keeping the id/title/options exactly as already built.
   if (product.variants?.length) {
     const detailMap = await fetchStoreApiVariationDetails(config, found.id);
     if (detailMap.size) {
