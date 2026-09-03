@@ -1,0 +1,209 @@
+// app/demo/scraper-qa/platforms/WooCommerceProductView.tsx
+'use client'
+
+import { ExternalLink, Star, Store } from 'lucide-react'
+import { formatPrice } from '@/lib/currency'
+import type { ScrapeResult } from '@/lib/scrape/parsers'
+
+function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
+  const n = amount != null ? Number(amount) : NaN
+  if (Number.isNaN(n)) return null
+  try {
+    return formatPrice(n, currency ?? 'LKR')
+  } catch {
+    return `${currency ?? ''} ${n}`.trim()
+  }
+}
+
+function ImageGallery({ images, alt }: { images: string[]; alt: string }) {
+  if (!images.length) {
+    return (
+      <div className="grid aspect-square place-items-center rounded-xl border border-dashed border-ink/15 bg-card text-xs font-medium text-ink/35">
+        No images found
+      </div>
+    )
+  }
+  const [main, ...rest] = images
+  return (
+    <div>
+      <div className="aspect-square overflow-hidden rounded-xl border border-ink/10 bg-white">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={main} alt={alt} className="h-full w-full object-contain" />
+      </div>
+      {rest.length > 0 && (
+        <div className="mt-2 grid grid-cols-5 gap-2">
+          {rest.slice(0, 9).map((src) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={src}
+              src={src}
+              alt=""
+              className="aspect-square rounded-lg border border-ink/10 bg-white object-contain"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RatingStars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
+  const value = rating ? parseFloat(rating) : NaN
+  if (Number.isNaN(value)) return null
+  const rounded = Math.round(value)
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Star
+            key={i}
+            size={13}
+            className={i < rounded ? 'fill-gold-deep text-gold-deep' : 'fill-transparent text-ink/20'}
+            strokeWidth={1.5}
+          />
+        ))}
+      </span>
+      <span className="text-xs font-semibold text-ink/60">
+        {value.toFixed(1)}
+        {count && <span className="font-normal text-ink/40"> ({count})</span>}
+      </span>
+    </span>
+  )
+}
+
+/** Options row for the currently-selected variant, e.g. Size, Color. */
+function OptionsRow({ options }: { options: Record<string, string> | null | undefined }) {
+  if (!options || !Object.keys(options).length) return null
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {Object.entries(options).map(([label, value]) => (
+        <span
+          key={label}
+          className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-[11px] font-semibold text-ink/60 ring-1 ring-inset ring-ink/10"
+        >
+          <span className="text-ink/40">{label}:</span> {value}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** Informational variant grid — every tile the WooCommerce Store API
+ * returns has `url: null` (see buildStoreVariantDimensions in
+ * parsers.ts: the one API call already returns every variant's price/
+ * image/stock, so there's nothing left to re-fetch by "selecting" a
+ * tile). Tiles are therefore always non-clickable here, unlike the
+ * generic VariantPicker which disables tile-by-tile based on whether a
+ * URL happened to resolve. */
+function WooCommerceVariantGrid({ variants }: { variants: NonNullable<ScrapeResult['variants']> }) {
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      {variants.map((dim) => (
+        <div key={dim.dimension}>
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
+          <div className="flex flex-wrap gap-2">
+            {dim.options.map((opt) => {
+              const priceLabel = fmtPrice(opt.price, opt.currencyCode)
+              return (
+                <div
+                  key={opt.label}
+                  title={opt.outOfStock ? 'Out of stock' : undefined}
+                  className={`flex flex-col items-center gap-1 rounded-xl border px-2.5 py-2 ${
+                    opt.selected
+                      ? 'border-violet-400 bg-violet-50'
+                      : opt.outOfStock
+                        ? 'border-ink/8 bg-card/50 opacity-40 grayscale'
+                        : 'border-ink/12 bg-card'
+                  }`}
+                >
+                  {opt.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={opt.image} alt={opt.label} className="h-10 w-10 rounded-md object-contain" />
+                  )}
+                  <span className="max-w-[80px] truncate text-[11px] font-semibold text-ink/75">{opt.label}</span>
+                  {opt.outOfStock ? (
+                    <span className="text-[9px] font-bold uppercase text-red-500">Out of stock</span>
+                  ) : (
+                    priceLabel && <span className="text-[10px] font-bold text-violet-700">{priceLabel}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Dedicated view for WooCommerce results. `onSelectVariant` is accepted
+ * only to keep this component's prop contract identical to every other
+ * platform view — it's never called, since WooCommerce tiles carry no
+ * `url` to re-scrape (see WooCommerceVariantGrid above). */
+export default function WooCommerceProductView({
+  result,
+}: {
+  result: ScrapeResult
+  onSelectVariant: (url: string) => void
+}) {
+  const price = fmtPrice(result.price, result.currencyCode)
+  const mrp = result.mrp && result.mrp !== result.price ? fmtPrice(result.mrp, result.currencyCode) : null
+
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white p-5">
+      <div className="grid gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <ImageGallery images={result.images ?? []} alt={result.title ?? 'Product image'} />
+
+        <div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-inset ring-violet-200">
+              <Store size={11} strokeWidth={2.2} /> WooCommerce
+            </span>
+            {result.rating && (
+              <>
+                <span className="text-ink/20">·</span>
+                <RatingStars rating={result.rating} count={result.review_count} />
+              </>
+            )}
+          </div>
+
+          <h2 className="mt-2 font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
+            {result.title ?? <span className="italic text-ink/35">No title found</span>}
+          </h2>
+
+          <p className="mt-1.5 text-xs text-ink/45">
+            Fetched via the store&rsquo;s public Store API — not scraped HTML
+          </p>
+
+          <OptionsRow options={result.options} />
+
+          <div className="mt-3 flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-teal-deep">
+              {price ?? <span className="text-base font-semibold text-ink/35">No price found</span>}
+            </p>
+            {mrp && <p className="text-sm font-semibold text-ink/40 line-through">{mrp}</p>}
+          </div>
+
+          {result.availability && (
+            <p className="mt-2 inline-block rounded-md bg-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink/55 ring-1 ring-inset ring-ink/10">
+              {result.availability}
+            </p>
+          )}
+
+          {result.seller && <p className="mt-2 text-xs text-ink/50">Sold by {result.seller}</p>}
+
+          {result.variants && result.variants.length > 0 && <WooCommerceVariantGrid variants={result.variants} />}
+
+          <a
+            href={result.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
+          >
+            Open original listing <ExternalLink size={12} />
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}

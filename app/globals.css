@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+@theme {
+  /* Neutrals — parchment & ink base */
+  --color-ink: #20242b;
+  --color-parchment: #fbf6ec;
+  --color-card: #ffffff;
+
+  /* Primary accent — motion, CTAs, links, order-progress states */
+  --color-teal: #0e8c9c;
+  --color-teal-deep: #0b7280;
+
+  /* Delight accent — used sparingly for badges/highlights only, never as a fill */
+  --color-gold: #f0a93a;
+  --color-gold-deep: #c98a2a;
+
+  /* Weight & trust — dark surfaces, footer, wordmark, occasional contrast */
+  --color-indigo: #08274f;
+  --color-indigo-deep: #081228;
+
+  --font-display: "Fraunces", serif;
+  --font-body: "Space Grotesk", sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--color-parchment);
+}
+
+/* Scrollbar styling — kept in globals.css (not styled-jsx) so it loads
+   with the initial stylesheet instead of flashing default-then-styled. */
+.nav-scroll {
+  scrollbar-gutter: stable;
+}
+
+/* Firefox */
+.nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(14, 140, 156, 0.25) transparent;
+}
+
+/* WebKit (Chrome, Safari, Edge) */
+.nav-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nav-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(14, 140, 156, 0.18);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+.nav-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(14, 140, 156, 0.32);
+}
+.nav-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(14, 140, 156, 0.5);
+}
+
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge Chromium */
+}
+
+/* Download App icons — sourced from Simple Icons CDN.
+   Format: https://cdn.simpleicons.org/<slug>/<hex-color-no-#> */
+.sidebar__icon {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.sidebar__icon--downloadApp_IOS_icon {
+  background-image: url('https://cdn.simpleicons.org/apple/20242b');
+}
+
+.sidebar__icon--downloadApp_Android_icon {
+  background-image: url('https://cdn.simpleicons.org/googleplay/20242b');
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes heartPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
