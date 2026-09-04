@@ -29,7 +29,7 @@ import AjioProductView from './platforms/AjioProductView'
 import JioMartProductView from './platforms/JioMartProductView'
 import SnapdealProductView from './platforms/SnapdealProductView'
 import ShopifyProductView from './platforms/Shopifyproductview'
-import WooCommerceProductView from './platforms/Woocommerceproductview'asd
+import WooCommerceProductView from './platforms/Woocommerceproductview'
 
 
 // ---------- Predefined platform/product links ----------
