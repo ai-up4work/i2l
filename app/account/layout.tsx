@@ -143,15 +143,16 @@ function AccountShell({
 
       {modalOpen && (
         <ItemInfoModal
-          draft={draft}
-          onChange={setDraft}
+          open={modalOpen}
+          result={scrapeResult}
+          qty={draft.qty}
+          onQtyChange={(qty) => setDraft({ ...draft, qty })}
           onClose={closeModal}
-          onSave={saveItemInfo}
+          onRequestItem={() => saveItemInfo({ preventDefault: () => {} } as React.FormEvent)}
           loading={lookupLoading}
-          lookupError={lookupError}
-          autoFilled={autoFilled}
-          scrapeResult={scrapeResult}
-          onSelectVariant={selectVariant}
+          onSelectVariant={(_, option) => {
+            if (option.url) selectVariant(option.url)
+          }}
         />
       )}
 
