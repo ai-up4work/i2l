@@ -28,6 +28,8 @@ import EbayProductView from './platforms/EbayProductView'
 import AjioProductView from './platforms/AjioProductView'
 import JioMartProductView from './platforms/JioMartProductView'
 import SnapdealProductView from './platforms/SnapdealProductView'
+import ShopifyProductView from './platforms/Shopifyproductview'
+import WooCommerceProductView from './platforms/Woocommerceproductview'asd
 
 
 // ---------- Predefined platform/product links ----------
@@ -367,16 +369,20 @@ function fmtPrice(amount: string | null | undefined, currency: string | null | u
  * likewise disabled, desaturated, and labeled distinctly from a
  * merely-linkless tile, so a reviewer can tell "this option is
  * genuinely sold out" apart from "the scraper just didn't find a URL".
- * Shopify's tiles (see parsers.ts's buildShopifyVariantDimensions) are
- * always linkless by design — its one API call already returns every
- * variant's price/stock, so there's nothing left to re-fetch by
- * "selecting" a tile — and render the same way: visible, informational,
- * non-clickable.
+ * Shopify and WooCommerce's tiles (see parsers.ts's
+ * buildStoreVariantDimensions) are always linkless by design — their one
+ * API call already returns every variant's price/stock, so there's
+ * nothing left to re-fetch by "selecting" a tile — and render the same
+ * way: visible, informational, non-clickable. (In practice, Shopify and
+ * WooCommerce results get their own dedicated ShopifyProductView /
+ * WooCommerceProductView below instead of reaching this generic picker
+ * at all — see the render branches further down — but the same
+ * linkless-by-design tiles appear inside those components too.)
  *
  * This generic picker is used for every site that doesn't have its own
  * look-alike layout. Amazon, Flipkart, Meesho, Myntra, eBay, Ajio,
- * JioMart, and Snapdeal results get their own dedicated platform views
- * instead. */
+ * JioMart, Snapdeal, Shopify, and WooCommerce results all get their own
+ * dedicated platform views instead. */
 function VariantPicker({
   variants,
   onSelect,
@@ -649,6 +655,8 @@ export default function ScraperQaClient() {
   const isAjioResult = !!result && !result.error && result.site === 'ajio'
   const isJioMartResult = !!result && !result.error && result.site === 'jiomart'
   const isSnapdealResult = !!result && !result.error && result.site === 'snapdeal'
+  const isShopifyResult = !!result && !result.error && result.site === 'shopify'
+  const isWooCommerceResult = !!result && !result.error && result.site === 'woocommerce'
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-16 pt-8 lg:px-10">
@@ -901,15 +909,15 @@ export default function ScraperQaClient() {
               </div>
             )}
 
-            {/* Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, and
-                Snapdeal results get their own look-alike layouts so a
-                reviewer can eyeball a match against the real site.
-                Shopify and WooCommerce (like `generic`) fall through to
-                the generic layout below — they don't need a bespoke
-                clone to be useful here, since the whole point of those
-                two paths is that the data is already trustworthy (a real
-                API response, not a scrape guess) rather than something
-                that needs a pixel-match to verify. */}
+            {/* Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart,
+                Snapdeal, Shopify, and WooCommerce results each get their
+                own look-alike layout so a reviewer can eyeball a match
+                against the real site (Shopify/WooCommerce's views use
+                the app's own design tokens rather than imitating a fake
+                storefront skin — see those components' doc comments —
+                but still replace this generic layout the same way the
+                others do). Only a true `generic` result (an
+                unrecognized site) falls through to the layout below. */}
             {isAmazonResult ? (
               <AmazonProductView result={result} onSelectVariant={(url) => runLookup(url)} />
             ) : isFlipkartResult ? (
@@ -926,6 +934,10 @@ export default function ScraperQaClient() {
               <JioMartProductView result={result} onSelectVariant={(url) => runLookup(url)} />
             ) : isSnapdealResult ? (
               <SnapdealProductView result={result} onSelectVariant={(url) => runLookup(url)} />
+            ) : isShopifyResult ? (
+              <ShopifyProductView result={result} onSelectVariant={(url) => runLookup(url)} />
+            ) : isWooCommerceResult ? (
+              <WooCommerceProductView result={result} onSelectVariant={(url) => runLookup(url)} />
             ) : (
               <div className="grid gap-8 sm:grid-cols-2">
                 <ImageStrip images={result.images ?? []} alt={result.title ?? 'Product image'} />
@@ -971,9 +983,7 @@ export default function ScraperQaClient() {
                   )}
 
                   {/* Full variant/swatch picker — Amazon-style, click to
-                      re-scrape that variant's own page live. Shopify's
-                      tiles render here too, just non-clickable (see
-                      VariantPicker's doc comment above). */}
+                      re-scrape that variant's own page live. */}
                   {result.variants && result.variants.length > 0 && (
                     <VariantPicker variants={result.variants} onSelect={(url) => runLookup(url)} />
                   )}

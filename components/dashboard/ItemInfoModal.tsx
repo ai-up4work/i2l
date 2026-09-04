@@ -4,7 +4,22 @@ import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, Loader2, Minus, Plus, Receipt, TriangleAlert, X } from 'lucide-react'
 import { calculateQuote } from '@/lib/quote'
 import { convertAmount } from '@/lib/currency/convert'
+import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { Draft } from './types'
+
+// Reuse the same platform-specific "look-alike" layouts the QA page uses,
+// so a pasted link shows the real product card (images, rating, variants)
+// instead of a dead URL string + blank fields.
+import AmazonProductView from '@/app/demo/scraper-qa/platforms/AmazonProductView'
+import FlipkartProductView from '@/app/demo/scraper-qa/platforms/FlipkartProductView'
+import MeeshoProductView from '@/app/demo/scraper-qa/platforms/Meeshoproductview'
+import MyntraProductView from '@/app/demo/scraper-qa/platforms/MyntraProductView'
+import EbayProductView from '@/app/demo/scraper-qa/platforms/EbayProductView'
+import AjioProductView from '@/app/demo/scraper-qa/platforms/AjioProductView'
+import JioMartProductView from '@/app/demo/scraper-qa/platforms/JioMartProductView'
+import SnapdealProductView from '@/app/demo/scraper-qa/platforms/SnapdealProductView'
+import ShopifyProductView from '@/app/demo/scraper-qa/platforms/Shopifyproductview'
+import WooCommerceProductView from '@/app/demo/scraper-qa/platforms/Woocommerceproductview'
 
 type ItemInfoModalProps = {
   draft: Draft
@@ -17,6 +32,29 @@ type ItemInfoModalProps = {
   lookupError?: string | null
   /** True once a scrape has successfully pre-filled the fields below. */
   autoFilled?: boolean
+  /**
+   * Full scrape payload for the current draft.url (images, rating, variants,
+   * options, etc.) — NOT just the name/price already merged into `draft`.
+   * When this matches a supported platform we render that platform's rich
+   * view instead of the plain URL box / image dropzone. Reference only:
+   * the editable Name/Qty/Price/Declaration fields below are still what
+   * actually gets saved onto the draft.
+   */
+  scrapeResult?: ScrapeResult | null
+  /**
+   * Fired when the shopper clicks a variant/size/color tile inside the
+   * rich product view. The parent should re-run the scrape against this
+   * URL (same as `runLookup` in the QA page) and feed the new result back
+   * in via `scrapeResult`, updating `draft.image`/`draft.unitPrice` etc.
+   * as appropriate.
+   *
+   * NOTE: Shopify and WooCommerce's variant tiles never call this — every
+   * option's `url` is always null (see buildStoreVariantDimensions in
+   * parsers.ts), since their single API call already returned every
+   * variant's price/image/availability. Those two views accept
+   * onSelectVariant only for interface parity and never invoke it.
+   */
+  onSelectVariant?: (url: string) => void
 }
 
 // Every label that can appear in draft.currency / the dropdown's
@@ -169,6 +207,56 @@ function RadioPill({
   )
 }
 
+// Which platforms have a bespoke look-alike view (mirrors ScraperQaClient's
+// list). Everything else — including any not listed here — falls
+// through to the plain URL box below, same as it does today.
+const SUPPORTED_PLATFORM_VIEWS = new Set([
+  'amazon',
+  'flipkart',
+  'meesho',
+  'myntra',
+  'ebay',
+  'ajio',
+  'jiomart',
+  'snapdeal',
+  'shopify',
+  'woocommerce',
+])
+
+/** Picks the matching platform view for a successful, non-error scrape result. */
+function PlatformProductView({
+  result,
+  onSelectVariant,
+}: {
+  result: ScrapeResult
+  onSelectVariant: (url: string) => void
+}) {
+  switch (result.site) {
+    case 'amazon':
+      return <AmazonProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'flipkart':
+      return <FlipkartProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'meesho':
+      return <MeeshoProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'myntra':
+      return <MyntraProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'ebay':
+      return <EbayProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'ajio':
+      return <AjioProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'jiomart':
+      return <JioMartProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'snapdeal':
+      return <SnapdealProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'shopify':
+      return <ShopifyProductView result={result} onSelectVariant={onSelectVariant} />
+    case 'woocommerce':
+      return <WooCommerceProductView result={result} onSelectVariant={onSelectVariant} />
+    default:
+      return null
+  }
+}
+
 export default function ItemInfoModal({
   draft,
   onChange,
@@ -177,6 +265,8 @@ export default function ItemInfoModal({
   loading = false,
   lookupError = null,
   autoFilled = false,
+  scrapeResult = null,
+  onSelectVariant,
 }: ItemInfoModalProps) {
   const { subtotal } = calculateQuote({ unitPrice: draft.unitPrice, qty: draft.qty })
   const currencyOptions = Array.from(new Set(['US$', 'LKR', 'INR', 'HK$', draft.currency].filter(Boolean)))
@@ -256,6 +346,14 @@ export default function ItemInfoModal({
   // crossfade re-trigger cleanly whenever the state moves between them.
   const bannerKey = loading ? 'loading' : lookupError ? 'error' : autoFilled ? 'autofilled' : null
 
+  // Rich platform view only kicks in once we have a *successful*,
+  // non-error result for a site we have a bespoke layout for. Everything
+  // else (no result yet, scrape failed, unsupported platform, manual
+  // entry with no URL at all) keeps the original plain URL box + image
+  // dropzone below.
+  const hasPlatformView =
+    !!scrapeResult && !scrapeResult.error && SUPPORTED_PLATFORM_VIEWS.has(scrapeResult.site ?? '')
+
   // Image upload — the drop zone is otherwise decorative, so wire it to a
   // hidden file input and read the file back as a data URL for preview.
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -320,15 +418,17 @@ export default function ItemInfoModal({
             [&::-webkit-scrollbar-thumb]:transition-colors
             hover:[&::-webkit-scrollbar-thumb]:bg-ink/35"
         >
-          <label
-            className="flex flex-col gap-2.5 text-sm font-semibold text-ink motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
-            style={{ animationDelay: '20ms' }}
-          >
-            Item URL
-            <div className="max-h-20 overflow-hidden rounded-xl border border-ink/15 bg-card p-4 text-[13px] font-normal leading-relaxed text-ink/45">
-              {draft.url || 'https://www.store.com/product-link'}
-            </div>
-          </label>
+          {!hasPlatformView && (
+            <label
+              className="flex flex-col gap-2.5 text-sm font-semibold text-ink motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+              style={{ animationDelay: '20ms' }}
+            >
+              Item URL
+              <div className="max-h-20 overflow-hidden rounded-xl border border-ink/15 bg-card p-4 text-[13px] font-normal leading-relaxed text-ink/45">
+                {draft.url || 'https://www.store.com/product-link'}
+              </div>
+            </label>
+          )}
 
           {bannerKey && (
             <div key={bannerKey} className="motion-safe:[animation:fadeUp_0.25s_ease-out_both]">
@@ -347,11 +447,36 @@ export default function ItemInfoModal({
                   </span>
                 </div>
               )}
-              {bannerKey === 'autofilled' && (
+              {bannerKey === 'autofilled' && !hasPlatformView && (
                 <div className="rounded-xl border border-gold/20 bg-gold/10 px-4 py-3.5 text-sm font-semibold text-ink">
                   Filled in from the product page — double-check the price and edit anything that needs it.
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Rich, site-accurate product card — reference only. Clicking a
+              variant/size/color tile re-scrapes that variant's own page
+              live (via onSelectVariant, wired up by the parent) so the
+              shopper can pick the exact SKU they want; it does not, by
+              itself, change draft.name/unitPrice — the parent's scrape
+              success handler does that the same way the initial paste does.
+              (Shopify/WooCommerce are the exception — their variant tiles
+              never call onSelectVariant at all, since every option's url
+              is always null; see ShopifyProductView/WooCommerceProductView's
+              doc comments.) */}
+          {hasPlatformView && scrapeResult && (
+            <div
+              className="rounded-2xl border border-ink/10 bg-white p-5 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+              style={{ animationDelay: '20ms' }}
+            >
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                From the listing — for reference, edit details below
+              </p>
+              <PlatformProductView
+                result={scrapeResult}
+                onSelectVariant={(url) => onSelectVariant?.(url)}
+              />
             </div>
           )}
 
@@ -369,47 +494,51 @@ export default function ItemInfoModal({
             />
           </label>
 
-          <div
-            className="flex flex-col gap-2.5 text-sm font-semibold text-ink motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
-            style={{ animationDelay: '100ms' }}
-          >
-            Image <span className="text-xs font-normal text-ink/45">(for reference only; specifications entered will be used)</span>
+          {/* The manual image dropzone only matters when we don't already
+              have a real gallery from the platform view above. */}
+          {!hasPlatformView && (
             <div
-              role="button"
-              tabIndex={0}
-              onClick={() => fileInputRef.current?.click()}
-              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setImageDragOver(true)
-              }}
-              onDragLeave={() => setImageDragOver(false)}
-              onDrop={handleImageDrop}
-              className={`flex min-h-[125px] cursor-pointer items-center gap-5 rounded-xl border border-dashed px-6 py-5 transition-colors duration-200 ${
-                imageDragOver ? 'border-gold/60 bg-gold/10' : 'border-ink/25 hover:border-gold/50 hover:bg-gold/5'
-              }`}
+              className="flex flex-col gap-2.5 text-sm font-semibold text-ink motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+              style={{ animationDelay: '100ms' }}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => readImageFile(event.target.files?.[0])}
-              />
-              {draft.image ? (
-                <img
-                  src={draft.image}
-                  alt="Product reference"
-                  className="h-[82px] w-[82px] flex-none rounded-lg border border-ink/10 object-cover transition-transform duration-300 hover:scale-105"
+              Image <span className="text-xs font-normal text-ink/45">(for reference only; specifications entered will be used)</span>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setImageDragOver(true)
+                }}
+                onDragLeave={() => setImageDragOver(false)}
+                onDrop={handleImageDrop}
+                className={`flex min-h-[125px] cursor-pointer items-center gap-5 rounded-xl border border-dashed px-6 py-5 transition-colors duration-200 ${
+                  imageDragOver ? 'border-gold/60 bg-gold/10' : 'border-ink/25 hover:border-gold/50 hover:bg-gold/5'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => readImageFile(event.target.files?.[0])}
                 />
-              ) : (
-                <div className="grid h-[82px] w-[82px] flex-none place-items-center rounded-lg bg-ink/[0.04] text-ink/25">
-                  <ImagePlus size={26} strokeWidth={1.5} />
-                </div>
-              )}
-              <span className="text-sm text-ink/45">Click to upload or drag an image here</span>
+                {draft.image ? (
+                  <img
+                    src={draft.image}
+                    alt="Product reference"
+                    className="h-[82px] w-[82px] flex-none rounded-lg border border-ink/10 object-cover transition-transform duration-300 hover:scale-105"
+                  />
+                ) : (
+                  <div className="grid h-[82px] w-[82px] flex-none place-items-center rounded-lg bg-ink/[0.04] text-ink/25">
+                    <ImagePlus size={26} strokeWidth={1.5} />
+                  </div>
+                )}
+                <span className="text-sm text-ink/45">Click to upload or drag an image here</span>
+              </div>
             </div>
-          </div>
+          )}
 
           <div
             className="flex items-center justify-between font-semibold text-ink motion-safe:[animation:fadeUp_0.4s_ease-out_both]"

@@ -38,7 +38,7 @@ function AccountShell({
   // so tapping it from Orders/Stores/etc. no longer loses that page.
   const [addRequestOpen, setAddRequestOpen] = useState(false)
 
-  const {
+ const {
     draft,
     setDraft,
     modalOpen,
@@ -47,10 +47,9 @@ function AccountShell({
     lookupLoading,
     lookupError,
     autoFilled,
+    scrapeResult,
+    selectVariant,
     resetDraft,
-    // DashboardContext exports these under different names than the
-    // AddRequestOverlay props expect — aliased here so nothing else in
-    // this file (link / setLink / submitRequest) needs to change.
     pastedLink: link,
     setPastedLink: setLink,
     startItemInfo: submitRequest,
@@ -151,6 +150,8 @@ function AccountShell({
           loading={lookupLoading}
           lookupError={lookupError}
           autoFilled={autoFilled}
+          scrapeResult={scrapeResult}
+          onSelectVariant={selectVariant}
         />
       )}
 

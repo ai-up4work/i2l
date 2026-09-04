@@ -1,12 +1,32 @@
 // app/demo/scraper-qa/platforms/ShopifyProductView.tsx
 'use client'
 
-import { useState } from 'react'
-import { ExternalLink, ShoppingBag, Star } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { BadgeCheck, ExternalLink, Star } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 
-function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
+/**
+ * Renders a Shopify scrape result (source: 'shopify_api') using the
+ * app's own design tokens rather than imitating a fake "Shopify look" —
+ * unlike Amazon/Flipkart/etc., Shopify stores have no single canonical
+ * storefront skin to match, since every merchant re-themes their own
+ * store completely. What IS consistent and worth surfacing is that this
+ * data came straight from Shopify's own product API (see
+ * scrapeShopifyProduct in parsers.ts), not a DOM/JSON-LD guess — hence
+ * the "Verified via Shopify's Product API" badge below.
+ *
+ * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN: buildStoreVariantDimensions()
+ * in parsers.ts always sets `url: null` on every option — the one API
+ * call already returned every variant's price/image/availability, so
+ * there's nothing left to re-fetch by "selecting" a tile the way Amazon's
+ * swatches do. `onSelectVariant` is still accepted here (for interface
+ * parity with the other platform views) but will never actually fire.
+ * Tiles just update local `selectedByDimension` state so the buy box
+ * below reflects whichever combination the shopper is looking at.
+ */
+
+function fmt(amount: string | null | undefined, currency: string | null | undefined) {
   const n = amount != null ? Number(amount) : NaN
   if (Number.isNaN(n)) return null
   try {
@@ -16,39 +36,7 @@ function fmtPrice(amount: string | null | undefined, currency: string | null | u
   }
 }
 
-function ImageGallery({ images, alt }: { images: string[]; alt: string }) {
-  if (!images.length) {
-    return (
-      <div className="grid aspect-square place-items-center rounded-xl border border-dashed border-ink/15 bg-card text-xs font-medium text-ink/35">
-        No images found
-      </div>
-    )
-  }
-  const [main, ...rest] = images
-  return (
-    <div>
-      <div className="aspect-square overflow-hidden rounded-xl border border-ink/10 bg-white">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={main} alt={alt} className="h-full w-full object-contain" />
-      </div>
-      {rest.length > 0 && (
-        <div className="mt-2 grid grid-cols-5 gap-2">
-          {rest.slice(0, 9).map((src) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={src}
-              src={src}
-              alt=""
-              className="aspect-square rounded-lg border border-ink/10 bg-white object-contain"
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RatingStars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
+function Stars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
   const value = rating ? parseFloat(rating) : NaN
   if (Number.isNaN(value)) return null
   const rounded = Math.round(value)
@@ -72,147 +60,185 @@ function RatingStars({ rating, count }: { rating: string | null | undefined; cou
   )
 }
 
-/** Options row for the currently-selected variant, e.g. Size, Color. */
-function OptionsRow({ options }: { options: Record<string, string> | null | undefined }) {
-  if (!options || !Object.keys(options).length) return null
+/** One variant dimension (Size, Color, ...) as a row of informational
+ * chips — never clickable, since every tile's url is always null (see
+ * doc comment above). Selecting one only updates local display state. */
+function VariantRow({
+  dim,
+  selectedLabel,
+  onPick,
+}: {
+  dim: NonNullable<ScrapeResult['variants']>[number]
+  selectedLabel: string | null
+  onPick: (label: string) => void
+}) {
+  const hasImages = dim.options.some((o) => !!o.image)
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {Object.entries(options).map(([label, value]) => (
-        <span
-          key={label}
-          className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-[11px] font-semibold text-ink/60 ring-1 ring-inset ring-ink/10"
-        >
-          <span className="text-ink/40">{label}:</span> {value}
-        </span>
-      ))}
+    <div>
+      <p className="text-[13px] font-semibold text-ink">
+        {dim.dimension}: <span className="font-normal text-ink/60">{selectedLabel ?? '—'}</span>
+      </p>
+      <div className={`mt-1.5 flex flex-wrap gap-2 ${hasImages ? '' : ''}`}>
+        {dim.options.map((opt) => {
+          const isSelected = opt.label === selectedLabel
+          const price = fmt(opt.price, opt.currencyCode)
+          return (
+            <button
+              key={opt.label}
+              type="button"
+              onClick={() => onPick(opt.label)}
+              disabled={opt.outOfStock}
+              title={opt.outOfStock ? 'Out of stock' : undefined}
+              className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+                isSelected
+                  ? 'border-teal bg-teal/10'
+                  : opt.outOfStock
+                    ? 'cursor-not-allowed border-ink/8 bg-card/50 opacity-40 grayscale'
+                    : 'border-ink/12 bg-card hover:border-teal/50'
+              }`}
+            >
+              {opt.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={opt.image} alt={opt.label} className="h-8 w-8 flex-none rounded-md object-contain" />
+              )}
+              <span className="flex flex-col">
+                <span className="text-[12px] font-semibold text-ink/80">{opt.label}</span>
+                {opt.outOfStock ? (
+                  <span className="text-[10px] font-bold uppercase text-indigo-deep">Out of stock</span>
+                ) : (
+                  price && <span className="text-[10px] font-bold text-teal-deep">{price}</span>
+                )}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
-/** Clickable variant grid — Shopify's product API already returns every
- * variant's price/image/stock in the one call that loaded this page, so
- * clicking a tile is purely a local highlight (useState), never a
- * network request. No re-fetch, no `url` needed on the option itself. */
-function ShopifyVariantGrid({ variants }: { variants: NonNullable<ScrapeResult['variants']> }) {
-  // One selected label per dimension, keyed by dimension name. Seeded
-  // from whichever option the scraper marked `selected`.
-  const [selected, setSelected] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {}
-    for (const dim of variants) {
-      const preselected = dim.options.find((o) => o.selected)
-      if (preselected) initial[dim.dimension] = preselected.label
-    }
-    return initial
-  })
-
-  return (
-    <div className="mt-4 flex flex-col gap-3">
-      {variants.map((dim) => (
-        <div key={dim.dimension}>
-          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
-          <div className="flex flex-wrap gap-2">
-            {dim.options.map((opt) => {
-              const priceLabel = fmtPrice(opt.price, opt.currencyCode)
-              const isSelected = selected[dim.dimension] === opt.label
-              return (
-                <button
-                  key={opt.label}
-                  type="button"
-                  disabled={opt.outOfStock}
-                  onClick={() =>
-                    setSelected((prev) => ({ ...prev, [dim.dimension]: opt.label }))
-                  }
-                  title={opt.outOfStock ? 'Out of stock' : undefined}
-                  className={[
-                    'flex flex-col items-center gap-1 rounded-xl border px-2.5 py-2 text-left',
-                    isSelected
-                      ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200'
-                      : opt.outOfStock
-                        ? 'cursor-not-allowed border-ink/8 bg-card/50 opacity-40 grayscale'
-                        : 'border-ink/12 bg-card hover:border-emerald-400 cursor-pointer',
-                  ].join(' ')}
-                >
-                  {opt.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={opt.image} alt={opt.label} className="h-10 w-10 rounded-md object-contain" />
-                  )}
-                  <span className="max-w-[80px] truncate text-[11px] font-semibold text-ink/75">{opt.label}</span>
-                  {opt.outOfStock ? (
-                    <span className="text-[9px] font-bold uppercase text-red-500">Out of stock</span>
-                  ) : (
-                    priceLabel && <span className="text-[10px] font-bold text-emerald-700">{priceLabel}</span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** Dedicated view for Shopify results. `onSelectVariant` is accepted only
- * to keep this component's prop contract identical to every other
- * platform view — it's never called, since Shopify's variant tiles never
- * need a re-fetch (see ShopifyVariantGrid above). */
 export default function ShopifyProductView({
   result,
+  onSelectVariant,
 }: {
   result: ScrapeResult
   onSelectVariant: (url: string) => void
 }) {
-  const price = fmtPrice(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmtPrice(result.mrp, result.currencyCode) : null
+  const images = result.images ?? []
+  const [mainImage, setMainImage] = useState(images[0] ?? null)
+
+  // Local per-dimension selection, purely for display — see doc comment
+  // above on why these tiles never trigger onSelectVariant.
+  const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setMainImage((result.images ?? [])[0] ?? null)
+    const initial: Record<string, string> = {}
+    for (const dim of result.variants ?? []) {
+      const selectedOpt = dim.options.find((o) => o.selected)
+      if (selectedOpt) initial[dim.dimension] = selectedOpt.label
+    }
+    setSelectedByDimension(initial)
+  }, [result.url, result.variants])
+
+  const price = fmt(result.price, result.currencyCode)
+  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  const pctOff =
+    result.mrp && result.price && Number(result.mrp) > Number(result.price)
+      ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
+      : null
+
+  const inStock = !result.unavailable
+
+  // onSelectVariant intentionally unused in the handler body — kept as a
+  // prop only for interface parity with the other platform views (see
+  // doc comment above). Referencing it here avoids an unused-var lint
+  // warning without pretending it does something it can't.
+  void onSelectVariant
 
   return (
     <div className="rounded-2xl border border-ink/10 bg-white p-5">
-      <div className="grid gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <ImageGallery images={result.images ?? []} alt={result.title ?? 'Product image'} />
+      <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-bold text-teal-deep ring-1 ring-inset ring-teal/20">
+        <BadgeCheck size={13} strokeWidth={2} />
+        Verified via Shopify&apos;s Product API
+      </div>
 
-        <div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-200">
-              <ShoppingBag size={11} strokeWidth={2.2} /> Shopify
-            </span>
-            {result.rating && (
-              <>
-                <span className="text-ink/20">·</span>
-                <RatingStars rating={result.rating} count={result.review_count} />
-              </>
+      <div className="grid gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div className="flex gap-3">
+          {images.length > 1 && (
+            <div className="flex flex-col gap-2">
+              {images.slice(0, 8).map((src) => (
+                <button
+                  key={src}
+                  type="button"
+                  onClick={() => setMainImage(src)}
+                  className={`h-12 w-12 flex-none overflow-hidden rounded-lg border ${
+                    mainImage === src ? 'border-teal ring-1 ring-teal' : 'border-ink/10'
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" className="h-full w-full object-contain" />
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="aspect-square flex-1 overflow-hidden rounded-2xl border border-ink/10 bg-card">
+            {mainImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={mainImage} alt={result.title ?? 'Product image'} className="h-full w-full object-contain" />
+            ) : (
+              <div className="grid h-full place-items-center text-xs text-ink/35">No image found</div>
             )}
           </div>
+        </div>
 
-          <h2 className="mt-2 font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
+        <div>
+          <h2 className="font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
             {result.title ?? <span className="italic text-ink/35">No title found</span>}
           </h2>
 
-          <p className="mt-1.5 text-xs text-ink/45">Fetched via Shopify&rsquo;s product API — not scraped HTML</p>
+          {result.seller && <p className="mt-1 text-xs font-semibold text-ink/45">by {result.seller}</p>}
 
-          <OptionsRow options={result.options} />
-
-          <div className="mt-3 flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-teal-deep">
-              {price ?? <span className="text-base font-semibold text-ink/35">No price found</span>}
-            </p>
-            {mrp && <p className="text-sm font-semibold text-ink/40 line-through">{mrp}</p>}
-          </div>
-
-          {result.availability && (
-            <p className="mt-2 inline-block rounded-md bg-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink/55 ring-1 ring-inset ring-ink/10">
-              {result.availability}
-            </p>
+          {result.rating && (
+            <div className="mt-1.5">
+              <Stars rating={result.rating} count={result.review_count} />
+            </div>
           )}
 
-          {result.seller && <p className="mt-2 text-xs text-ink/50">Vendor: {result.seller}</p>}
+          <div className="mt-3 flex items-baseline gap-2">
+            {pctOff !== null && <span className="text-sm font-bold text-indigo-deep">-{pctOff}%</span>}
+            {price ? (
+              <span className="text-2xl font-bold text-teal-deep">{price}</span>
+            ) : (
+              <span className="text-base font-semibold text-ink/35">No price found</span>
+            )}
+            {mrp && <span className="text-sm font-semibold text-ink/40 line-through">{mrp}</span>}
+          </div>
 
-          {result.variants && result.variants.length > 0 && <ShopifyVariantGrid variants={result.variants} />}
+          <p className="mt-2 inline-block rounded-md bg-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink/55 ring-1 ring-inset ring-ink/10">
+            {inStock ? 'In stock' : 'Out of stock'}
+          </p>
+
+          {result.variants && result.variants.length > 0 && (
+            <div className="mt-4 flex flex-col gap-4">
+              {result.variants.map((dim) => (
+                <VariantRow
+                  key={dim.dimension}
+                  dim={dim}
+                  selectedLabel={selectedByDimension[dim.dimension] ?? null}
+                  onPick={(label) =>
+                    setSelectedByDimension((prev) => ({ ...prev, [dim.dimension]: label }))
+                  }
+                />
+              ))}
+            </div>
+          )}
 
           <a
             href={result.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
+            className="mt-5 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
           >
             Open original listing <ExternalLink size={12} />
           </a>
