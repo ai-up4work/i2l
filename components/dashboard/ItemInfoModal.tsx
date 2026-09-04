@@ -8,10 +8,13 @@ import {
   Minus,
   Plus,
   ShoppingCart,
+  ShoppingBag,
   Info,
   Loader2,
   Zap,
   Heart,
+  ArrowLeft,
+  Check,
 } from 'lucide-react'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/app/demo/scraper-qa/platforms/AmazonProductView'
@@ -39,10 +42,17 @@ import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
  * unrecognized `result.site` falls back to a generic layout.
  *
  * Everything WishDrop-specific — the estimated price box, delivery/QC
- * row, quantity stepper, wishlist toggle, "Request this item" CTA, and
- * the Description/Details/Shipping tabs — lives in THIS component,
- * wrapped around whichever platform view is picked, since none of that
- * exists in the QA tool.
+ * row, quantity stepper, wishlist/cart/request actions, the
+ * Description/Details/Shipping tabs, AND the request review/confirm
+ * step — lives in THIS component, wrapped around whichever platform
+ * view is picked, since none of that exists in the QA tool.
+ *
+ * Review step: clicking "Request this item" no longer navigates to a
+ * separate preview/confirm page. It swaps the panel's body to an inline
+ * `review` step (item summary + the two policy confirmations), and only
+ * calls `onRequestItem` once both are checked. "Back" returns to the
+ * listing without closing the overlay. This keeps the whole flow inside
+ * one panel instead of a multi-page wizard.
  *
  * Cart + wishlist: this component owns writing to CartContext /
  * WishlistContext directly (rather than leaving it entirely to the
@@ -88,6 +98,7 @@ type ItemOverlayProps = {
 
 const TABS = ['Description', 'Details', 'Shipping & Returns'] as const
 type Tab = (typeof TABS)[number]
+type Step = 'listing' | 'review'
 
 const SITE_LABELS: Record<string, string> = {
   amazon: 'Amazon',
@@ -113,6 +124,47 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dt className="font-semibold text-ink/70">{label}</dt>
       <dd className="text-right text-ink/55">{value}</dd>
     </div>
+  )
+}
+
+/**
+ * Small, cursor-styled checkbox row used in the review step. Same visual
+ * treatment as the equivalent control on the full-page confirm step, so
+ * the two don't feel like different products.
+ */
+function ConfirmCheckbox({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  children: React.ReactNode
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3.5 text-[13px] leading-relaxed text-ink">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className="mt-0.5 grid h-5 w-5 flex-none place-items-center rounded-md border-2 border-teal/70 bg-transparent transition-colors duration-150 peer-checked:border-teal peer-checked:bg-teal"
+      >
+        <svg viewBox="0 0 16 16" className="h-3 w-3 scale-0 text-parchment transition-transform duration-150 peer-checked:scale-100" fill="none">
+          <path
+            d="M3 8.5L6.2 11.5L13 4.5"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <span>{children}</span>
+    </label>
   )
 }
 
@@ -186,21 +238,42 @@ export default function ItemInfoModal({
   loading = false,
 }: ItemOverlayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('Description')
+  const [step, setStep] = useState<Step>('listing')
+  const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
+  const [confirmsPreowned, setConfirmsPreowned] = useState(false)
+  const [justAdded, setJustAdded] = useState(false)
   const cart = useCart()
   const wishlist = useWishlist()
 
-  // Reset to the Description tab whenever a genuinely new listing loads
-  // (not on a variant re-scrape of the same listing), so a shopper who
-  // was reading "Shipping & Returns" on the last item doesn't land on
-  // an empty tab for the next one.
+  // Reset to the Description tab + listing step whenever a genuinely new
+  // listing loads (not on a variant re-scrape of the same listing), so a
+  // shopper who was mid-review or reading "Shipping & Returns" on the
+  // last item doesn't land somewhere stale for the next one.
   const lastResultKey = useRef<string | null>(null)
   useEffect(() => {
     const key = result ? `${result.site ?? ''}|${result.title ?? ''}` : null
     if (key && key !== lastResultKey.current) {
       lastResultKey.current = key
       setActiveTab('Description')
+      setStep('listing')
+      setConfirmsRestrictions(false)
+      setConfirmsPreowned(false)
     }
   }, [result])
+
+  // Closing the panel always drops back to the listing step underneath,
+  // so reopening it (or opening the next item) never resumes mid-review.
+  useEffect(() => {
+    if (!open) setStep('listing')
+  }, [open])
+
+  // "Added" confirmation on the cart button is a brief pulse, not a
+  // persistent state — clear it on a timer.
+  useEffect(() => {
+    if (!justAdded) return
+    const timer = setTimeout(() => setJustAdded(false), 1600)
+    return () => clearTimeout(timer)
+  }, [justAdded])
 
   // Only `open` controls whether the panel mounts. `result` being absent
   // (scrape still in flight) shows a skeleton instead — see below.
@@ -216,6 +289,7 @@ export default function ItemInfoModal({
 
   const productSnapshot = result && !result.error ? toProductSnapshot(result) : null
   const inWishlist = productSnapshot ? wishlist.isInWishlist(productSnapshot.id) : false
+  const canSubmitReview = confirmsRestrictions && confirmsPreowned
 
   function handleToggleWishlist() {
     if (!productSnapshot) return
@@ -226,7 +300,18 @@ export default function ItemInfoModal({
     wishlist.toggleItem(wishlistProduct)
   }
 
-  function handleRequestItem() {
+  function handleAddToCart() {
+    if (!productSnapshot) return
+    const cartProduct: CartProduct = {
+      ...productSnapshot,
+      sourcePrice: result?.price != null ? String(result.price) : null,
+      estimatedPrice: estimatedPrice ?? null,
+    }
+    cart.addItem(cartProduct, qty)
+    setJustAdded(true)
+  }
+
+  function handleConfirmRequest() {
     if (productSnapshot) {
       const cartProduct: CartProduct = {
         ...productSnapshot,
@@ -238,6 +323,9 @@ export default function ItemInfoModal({
     // Parent still gets to react (toast/close/analytics/etc) — adding to
     // the cart doesn't replace whatever it was already doing here.
     onRequestItem()
+    setStep('listing')
+    setConfirmsRestrictions(false)
+    setConfirmsPreowned(false)
   }
 
   const platformView = (() => {
@@ -291,50 +379,44 @@ export default function ItemInfoModal({
       `}</style>
 
       <div className="absolute inset-y-0 right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift motion-safe:[animation:panelSlideIn_0.28s_cubic-bezier(0.16,1,0.3,1)_both] lg:w-1/2">
-        {/* Header — kept minimal: a small source tag (what site this was
-            pulled from, useful context) plus a wishlist toggle and close. */}
+        {/* Header — a small source tag (what site this was pulled from) on
+            the listing step, or a "back to listing" cue on the review
+            step, plus a close button. Wishlist now lives in the action
+            row below so it isn't duplicated in two places. */}
         <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
-          <div
-            key={result?.site ?? (showSkeleton ? 'loading' : 'error')}
-            className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
-          >
-            <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
-            <span className="truncate text-sm font-semibold text-ink/70">
-              {showSkeleton ? 'Reading listing…' : result?.error ? 'Listing' : siteLabel(result?.site)}
-            </span>
-          </div>
-          <div className="flex flex-none items-center gap-1">
-            {productSnapshot && (
-              <button
-                type="button"
-                aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
-                aria-pressed={inWishlist}
-                onClick={handleToggleWishlist}
-                className="grid h-9 w-9 place-items-center rounded-full text-ink/50 transition-all duration-200 hover:bg-ink/5 hover:text-ink"
-              >
-                <Heart
-                  key={inWishlist ? 'saved' : 'unsaved'}
-                  size={18}
-                  className={inWishlist ? 'motion-safe:[animation:heartPop_0.25s_ease-out_both]' : undefined}
-                  fill={inWishlist ? 'currentColor' : 'none'}
-                  color={inWishlist ? '#e11d48' : 'currentColor'}
-                />
-              </button>
-            )}
+          {step === 'review' ? (
             <button
               type="button"
-              aria-label="Close"
-              onClick={onClose}
-              className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/50 transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
+              onClick={() => setStep('listing')}
+              className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-ink/70 transition-colors hover:text-ink"
             >
-              <X size={18} />
+              <ArrowLeft size={15} className="flex-none" />
+              Back to listing
             </button>
-          </div>
+          ) : (
+            <div
+              key={result?.site ?? (showSkeleton ? 'loading' : 'error')}
+              className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
+            >
+              <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
+              <span className="truncate text-sm font-semibold text-ink/70">
+                {showSkeleton ? 'Reading listing…' : result?.error ? 'Listing' : siteLabel(result?.site)}
+              </span>
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/50 transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Body */}
         <div
-          className="flex flex-1 flex-col gap-6 overflow-auto p-4 sm:gap-7 sm:p-7
+          className="flex flex-1 flex-col gap-6 overflow-auto p-4 pb-8 sm:gap-7 sm:p-7 sm:pb-10
             [scrollbar-width:thin] [scrollbar-color:theme(colors.ink/25%)_transparent]
             [&::-webkit-scrollbar]:w-1.5
             [&::-webkit-scrollbar-track]:bg-transparent
@@ -346,6 +428,75 @@ export default function ItemInfoModal({
           ) : result!.error ? (
             <div className="rounded-xl border border-red-300/40 bg-red-50 p-5 text-sm text-ink/70 motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
               Couldn&apos;t read this listing: {result!.error}
+            </div>
+          ) : step === 'review' ? (
+            <div className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
+              <div>
+                <h2 className="font-display text-2xl text-ink">Review your request</h2>
+                <p className="mt-1 text-sm text-ink/55">
+                  Check the details below, then confirm to send this as a request — you&apos;re not paying yet.
+                </p>
+              </div>
+
+              <div className="flex gap-4 rounded-xl border border-ink/10 bg-card p-4">
+                <div className="grid h-20 w-20 flex-none place-items-center overflow-hidden rounded-lg border border-ink/10 bg-white">
+                  {result!.images?.[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={result!.images[0]} alt="" className="h-full w-full object-contain p-1.5" />
+                  ) : (
+                    <ShoppingCart size={20} className="text-ink/20" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{result!.title ?? 'Untitled item'}</p>
+                  <p className="mt-1 text-xs text-ink/45">Quantity: {qty}</p>
+                  {estimatedPrice && (
+                    <div className="mt-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
+                        Estimated total
+                      </span>
+                      <p className="font-display text-lg text-ink">{estimatedPrice}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3.5 rounded-xl border border-ink/10 bg-card p-4">
+                <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
+                  I confirm this item doesn&apos;t violate WishDrop&apos;s parcel restrictions or contain prohibited
+                  items, and I accept the Purchase Protection plan&apos;s refund and return criteria.
+                </ConfirmCheckbox>
+                <ConfirmCheckbox checked={confirmsPreowned} onChange={setConfirmsPreowned}>
+                  I understand a pre-owned item&apos;s condition can&apos;t be verified against the seller&apos;s
+                  description, so pre-owned, fragile, and untracked-mail items aren&apos;t eligible for refunds or
+                  returns.
+                </ConfirmCheckbox>
+              </div>
+
+              <div
+                className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2.5 border-t border-ink/10 bg-parchment/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm
+                  sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
+              >
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setStep('listing')}
+                    className="flex-none rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmRequest}
+                    disabled={!canSubmitReview}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
+                  >
+                    <ShoppingCart size={16} />
+                    Confirm & send request
+                  </button>
+                </div>
+                <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>
+              </div>
             </div>
           ) : (
             <div
@@ -395,44 +546,79 @@ export default function ItemInfoModal({
                 </div>
 
                 {/* Sticky on mobile only: with a full-width panel and a long
-                    scroll (variants, tabs, etc.) the request button can end
-                    up well below the fold — pinning it means it's always
+                    scroll (variants, tabs, etc.) the action row can end up
+                    well below the fold — pinning it means it's always
                     reachable without hunting for it. Desktop has the room
-                    to stay inline. */}
+                    to stay inline.
+
+                    Three compact actions live together here: qty stepper,
+                    wishlist toggle, add-to-cart, and the primary request
+                    action — wrapping on narrow screens rather than
+                    squeezing. */}
                 <div
-                  className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-ink/10 bg-parchment/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm
+                  className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-ink/10 bg-parchment/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm
                     sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
                 >
-                  <div className="flex items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+                      <button
+                        type="button"
+                        aria-label="Decrease quantity"
+                        onClick={() => onQtyChange(Math.max(1, qty - 1))}
+                        className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+                      <button
+                        type="button"
+                        aria-label="Increase quantity"
+                        onClick={() => onQtyChange(qty + 1)}
+                        className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+
                     <button
                       type="button"
-                      aria-label="Decrease quantity"
-                      onClick={() => onQtyChange(Math.max(1, qty - 1))}
-                      className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+                      aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+                      aria-pressed={inWishlist}
+                      onClick={handleToggleWishlist}
+                      disabled={!productSnapshot}
+                      className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      <Minus size={15} />
+                      <Heart
+                        key={inWishlist ? 'saved' : 'unsaved'}
+                        size={17}
+                        className={inWishlist ? 'motion-safe:[animation:heartPop_0.25s_ease-out_both]' : undefined}
+                        fill={inWishlist ? 'currentColor' : 'none'}
+                        color={inWishlist ? '#e11d48' : 'currentColor'}
+                      />
                     </button>
-                    <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+
                     <button
                       type="button"
-                      aria-label="Increase quantity"
-                      onClick={() => onQtyChange(qty + 1)}
-                      className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+                      onClick={handleAddToCart}
+                      disabled={loading || result!.unavailable || !productSnapshot}
+                      className="flex min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl border border-ink/15 px-4 py-3 text-sm font-semibold text-ink transition-all duration-200 hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      <Plus size={15} />
+                      {justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+                      {justAdded ? 'Added' : 'Add to Cart'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setStep('review')}
+                      disabled={loading || result!.unavailable || !productSnapshot}
+                      className="flex min-w-[150px] flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
+                    >
+                      <ShoppingCart size={16} />
+                      {result!.unavailable ? 'Currently unavailable' : 'Request this item'}
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleRequestItem}
-                    disabled={loading || result!.unavailable}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
-                  >
-                    <ShoppingCart size={16} />
-                    {result!.unavailable ? 'Currently unavailable' : 'Request this item'}
-                  </button>
                 </div>
-                <p className="-mt-2 text-xs text-ink/40 sm:mt-0">
+                <p className="-mt-3 text-xs text-ink/40">
                   You will not be charged now. This is just a request.
                 </p>
 
@@ -454,19 +640,21 @@ export default function ItemInfoModal({
                     ))}
                   </div>
                   {/* Keyed on the tab id so switching tabs crossfades the new
-                      content in rather than snapping instantly — a small
-                      touch, but it makes the panel feel considered rather
-                      than assembled from raw state. */}
+                      content in rather than snapping instantly. min-h keeps
+                      the panel from collapsing to a sliver when a tab has no
+                      content, so the empty-state message doesn't read as the
+                      tabs being crammed right up against the bottom edge. */}
                   <div
                     key={activeTab}
-                    className="pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+                    className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
                   >
                     {activeTab === 'Description' &&
                       (result!.description ? (
                         <p>{result!.description}</p>
                       ) : (
                         <p className="text-ink/45">
-                          {result!.title ?? 'No description available for this listing.'}
+                          We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
+                          {result!.title ?? 'no title available.'}
                         </p>
                       ))}
                     {activeTab === 'Details' && (
@@ -478,7 +666,7 @@ export default function ItemInfoModal({
                           <DetailRow key={spec.name} label={spec.name} value={spec.value} />
                         ))}
                         {!result!.brand && !result!.mpn && !result!.itemSpecifics?.length && (
-                          <p className="text-ink/45">No additional details available.</p>
+                          <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
                         )}
                       </dl>
                     )}
@@ -493,7 +681,15 @@ export default function ItemInfoModal({
                               : 'Not accepted by seller'
                           }
                         />
-                        {result!.availability && <DetailRow label="Availability" value={result!.availability} />}
+                        {result!.availability ? (
+                          <DetailRow label="Availability" value={result!.availability} />
+                        ) : (
+                          !result!.itemLocation && (
+                            <p className="mt-1 text-ink/45">
+                              We don&apos;t have shipping details from the seller for this listing.
+                            </p>
+                          )
+                        )}
                       </dl>
                     )}
                   </div>

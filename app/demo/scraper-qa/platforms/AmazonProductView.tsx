@@ -396,36 +396,8 @@ export default function AmazonProductView({
             ) : (
               <span className="text-[#565959]">{result.availability}</span>
             )}
-          </p>
-
-          <div className="mt-3 flex flex-col gap-2 sm:max-w-[220px]">
-            <button
-              type="button"
-              disabled
-              title="Demo only — this QA tool does not place real orders"
-              className="w-full cursor-not-allowed rounded-full border border-[#a88734] bg-[#FFD814] px-4 py-2 text-sm font-medium text-[#0F1111] opacity-70"
-            >
-              Add to Cart
-            </button>
-            <button
-              type="button"
-              disabled
-              title="Demo only — this QA tool does not place real orders"
-              className="w-full cursor-not-allowed rounded-full border border-[#a5570e] bg-[#FFA41C] px-4 py-2 text-sm font-medium text-[#0F1111] opacity-70"
-            >
-              Buy Now
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-1 text-[13px] text-[#0F1111]">
-            {result.seller && (
-              <p>
-                Sold by <span className="text-[#007185]">{result.seller}</span>
-              </p>
-            )}
-            <p className="text-[#565959]">source: {result.source === 'direct' ? 'fetched directly' : 'via ScraperAPI'}</p>
-          </div>
-
+          </p> 
+    
           <a
             href={result.url}
             target="_blank"
