@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ExternalLink, Star, ShieldCheck, Truck, MapPin, Gavel, AlertTriangle, Package } from 'lucide-react'
+import { ExternalLink, Star, ShieldCheck, Truck, MapPin, Gavel, AlertTriangle, Package, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 
@@ -56,16 +56,22 @@ function EbaySellerBadge({
   const value = rating ? parseFloat(rating) : NaN
   if (Number.isNaN(value) && !feedbackScore) return null
   return (
-    <div className="flex items-center gap-1.5 text-xs text-[#535353]">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-[#6b6b6b]">
       {!Number.isNaN(value) && (
-        <span className="inline-flex items-center gap-0.5">
-          <Star size={12} strokeWidth={0} fill="#3665F3" className="text-[#3665F3]" />
-          <span className="font-semibold">{value.toFixed(1)}</span>
+        <span className="inline-flex items-center gap-1">
+          <Star size={13} strokeWidth={0} fill="#3665F3" className="text-[#3665F3]" />
+          <span className="font-semibold text-[#191919]">{value.toFixed(1)}</span>
         </span>
       )}
       {feedbackScore && (
         <span>
-          {feedbackScore} feedback{feedbackPercent ? ` · ${feedbackPercent}% positive` : ''}
+          <span className="font-semibold text-[#191919]">{feedbackScore}</span> feedback
+          {feedbackPercent ? (
+            <>
+              {' '}
+              · <span className="font-semibold text-[#2e7d32]">{feedbackPercent}%</span> positive
+            </>
+          ) : null}
         </span>
       )}
     </div>
@@ -90,11 +96,13 @@ function VariantRow({
 }) {
   return (
     <div>
-      <p className="text-xs font-bold uppercase tracking-wide text-[#767676]">
+      <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-[#8a8a8a]">
         {dim.dimension}
-        {selectedLabel && <span className="normal-case text-[#191919]"> — {selectedLabel}</span>}
+        {selectedLabel && (
+          <span className="normal-case tracking-normal text-[#191919]"> — {selectedLabel}</span>
+        )}
       </p>
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div className="mt-2.5 flex flex-wrap gap-2">
         {dim.options.map((opt) => {
           const isSelected = opt.label === selectedLabel
           const clickable = !opt.outOfStock && !!opt.url
@@ -113,19 +121,24 @@ function VariantRow({
                     ? undefined
                     : `${opt.label} — no direct variation link found, selection is visual only`
               }
-              className={`flex min-h-9 flex-col items-center justify-center rounded-md border px-3 py-1.5 text-[13px] font-medium leading-tight ${
+              className={`group relative flex min-h-[42px] flex-col items-center justify-center gap-0.5 rounded-lg border px-3.5 py-2 text-[13px] font-medium leading-tight transition-all ${
                 opt.outOfStock
-                  ? 'cursor-not-allowed border-[#e5e5e5] text-[#c7c7c7] line-through'
+                  ? 'cursor-not-allowed border-[#eaeaea] bg-[#fafafa] text-[#c7c7c7] line-through'
                   : isSelected
-                    ? 'border-[#3665F3] bg-[#eef2ff] text-[#3665F3]'
+                    ? 'border-[#3665F3] bg-[#f0f4ff] text-[#3665F3] shadow-[inset_0_0_0_1px_#3665F3]'
                     : clickable
-                      ? 'border-[#c7c7c7] text-[#191919] hover:border-[#3665F3]'
-                      : 'cursor-default border-dashed border-[#d8d8d8] text-[#767676]'
+                      ? 'border-[#d6d6d6] text-[#232323] hover:border-[#3665F3] hover:bg-[#f7f9ff]'
+                      : 'cursor-default border-dashed border-[#d8d8d8] text-[#8a8a8a]'
               }`}
             >
-              <span>{opt.label}</span>
+              <span className="inline-flex items-center gap-1">
+                {isSelected && <Check size={11} strokeWidth={3} className="text-[#3665F3]" />}
+                {opt.label}
+              </span>
               {priceLabel && (
-                <span className="text-[10px] font-bold text-[#2e7d32]">{priceLabel}</span>
+                <span className={`text-[10px] font-bold ${isSelected ? 'text-[#2e7d32]' : 'text-[#2e7d32]/80'}`}>
+                  {priceLabel}
+                </span>
               )}
             </button>
           )
@@ -145,15 +158,15 @@ function VariantRow({
 function ItemSpecifics({ specs }: { specs: { name: string; value: string }[] | null | undefined }) {
   if (!specs || !specs.length) return null
   return (
-    <div className="mt-5 rounded-lg border border-[#e5e5e5]">
-      <p className="border-b border-[#e5e5e5] bg-[#f7f7f7] px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#535353]">
+    <div className="mt-6 overflow-hidden rounded-xl border border-[#eaeaea]">
+      <p className="border-b border-[#eaeaea] bg-[#fafafa] px-4 py-2.5 text-[11px] font-bold uppercase tracking-[0.04em] text-[#6b6b6b]">
         Item specifics
       </p>
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 px-3 py-2.5 text-[13px]">
+      <dl className="divide-y divide-[#f2f2f2] px-4">
         {specs.map((spec) => (
-          <div key={spec.name} className="contents">
-            <dt className="text-[#767676]">{spec.name}</dt>
-            <dd className="text-[#191919]">{spec.value}</dd>
+          <div key={spec.name} className="grid grid-cols-[minmax(0,120px)_1fr] gap-3 py-2 text-[13px]">
+            <dt className="text-[#8a8a8a]">{spec.name}</dt>
+            <dd className="text-[#232323]">{spec.value}</dd>
           </div>
         ))}
       </dl>
@@ -194,16 +207,16 @@ function AuctionBlock({
   if (!bidLabel && bidCount == null && !endsLabel) return null
 
   return (
-    <div className="mt-3 flex items-start gap-2 rounded-lg border border-[#e5e5e5] bg-[#fafafa] px-3 py-2.5">
-      <Gavel size={15} strokeWidth={2} className="mt-0.5 flex-none text-[#535353]" />
-      <div className="text-[13px] text-[#535353]">
+    <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-[#eaeaea] bg-[#fafafa] px-3.5 py-3">
+      <Gavel size={15} strokeWidth={2} className="mt-0.5 flex-none text-[#6b6b6b]" />
+      <div className="text-[13px] leading-relaxed text-[#535353]">
         {bidLabel && (
           <p>
             Current bid: <span className="font-bold text-[#191919]">{bidLabel}</span>
             {bidCount != null && <span> · {bidCount} bid{bidCount === 1 ? '' : 's'}</span>}
           </p>
         )}
-        {endsLabel && <p className={ended ? 'text-[#c9330c]' : ''}>{endsLabel}</p>}
+        {endsLabel && <p className={ended ? 'font-medium text-[#c9330c]' : ''}>{endsLabel}</p>}
       </div>
     </div>
   )
@@ -285,8 +298,8 @@ export default function EbayProductView({
   const allSpecs = [...derivedSpecs, ...(itemSpecifics ?? [])]
 
   return (
-    <div className="rounded-2xl border border-[#e5e5e5] bg-white p-5 font-sans">
-      <div className="grid gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+    <div className="rounded-2xl border border-[#ececec] bg-white p-6 shadow-[0_1px_2px_rgba(15,15,15,0.04),0_8px_24px_-12px_rgba(15,15,15,0.08)] sm:p-7 font-sans">
+      <div className="grid gap-10 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         {/* Image gallery */}
         <div className="flex gap-3">
           {images.length > 1 && (
@@ -296,8 +309,10 @@ export default function EbayProductView({
                   key={src}
                   type="button"
                   onClick={() => setMainImage(src)}
-                  className={`h-12 w-12 flex-none overflow-hidden rounded border ${
-                    mainImage === src ? 'border-[#3665F3] ring-1 ring-[#3665F3]' : 'border-[#e5e5e5]'
+                  className={`h-14 w-14 flex-none overflow-hidden rounded-lg border transition-all ${
+                    mainImage === src
+                      ? 'border-[#3665F3] shadow-[0_0_0_1.5px_#3665F3]'
+                      : 'border-[#e5e5e5] hover:border-[#b9c7f7]'
                   }`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -306,43 +321,23 @@ export default function EbayProductView({
               ))}
             </div>
           )}
-          <div className="aspect-square flex-1 overflow-hidden rounded-lg border border-[#e5e5e5]">
+          <div className="aspect-square flex-1 overflow-hidden rounded-xl border border-[#eaeaea] bg-[#fdfdfd]">
             {mainImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={mainImage} alt={result.title ?? 'Product image'} className="h-full w-full object-contain" />
             ) : (
-              <div className="grid h-full place-items-center text-xs text-[#767676]">No image found</div>
+              <div className="grid h-full place-items-center text-xs text-[#9a9a9a]">No image found</div>
             )}
           </div>
         </div>
 
         {/* Buy box + details */}
         <div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {condition && (
-              <span className="inline-block rounded bg-[#f5f5f5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#535353]">
-                {condition}
-              </span>
-            )}
-            {topRatedBuying && (
-              <span className="inline-flex items-center gap-1 rounded bg-[#fff4e5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#9a6700]">
-                Top Rated Plus
-              </span>
-            )}
-          </div>
-          {conditionDescription && (
-            <p className="mt-1 text-xs text-[#767676]">{conditionDescription}</p>
-          )}
-
-          {categoryPath && (
-            <p className="mt-1.5 truncate text-[11px] text-[#8e8e8e]">{categoryPath}</p>
-          )}
-
-          <h2 className="mt-1.5 text-[17px] font-semibold leading-snug text-[#191919]">
-            {result.title ?? <span className="italic text-[#767676]">No title found</span>}
+          <h2 className="mt-1.5 text-[19px] font-semibold leading-snug tracking-[-0.01em] text-[#191919]">
+            {result.title ?? <span className="italic text-[#8a8a8a]">No title found</span>}
           </h2>
 
-          <div className="mt-2">
+          <div className="mt-2.5">
             <EbaySellerBadge
               rating={result.rating}
               feedbackScore={sellerFeedbackScore}
@@ -350,16 +345,16 @@ export default function EbayProductView({
             />
           </div>
 
-          <div className="mt-3 flex flex-wrap items-baseline gap-2">
+          <div className="mt-4 flex flex-wrap items-baseline gap-2.5 border-t border-[#f2f2f2] pt-4">
             {price ? (
-              <span className="text-2xl font-bold text-[#191919]">{price}</span>
+              <span className="text-[28px] font-bold tracking-[-0.01em] text-[#191919]">{price}</span>
             ) : (
-              <span className="text-base font-semibold text-[#767676]">No price found</span>
+              <span className="text-base font-semibold text-[#8a8a8a]">No price found</span>
             )}
-            {mrp && <span className="text-sm font-medium text-[#767676] line-through">{mrp}</span>}
+            {mrp && <span className="text-sm font-medium text-[#a3a3a3] line-through">{mrp}</span>}
             {(pctOff !== null || discountPercentage != null) && (
-              <span className="text-sm font-bold text-[#c9330c]">
-                ({pctOff ?? discountPercentage}% off)
+              <span className="rounded-md bg-[#fdeee9] px-1.5 py-0.5 text-[13px] font-bold text-[#c9330c]">
+                {pctOff ?? discountPercentage}% off
               </span>
             )}
           </div>
@@ -375,41 +370,23 @@ export default function EbayProductView({
           )}
 
           {(quantityAvailable != null || quantitySold != null) && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#535353]">
-              <Package size={13} strokeWidth={2} />
+            <p className="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-[#6b6b6b]">
+              <Package size={13} strokeWidth={2} className="text-[#9a9a9a]" />
               {quantityAvailable != null && <span>{quantityAvailable} available</span>}
-              {quantityAvailable != null && quantitySold != null && <span> · </span>}
+              {quantityAvailable != null && quantitySold != null && <span className="text-[#d4d4d4]">·</span>}
               {quantitySold != null && <span>{quantitySold} sold</span>}
             </p>
           )}
 
-          {shipping && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#535353]">
-              <Truck size={13} strokeWidth={2} /> {shipping}
-            </p>
-          )}
-
-          {itemLocation && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#535353]">
-              <MapPin size={13} strokeWidth={2} /> Located in {itemLocation}
-            </p>
-          )}
-
           {returnsAccepted != null && (
-            <p className="mt-1.5 text-xs text-[#535353]">
+            <p className="mt-1.5 text-[12.5px] text-[#6b6b6b]">
               {returnsAccepted
                 ? `Returns accepted${returnPeriodDays ? ` within ${returnPeriodDays} days` : ''}`
                 : 'Returns not accepted'}
             </p>
           )}
 
-          {paymentMethods && paymentMethods.length > 0 && (
-            <p className="mt-1.5 text-xs text-[#767676]">
-              Payment: {paymentMethods.join(', ')}
-            </p>
-          )}
-
-          <div className="mt-5 flex flex-col gap-4">
+          <div className="mt-6 flex flex-col gap-5">
             {(result.variants ?? []).map((dim) => (
               <VariantRow
                 key={dim.dimension}
@@ -444,30 +421,30 @@ export default function EbayProductView({
           {(!result.variants || result.variants.length === 0) &&
             result.options &&
             Object.keys(result.options).length > 0 && (
-              <div className="mt-5">
-                <p className="text-xs font-bold uppercase tracking-wide text-[#767676]">
+              <div className="mt-6">
+                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-[#8a8a8a]">
                   Selected options
                 </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
                   {Object.entries(result.options).map(([label, value]) => (
                     <span
                       key={label}
-                      className="inline-flex items-center gap-1 rounded-full bg-[#f5f5f5] px-2.5 py-1 text-[11px] font-semibold text-[#535353]"
+                      className="inline-flex items-center gap-1 rounded-full bg-[#f2f2f2] px-2.5 py-1 text-[11px] font-semibold text-[#535353]"
                     >
-                      <span className="text-[#8e8e8e]">{label}:</span> {value}
+                      <span className="text-[#a3a3a3]">{label}:</span> {value}
                     </span>
                   ))}
                 </div>
-                <p className="mt-1.5 text-[11px] text-[#a8a8a8]">
+                <p className="mt-1.5 text-[11px] text-[#bdbdbd]">
                   No dimension/option picker (&lt;select&gt; or label/value block) was
                   found on the static page — showing only the currently selected value.
                 </p>
               </div>
             )}
 
-          <ItemSpecifics specs={allSpecs} />
+          {/* <ItemSpecifics specs={allSpecs} /> */}
 
-          <p className="mt-4 text-sm font-semibold">
+          <p className="mt-5 text-sm font-semibold">
             {result.unavailable ? (
               <span className="text-[#c9330c]">Listing unavailable</span>
             ) : result.availability ? (
@@ -482,20 +459,10 @@ export default function EbayProductView({
               type="button"
               disabled
               title="Demo only — this QA tool does not place real orders"
-              className="flex flex-1 cursor-not-allowed items-center justify-center rounded-full bg-[#3665F3] px-4 py-2.5 text-sm font-bold text-white opacity-70"
+              className="flex flex-1 cursor-not-allowed items-center justify-center rounded-full bg-[#3665F3] px-4 py-2.5 text-sm font-bold text-white shadow-[0_1px_2px_rgba(54,101,243,0.3)] opacity-70"
             >
               {isAuction ? 'Place Bid' : 'Buy It Now'}
             </button>
-          </div>
-
-          <div className="mt-4 flex items-center gap-1.5 text-[11px] text-[#767676]">
-            <ShieldCheck size={13} strokeWidth={2} />
-            eBay Money Back Guarantee
-          </div>
-
-          <div className="mt-3 space-y-1 text-[13px] text-[#535353]">
-            {result.seller && <p>Sold by {result.seller}</p>}
-            <p className="text-[#767676]">source: {result.source === 'direct' ? 'fetched directly' : 'via ScraperAPI'}</p>
           </div>
 
           <a

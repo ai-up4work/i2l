@@ -31,9 +31,21 @@
 // VARIANT PICKER: getItemByLegacyId returns full detail for the ONE
 // item/variation you asked for — it never returns sibling options. To
 // build a real, clickable picker (all sizes/colors, not just the one
-// currently selected) this now makes a SECOND call, get_items_by_item_group,
+// currently selected) this makes a SECOND call, get_items_by_item_group,
 // whenever the fetched item belongs to a multi-variation listing. See
 // fetchEbayItemsByGroup / buildVariantDimensionsFromGroup below.
+//
+// GROUP-ID RESOLUTION QUIRKS (both handled below, see
+// normalizeEbayItemResponse and fetchEbayItemByLegacyId):
+//   1. Some multi-variation listings reject legacy_item_id+
+//      legacy_variation_id outright (errorId 11006) and tell you to use
+//      legacy_item_id itself as an item_group_id against
+//      get_items_by_item_group instead.
+//   2. Some multi-variation listings resolve fine via getItemByLegacyId
+//      but simply omit `itemGroupHref` on the response even though the
+//      item is genuinely grouped — inconsistent across listings/
+//      categories. In that case we guess legacyItemId as the group id
+//      and only keep the guess if it actually returns >1 sibling.
 //
 // Docs:
 //   OAuth (client credentials): https://developer.ebay.com/api-docs/static/oauth-client-credentials-grant.html
@@ -57,6 +69,10 @@ const EBAY_BROWSE_ITEM_BY_LEGACY_ID_URL = IS_SANDBOX
 const EBAY_BROWSE_ITEMS_BY_GROUP_URL = IS_SANDBOX
   ? 'https://api.sandbox.ebay.com/buy/browse/v1/item/get_items_by_item_group'
   : 'https://api.ebay.com/buy/browse/v1/item/get_items_by_item_group'
+
+const EBAY_BROWSE_ITEM_BASE_URL = IS_SANDBOX
+  ? 'https://api.sandbox.ebay.com/buy/browse/v1/item'
+  : 'https://api.ebay.com/buy/browse/v1/item'
 
 const EBAY_OAUTH_SCOPE = 'https://api.ebay.com/oauth/api_scope'
 
@@ -305,15 +321,26 @@ async function fetchEbayItemsByGroup(itemGroupId: string, marketplaceId: string)
   })
 
   if (!res.ok) {
-    // Non-fatal by design — an expired/unavailable item group shouldn't
-    // fail the whole product lookup, it should just mean "no picker,
-    // show the single item we already have." The caller surfaces this
-    // via EbayApiProduct.variantsNote instead of throwing.
+    // Non-fatal by design — an expired/unavailable/invalid item group
+    // shouldn't fail the whole product lookup, it should just mean "no
+    // picker, show the single item we already have" (or, for the
+    // guessed-id path in normalizeEbayItemResponse, "guess was wrong").
     return []
   }
 
   const data = await res.json()
   return Array.isArray(data.items) ? data.items : []
+}
+
+// v1 item ids for group members are shaped "v1|<legacyItemId>|<legacyVariationId>".
+// legacyItemId ALONE (the top-level field the API gives you) only ever
+// reflects the shared PARENT id — group members don't get their own
+// distinct legacyItemId — so if we want a `?var=` link that actually
+// points at THIS specific sibling, the variation id has to be parsed back
+// out of its itemId rather than trusted from legacyItemId.
+function legacyVariationIdFromItemId(itemId: string): string | null {
+  const parts = itemId.split('|')
+  return parts.length === 3 && /^\d+$/.test(parts[2]) ? parts[2] : null
 }
 
 // Builds one dimension per aspect name that actually VARIES across the
@@ -364,17 +391,31 @@ function buildVariantDimensionsFromGroup(currentItemId: string, siblings: EbaySi
 
     return {
       dimension: dimensionName,
-      options: [...byLabel.entries()].map(([label, sibling]) => ({
-        label,
-        price: money(sibling.price),
-        currencyCode: sibling.price?.currency ?? null,
-        image: sibling.image?.imageUrl ?? null,
-        url:
-          sibling.itemWebUrl ||
-          (sibling.legacyItemId ? `https://www.ebay.com/itm/${sibling.legacyItemId}` : null),
-        selected: sibling.itemId === current.itemId,
-        outOfStock: siblingOutOfStock(sibling),
-      })),
+      options: [...byLabel.entries()].map(([label, sibling]) => {
+        // Prefer the API's own itemWebUrl (it already carries the right
+        // ?var= for this sibling when present). Only when that's missing
+        // do we build one ourselves — and when we do, the variation id
+        // has to come from the sibling's OWN itemId, not legacyItemId
+        // (which is shared across the whole group and carries no
+        // variation info at all — see legacyVariationIdFromItemId above).
+        let url = sibling.itemWebUrl || null
+        if (!url && sibling.legacyItemId) {
+          const varId = legacyVariationIdFromItemId(sibling.itemId)
+          url = varId
+            ? `https://www.ebay.com/itm/${sibling.legacyItemId}?var=${varId}`
+            : `https://www.ebay.com/itm/${sibling.legacyItemId}`
+        }
+
+        return {
+          label,
+          price: money(sibling.price),
+          currencyCode: sibling.price?.currency ?? null,
+          image: sibling.image?.imageUrl ?? null,
+          url,
+          selected: sibling.itemId === current.itemId,
+          outOfStock: siblingOutOfStock(sibling),
+        }
+      }),
     }
   })
 }
@@ -404,6 +445,31 @@ export async function fetchEbayItemByLegacyId(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
+
+    // errorId 11006: for some multi-variation listings, get_item_by_legacy_id
+    // can't resolve legacyItemId+legacyVariationId directly — eBay's error
+    // body instead points at get_items_by_item_group and tells us what
+    // item group id to use there (frequently just legacyItemId itself).
+    // Rather than failing the whole lookup, fall back to resolving the
+    // item via the group endpoint the error told us to use.
+    let groupIdFromError: string | null = null
+    try {
+      const parsedBody = JSON.parse(body)
+      const err = parsedBody?.errors?.find((e: any) => e.errorId === 11006)
+      const hrefParam = err?.parameters?.find((p: any) => p.name === 'itemGroupHref')?.value
+      groupIdFromError = hrefParam
+        ? new URL(hrefParam).searchParams.get('item_group_id')
+        : err
+          ? legacyItemId // 11006 fired but no href param — legacyItemId is itself the group id
+          : null
+    } catch {
+      // not JSON / not this error shape — fall through to throwing below
+    }
+
+    if (groupIdFromError) {
+      return await fetchEbayItemFromGroupFallback(groupIdFromError, legacyVariationId, marketplaceId)
+    }
+
     const sandboxHint = IS_SANDBOX
       ? ' (EBAY_ENV=sandbox — sandbox only has synthetic test listings; a real item id will 404 here)'
       : ''
@@ -411,7 +477,19 @@ export async function fetchEbayItemByLegacyId(
   }
 
   const item = await res.json()
+  return normalizeEbayItemResponse(item, legacyItemId, marketplaceId)
+}
 
+// Turns a raw Browse API `item` object into EbayApiProduct, including the
+// full sibling-variant lookup. Shared by both the normal success path
+// (fetchEbayItemByLegacyId) and the two fallback paths below, so the
+// three-way branching (11006 / missing itemGroupHref / normal) doesn't
+// duplicate this ~40-line mapping three times and drift out of sync.
+async function normalizeEbayItemResponse(
+  item: any,
+  fallbackLegacyItemId: string,
+  marketplaceId: string
+): Promise<EbayApiProduct> {
   const images = [item.image?.imageUrl, ...(item.additionalImages ?? []).map((i: any) => i.imageUrl)].filter(
     Boolean
   ) as string[]
@@ -423,10 +501,30 @@ export async function fetchEbayItemByLegacyId(
 
   const ended = !!item.itemEndDate && new Date(item.itemEndDate).getTime() < Date.now()
 
-  // Sibling variations (full picker) — only fetched when this item is
-  // actually part of a multi-variation listing.
-  const itemGroupId = extractItemGroupId(item)
-  const rawSiblings = itemGroupId ? await fetchEbayItemsByGroup(itemGroupId, marketplaceId) : []
+  let itemGroupId = extractItemGroupId(item)
+  let rawSiblings = itemGroupId ? await fetchEbayItemsByGroup(itemGroupId, marketplaceId) : []
+  let usedGuessedGroupId = false
+
+  // itemGroupHref isn't always present on the Browse API response even
+  // when the item genuinely belongs to a variation group — inconsistent
+  // across listings/categories. When it's missing, try legacyItemId
+  // itself as the group id (the same fallback eBay's own 11006 error
+  // message points at elsewhere) — only kept if it actually surfaces
+  // more than one sibling, so a real single-variant item doesn't get a
+  // bogus/empty lookup attached to it.
+  if (!itemGroupId && item.legacyItemId) {
+    try {
+      const guessSiblings = await fetchEbayItemsByGroup(item.legacyItemId, marketplaceId)
+      if (guessSiblings.length > 1) {
+        itemGroupId = item.legacyItemId
+        rawSiblings = guessSiblings
+        usedGuessedGroupId = true
+      }
+    } catch {
+      // best-effort guess only — leave itemGroupId/rawSiblings as-is on failure
+    }
+  }
+
   const siblings = rawSiblings.map(normalizeSibling)
   const variants = buildVariantDimensionsFromGroup(item.itemId, siblings)
 
@@ -437,6 +535,9 @@ export async function fetchEbayItemByLegacyId(
   } else if (itemGroupId && variants.length === 0) {
     variantsNote =
       'This listing is part of a multi-variation group, but no aspect that actually varies across the siblings could be detected.'
+  } else if (usedGuessedGroupId) {
+    variantsNote =
+      "eBay's response didn't include an item group link for this listing — variants were found by guessing the group id from the item id itself. Double-check this picker against the real listing."
   }
 
   const returnTerms = item.returnTerms
@@ -447,7 +548,7 @@ export async function fetchEbayItemByLegacyId(
 
   return {
     itemId: item.itemId,
-    legacyItemId: item.legacyItemId ?? legacyItemId,
+    legacyItemId: item.legacyItemId ?? fallbackLegacyItemId,
     title: item.title ?? null,
     price: money(item.price),
     currencyCode: item.price?.currency ?? null,
@@ -486,6 +587,54 @@ export async function fetchEbayItemByLegacyId(
     itemSpecifics,
     ended,
   }
+}
+
+// Fallback for the 11006 case: get_item_by_legacy_id couldn't resolve the
+// item directly, but told us which item group to look in instead. Pull
+// the sibling list from get_items_by_item_group, find the one matching
+// the requested variation (v1 item ids for group members are shaped
+// "v1|<legacyItemId>|<legacyVariationId>"), then fetch that sibling's own
+// full item detail via getItem (by itemId) so we still get condition,
+// shipping, seller feedback etc. — fields the lightweight group response
+// doesn't include.
+async function fetchEbayItemFromGroupFallback(
+  itemGroupId: string,
+  legacyVariationId: string | null,
+  marketplaceId: string
+): Promise<EbayApiProduct> {
+  const rawSiblings = await fetchEbayItemsByGroup(itemGroupId, marketplaceId)
+  if (!rawSiblings.length) {
+    throw new Error(
+      `eBay item group ${itemGroupId} returned no items via get_items_by_item_group — listing may have ended or the group id is stale.`
+    )
+  }
+  const siblings = rawSiblings.map(normalizeSibling)
+
+  const current =
+    (legacyVariationId && siblings.find((s) => s.itemId.endsWith(`|${legacyVariationId}`))) ||
+    siblings[0]
+
+  const token = await getEbayAccessToken()
+  const detailRes = await fetch(
+    `${EBAY_BROWSE_ITEM_BASE_URL}/${encodeURIComponent(current.itemId)}?fieldgroups=PRODUCT`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    }
+  )
+  if (!detailRes.ok) {
+    const body = await detailRes.text().catch(() => '')
+    throw new Error(
+      `eBay item detail fetch failed for ${current.itemId} after group fallback (HTTP ${detailRes.status}): ${body.slice(0, 300)}`
+    )
+  }
+  const item = await detailRes.json()
+
+  return normalizeEbayItemResponse(item, current.legacyItemId ?? itemGroupId, marketplaceId)
 }
 
 // ---------- Legacy DOM/JSON-LD scraper (fallback path, no API creds) ----------
