@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useRef } from "react"
 import { usePathname } from "next/navigation"
-import { ArrowLeft, LogIn, LogOut, User, UserPlus, ChevronDown } from "lucide-react"
+import { ArrowLeft, LogIn, LogOut, Heart, ShoppingBag, UserPlus, ChevronDown } from "lucide-react"
 
 import BrandMark from "@/components/shared/BrandMark"
 import AirmailStripe, { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
 import { useAuth } from "@/contexts/AuthContext"
+import { useCart } from "@/contexts/Cartcontext"
+import { useWishlist } from "@/contexts/Wishlistcontext"
 import { ShopMegaMenuPanel } from "@/components/stores/ShopMegaMenu"
 import ShopBottomSheet from "@/components/stores/ShopBottomSheet"
 import Image from "next/image"
@@ -69,15 +71,20 @@ const MOBILE_BG = "bg-parchment"
 const pillButtonClass =
   "flex items-center gap-2 rounded-lg border border-ink/15 bg-ink/5 px-3 py-1.5 text-ink transition-all duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep lg:py-2"
 
+/** Small numeric badge for the Cart/Wishlist pill buttons. Caps display at 99+. */
+function CountBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-teal-deep px-1 text-[10px] font-bold leading-none text-white">
+      {count > 99 ? "99+" : count}
+    </span>
+  )
+}
+
 export default function Header({ title, showBackButton = false }: HeaderProps) {
-  const { user, isAuthenticated, login, logout } = useAuth()
-  const initials = user?.name
-    ?.split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-  const userImageUrl = user?.imageUrl
+  const { isAuthenticated, login, logout } = useAuth()
+  const cart = useCart()
+  const wishlist = useWishlist()
   const [activeDesktopMenu, setActiveDesktopMenu] = useState<string | null>(null)
   const [navOpen, setNavOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -281,28 +288,37 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
               </button>
             </div>
 
-            {/* Right — desktop only, vertically centered in OUTER_H */}
+            {/* Right — desktop only, vertically centered in OUTER_H.
+                The old avatar + name + email button is gone from here —
+                Cart and Wishlist are what a returning shopper actually
+                wants one click away, so they get the prime spot instead.
+                Account access still exists (via the mobile menu / a
+                dedicated account link elsewhere); this bar's job now is
+                "where's my stuff", not "who am I". */}
             <div className="hidden lg:flex items-center justify-end gap-3 flex-shrink-0 z-20 pl-2 h-full">
-              {isAuthenticated ? (
-                <button type="button" aria-label="Your profile" className="flex items-center gap-2.5 min-w-0 max-w-[220px] group/org rounded-lg px-3 transition-colors duration-300" onClick={() => window.location.href = "/account"}>
-                  <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0 rounded-full overflow-hidden bg-teal/5 border border-teal/25 flex items-center justify-center group-hover/org:border-teal/60 group-hover/org:bg-teal/10 transition-all duration-300">
-                    {userImageUrl ? (
-                      <Image src={userImageUrl} alt="User profile" className="w-full h-full object-cover" width={40} height={40} />
-                    ) : (
-                      <span className="text-xs font-semibold text-teal-deep">{initials}</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end min-w-0 justify-center leading-tight font-body">
-                    <p className="text-sm lg:text-[15px] text-ink font-semibold truncate w-full text-right tracking-wide group-hover/org:text-teal-deep transition-colors duration-300">{user?.name}</p>
-                    <p className="text-[10px] lg:text-xs text-ink/55 truncate w-full text-right font-medium">{user?.email}</p>
-                  </div>
-                </button>
-              ) : (
-                <button type="button" aria-label="Register" className={`group ${pillButtonClass} lg:px-4`}>
-                  <UserPlus className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
-                  <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">REGISTER</span>
-                </button>
-              )}
+              <button
+                type="button"
+                aria-label="Wishlist"
+                title="Wishlist"
+                onClick={() => { window.location.href = "/wishlist" }}
+                className={`relative ${pillButtonClass} lg:px-3`}
+              >
+                <Heart className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
+                <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">WISHLIST</span>
+                <CountBadge count={wishlist.count} />
+              </button>
+
+              <button
+                type="button"
+                aria-label="Cart"
+                title="Cart"
+                onClick={() => { window.location.href = "/cart" }}
+                className={`relative ${pillButtonClass} lg:px-3`}
+              >
+                <ShoppingBag className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
+                <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">CART</span>
+                <CountBadge count={cart.itemCount} />
+              </button>
 
               {isAuthenticated ? (
                 <button type="button" aria-label="Log out" title="Logout" onClick={logout} className={`group ${pillButtonClass} lg:px-4`}>
@@ -364,22 +380,30 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
             })}
           </nav>
 
+          {/* Cart + Wishlist replace the old profile summary here too, so the
+              mobile menu and desktop bar offer the same "here's your stuff"
+              shortcut instead of drifting into two different layouts. */}
           <div className={`flex-none space-y-3 px-6 pb-8 pt-4 transition-all duration-300 ease-out ${visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}>
-            {isAuthenticated ? (
-              <div className="flex w-full items-center gap-3 rounded-lg border border-ink/15 px-4 py-3" onClick={() => { window.location.href = "/account"; setNavOpen(false) }}>
-                <div className="relative w-9 h-9 shrink-0 rounded-full overflow-hidden bg-teal/5 border border-teal/25 flex items-center justify-center">
-                  {userImageUrl ? (
-                    <Image src={userImageUrl} alt="User profile" className="w-full h-full object-cover" width={40} height={40} />
-                  ) : (
-                    <span className="text-xs font-semibold text-teal-deep">{initials}</span>
-                  )}
-                </div>
-                <div className="min-w-0 leading-tight">
-                  <p className="truncate text-sm font-semibold text-ink">{user?.name}</p>
-                  <p className="truncate text-xs text-ink/55">{user?.email}</p>
-                </div>
-              </div>
-            ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/wishlist"; setNavOpen(false) }}
+                className="relative flex items-center justify-center gap-2 rounded-lg border border-ink/15 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200"
+              >
+                <Heart className="w-4 h-4 text-teal-deep" /> Wishlist
+                <CountBadge count={wishlist.count} />
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/cart"; setNavOpen(false) }}
+                className="relative flex items-center justify-center gap-2 rounded-lg border border-ink/15 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200"
+              >
+                <ShoppingBag className="w-4 h-4 text-teal-deep" /> Cart
+                <CountBadge count={cart.itemCount} />
+              </button>
+            </div>
+
+            {!isAuthenticated && (
               <button type="button" onClick={() => setNavOpen(false)} className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-ink/15 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200">
                 <UserPlus className="w-4 h-4 text-teal-deep" /> Register
               </button>

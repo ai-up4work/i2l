@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import AuthProvider from "@/contexts/AuthContext";
+import { CartProvider } from "@/contexts/Cartcontext";
+import { WishlistProvider } from "@/contexts/Wishlistcontext";
 
 const fraunces = Fraunces({
   variable: "--font-serif-display",
@@ -36,9 +38,12 @@ export default function RootLayout({
       <body
         className={`${fraunces.variable} ${spaceGrotesk.variable} font-sans`}
       >
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <CartProvider>
+            <WishlistProvider>{children}</WishlistProvider>
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );
 }
-1199

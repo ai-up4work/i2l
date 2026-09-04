@@ -11,6 +11,7 @@ import {
   Info,
   Loader2,
   Zap,
+  Heart,
 } from 'lucide-react'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/app/demo/scraper-qa/platforms/AmazonProductView'
@@ -23,6 +24,8 @@ import JioMartProductView from '@/app/demo/scraper-qa/platforms/JioMartProductVi
 import SnapdealProductView from '@/app/demo/scraper-qa/platforms/SnapdealProductView'
 import ShopifyProductView from '@/app/demo/scraper-qa/platforms/Shopifyproductview'
 import WooCommerceProductView from '@/app/demo/scraper-qa/platforms/Woocommerceproductview'
+import { useCart, type CartProduct } from '@/contexts/Cartcontext'
+import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
 
 /**
  * Right-side "Product Details" overlay. Slides in from the right and
@@ -36,17 +39,17 @@ import WooCommerceProductView from '@/app/demo/scraper-qa/platforms/Woocommercep
  * unrecognized `result.site` falls back to a generic layout.
  *
  * Everything WishDrop-specific — the estimated price box, delivery/QC
- * row, quantity stepper, "Request this item" CTA, and the
- * Description/Details/Shipping tabs — lives in THIS component, wrapped
- * around whichever platform view is picked, since none of that exists in
- * the QA tool.
+ * row, quantity stepper, wishlist toggle, "Request this item" CTA, and
+ * the Description/Details/Shipping tabs — lives in THIS component,
+ * wrapped around whichever platform view is picked, since none of that
+ * exists in the QA tool.
  *
- * Design notes (see conversation): the WishDrop layer is visually
- * separated from the platform view with a divider so the two don't read
- * as unrelated blocks, teal is the single accent carried through the
- * estimated price, CTA and active tab, and the estimated price is the
- * one deliberately "loud" element on the page since it's the number the
- * shopper is actually deciding on.
+ * Cart + wishlist: this component owns writing to CartContext /
+ * WishlistContext directly (rather than leaving it entirely to the
+ * parent) so that "add to cart" and "save for later" behave the same
+ * wherever this overlay is mounted. `onRequestItem` is still called
+ * afterwards so the parent can do whatever else it needs (toast, close,
+ * analytics, etc) — it's additive, not replaced.
  */
 
 type ItemOverlayProps = {
@@ -113,6 +116,30 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+/**
+ * Builds the small serializable snapshot Cart/Wishlist contexts store,
+ * out of whatever the scraper gave us for this listing. `result.url` is
+ * the identity key — it's the exact variant the shopper was looking at,
+ * so re-adding the same variant later updates qty/dedupes instead of
+ * creating a second row, while a different variant becomes its own entry.
+ *
+ * NOTE: if `ScrapeResult` doesn't carry a `url` field in this codebase,
+ * swap the `id`/`url` line below for whatever field holds the source
+ * listing URL (e.g. `result.link`, `result.sourceUrl`).
+ */
+function toProductSnapshot(result: ScrapeResult) {
+  const url = (result as unknown as { url?: string }).url ?? ''
+  const id = url || `${result.site ?? 'site'}:${result.title ?? 'untitled'}`
+  return {
+    id,
+    url: url || id,
+    site: result.site,
+    title: result.title ?? 'Untitled item',
+    image: result.images?.[0] ?? null,
+    currencyCode: result.currencyCode ?? null,
+  }
+}
+
 // Fallback for a `result.site` the platform-view map below doesn't
 // recognize — deliberately minimal, since this should be rare in
 // practice (every site scrapeProduct() supports has a matching view).
@@ -159,6 +186,8 @@ export default function ItemInfoModal({
   loading = false,
 }: ItemOverlayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('Description')
+  const cart = useCart()
+  const wishlist = useWishlist()
 
   // Reset to the Description tab whenever a genuinely new listing loads
   // (not on a variant re-scrape of the same listing), so a shopper who
@@ -184,6 +213,32 @@ export default function ItemInfoModal({
   const showSkeleton = !result || loading
 
   const handleSelectVariant = (url: string) => onSelectVariant?.(url)
+
+  const productSnapshot = result && !result.error ? toProductSnapshot(result) : null
+  const inWishlist = productSnapshot ? wishlist.isInWishlist(productSnapshot.id) : false
+
+  function handleToggleWishlist() {
+    if (!productSnapshot) return
+    const wishlistProduct: WishlistProduct = {
+      ...productSnapshot,
+      price: result?.price != null ? String(result.price) : null,
+    }
+    wishlist.toggleItem(wishlistProduct)
+  }
+
+  function handleRequestItem() {
+    if (productSnapshot) {
+      const cartProduct: CartProduct = {
+        ...productSnapshot,
+        sourcePrice: result?.price != null ? String(result.price) : null,
+        estimatedPrice: estimatedPrice ?? null,
+      }
+      cart.addItem(cartProduct, qty)
+    }
+    // Parent still gets to react (toast/close/analytics/etc) — adding to
+    // the cart doesn't replace whatever it was already doing here.
+    onRequestItem()
+  }
 
   const platformView = (() => {
     if (!result || result.error) return null
@@ -227,6 +282,7 @@ export default function ItemInfoModal({
         @keyframes tabFadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes priceUpdatePulse { 0% { opacity: 0.4 } 100% { opacity: 1 } }
         @keyframes shimmer { 0% { background-position: -200px 0 } 100% { background-position: calc(200px + 100%) 0 } }
+        @keyframes heartPop { 0% { transform: scale(0.7) } 60% { transform: scale(1.15) } 100% { transform: scale(1) } }
         .skeleton-shimmer {
           background-image: linear-gradient(90deg, theme(colors.ink/6%) 25%, theme(colors.ink/12%) 37%, theme(colors.ink/6%) 63%);
           background-size: 400px 100%;
@@ -236,9 +292,7 @@ export default function ItemInfoModal({
 
       <div className="absolute inset-y-0 right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift motion-safe:[animation:panelSlideIn_0.28s_cubic-bezier(0.16,1,0.3,1)_both] lg:w-1/2">
         {/* Header — kept minimal: a small source tag (what site this was
-            pulled from, useful context) plus close. "Product Details" as
-            a standalone label added nothing the panel doesn't already
-            say, so it's gone. */}
+            pulled from, useful context) plus a wishlist toggle and close. */}
         <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
           <div
             key={result?.site ?? (showSkeleton ? 'loading' : 'error')}
@@ -249,14 +303,33 @@ export default function ItemInfoModal({
               {showSkeleton ? 'Reading listing…' : result?.error ? 'Listing' : siteLabel(result?.site)}
             </span>
           </div>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/50 transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex flex-none items-center gap-1">
+            {productSnapshot && (
+              <button
+                type="button"
+                aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+                aria-pressed={inWishlist}
+                onClick={handleToggleWishlist}
+                className="grid h-9 w-9 place-items-center rounded-full text-ink/50 transition-all duration-200 hover:bg-ink/5 hover:text-ink"
+              >
+                <Heart
+                  key={inWishlist ? 'saved' : 'unsaved'}
+                  size={18}
+                  className={inWishlist ? 'motion-safe:[animation:heartPop_0.25s_ease-out_both]' : undefined}
+                  fill={inWishlist ? 'currentColor' : 'none'}
+                  color={inWishlist ? '#e11d48' : 'currentColor'}
+                />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/50 transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -351,7 +424,7 @@ export default function ItemInfoModal({
                   </div>
                   <button
                     type="button"
-                    onClick={onRequestItem}
+                    onClick={handleRequestItem}
                     disabled={loading || result!.unavailable}
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
                   >
