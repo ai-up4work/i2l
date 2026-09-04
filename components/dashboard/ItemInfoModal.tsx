@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   X,
   Truck,
@@ -40,6 +40,13 @@ import WooCommerceProductView from '@/app/demo/scraper-qa/platforms/Woocommercep
  * Description/Details/Shipping tabs — lives in THIS component, wrapped
  * around whichever platform view is picked, since none of that exists in
  * the QA tool.
+ *
+ * Design notes (see conversation): the WishDrop layer is visually
+ * separated from the platform view with a divider so the two don't read
+ * as unrelated blocks, teal is the single accent carried through the
+ * estimated price, CTA and active tab, and the estimated price is the
+ * one deliberately "loud" element on the page since it's the number the
+ * shopper is actually deciding on.
  */
 
 type ItemOverlayProps = {
@@ -78,6 +85,24 @@ type ItemOverlayProps = {
 
 const TABS = ['Description', 'Details', 'Shipping & Returns'] as const
 type Tab = (typeof TABS)[number]
+
+const SITE_LABELS: Record<string, string> = {
+  amazon: 'Amazon',
+  flipkart: 'Flipkart',
+  meesho: 'Meesho',
+  myntra: 'Myntra',
+  ebay: 'eBay',
+  ajio: 'Ajio',
+  jiomart: 'JioMart',
+  snapdeal: 'Snapdeal',
+  shopify: 'Shopify store',
+  woocommerce: 'Online store',
+}
+
+function siteLabel(site?: string | null) {
+  if (!site) return 'Online store'
+  return SITE_LABELS[site] ?? site.charAt(0).toUpperCase() + site.slice(1)
+}
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -135,9 +160,28 @@ export default function ItemInfoModal({
 }: ItemOverlayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('Description')
 
+  // Reset to the Description tab whenever a genuinely new listing loads
+  // (not on a variant re-scrape of the same listing), so a shopper who
+  // was reading "Shipping & Returns" on the last item doesn't land on
+  // an empty tab for the next one.
+  const lastResultKey = useRef<string | null>(null)
+  useEffect(() => {
+    const key = result ? `${result.site ?? ''}|${result.title ?? ''}` : null
+    if (key && key !== lastResultKey.current) {
+      lastResultKey.current = key
+      setActiveTab('Description')
+    }
+  }, [result])
+
   // Only `open` controls whether the panel mounts. `result` being absent
   // (scrape still in flight) shows a skeleton instead — see below.
   if (!open) return null
+
+  // A fresh link or a variant swap should always show the skeleton
+  // rather than the previous listing dimmed underneath it — `loading`
+  // means "new data is on the way", so treat it the same as "no data
+  // yet" for the purposes of what gets rendered.
+  const showSkeleton = !result || loading
 
   const handleSelectVariant = (url: string) => onSelectVariant?.(url)
 
@@ -179,17 +223,37 @@ export default function ItemInfoModal({
       <style>{`
         @keyframes overlayFadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes panelSlideIn { from { transform: translateX(24px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }
+        @keyframes contentFadeIn { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: translateY(0) } }
+        @keyframes tabFadeIn { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes priceUpdatePulse { 0% { opacity: 0.4 } 100% { opacity: 1 } }
+        @keyframes shimmer { 0% { background-position: -200px 0 } 100% { background-position: calc(200px + 100%) 0 } }
+        .skeleton-shimmer {
+          background-image: linear-gradient(90deg, theme(colors.ink/6%) 25%, theme(colors.ink/12%) 37%, theme(colors.ink/6%) 63%);
+          background-size: 400px 100%;
+          motion-safe:animation: shimmer 1.4s ease-in-out infinite;
+        }
       `}</style>
 
       <div className="absolute inset-y-0 right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift motion-safe:[animation:panelSlideIn_0.28s_cubic-bezier(0.16,1,0.3,1)_both] lg:w-1/2">
-        {/* Header */}
-        <div className="flex flex-none items-center justify-between border-b border-ink/10 bg-card px-7 py-5">
-          <h2 className="font-display text-lg text-ink">Product Details</h2>
+        {/* Header — kept minimal: a small source tag (what site this was
+            pulled from, useful context) plus close. "Product Details" as
+            a standalone label added nothing the panel doesn't already
+            say, so it's gone. */}
+        <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
+          <div
+            key={result?.site ?? (showSkeleton ? 'loading' : 'error')}
+            className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
+          >
+            <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
+            <span className="truncate text-sm font-semibold text-ink/70">
+              {showSkeleton ? 'Reading listing…' : result?.error ? 'Listing' : siteLabel(result?.site)}
+            </span>
+          </div>
           <button
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="grid h-9 w-9 place-items-center rounded-full text-ink/50 transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
+            className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/50 transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
           >
             <X size={18} />
           </button>
@@ -197,34 +261,46 @@ export default function ItemInfoModal({
 
         {/* Body */}
         <div
-          className={`flex flex-1 flex-col gap-7 overflow-auto p-7 transition-opacity duration-200 ${
-            loading ? 'pointer-events-none opacity-50' : 'opacity-100'
-          }
+          className="flex flex-1 flex-col gap-6 overflow-auto p-4 sm:gap-7 sm:p-7
             [scrollbar-width:thin] [scrollbar-color:theme(colors.ink/25%)_transparent]
             [&::-webkit-scrollbar]:w-1.5
             [&::-webkit-scrollbar-track]:bg-transparent
             [&::-webkit-scrollbar-thumb]:rounded-full
-            [&::-webkit-scrollbar-thumb]:bg-ink/20`}
+            [&::-webkit-scrollbar-thumb]:bg-ink/20"
         >
-          {!result ? (
+          {showSkeleton ? (
             <ItemOverlaySkeleton />
-          ) : result.error ? (
-            <div className="rounded-xl border border-red-300/40 bg-red-50 p-5 text-sm text-ink/70">
-              Couldn&apos;t read this listing: {result.error}
+          ) : result!.error ? (
+            <div className="rounded-xl border border-red-300/40 bg-red-50 p-5 text-sm text-ink/70 motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
+              Couldn&apos;t read this listing: {result!.error}
             </div>
           ) : (
-            <>
+            <div
+              key={`${result!.site ?? ''}|${result!.title ?? ''}`}
+              className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
+            >
               {platformView}
 
-              {/* WishDrop-specific layer below the platform's own layout */}
-              <div className="flex flex-col gap-4">
+              {/* Divider marks the handoff from the scraped listing to WishDrop's
+                  own commerce layer below — without it the two blocks read as
+                  unrelated sections rather than one continuous product page. */}
+              <div className="flex flex-col gap-5 border-t border-ink/10 pt-6 sm:gap-6">
                 {estimatedPrice && (
-                  <div className="rounded-xl border border-gold/25 bg-gold/10 px-4 py-3">
-                    <span className="flex items-center gap-1 text-xs font-semibold text-ink/60">
-                      Estimated WishDrop Price <Info size={12} />
+                  <div className="rounded-xl bg-teal-deep/[0.06] px-4 py-4 sm:px-5">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-ink/55">
+                      Estimated WishDrop Price
+                      <Info size={12} className="text-ink/35" />
                     </span>
-                    <div className="mt-0.5 font-display text-xl text-ink">{estimatedPrice}</div>
-                    <p className="mt-0.5 text-xs text-ink/45">{estimatedPriceNote}</p>
+                    {/* Keyed on the price string so switching variants — a new
+                        estimate landing under the same box — gets a quick
+                        pulse instead of silently changing underneath the shopper. */}
+                    <div
+                      key={estimatedPrice}
+                      className="mt-1 font-display text-3xl text-ink motion-safe:[animation:priceUpdatePulse_0.3s_ease-out_both]"
+                    >
+                      {estimatedPrice}
+                    </div>
+                    <p className="mt-1 text-xs text-ink/45">{estimatedPriceNote}</p>
                   </div>
                 )}
 
@@ -245,7 +321,15 @@ export default function ItemInfoModal({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {/* Sticky on mobile only: with a full-width panel and a long
+                    scroll (variants, tabs, etc.) the request button can end
+                    up well below the fold — pinning it means it's always
+                    reachable without hunting for it. Desktop has the room
+                    to stay inline. */}
+                <div
+                  className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-ink/10 bg-parchment/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm
+                    sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
+                >
                   <div className="flex items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
                     <button
                       type="button"
@@ -268,16 +352,18 @@ export default function ItemInfoModal({
                   <button
                     type="button"
                     onClick={onRequestItem}
-                    disabled={loading || result.unavailable}
+                    disabled={loading || result!.unavailable}
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
                   >
                     <ShoppingCart size={16} />
-                    {result.unavailable ? 'Currently unavailable' : 'Request this item'}
+                    {result!.unavailable ? 'Currently unavailable' : 'Request this item'}
                   </button>
                 </div>
-                <p className="-mt-1 text-xs text-ink/40">You will not be charged now. This is just a request.</p>
+                <p className="-mt-2 text-xs text-ink/40 sm:mt-0">
+                  You will not be charged now. This is just a request.
+                </p>
 
-                <div className="mt-2 border-t border-ink/10 pt-4">
+                <div className="border-t border-ink/10 pt-4">
                   <div className="flex gap-5 border-b border-ink/10">
                     {TABS.map((tab) => (
                       <button
@@ -294,41 +380,53 @@ export default function ItemInfoModal({
                       </button>
                     ))}
                   </div>
-                  <div className="pt-4 text-sm leading-relaxed text-ink/65">
-                    {activeTab === 'Description' && (
-                      <p>{result.title ? `${result.title}.` : 'No description available for this listing.'}</p>
-                    )}
+                  {/* Keyed on the tab id so switching tabs crossfades the new
+                      content in rather than snapping instantly — a small
+                      touch, but it makes the panel feel considered rather
+                      than assembled from raw state. */}
+                  <div
+                    key={activeTab}
+                    className="pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+                  >
+                    {activeTab === 'Description' &&
+                      (result!.description ? (
+                        <p>{result!.description}</p>
+                      ) : (
+                        <p className="text-ink/45">
+                          {result!.title ?? 'No description available for this listing.'}
+                        </p>
+                      ))}
                     {activeTab === 'Details' && (
                       <dl className="flex flex-col gap-1.5 text-xs">
-                        {result.brand && <DetailRow label="Brand" value={result.brand} />}
-                        {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-                        {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-                        {result.itemSpecifics?.map((spec) => (
+                        {result!.brand && <DetailRow label="Brand" value={result!.brand} />}
+                        {result!.mpn && <DetailRow label="Model" value={result!.mpn} />}
+                        {result!.categoryPath && <DetailRow label="Category" value={result!.categoryPath} />}
+                        {result!.itemSpecifics?.map((spec) => (
                           <DetailRow key={spec.name} label={spec.name} value={spec.value} />
                         ))}
-                        {!result.brand && !result.mpn && !result.itemSpecifics?.length && (
+                        {!result!.brand && !result!.mpn && !result!.itemSpecifics?.length && (
                           <p className="text-ink/45">No additional details available.</p>
                         )}
                       </dl>
                     )}
                     {activeTab === 'Shipping & Returns' && (
                       <dl className="flex flex-col gap-1.5 text-xs">
-                        {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
+                        {result!.itemLocation && <DetailRow label="Ships from" value={result!.itemLocation} />}
                         <DetailRow
                           label="Returns"
                           value={
-                            result.returnsAccepted
-                              ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
+                            result!.returnsAccepted
+                              ? `Accepted${result!.returnPeriodDays ? ` within ${result!.returnPeriodDays} days` : ''}`
                               : 'Not accepted by seller'
                           }
                         />
-                        {result.availability && <DetailRow label="Availability" value={result.availability} />}
+                        {result!.availability && <DetailRow label="Availability" value={result!.availability} />}
                       </dl>
                     )}
                   </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
