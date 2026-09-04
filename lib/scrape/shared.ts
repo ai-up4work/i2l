@@ -1,4 +1,5 @@
 import type { Cheerio } from 'cheerio'
+import { load as cheerioLoad } from 'cheerio'
 
 // lib/scrape/shared.ts
 //
@@ -150,5 +151,63 @@ export function detectCurrencyAndClean(
   return {
     amount: raw ? parseAmount(raw, code) : null,
     code,
+  }
+}
+
+// ---------- Block/CAPTCHA detection ----------
+//
+// Checks <title> and the first <h1> specifically, parsed via cheerio
+// rather than raw-HTML regex — a raw regex on `<h1>` stops at the first
+// nested tag or HTML comment, which real WAF block pages can contain
+// (e.g. Meesho's own markup splices comments into text nodes elsewhere
+// on the site), silently letting the block phrase slip through
+// undetected. cheerio's .text() concatenates through both.
+export function extractBlockSignalText(html: string): string {
+  try {
+    const $ = cheerioLoad(html)
+    const title = $('title').first().text() || ''
+    const h1 = $('h1').first().text() || ''
+    return `${title} ${h1}`.toLowerCase()
+  } catch {
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i)
+    const h1Match = html.match(/<h1[^>]*>([^<]*)<\/h1>/i)
+    return `${titleMatch?.[1] ?? ''} ${h1Match?.[1] ?? ''}`.toLowerCase()
+  }
+}
+
+export const BLOCK_PHRASE_RE =
+  /(are you a human|verify you are a human|unusual traffic|robot check|access denied|automated (queries|requests|access)|complete the captcha|solve the captcha|pardon our interruption|permission to access|request blocked|forbidden)/
+
+export function looksBlocked(html: string): boolean {
+  if (BLOCK_PHRASE_RE.test(extractBlockSignalText(html))) return true
+
+  const sample = html.slice(0, 4000).toLowerCase()
+  const blockPhrase = BLOCK_PHRASE_RE.test(sample)
+  if (blockPhrase && html.length < 8000) return true
+
+  const maintenancePhrase =
+    /(site maintenance|something went wrong|please contact your administrator|service (is )?(temporarily )?unavailable|we'll be back (soon|shortly))/.test(
+      sample
+    )
+  return maintenancePhrase && html.length < 8000
+}
+
+export function looksLikeJsRequiredShell(html: string): boolean {
+  const sample = html.slice(0, 4000).toLowerCase()
+  return /(you need to enable javascript to run this app|enable javascript to (shop|run|use) (on |this )?|javascript is not enabled in (your |the )?browser|please enable javascript)/.test(
+    sample
+  )
+}
+
+export async function readErrorBodySnippet(res: Response, maxLen = 300): Promise<string> {
+  try {
+    const text = await res.text()
+    const titleMatch = text.match(/<title[^>]*>([^<]*)<\/title>/i)
+    const title = titleMatch?.[1]?.trim()
+    if (title) return title.slice(0, maxLen)
+    const trimmed = text.trim().replace(/\s+/g, ' ')
+    return trimmed ? trimmed.slice(0, maxLen) : ''
+  } catch {
+    return ''
   }
 }

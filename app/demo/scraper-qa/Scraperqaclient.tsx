@@ -573,7 +573,7 @@ export default function ScraperQaClient() {
     router.push(`${pathname}?url=${encodeURIComponent(trimmed)}`, { scroll: false })
   }
 
-  const SCRAPE_TIMEOUT_MS = 20_000
+  const SCRAPE_TIMEOUT_MS = 320_000 
 
   useEffect(() => {
     if (!activeUrl) return
@@ -618,7 +618,7 @@ export default function ScraperQaClient() {
           const isTimeout = err instanceof DOMException && err.name === 'AbortError'
           setRequestError(
             isTimeout
-              ? 'Scrape timed out after 20s — the target site took too long to respond.'
+              ? 'Scrape timed out after 60s — the target site took too long to respond.'
               : err instanceof Error
                 ? err.message
                 : 'Request failed'

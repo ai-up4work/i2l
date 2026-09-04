@@ -1,335 +1,92 @@
-// app/api/scrape/route.ts
-import { NextRequest, NextResponse } from "next/server"
-import fs from "fs/promises"
-import path from "path"
+import { NextRequest, NextResponse } from "next/server";
+import { scrapeProduct } from "@/lib/scrape/parsers";
 
-export const runtime = "nodejs"
-
-async function fetchHtml(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/124.0.0.0 Safari/537.36",
-
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-
-    cache: "no-store",
-  })
-
-  console.log("Myntra status:", response.status)
-
-  if (!response.ok) {
-    throw new Error(`Myntra returned HTTP ${response.status}`)
-  }
-
-  return await response.text()
-}
-
-function extractMyxState(html: string): Record<string, unknown> {
-  const marker = "window.__myx"
-
-  const markerIndex = html.indexOf(marker)
-
-  if (markerIndex === -1) {
-    throw new Error(
-      "Could not find window.__myx in page HTML."
-    )
-  }
-
-  const equalsIndex = html.indexOf(
-    "=",
-    markerIndex
-  )
-
-  if (equalsIndex === -1) {
-    throw new Error(
-      "Could not find assignment for window.__myx."
-    )
-  }
-
-  const jsonStart = html.indexOf(
-    "{",
-    equalsIndex
-  )
-
-  if (jsonStart === -1) {
-    throw new Error(
-      "Could not find JSON object."
-    )
-  }
-
-  let depth = 0
-  let inString = false
-  let escapeNext = false
-
-  for (
-    let i = jsonStart;
-    i < html.length;
-    i++
-  ) {
-    const char = html[i]
-
-    // Handle characters inside JSON strings
-    if (inString) {
-      if (escapeNext) {
-        escapeNext = false
-        continue
-      }
-
-      if (char === "\\") {
-        escapeNext = true
-        continue
-      }
-
-      if (char === '"') {
-        inString = false
-      }
-
-      continue
-    }
-
-    // Start of a string
-    if (char === '"') {
-      inString = true
-      continue
-    }
-
-    // Opening object
-    if (char === "{") {
-      depth++
-    }
-
-    // Closing object
-    if (char === "}") {
-      depth--
-
-      // Entire JSON object found
-      if (depth === 0) {
-        const jsonString = html.slice(
-          jsonStart,
-          i + 1
-        )
-
-        try {
-          return JSON.parse(jsonString)
-        } catch (error) {
-          throw new Error(
-            `Found window.__myx but JSON parsing failed: ${
-              error instanceof Error
-                ? error.message
-                : "Unknown error"
-            }`
-          )
-        }
-      }
-    }
-  }
-
-  throw new Error(
-    "Could not find the end of window.__myx JSON."
-  )
-}
-
-function summarizePdpData(
-  pdpData: Record<string, any>
-) {
-  const summary: Record<string, any> = {}
-
-  // Brand
-  if (
-    typeof pdpData.brand === "object" &&
-    pdpData.brand !== null
-  ) {
-    summary.brand = pdpData.brand.name
-  } else {
-    summary.brand = pdpData.brand
-  }
-
-  // Product name
-  summary.product_name = pdpData.name
-
-  // Myntra ID
-  summary.myntra_id =
-    pdpData.id ||
-    pdpData.styleId
-
-  // Price
-  const price = pdpData.price || {}
-
-  if (typeof price === "object") {
-    summary.mrp = price.mrp
-
-    summary.selling_price =
-      price.discounted ||
-      price.selling
-
-    summary.discount_percent =
-      price.discountPercent ||
-      price.discount
-
-    // Calculate discount if missing
-    if (
-      !summary.discount_percent &&
-      summary.mrp &&
-      summary.selling_price
-    ) {
-      const mrp = Number(summary.mrp)
-      const selling =
-        Number(summary.selling_price)
-
-      if (mrp > 0) {
-        summary.discount_percent =
-          Math.round(
-            ((mrp - selling) / mrp) *
-              100 *
-              10
-          ) / 10
-      }
-    }
-  }
-
-  // Ratings
-  const ratings = pdpData.ratings || {}
-
-  if (typeof ratings === "object") {
-    summary.rating =
-      ratings.averageRating
-
-    summary.rating_count =
-      ratings.totalCount
-  }
-
-  // Images
-  const media = pdpData.media || {}
-
-  if (
-    typeof media === "object" &&
-    media !== null
-  ) {
-    const albums =
-      media.albums || []
-
-    if (
-      Array.isArray(albums) &&
-      albums.length > 0
-    ) {
-      const images =
-        albums[0]?.images || []
-
-      summary.images = images
-        .map(
-          (img: any) =>
-            img.src ||
-            img.secureUrl ||
-            img.url
-        )
-        .filter(Boolean)
-        .slice(0, 10)
-    }
-  }
-
-  // Sizes
-  summary.available_sizes =
-    pdpData.sizes ||
-    pdpData.availableSizes ||
-    []
-
-  return summary
-}
-
-export async function POST(
-  request: NextRequest
-) {
+function isValidUrl(value: string): boolean {
   try {
-    const body = await request.json()
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
-    const productUrl = body?.url
+/**
+ * Maps a ScrapeResult to an HTTP status.
+ * - `site: null` -> the URL itself was unparseable -> 400
+ * - `error` present -> something failed upstream (blocked, JS shell,
+ *   fetch failure, bad handle, etc.) -> 502 (we successfully talked to
+ *   our own server, the *upstream* site is the problem)
+ * - otherwise -> 200, even if some fields are null and a `warning` is
+ *   attached (e.g. title found but price missing) — partial data is
+ *   still useful to the caller.
+ */
+function statusFor(result: Awaited<ReturnType<typeof scrapeProduct>>): number {
+  if (result.site === null) return 400;
+  if (result.error) return 502;
+  return 200;
+}
 
-    if (
-      !productUrl ||
-      typeof productUrl !== "string"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Product URL is required.",
-        },
-        { status: 400 }
-      )
-    }
+export async function POST(req: NextRequest) {
+  let body: { url?: string; needVariants?: boolean };
 
-    // Basic URL validation
-    const parsedUrl = new URL(productUrl)
-
-    if (
-      !parsedUrl.hostname.includes(
-        "myntra.com"
-      )
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Only Myntra product URLs are supported.",
-        },
-        { status: 400 }
-      )
-    }
-
-    console.log(
-      "Scraping:",
-      productUrl
-    )
-
-    // Fetch Myntra HTML
-    const html =
-      await fetchHtml(productUrl)
-
-    // Extract window.__myx
-    const myxState =
-      extractMyxState(html)
-
-    // Get pdpData
-    const pdpData =
-      (myxState.pdpData as Record<
-        string,
-        any
-      >) || {}
-
-    // Generate cleaned summary
-    const product =
-      summarizePdpData(pdpData)
-
-    return NextResponse.json({
-      success: true,
-
-      product,
-
-      // Optional: return full data
-      // pdpData,
-    })
-  } catch (error) {
-    console.error(
-      "Scraping error:",
-      error
-    )
-
+  try {
+    body = await req.json();
+  } catch {
     return NextResponse.json(
-      {
-        success: false,
+      { error: "Request body must be valid JSON." },
+      { status: 400 }
+    );
+  }
 
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to scrape product.",
-      },
+  const { url, needVariants } = body;
+
+  if (!url || typeof url !== "string" || !isValidUrl(url)) {
+    return NextResponse.json(
+      { error: "Please provide a valid 'url' field (http/https)." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const result = await scrapeProduct(url, {
+      needVariants: !!needVariants,
+      // Lets a client disconnect cancel in-flight upstream work —
+      // including a billed ScraperAPI call — instead of letting it run
+      // to completion with nobody left to receive the result.
+      signal: req.signal,
+    });
+
+    return NextResponse.json({ data: result }, { status: statusFor(result) });
+  } catch (err: any) {
+    // scrapeProduct is designed to return errors on the result object
+    // rather than throw, so reaching here means something unexpected
+    // (a bug, an uncaught extractor exception, etc.)
+    return NextResponse.json(
+      { error: err?.message || "Unexpected error while scraping the provided URL." },
       { status: 500 }
-    )
+    );
+  }
+}
+
+// GET support for quick testing: /api/scrape?url=...&needVariants=true
+export async function GET(req: NextRequest) {
+  const url = req.nextUrl.searchParams.get("url");
+  const needVariants = req.nextUrl.searchParams.get("needVariants") === "true";
+
+  if (!url || !isValidUrl(url)) {
+    return NextResponse.json(
+      { error: "Provide a 'url' query parameter, e.g. /api/scrape?url=..." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const result = await scrapeProduct(url, { needVariants, signal: req.signal });
+    return NextResponse.json({ data: result }, { status: statusFor(result) });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message || "Unexpected error while scraping the provided URL." },
+      { status: 500 }
+    );
   }
 }

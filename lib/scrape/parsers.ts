@@ -1,8 +1,8 @@
 // lib/scrape/parsers.ts
 import * as cheerio from 'cheerio'
 import type { CheerioAPI } from 'cheerio'
-import { fetch as undiciFetch, ProxyAgent } from 'undici'
-import { cleanText, detectCurrencyAndClean, domainCurrency } from './shared'
+import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked, looksLikeJsRequiredShell, readErrorBodySnippet } from './shared'
+import { fetchRendered } from './browser-fetch'
 import { parseAmazon, extractAmazonOptions } from './extractors/amazon'
 import type { AmazonVariantDimension, AmazonSizeChartTable } from './extractors/amazon'
 import { parseFlipkart } from './extractors/flipkart'
@@ -11,6 +11,9 @@ import {
   SITE_ID as MEESHO_SITE_ID,
   REQUIRES_RENDER_FOR_VARIANTS as MEESHO_REQUIRES_RENDER_FOR_VARIANTS,
   SKIPS_GENERIC_STRUCTURED_FALLBACK as MEESHO_SKIPS_GENERIC_STRUCTURED_FALLBACK,
+  SUPPORTS_SCRAPERAPI_FALLBACK as MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK,
+  meeshoScraperApiConfigured,
+  fetchMeeshoViaScraperApi,
   consumeMeeshoMeta,
 } from './extractors/meesho'
 import {
@@ -26,6 +29,9 @@ import {
   SITE_ID as AJIO_SITE_ID,
   REQUIRES_RENDER_FOR_VARIANTS as AJIO_REQUIRES_RENDER_FOR_VARIANTS,
   consumeAjioMeta,
+  SUPPORTS_TLS_FINGERPRINT_FALLBACK as AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK,
+  ajioTlsFingerprintConfigured,
+  fetchAjioViaTlsFingerprint,
 } from './extractors/ajio'
 import {
   parseJioMart,
@@ -74,7 +80,12 @@ export type ScrapeResult = {
   sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable)[] | null
   error?: string
   warning?: string
-  source?: 'direct' | 'scraperapi' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
+  // 'fingerprint_fetch' added alongside 'scraperapi' — both are
+  // last-resort tiers reached only after direct fetch + headless render
+  // have failed; the label just tells you which mechanism actually
+  // produced the successful result (a paid proxy API vs. a self-hosted
+  // TLS-fingerprint-matching fetch). See LAST_RESORT_FALLBACK below.
+  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   _priceSource?: 'meta_description'
   mpn?: string | null
@@ -561,83 +572,51 @@ const SITE_OPTIONS_EXTRACTORS: Partial<Record<SiteId, ($: CheerioAPI) => Record<
   [JIOMART_SITE_ID]: extractJioMartOptions,
 }
 
-// ---------- Fetching (direct + Apify Proxy fallback, cheerio-parsed) ----------
-
-function looksBlocked(html: string): boolean {
-  const sample = html.slice(0, 4000).toLowerCase()
-  const blockPhrase =
-    /(are you a human|verify you are a human|unusual traffic|robot check|access denied|automated (queries|requests|access)|complete the captcha|solve the captcha|pardon our interruption|permission to access)/.test(
-      sample
-    )
-  if (blockPhrase && html.length < 8000) return true
-
-  const maintenancePhrase =
-    /(site maintenance|something went wrong|please contact your administrator|service (is )?(temporarily )?unavailable|we'll be back (soon|shortly))/.test(
-      sample
-    )
-  return maintenancePhrase && html.length < 8000
-}
-
-function looksLikeJsRequiredShell(html: string): boolean {
-  const sample = html.slice(0, 4000).toLowerCase()
-  return /(you need to enable javascript to run this app|enable javascript to (shop|run|use) (on |this )?|javascript is not enabled in (your |the )?browser|please enable javascript)/.test(
-    sample
-  )
-}
-
-async function readErrorBodySnippet(res: Response, maxLen = 300): Promise<string> {
-  try {
-    const text = await res.text()
-
-    const titleMatch = text.match(/<title[^>]*>([^<]*)<\/title>/i)
-    const title = titleMatch?.[1]?.trim()
-
-    if (title) {
-      return title.slice(0, maxLen)
-    }
-
-    const trimmed = text.trim().replace(/\s+/g, ' ')
-    return trimmed ? trimmed.slice(0, maxLen) : ''
-  } catch {
-    return ''
-  }
-}
+// ---------- Fetching (direct + headless-browser + last-resort fallback, cheerio-parsed) ----------
 
 async function fetchDirectOnce(
   url: string,
   headers: HeaderProfile,
   timeoutMs: number,
-  dispatcher?: ProxyAgent
+  signal?: AbortSignal
 ): Promise<{ html: string | null; error: string | null; status: number | null }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const onExternalAbort = () => controller.abort()
+  if (signal) {
+    if (signal.aborted) controller.abort()
+    else signal.addEventListener('abort', onExternalAbort)
+  }
   try {
-    const fetchImpl = dispatcher ? undiciFetch : fetch
-    const res = await fetchImpl(url, {
+    const res = await fetch(url, {
       headers,
       signal: controller.signal,
       cache: 'no-store',
-      ...(dispatcher ? { dispatcher } : {}),
-    } as any)
+    })
     clearTimeout(timer)
     if (!res.ok) {
       const snippet = await readErrorBodySnippet(res)
       return { html: null, error: `HTTP ${res.status}${snippet ? `: ${snippet}` : ''}`, status: res.status }
     }
     const html = await res.text()
-    if (looksBlocked(html)) return { html, error: 'BLOCKED: CAPTCHA/robot-check page', status: res.status }
+    if (looksBlocked(html)) return { html, error: `BLOCKED: CAPTCHA/robot-check page. ${describeBlockPage(html)}`, status: res.status }
     if (looksLikeJsRequiredShell(html)) return { html, error: 'JS_SHELL: page requires JavaScript rendering', status: res.status }
     return { html, error: null, status: res.status }
   } catch (e) {
     clearTimeout(timer)
     const cause = e && typeof e === 'object' && 'cause' in e ? (e as any).cause : undefined
     const causeMsg = cause instanceof Error ? cause.message : cause ? String(cause) : null
+    const causeCode = cause && typeof cause === 'object' ? (cause as any).code : undefined
+    const errCode = e && typeof e === 'object' ? (e as any).code : undefined
     const baseMsg = e instanceof Error ? e.message : String(e)
+    const codeSuffix = errCode || causeCode ? ` [code: ${errCode ?? ''}${causeCode ? `/${causeCode}` : ''}]` : ''
     return {
       html: null,
-      error: `Request failed: ${baseMsg}${causeMsg ? ` (cause: ${causeMsg})` : ''}`,
+      error: `Request failed: ${baseMsg}${causeMsg ? ` (cause: ${causeMsg})` : ''}${codeSuffix}`,
       status: null,
     }
+  } finally {
+    if (signal) signal.removeEventListener('abort', onExternalAbort)
   }
 }
 
@@ -675,20 +654,141 @@ async function primeCookies(
   }
 }
 
-const APIFY_PROXY_PASSWORD = process.env.APIFY_PROXY_PASSWORD
-const APIFY_PROXY_GROUPS = process.env.APIFY_PROXY_GROUPS || 'RESIDENTIAL'
-const APIFY_PROXY_COUNTRY = process.env.APIFY_PROXY_COUNTRY || 'IN'
+// Sites whose static HTML gets blocked/JS-shelled on a plain fetch(), or
+// whose variant picker only exists after client-side hydration. Routed
+// through a real headless Chromium instance via lib/scrape/browser-fetch.ts.
+//
+// IMPORTANT: this tier fixes "needs JS to render" problems. It does NOT
+// reliably fix IP-reputation blocks — a sophisticated WAF can block
+// datacenter/cloud egress IP ranges wholesale regardless of what browser
+// is behind them. If a site in this set keeps coming back BLOCKED even
+// via the headless tier, that's the likely explanation — see
+// LAST_RESORT_FALLBACK below, which is the actual fix for that case
+// (and, for Ajio specifically, only if TLS_FETCH_PROXIES is configured
+// with IPs you control — see extractors/ajio.ts and lib/scrape/tls-fetch.ts).
+//
+// UPDATE: 'ajio' added — its static HTML is a normal 200 response, never
+// blocked and never caught by the generic looksLikeJsRequiredShell()
+// heuristic, but the real product markup (div.prod-sp, h1.prod-name, the
+// size/color pickers) only exists after client-side hydration. See
+// STATIC_CONTENT_SUFFICIENT below, which is what actually routes Ajio
+// into this tier despite its static fetch technically "succeeding".
+const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio'])
 
-const PROXY_FALLBACK_HOSTS = new Set<SiteId>(['meesho'])
-
-function apifyProxyUrl(sessionId: string): string {
-  const username = `groups-${APIFY_PROXY_GROUPS},country-${APIFY_PROXY_COUNTRY},session-${sessionId}`
-  return `http://${username}:${APIFY_PROXY_PASSWORD}@proxy.apify.com:8000`
+// Optional per-site selector to wait for before grabbing page.content(),
+// so the render tier doesn't snapshot the page before the bit we
+// actually need (price/title block) has hydrated in.
+const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
+  meesho: 'h1, [class*="PriceContainer"]',
+  ajio: 'h1.prod-name, div.prod-sp',
 }
 
-function buildApifyProxyDispatcher(sessionId: string): ProxyAgent | null {
-  if (!APIFY_PROXY_PASSWORD) return null
-  return new ProxyAgent(apifyProxyUrl(sessionId))
+// Per-site check for whether a successful (200 OK, not blocked, not
+// flagged by the generic looksLikeJsRequiredShell() heuristic) static
+// fetch actually contains the real product markup, or is a shell that
+// only hydrates client-side. Distinct from looksLikeJsRequiredShell()
+// (a generic, site-agnostic heuristic) — this is a site-specific,
+// confirmed-selector check, needed because Ajio's shell doesn't trip
+// the generic heuristic at all: it's an ordinary 200 response, just
+// missing the product block until JS runs. Confirmed against a real
+// captured, fully-rendered Ajio PDP (see extractors/ajio.ts's parseAjio
+// doc comments) that these two class names are present once the page
+// has actually hydrated.
+const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolean>> = {
+  [AJIO_SITE_ID]: (html) => html.includes('class="prod-sp"') || html.includes('class="prod-name"'),
+}
+
+// ---------- Per-site last-resort fallback registry ----------
+//
+// Last-resort tier for sites whose block survives even the headless
+// tier above. Two mechanisms are registered here, each opted into by
+// its own extractor module (same pattern as SITE_OPTIONS_EXTRACTORS
+// above — parsers.ts stays generic, the site module owns the mechanics):
+//
+//   - Meesho: a residential-IP proxy pool (ScraperAPI's product) — the
+//     actual fix for an IP-reputation block, not a "better" browser
+//     fingerprint. Confirmed via real testing to be necessary for Meesho.
+//   - Ajio: a self-hosted TLS-fingerprint-matching fetch (see
+//     extractors/ajio.ts + lib/scrape/tls-fetch.ts) — fixes fingerprint-
+//     only checks without a third-party API. IMPORTANT: on its own this
+//     does NOT fix an IP-reputation block (same class of block Meesho
+//     needed ScraperAPI for) — it only does so if TLS_FETCH_PROXIES is
+//     configured with IPs you control. Without that env var, this tier
+//     mainly helps by avoiding the blocked state in the first place on
+//     runs where only fingerprinting (not IP reputation) was the issue.
+//
+// `fetch` accepts an optional AbortSignal so a client disconnect (or the
+// caller's own overall deadline) can cancel an in-flight call instead of
+// letting it run — and, for ScraperAPI, get billed — to completion with
+// nobody left to receive the result.
+const LAST_RESORT_FALLBACK: Partial<
+  Record<
+    SiteId,
+    {
+      configured: () => boolean
+      fetch: (url: string, opts?: { signal?: AbortSignal }) => Promise<{ html: string | null; error: string | null }>
+      source: 'scraperapi' | 'fingerprint_fetch'
+    }
+  >
+> = {
+  ...(MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK
+    ? {
+        [MEESHO_SITE_ID]: {
+          configured: meeshoScraperApiConfigured,
+          fetch: fetchMeeshoViaScraperApi,
+          source: 'scraperapi',
+        },
+      }
+    : {}),
+  ...(AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK
+    ? {
+        [AJIO_SITE_ID]: {
+          configured: ajioTlsFingerprintConfigured,
+          fetch: fetchAjioViaTlsFingerprint,
+          source: 'fingerprint_fetch',
+        },
+      }
+    : {}),
+}
+
+// ---------------------------------------------------------------------
+// Block-page fingerprinting — surfaces WHICH wall we hit, not just that
+// we hit one. Both fetchDirectOnce's BLOCKED path and the render tier's
+// BLOCKED path previously discarded the actual response HTML once
+// looksBlocked() returned true, so every "BLOCKED" error looked
+// identical regardless of what was actually served — a generic
+// Cloudflare "checking your browser" page and a hard IP-ban page from a
+// completely different vendor both just said "BLOCKED: CAPTCHA/robot-
+// check page". That made "is this IP reputation or fingerprinting"
+// genuinely unanswerable from the error text alone. This pulls the
+// <title>, plus known vendor markers if any appear in the raw HTML,
+// into the error message itself — the person debugging a failed scrape
+// shouldn't need a second round-trip just to find out which WAF they're
+// looking at.
+const BLOCK_VENDOR_MARKERS: Array<[string, RegExp]> = [
+  ['Akamai Bot Manager', /akamai|_abck|ak_bmsc|sensor_data/i],
+  ['PerimeterX / HUMAN', /perimeterx|_px3|_pxhd|px-captcha/i],
+  ['Cloudflare', /cf-browser-verification|cf_chl_|cloudflare/i],
+  ['DataDome', /datadome|dd_cookie_test/i],
+  ['Kasada', /kpsdk|x-kpsdk/i],
+  ['Imperva / Incapsula', /incapsula|imperva/i],
+  ['Google reCAPTCHA', /recaptcha/i],
+  ['hCaptcha', /hcaptcha/i],
+]
+
+function describeBlockPage(html: string): string {
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i)
+  const title = titleMatch ? titleMatch[1].trim().slice(0, 120) : null
+  const matchedVendors = BLOCK_VENDOR_MARKERS.filter(([, re]) => re.test(html)).map(([name]) => name)
+
+  const parts: string[] = []
+  if (title) parts.push(`page title: "${title}"`)
+  parts.push(
+    matchedVendors.length
+      ? `vendor markers found: ${matchedVendors.join(', ')}`
+      : 'no recognized bot-mitigation vendor markers found in the HTML (may be a custom/in-house check, or a vendor not in this list)'
+  )
+  return parts.join(' — ')
 }
 
 const RETRYABLE_STATUSES = new Set([403, 429, 503])
@@ -696,8 +796,12 @@ const RETRYABLE_STATUSES = new Set([403, 429, 503])
 async function fetchDirectWithRetries(
   url: string,
   site: SiteId,
-  { timeoutMs = 15000, maxAttempts = 3 }: { timeoutMs?: number; maxAttempts?: number } = {}
-): Promise<{ html: string | null; error: string | null }> {
+  {
+    timeoutMs = 15000,
+    maxAttempts = 3,
+    signal,
+  }: { timeoutMs?: number; maxAttempts?: number; signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null; source: 'direct' | 'scraperapi' | 'fingerprint_fetch' }> {
   let lastError: string | null = null
   const primeUrl = PRIME_HOSTS[site]
 
@@ -707,51 +811,117 @@ async function fetchDirectWithRetries(
     if (primedCookie) await jitterDelay(150, 400)
   }
 
+  // Site-specific "does this static HTML actually have the real product
+  // markup" check (currently only Ajio) — see STATIC_CONTENT_SUFFICIENT
+  // above for why this exists separately from the generic
+  // looksLikeJsRequiredShell() heuristic used inside fetchDirectOnce.
+  const contentCheck = STATIC_CONTENT_SUFFICIENT[site]
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (signal?.aborted) {
+      return { html: null, error: 'Client disconnected', source: 'direct' }
+    }
     if (attempt > 0) await jitterDelay(300 + attempt * 200, 900 + attempt * 300)
 
     const headers = pickHeaderProfile(attempt)
     if (primedCookie) headers['Cookie'] = primedCookie
 
-    const { html, error, status } = await fetchDirectOnce(url, headers, timeoutMs)
+    const { html, error, status } = await fetchDirectOnce(url, headers, timeoutMs, signal)
 
-    if (html && !error) return { html, error: null }
-    if (html) return { html, error }
+    if (html && !error) {
+      if (!contentCheck || contentCheck(html)) {
+        return { html, error: null, source: 'direct' }
+      }
+      // Static fetch succeeded (200, not blocked, not a generic
+      // JS-shell) but this site's confirmed content check says the real
+      // product markup still isn't there — a client-hydrated shell the
+      // generic heuristic doesn't catch. Don't keep retrying the same
+      // static fetch (a different header profile won't change what's
+      // server-rendered) — fall through to the render tier below.
+      lastError = 'JS_SHELL: static HTML lacks confirmed product markup — page appears to hydrate client-side'
+      break
+    }
+    if (html) return { html, error, source: 'direct' }
 
     lastError = error
     if (status != null && !RETRYABLE_STATUSES.has(status)) break
   }
 
-  if (PROXY_FALLBACK_HOSTS.has(site)) {
-    if (!APIFY_PROXY_PASSWORD) {
-      lastError = `${lastError ?? 'Fetch failed'} (Apify Proxy fallback skipped: APIFY_PROXY_PASSWORD not set)`
-      return { html: null, error: lastError }
-    }
+  if (signal?.aborted) {
+    return { html: null, error: 'Client disconnected', source: 'direct' }
+  }
 
-    const PROXY_ATTEMPTS = 2
-    for (let attempt = 0; attempt < PROXY_ATTEMPTS; attempt++) {
-      const sessionId = `${Date.now()}_${attempt}_${Math.floor(Math.random() * 1e6)}`
-      const dispatcher = buildApifyProxyDispatcher(sessionId)
-      if (!dispatcher) break
+  // Tracks the render tier's own failure reason separately from
+  // `lastError`, which the last-resort fallback below is otherwise free
+  // to overwrite. Without this, a failure in the tier that's actually
+  // capable of fixing a hydration problem (headless Chromium, real JS
+  // execution) gets silently discarded in favor of the last-resort
+  // tier's failure — which, for Ajio, is a raw HTTP client that never
+  // executes JS and was never going to succeed on a hydration problem in
+  // the first place (see fetchAjioViaTlsFingerprint's doc comments). The
+  // render-tier reason is almost always the more actionable one to
+  // surface to whoever's debugging a failed scrape.
+  let renderTierError: string | null = null
 
-      const headers = pickHeaderProfile(attempt)
-      const outcome = await fetchDirectOnce(url, headers, timeoutMs, dispatcher)
+  if (RENDER_FALLBACK_HOSTS.has(site)) {
+    const rendered = await fetchRendered(url, {
+      waitForSelector: RENDER_WAIT_SELECTOR[site],
+    })
 
-      setTimeout(() => {
-        dispatcher.close().catch(() => {})
-      }, 250)
-
-      const { html, error, status } = outcome
-      if (html && !error) return { html, error: null }
-      if (html) return { html, error: `${error} (via Apify Proxy)` }
-
-      lastError = error ? `${error} (via Apify Proxy)` : lastError
-      if (status != null && !RETRYABLE_STATUSES.has(status)) break
-      if (attempt < PROXY_ATTEMPTS - 1) await jitterDelay(300, 800)
+    if (rendered.html && looksBlocked(rendered.html)) {
+      // The headless browser successfully rendered *something*, but
+      // that something is itself a block/CAPTCHA wall. Deliberately NOT
+      // asserting a cause here (earlier versions of this message
+      // guessed "likely an IP-reputation block, not a fingerprint
+      // check") — a real JS-executing Chromium getting walled off is
+      // just as consistent with browser/behavioral fingerprinting
+      // (navigator.webdriver, WebGL renderer, missing interaction
+      // events — see browser-fetch.ts's stealth notes) as with IP
+      // reputation, and asserting the wrong one sends debugging effort
+      // in the wrong direction. If a plain non-JS fetch (e.g. the
+      // TLS-fingerprint fallback below) succeeds with a clean response
+      // from what's likely the same egress IP, that's actual evidence
+      // *against* IP reputation and *for* something specific to the
+      // browser tier — but this callsite doesn't have that information
+      // yet, so it stays neutral and lets the caller correlate.
+      renderTierError = `BLOCKED: CAPTCHA/robot-check page (via headless browser — cause not yet determined: could be IP reputation, or browser/behavioral fingerprinting specific to the headless tier). ${describeBlockPage(rendered.html)}`
+      lastError = renderTierError
+    } else if (rendered.html && looksLikeJsRequiredShell(rendered.html)) {
+      renderTierError = 'JS_SHELL: page still requires JavaScript rendering even via headless browser'
+      lastError = renderTierError
+    } else if (rendered.html) {
+      return { html: rendered.html, error: null, source: 'direct' }
+    } else {
+      renderTierError = rendered.error ?? lastError
+      lastError = renderTierError
     }
   }
 
-  return { html: null, error: lastError }
+  if (signal?.aborted) {
+    return { html: null, error: 'Client disconnected', source: 'direct' }
+  }
+
+  const lastResortFallback = LAST_RESORT_FALLBACK[site]
+  if (lastResortFallback?.configured()) {
+    const viaFallback = await lastResortFallback.fetch(url, { signal })
+    if (viaFallback.html) {
+      return { html: viaFallback.html, error: null, source: lastResortFallback.source }
+    }
+
+    // Combine rather than overwrite: the render tier's failure (when
+    // there is one) is the actionable signal for what's actually wrong
+    // with this scrape — the last-resort tier failing on top of that is
+    // expected/secondary, not a replacement diagnosis. See
+    // renderTierError's doc comment above.
+    if (viaFallback.error) {
+      lastError =
+        renderTierError && renderTierError !== viaFallback.error
+          ? `${renderTierError} | Fallback also failed: ${viaFallback.error}`
+          : viaFallback.error
+    }
+  }
+
+  return { html: null, error: lastError, source: 'direct' }
 }
 
 // ---------- Shopify (real API, no scraping) ----------
@@ -818,8 +988,6 @@ function buildStoreVariantDimensions(
     }
   })
 }
-
-// lib/scrape/parsers.ts
 
 async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   const parsedHandle = extractShopifyHandle(url)
@@ -1167,6 +1335,13 @@ function parseHtml(html: string, url: string, site: Exclude<SiteId, 'shopify' | 
 
 export type ScrapeProductOptions = {
   needVariants?: boolean
+  /** Propagated from the incoming HTTP request (e.g. Next.js's
+   * `request.signal`) all the way down through fetchDirectWithRetries
+   * and into whichever last-resort fetcher is registered — so a client
+   * disconnecting stops in-flight upstream calls (including a paid
+   * ScraperAPI request) instead of them running — and being billed —
+   * to completion with nobody left to receive the result. */
+  signal?: AbortSignal
 }
 
 const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
@@ -1176,7 +1351,6 @@ const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
   ...(AJIO_REQUIRES_RENDER_FOR_VARIANTS ? [AJIO_SITE_ID] : []),
   ...(JIOMART_REQUIRES_RENDER_FOR_VARIANTS ? [JIOMART_SITE_ID] : []),
   ...(SNAPDEAL_REQUIRES_RENDER_FOR_VARIANTS ? [SNAPDEAL_SITE_ID] : []),
-  
 ])
 
 function hasVariantData(parsed: Record<string, any>): boolean {
@@ -1184,7 +1358,7 @@ function hasVariantData(parsed: Record<string, any>): boolean {
 }
 
 export async function scrapeProduct(url: string, options: ScrapeProductOptions = {}): Promise<ScrapeResult> {
-  const { needVariants = false } = options
+  const { needVariants = false, signal } = options
 
   const site = detectSite(url)
   if (!site) {
@@ -1207,7 +1381,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     return await scrapeEbayProductViaApi(url)
   }
 
-  const { html, error } = await fetchDirectWithRetries(url, site)
+  const { html, error, source } = await fetchDirectWithRetries(url, site, { signal })
 
   if (!html) {
     return { url, site, error: error ?? 'Fetch failed' }
@@ -1241,7 +1415,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const jiomartMeta = consumeJioMartMeta(parsed)
   const snapdealMeta = consumeSnapdealMeta(parsed)
 
-  const result: ScrapeResult = { url, site, source: 'direct', ...parsed }
+  const result: ScrapeResult = { url, site, source, ...parsed }
   if (error) result.warning = error
 
   if (priceSource === 'meta_description') {
