@@ -36,34 +36,22 @@ type DashboardContextValue = {
   lookupLoading: boolean
   lookupError: string | null
   autoFilled: boolean
-  // Full raw /api/product-lookup payload for the current draft.url — this
-  // is what ItemInfoModal needs (as `scrapeResult`) to decide whether to
-  // render the Amazon/Flipkart/etc. look-alike card instead of the plain
-  // URL box, exactly like ScraperQaClient's own `result` state does.
   scrapeResult: ScrapeResult | null
 
   resetDraft: () => void
   startItemInfo: (event: React.FormEvent) => Promise<void>
+  // Same as startItemInfo, but takes a raw URL directly instead of reading
+  // it off a form-submit event. Used by startItemInfo itself, and by the
+  // landing-page redirect handoff (see app/account/page.tsx), which has
+  // no form event to prevent-default — it just has a URL from ?link=.
+  beginRequestForUrl: (url: string) => Promise<void>
   saveItemInfo: (event: React.FormEvent) => void
   confirmRequest: () => void
-  // Re-scrapes a variant/size/color tile's own URL (clicked inside the
-  // platform view) and re-fills the draft from that fresh result — the
-  // same flow as ScraperQaClient's runLookup, just also updating `draft`.
   selectVariant: (url: string) => Promise<void>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
 
-// Applies a fresh ScrapeResult onto the draft — shared by the initial
-// paste (startItemInfo) and variant re-scrapes (selectVariant) so the
-// two flows can't drift apart on field mapping.
-//
-// product.price is in the SOURCE currency (product.currencyCode, e.g.
-// "INR" for Flipkart) — it must be converted to LKR here before landing
-// in draft.unitPrice, since draft.currency is permanently fixed at 'Rs.'
-// (the site only ever displays/quotes in LKR; see lib/currency.ts).
-// Without this conversion, a ₹270 Flipkart item would show as if it were
-// Rs. 270 LKR instead of the correct ~Rs. 972.
 function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
   const price = result.price != null ? Number(result.price) : null
   return {
@@ -104,13 +92,13 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     resetLookup()
   }, [resetLookup])
 
-  // Paste a link -> open the modal immediately -> scrape in the background
-  // -> fill in whatever the store exposes (name/image/price), and expose
-  // the full result so the modal can render the rich platform view.
-  const startItemInfo = useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault()
-      const url = pastedLink.trim()
+  // Core flow, independent of *how* the URL arrived (typed + submitted,
+  // or handed off via a query param from the landing page). Opens the
+  // modal immediately, scrapes in the background, fills the draft when
+  // the scrape resolves.
+  const beginRequestForUrl = useCallback(
+    async (rawUrl: string) => {
+      const url = rawUrl.trim()
       if (!url) return
 
       setAutoFilled(false)
@@ -123,12 +111,19 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       setDraft((current) => applyScrapeResultToDraft(current, product))
       setAutoFilled(true)
     },
-    [pastedLink, lookup],
+    [lookup],
   )
 
-  // Clicking a variant/size/color tile inside the platform view re-runs
-  // the scrape against that tile's own URL and re-fills the draft from
-  // the fresh result, same as startItemInfo above.
+  // Form-submit wrapper around beginRequestForUrl — this is what the
+  // "Buy for me" form on the account HomePage calls directly.
+  const startItemInfo = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault()
+      await beginRequestForUrl(pastedLink)
+    },
+    [pastedLink, beginRequestForUrl],
+  )
+
   const selectVariant = useCallback(
     async (url: string) => {
       const product = await lookup(url)
@@ -186,6 +181,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       scrapeResult,
       resetDraft,
       startItemInfo,
+      beginRequestForUrl,
       saveItemInfo,
       confirmRequest,
       selectVariant,
@@ -203,6 +199,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       scrapeResult,
       resetDraft,
       startItemInfo,
+      beginRequestForUrl,
       saveItemInfo,
       confirmRequest,
       selectVariant,

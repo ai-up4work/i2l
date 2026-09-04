@@ -1,3 +1,4 @@
+// app/page.tsx (or wherever this landing page lives)
 'use client'
 
 import {
@@ -21,7 +22,6 @@ import {
   Link,
 } from 'lucide-react'
 import { GlobeHemisphereWest, ShieldCheck, Truck } from '@phosphor-icons/react'
-import { pathForView } from '@/components/dashboard/routes'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import { destinations, partners, testimonials } from '@/content/data'
 import Header from '@/components/shared/Header'
@@ -30,6 +30,15 @@ import Footer from '@/components/landing/Footer'
 import StatsBand from '@/components/landing/StatsBand'
 import Community from '@/components/landing/Community'
 import WhyChooseWishdrop from '@/components/landing/WhyChooseWishdrop'
+
+/* ============================================================================
+ * ROUTE CONSTANT — single source of truth for where a pasted link goes.
+ * pathForView('addRequest') was drifting from the real route
+ * (/account/requests/new), which is why the redirect was landing on a
+ * dead page. Both Hero and FinalCTA now point at the same literal path
+ * that ShopByCategory already uses for its category tiles.
+ * ==========================================================================*/
+const NEW_REQUEST_PATH = '/account/requests/new'
 
 /* ============================================================================
  * MOTION PRIMITIVE — scroll-triggered reveal, respects reduced motion.
@@ -97,15 +106,15 @@ function Hero() {
     setSubmitted(true)
 
     window.setTimeout(() => {
-      router.push(`${pathForView('addRequest')}?link=${encodeURIComponent(trimmed)}`)
+      router.push(`/account?link=${encodeURIComponent(trimmed)}`)
     }, 500)
   }
 
-    const heroFeatures = [
+  const heroFeatures = [
     { icon: GlobeHemisphereWest, title: 'Global Stores', text: 'Top brands worldwide' },
     { icon: ShieldCheck, title: 'Safe & Secure', text: 'Your items, our priority' },
     { icon: Truck, title: 'Fast Delivery', text: 'To your doorstep' },
-    ]
+  ]
 
   return (
     <section className="relative overflow-hidden bg-parchment" style={{ height: `calc(100dvh)` }}>
@@ -128,7 +137,7 @@ function Hero() {
 
           <h1
             className="mt-4 font-display leading-[1.02] tracking-tight"
-            style={{ fontSize: 'clamp(2.5rem, 4.5vw + 0.75rem, 3.75rem)' }}           
+            style={{ fontSize: 'clamp(2.5rem, 4.5vw + 0.75rem, 3.75rem)' }}
           >
             <span className="text-teal">Wish it. </span>
             <span className="text-gold">We&apos;ll drop it</span>
@@ -140,48 +149,48 @@ function Hero() {
             Shop from your favorite global stores and get it delivered safely to Sri Lanka.
           </p>
 
-            <form
+          <form
             onSubmit={handleSubmit}
             className="relative mt-16 flex w-full max-w-xl items-center gap-1 rounded-2xl border border-black/5 bg-card py-1.5 pl-5 pr-1.5 shadow-lift"
-            >
+          >
             <Link size={16} className="shrink-0 text-ink/35" aria-hidden="true" />
             <input
-                aria-label="Product link"
-                value={link}
-                onChange={(event) => setLink(event.target.value)}
-                placeholder="Paste product link (e.g. Amazon, eBay, etc.)"
-                disabled={submitted}
-                className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
+              aria-label="Product link"
+              value={link}
+              onChange={(event) => setLink(event.target.value)}
+              placeholder="Paste product link (e.g. Amazon, eBay, etc.)"
+              disabled={submitted}
+              className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
             />
             <button
-                type="submit"
-                disabled={submitted || !link.trim()}
-                className="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-teal px-6 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
+              type="submit"
+              disabled={submitted || !link.trim()}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-teal px-6 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
             >
-                {submitted ? (
+              {submitted ? (
                 <>
-                    Sent <Check size={15} />
+                  Sent <Check size={15} />
                 </>
-                ) : (
+              ) : (
                 <>
-                    Get Quote <ArrowRight size={15} />
+                  Get Quote <ArrowRight size={15} />
                 </>
-                )}
+              )}
             </button>
-            </form>
-            <div className="mt-20 flex flex-wrap items-center gap-x-8 gap-y-5">
+          </form>
+          <div className="mt-20 flex flex-wrap items-center gap-x-8 gap-y-5">
             {heroFeatures.map(({ icon: Icon, title, text }) => (
-                <div key={title} className="group flex items-center gap-3">
+              <div key={title} className="group flex items-center gap-3">
                 <span className="relative grid h-9 w-9 flex-none place-items-center rounded-2xl bg-gradient-to-br from-teal/15 via-card to-gold/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),0_2px_6px_-2px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-ink/5 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-[4deg]">
-                    <Icon size={18} weight="duotone" className="text-indigo" style={{ '--icon-secondary': 'var(--color-gold)' } as React.CSSProperties} />
+                  <Icon size={18} weight="duotone" className="text-indigo" style={{ '--icon-secondary': 'var(--color-gold)' } as React.CSSProperties} />
                 </span>
                 <span className="leading-tight">
-                    <span className="block font-body text-xs font-semibold text-indigo sm:text-sm">{title}</span>
-                    <span className="block font-body text-[8px] text-indigo/50 sm:text-xs">{text}</span>
+                  <span className="block font-body text-xs font-semibold text-indigo sm:text-sm">{title}</span>
+                  <span className="block font-body text-[8px] text-indigo/50 sm:text-xs">{text}</span>
                 </span>
-                </div>
+              </div>
             ))}
-            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -431,9 +440,9 @@ const topDeals = [
     discount: '15%',
     label: 'Off',
     detail: 'On Select Items',
-    bgColor: '#EAE8FB', // soft lavender
-    productImage: '/deals/ebay-card-bg.png', // cutout product image only
-    accent: 'text-[#5B57F0]', // lighter periwinkle-indigo
+    bgColor: '#EAE8FB',
+    productImage: '/deals/ebay-card-bg.png',
+    accent: 'text-[#5B57F0]',
     href: '/deals/ebay',
     brandLogo: '/logos/ebay.png',
   },
@@ -442,9 +451,9 @@ const topDeals = [
     discount: '$20',
     label: 'Off',
     detail: 'On $150+ Orders',
-    bgColor: '#FBEEDC', // soft peach
+    bgColor: '#FBEEDC',
     productImage: '/deals/amazon-card-bg.png',
-    accent: 'text-[#E0A429]', // lighter amber-gold
+    accent: 'text-[#E0A429]',
     href: '/deals/amazon',
     brandLogo: '/logos/amazon.png',
   },
@@ -453,9 +462,9 @@ const topDeals = [
     discount: '25%',
     label: 'Off',
     detail: 'Sitewide',
-    bgColor: '#E4F3EA', // soft mint
+    bgColor: '#E4F3EA',
     productImage: '/deals/zara-card-bg.png',
-    accent: 'text-[#2FA36B]', // lighter emerald-green
+    accent: 'text-[#2FA36B]',
     href: '/deals/zara',
     brandLogo: '/logos/zara.png',
   },
@@ -464,9 +473,9 @@ const topDeals = [
     discount: '10%',
     label: 'Off',
     detail: 'On Orders Over $80',
-    bgColor: '#FBE9E9', // soft rose
+    bgColor: '#FBE9E9',
     productImage: '/deals/rakuten-card-bg.png',
-    accent: 'text-[#E24C5A]', // lighter rose-red
+    accent: 'text-[#E24C5A]',
     href: '/deals/rakuten',
     brandLogo: '/logos/rakuten.png',
   },
@@ -486,9 +495,6 @@ const shopCategories = [
 function ShopByCategory() {
   return (
     <section className="mx-auto max-w-9xl px-12 py-20 lg:px-20 bg-card">
-
-
-      {/* Shop by category */}
       <Reveal className="mt-20">
         <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.2em] text-gold">
           Shop by category
@@ -523,7 +529,6 @@ function ShopByCategory() {
         </a>
       </div>
 
-            {/* Deals & Promos */}
       <Reveal className="flex items-end justify-between">
         <div>
           <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.2em] text-gold">
@@ -549,7 +554,6 @@ function ShopByCategory() {
               className="group relative flex h-44 overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(8,39,79,0.06),0_12px_28px_-12px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-black/5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_1px_2px_rgba(8,39,79,0.08),0_20px_36px_-14px_rgba(8,39,79,0.32)] sm:h-48"
               style={{ backgroundColor: deal.bgColor }}
             >
-              {/* main coupon body */}
               <div
                 className="relative flex min-w-0 flex-1 flex-col bg-cover bg-center p-6"
                 style={{ backgroundImage: `url(${deal.productImage})` }}
@@ -582,7 +586,6 @@ function ShopByCategory() {
                 </div>
               </div>
 
-              {/* perforation: dashed line + circular notches */}
               <div className="relative w-0 flex-none">
                 <span
                   aria-hidden="true"
@@ -598,15 +601,10 @@ function ShopByCategory() {
                 />
               </div>
 
-              {/* ticket stub */}
               <div className="relative flex w-14 flex-none flex-col items-center justify-center gap-3 py-4 sm:w-16">
                 <span className="rotate-180 whitespace-nowrap font-body text-[9px] font-semibold uppercase tracking-[0.2em] text-ink/50 [writing-mode:vertical-rl]">
                   View Deal
                 </span>
-                {/* <ArrowUpRight
-                  size={15}
-                  className="text-ink/60 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                /> */}
               </div>
             </a>
           </Reveal>
@@ -633,7 +631,7 @@ function FinalCTA() {
     setSubmitted(true)
 
     window.setTimeout(() => {
-      router.push(`${pathForView('addRequest')}?link=${encodeURIComponent(trimmed)}`)
+      router.push(`/account?link=${encodeURIComponent(trimmed)}`)
     }, 500)
   }
 
@@ -648,12 +646,10 @@ function FinalCTA() {
             sizes="(min-width: 1024px) 1152px, 100vw"
             className="object-cover object-left lg:object-center"
           />
-          {/* scrim: darkens/lightens under the text so it reads over any part of the illustration */}
           <div className="absolute inset-0 bg-gradient-to-r from-parchment/90 via-parchment/40 to-transparent" />
         </div>
 
         <div className="relative z-10 flex flex-col gap-8 px-8 py-14 sm:px-12 lg:flex-row lg:items-center lg:justify-between lg:px-14 lg:py-16">
-          {/* text block — offset right on desktop to clear the illustration */}
           <div className="max-w-lg rounded-2xl lg:ml-[240px] xl:ml-[300px]">
             <p className="font-body text-xs font-extrabold uppercase tracking-[0.2em] text-gold drop-shadow-sm">
               Ready to shop anywhere?
@@ -666,7 +662,6 @@ function FinalCTA() {
             </p>
           </div>
 
-          {/* quick-quote form */}
           <form
             onSubmit={handleSubmit}
             className="flex w-full max-w-md items-center gap-1 rounded-full border border-black/5 bg-card py-1.5 pl-5 pr-1.5 shadow-lift"
@@ -727,48 +722,23 @@ export default function Home() {
     <main className="bg-parchment">
       <style jsx global>{`
         @keyframes float-slow {
-          0%,
-          100% {
-            transform: translateY(0);
-          }
-          50% {
-            transform: translateY(-10px);
-          }
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
         }
         @keyframes fade-slide-in {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         @keyframes pulse-ring {
-          0% {
-            box-shadow: 0 0 0 0 rgba(193, 39, 45, 0.45);
-          }
-          70% {
-            box-shadow: 0 0 0 14px rgba(193, 39, 45, 0);
-          }
-          100% {
-            box-shadow: 0 0 0 0 rgba(193, 39, 45, 0);
-          }
+          0% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0.45); }
+          70% { box-shadow: 0 0 0 14px rgba(193, 39, 45, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0); }
         }
-        .animate-float-slow {
-          animation: float-slow 6s ease-in-out infinite;
-        }
-        .animate-fade-slide-in {
-          animation: fade-slide-in 0.45s ease-out both;
-        }
-        .animate-pulse-ring {
-          animation: pulse-ring 2.6s ease-out infinite;
-        }
+        .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+        .animate-fade-slide-in { animation: fade-slide-in 0.45s ease-out both; }
+        .animate-pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
         @media (prefers-reduced-motion: reduce) {
-          .animate-float-slow,
-          .animate-fade-slide-in,
-          .animate-pulse-ring {
+          .animate-float-slow, .animate-fade-slide-in, .animate-pulse-ring {
             animation: none !important;
           }
         }
