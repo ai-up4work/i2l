@@ -30,6 +30,7 @@ import StatsBand from '@/components/landing/StatsBand'
 import Community from '@/components/landing/Community'
 import Partners from '@/components/landing/Partners'
 import WhyChooseWishdrop from '@/components/landing/WhyChooseWishdrop'
+import DealCoupon, { type Deal } from '@/components/shared/DealCoupon'
 
 /* ============================================================================
  * ROUTE CONSTANT — single source of truth for where a pasted link goes.
@@ -300,7 +301,7 @@ function Testimonials() {
  * DEALS & CATEGORIES (deals promo strip + shop by category)
  * ==========================================================================*/
 
-const topDeals = [
+const topDeals: Deal[] = [
   {
     brand: 'eBay',
     discount: '15%',
@@ -418,67 +419,12 @@ function ShopByCategory() {
         </a>
       </Reveal>
 
+      {/* Card rendering now lives in DealCoupon (components/landing/DealCoupon.tsx)
+          — this just supplies the data and the scroll-reveal stagger. */}
       <div className="mt-8 mb-16 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {topDeals.map((deal, index) => (
           <Reveal key={deal.brand} delay={index * 60}>
-            <a
-              href={deal.href}
-              className="group relative flex h-32 overflow-hidden rounded-xl shadow-[0_1px_2px_rgba(8,39,79,0.06),0_12px_28px_-12px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-black/5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_1px_2px_rgba(8,39,79,0.08),0_20px_36px_-14px_rgba(8,39,79,0.32)] sm:h-44 sm:rounded-2xl lg:h-48"
-              style={{ backgroundColor: deal.bgColor }}
-            >
-              <div
-                className="relative flex min-w-0 flex-1 flex-col bg-cover bg-center p-3 sm:p-6"
-                style={{ backgroundImage: `url(${deal.productImage})` }}
-              >
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-white/25 blur-2xl transition-transform duration-500 group-hover:scale-125"
-                />
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-white/20 to-transparent"
-                />
-
-                <div className="relative z-10 min-w-0">
-                  <p className={`font-body text-lg font-extrabold leading-none sm:text-3xl ${deal.accent}`}>
-                    {deal.discount}
-                  </p>
-                  <p className={`mt-0.5 font-body text-[9px] font-semibold uppercase tracking-wide sm:text-xs ${deal.accent}`}>
-                    {deal.label}
-                  </p>
-                  <p className="mt-1 font-body text-[11px] text-ink/70 sm:mt-2 sm:text-sm">{deal.detail}</p>
-                </div>
-
-                <div className="relative z-10 mt-auto">
-                  <img
-                    src={deal.brandLogo}
-                    alt={`${deal.brand} logo`}
-                    className="h-4 w-auto object-contain sm:h-6 lg:h-7"
-                  />
-                </div>
-              </div>
-
-              <div className="relative w-0 flex-none">
-                <span
-                  aria-hidden="true"
-                  className="absolute -top-2 left-1/2 h-4 w-4 -translate-x-1/2 rounded-full bg-card sm:-top-3 sm:h-6 sm:w-6"
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rounded-full bg-card sm:-bottom-3 sm:h-6 sm:w-6"
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute inset-y-2 left-1/2 w-0 -translate-x-1/2 border-l-2 border-dashed border-ink/15 sm:inset-y-3"
-                />
-              </div>
-
-              <div className="relative flex w-9 flex-none flex-col items-center justify-center gap-3 py-2 sm:w-14 sm:py-4 lg:w-16">
-                <span className="rotate-180 whitespace-nowrap font-body text-[7px] font-semibold uppercase tracking-[0.15em] text-ink/50 [writing-mode:vertical-rl] sm:text-[9px] sm:tracking-[0.2em]">
-                  View Deal
-                </span>
-              </div>
-            </a>
+            <DealCoupon deal={deal} />
           </Reveal>
         ))}
       </div>

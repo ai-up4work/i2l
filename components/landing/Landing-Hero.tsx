@@ -14,7 +14,7 @@ import { affiliatedStores } from '@/data/stores/data'
 // first-time visitor; local sellers get their moment on the /stores
 // browse page.
 //
-// This used to be a static slice(0, 6). It's now the full pool that the
+// This used to be a static slice(0, 7). It's now the full pool that the
 // avatar row rotates through (see VISIBLE_COUNT / useStoreCarousel
 // below) — same trust-signal row, but it can now surface more than six
 // stores over time instead of always showing the same fixed set.
@@ -174,7 +174,7 @@ export default function Hero() {
           <button
             type="button"
             onClick={handleBrowseStores}
-            className="group -mx-3 mt-16 inline-flex items-center gap-3 rounded-full bg-parchment/85 px-3 py-2 text-left shadow-sm backdrop-blur-sm transition-colors duration-200 hover:bg-parchment"
+            className="group mt-16 flex w-full max-w-xl items-center justify-between gap-3 rounded-full bg-parchment/85 px-5 py-3 text-left shadow-sm backdrop-blur-sm transition-colors duration-200 hover:bg-parchment"
           >
             <span className="flex -space-x-2.5">
               {visibleStores.map((store, i) => (
@@ -190,14 +190,13 @@ export default function Hero() {
               ))}
             </span>
 
-            <span className="flex flex-col leading-tight">
+            <span className="flex flex-1 items-center justify-end gap-2">
               <span className="font-body text-sm font-semibold text-teal-deep">Browse top stores</span>
+              <ArrowRight
+                size={14}
+                className="shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-0.5"
+              />
             </span>
-
-            <ArrowRight
-              size={14}
-              className="ml-1 shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-0.5"
-            />
           </button>
         </div>
       </div>
