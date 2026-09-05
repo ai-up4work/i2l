@@ -384,7 +384,7 @@ const shopCategories = [
 
 function ShopByCategory() {
   return (
-    <section className="mx-auto max-w-9xl px-12 py-20 lg:px-20 bg-card">
+    <section className="mx-auto max-w-9xl px-12 py-4 lg:px-20 bg-card">
       <Reveal className="mt-20">
         <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.2em] text-gold">
           Shop by category
@@ -419,7 +419,13 @@ function ShopByCategory() {
         </a>
       </div>
 
-      <Reveal className="flex items-end justify-between">
+      {/* FIX: this Reveal had lost its flex layout classes (was just
+          " mt-10"), so the heading block and "View all deals" link were
+          stacking as plain block elements instead of sitting on one row
+          with the button aligned to the right — restored the same
+          title-left / action-right row pattern used elsewhere on this
+          page (see Destinations's header, ShopByCategory's own pattern). */}
+      <Reveal className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.2em] text-gold">
             Deals &amp; Promos
@@ -430,22 +436,22 @@ function ShopByCategory() {
         </div>
         <a
           href="/deals"
-          className="rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment"
+          className="hidden rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment sm:inline-flex"
         >
           View all deals
         </a>
       </Reveal>
 
-      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {topDeals.map((deal, index) => (
           <Reveal key={deal.brand} delay={index * 60}>
             <a
               href={deal.href}
-              className="group relative flex h-44 overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(8,39,79,0.06),0_12px_28px_-12px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-black/5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_1px_2px_rgba(8,39,79,0.08),0_20px_36px_-14px_rgba(8,39,79,0.32)] sm:h-48"
+              className="group relative flex h-32 overflow-hidden rounded-xl shadow-[0_1px_2px_rgba(8,39,79,0.06),0_12px_28px_-12px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-black/5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_1px_2px_rgba(8,39,79,0.08),0_20px_36px_-14px_rgba(8,39,79,0.32)] sm:h-44 sm:rounded-2xl lg:h-48"
               style={{ backgroundColor: deal.bgColor }}
             >
               <div
-                className="relative flex min-w-0 flex-1 flex-col bg-cover bg-center p-6"
+                className="relative flex min-w-0 flex-1 flex-col bg-cover bg-center p-3 sm:p-6"
                 style={{ backgroundImage: `url(${deal.productImage})` }}
               >
                 <span
@@ -458,20 +464,20 @@ function ShopByCategory() {
                 />
 
                 <div className="relative z-10 min-w-0">
-                  <p className={`font-body text-3xl font-extrabold leading-none ${deal.accent}`}>
+                  <p className={`font-body text-lg font-extrabold leading-none sm:text-3xl ${deal.accent}`}>
                     {deal.discount}
                   </p>
-                  <p className={`mt-0.5 font-body text-xs font-semibold uppercase tracking-wide ${deal.accent}`}>
+                  <p className={`mt-0.5 font-body text-[9px] font-semibold uppercase tracking-wide sm:text-xs ${deal.accent}`}>
                     {deal.label}
                   </p>
-                  <p className="mt-2 font-body text-sm text-ink/70">{deal.detail}</p>
+                  <p className="mt-1 font-body text-[11px] text-ink/70 sm:mt-2 sm:text-sm">{deal.detail}</p>
                 </div>
 
                 <div className="relative z-10 mt-auto">
                   <img
                     src={deal.brandLogo}
                     alt={`${deal.brand} logo`}
-                    className="h-6 w-auto object-contain sm:h-7"
+                    className="h-4 w-auto object-contain sm:h-6 lg:h-7"
                   />
                 </div>
               </div>
@@ -479,26 +485,39 @@ function ShopByCategory() {
               <div className="relative w-0 flex-none">
                 <span
                   aria-hidden="true"
-                  className="absolute -top-3 left-1/2 h-6 w-6 -translate-x-1/2 rounded-full bg-card"
+                  className="absolute -top-2 left-1/2 h-4 w-4 -translate-x-1/2 rounded-full bg-card sm:-top-3 sm:h-6 sm:w-6"
                 />
                 <span
                   aria-hidden="true"
-                  className="absolute -bottom-3 left-1/2 h-6 w-6 -translate-x-1/2 rounded-full bg-card"
+                  className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rounded-full bg-card sm:-bottom-3 sm:h-6 sm:w-6"
                 />
                 <span
                   aria-hidden="true"
-                  className="absolute inset-y-3 left-1/2 w-0 -translate-x-1/2 border-l-2 border-dashed border-ink/15"
+                  className="absolute inset-y-2 left-1/2 w-0 -translate-x-1/2 border-l-2 border-dashed border-ink/15 sm:inset-y-3"
                 />
               </div>
 
-              <div className="relative flex w-14 flex-none flex-col items-center justify-center gap-3 py-4 sm:w-16">
-                <span className="rotate-180 whitespace-nowrap font-body text-[9px] font-semibold uppercase tracking-[0.2em] text-ink/50 [writing-mode:vertical-rl]">
+              <div className="relative flex w-9 flex-none flex-col items-center justify-center gap-3 py-2 sm:w-14 sm:py-4 lg:w-16">
+                <span className="rotate-180 whitespace-nowrap font-body text-[7px] font-semibold uppercase tracking-[0.15em] text-ink/50 [writing-mode:vertical-rl] sm:text-[9px] sm:tracking-[0.2em]">
                   View Deal
                 </span>
               </div>
             </a>
           </Reveal>
         ))}
+      </div>
+
+      {/* Mobile-only counterpart to the header's "View all deals" link
+          (hidden below sm: — see above). Placed after the coupon grid
+          instead of above it, so mobile users see the deals first and
+          the "view all" escape hatch comes after. */}
+      <div className="mt-6 flex justify-center sm:hidden">
+        <a
+          href="/deals"
+          className="rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment"
+        >
+          View all deals
+        </a>
       </div>
     </section>
   )

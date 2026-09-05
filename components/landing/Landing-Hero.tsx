@@ -4,15 +4,23 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowRight, Check, Link } from 'lucide-react'
-import { OPEN_SHOP_EVENT } from '@/components/shared/Header'
 import { affiliatedStores } from '@/data/stores/data'
 
-// Featured store logos for the hero's "Browse Stores" row — pulled from
-// the same affiliatedStores array the /stores pages use, so this never
-// drifts out of sync with the real store list. Marketplaces lead here
-// since they're the most globally recognizable names for a first-time
-// visitor; local sellers get their moment on the /stores browse page.
-const featuredStores = affiliatedStores.filter((store) => store.storeType === 'marketplace').slice(0, 4)
+// Marketplaces lead here since they're the most globally recognizable
+// names for a first-time visitor.
+const featuredStores = affiliatedStores.filter((store) => store.storeType === 'marketplace')
+
+function WaveMark() {
+  // Small decorative squiggle next to the section label — no meaning
+  // beyond decoration, matching the reference design.
+  return (
+    <svg width="18" height="14" viewBox="0 0 20 16" fill="none" aria-hidden="true" className="shrink-0 text-ink/25">
+      <path d="M1 3.5c1.5-2 3.5-2 5 0s3.5 2 5 0 3.5-2 5 0 3.5 2 5 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M1 8c1.5-2 3.5-2 5 0s3.5 2 5 0 3.5-2 5 0 3.5 2 5 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M1 12.5c1.5-2 3.5-2 5 0s3.5 2 5 0 3.5-2 5 0 3.5 2 5 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 /* ============================================================================
  * HERO
@@ -36,13 +44,10 @@ export default function Hero() {
     }, 500)
   }
 
-  // Browse Stores is now a first-class secondary CTA on every breakpoint,
-  // not just a mobile fallback for a hidden nav entry. It reuses Header's
-  // own ShopBottomSheet instance via OPEN_SHOP_EVENT instead of wiring up
-  // new state, the same as before.
-  function handleBrowseStores() {
-    window.dispatchEvent(new Event(OPEN_SHOP_EVENT))
-  }
+  // Note: the previous inline text-link CTA opened Header's ShopBottomSheet
+  // via OPEN_SHOP_EVENT. The box design below links straight to /stores
+  // and /stores/[platform] instead, since "View all stores" and individual
+  // logos read more naturally as real navigation than a sheet trigger.
 
   return (
     <section className="relative overflow-hidden bg-parchment" style={{ height: `calc(100dvh)` }}>
@@ -107,39 +112,44 @@ export default function Hero() {
             </button>
           </form>
 
-          {/* Browse Stores: a permanent secondary path on every breakpoint,
-              sitting where the feature row used to live. Leads with actual
-              store logos as a quick trust signal ("real stores, not just a
-              form") before the "browse more" link, rather than a plain
-              button or a generic feature-icon row. */}
-          <button
-            type="button"
-            onClick={handleBrowseStores}
-            className="group -mx-3 mt-7 inline-flex items-center gap-3 rounded-full px-3 py-2 text-left transition-colors duration-200 hover:bg-teal/[0.06]"
-          >
-            <span className="flex -space-x-2.5">
+          {/* Browse Stores: the bordered "box" design from the reference,
+              scaled down to fit the hero's max-w-xl column instead of
+              running full page width. Header row (label + "View all
+              stores") on top, a divided row of real store logos below. */}
+          <div className="mt-8 max-w-xl overflow-hidden rounded-2xl border border-black/5 bg-card/80 shadow-lift backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <WaveMark />
+                <span className="font-body text-xs font-semibold text-ink sm:text-sm">Our Affiliate Stores</span>
+              </div>
+
+              <a
+                href="/stores"
+                className="group inline-flex shrink-0 items-center gap-1 font-body text-xs font-semibold text-teal-deep transition-colors hover:text-indigo-deep sm:text-sm"
+              >
+                View all
+                <ArrowRight size={12} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+              </a>
+            </div>
+
+            <div className="flex divide-x divide-ink/10 border-t border-black/5">
               {featuredStores.map((store) => (
-                <span
+                <a
                   key={store.platform}
-                  className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border-2 border-parchment bg-card shadow-sm"
+                  href={`/stores/${store.platform}`}
+                  className="flex flex-1 items-center justify-center px-2 py-4 transition-colors duration-200 hover:bg-ink/[0.03] sm:px-4"
                 >
-                  <Image src={store.logo} alt={store.name} fill className="object-contain p-1.5" />
-                </span>
+                  <Image
+                    src={store.logo}
+                    alt={store.name}
+                    width={90}
+                    height={26}
+                    className="h-4 w-auto object-contain opacity-80 grayscale transition-all duration-200 hover:opacity-100 hover:grayscale-0 sm:h-5"
+                  />
+                </a>
               ))}
-            </span>
-
-            <span className="flex flex-col leading-tight">
-              <span className="font-body text-sm font-semibold text-teal-deep">Browse top stores</span>
-              <span className="font-body text-xs text-ink/45">
-                {featuredStores.map((store) => store.name).join(', ')} &amp; more
-              </span>
-            </span>
-
-            <ArrowRight
-              size={14}
-              className="ml-1 shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-0.5"
-            />
-          </button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
