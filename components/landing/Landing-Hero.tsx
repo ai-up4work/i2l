@@ -21,7 +21,7 @@ import { affiliatedStores } from '@/data/stores/data'
 const localStores = affiliatedStores.filter((store) => store.storeType === 'local')
 
 const VISIBLE_COUNT = 6
-const ROTATE_MS = 3200
+const ROTATE_MS = 6000
 
 // Advances through `localStores` VISIBLE_COUNT at a time, wrapping
 // around. Returns a stable static slice if there aren't enough stores to

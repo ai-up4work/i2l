@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { usePathname } from "next/navigation"
-import { ArrowLeft, LogIn, LogOut, Heart, ShoppingBag, UserPlus, ChevronDown, User, Bell, Gift, ImageOff, Store } from "lucide-react"
+import { ArrowLeft, LogIn, LogOut, Heart, ShoppingBag, UserPlus, ChevronDown, User, Bell, Gift, ImageOff, Store, X } from "lucide-react"
 
 import BrandMark from "@/components/shared/BrandMark"
 import AirmailStripe, { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
@@ -45,8 +45,8 @@ const INNER_H = 54
 const MOBILE_ANIM_MS = 280
 const LEFT_NOTCH = 320
 const NOTCH_GAP = 40
-// Cap how many rows render in the Wishlist/Cart preview dropdowns before
-// falling back to "View all" — keeps the panel from growing unbounded.
+// Cap how many rows render in the Wishlist/Cart preview dropdowns/sheets
+// before falling back to "View all" — keeps the panel from growing unbounded.
 const PREVIEW_ITEM_LIMIT = 4
 
 export const HEADER_BAR_HEIGHT = OUTER_H + AIRMAIL_STRIPE_HEIGHT
@@ -74,8 +74,8 @@ function CountBadge({ count }: { count: number }) {
   )
 }
 
-// Small thumbnail used in both dropdown previews — falls back to a plain
-// icon tile when a product has no image, rather than a broken <img>.
+// Small thumbnail used in both dropdown/sheet previews — falls back to a
+// plain icon tile when a product has no image, rather than a broken <img>.
 function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
   if (!image) {
     return (
@@ -92,6 +92,119 @@ function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
   )
 }
 
+const SHEET_ANIM_MS = 240
+
+// Shared bottom sheet used for Wishlist and Cart previews on mobile.
+// Mirrors the desktop dropdown content but renders as a slide-up sheet
+// with a backdrop, matching the pattern used by ShopBottomSheet.
+function PreviewBottomSheet({
+  open,
+  onClose,
+  title,
+  icon,
+  children,
+  isEmpty,
+  emptyLabel,
+  emptyHref,
+  emptyCta,
+  viewAllHref,
+  viewAllLabel,
+}: {
+  open: boolean
+  onClose: () => void
+  title: string
+  icon: React.ReactNode
+  children: React.ReactNode
+  isEmpty: boolean
+  emptyLabel: string
+  emptyHref: string
+  emptyCta: string
+  viewAllHref: string
+  viewAllLabel: string
+}) {
+  const [mounted, setMounted] = useState(false)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>
+    if (open) {
+      setMounted(true)
+      const raf = requestAnimationFrame(() => setVisible(true))
+      return () => cancelAnimationFrame(raf)
+    }
+    setVisible(false)
+    timeout = setTimeout(() => setMounted(false), SHEET_ANIM_MS)
+    return () => clearTimeout(timeout)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = "" }
+  }, [open])
+
+  if (!mounted) return null
+
+  return (
+    <div className="fixed inset-0 z-[110] lg:hidden" role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        className={`absolute inset-0 bg-ink/40 transition-opacity duration-200 ease-out ${visible ? "opacity-100" : "opacity-0"}`}
+        onClick={onClose}
+      />
+      <div
+        className={`absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-teal/20 bg-parchment shadow-[0_-8px_30px_-8px_rgba(13,29,65,0.35)] transition-transform duration-[240ms] ease-out ${
+          visible ? "translate-y-0" : "translate-y-full"
+        }`}
+        style={{ maxHeight: "80vh" }}
+      >
+        <div className="flex items-center justify-between border-b border-teal/15 px-5 py-4">
+          <span className="flex items-center gap-2.5 text-base font-display font-semibold tracking-wide text-ink">
+            {icon}
+            {title}
+          </span>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/60 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(80vh-64px)] overflow-y-auto px-3 pb-6 pt-2">
+          {isEmpty ? (
+            <div className="px-3 py-6 text-center">
+              <p className="text-sm text-ink/60">{emptyLabel}</p>
+              <a
+                href={emptyHref}
+                onClick={onClose}
+                className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline"
+              >
+                {emptyCta} →
+              </a>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1">{children}</div>
+              <div className="mt-1 border-t border-ink/10 pt-2">
+                <a
+                  href={viewAllHref}
+                  onClick={onClose}
+                  className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10"
+                >
+                  {viewAllLabel}
+                  <ArrowLeft size={14} className="rotate-180" />
+                </a>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Header({ title, showBackButton = false, variant = "public" }: HeaderProps) {
   const { isAuthenticated, login, logout } = useAuth()
   const cart = useCart()
@@ -102,6 +215,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
   const [visible, setVisible] = useState(false)
   const [activeMobileMenu, setActiveMobileMenu] = useState<string | null>(null)
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
+  const [wishlistSheetOpen, setWishlistSheetOpen] = useState(false)
+  const [cartSheetOpen, setCartSheetOpen] = useState(false)
 
   // Wishlist/cart counts are populated client-side (e.g. from localStorage),
   // so the server always renders 0/empty. Gate on `hasMounted` so the very
@@ -287,16 +402,14 @@ export default function Header({ title, showBackButton = false, variant = "publi
               </nav>
             </div>
 
-            {/* Mobile actions — Heart, Bag, and Account are plain icon-only
-                buttons (no "Shop" button, no "Menu" label). Shop now lives
-                inside the hamburger menu as its own row. Account goes
-                straight to /account (or triggers login when signed out)
-                rather than carrying "ACCOUNT" text. */}
+            {/* Mobile actions — Heart and Bag now open bottom-sheet previews
+                (matching the desktop dropdowns) instead of navigating away.
+                Account still goes straight to /account (or triggers login). */}
             <div className="flex lg:hidden flex-1 items-center justify-end gap-1 h-full">
               <button
                 type="button"
                 aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
-                onClick={() => { window.location.href = "/wishlist" }}
+                onClick={() => setWishlistSheetOpen(true)}
                 className={`relative ${mobileIconPillClass}`}
               >
                 <Heart className="w-[17px] h-[17px]" />
@@ -306,7 +419,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
               <button
                 type="button"
                 aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ""}`}
-                onClick={() => { window.location.href = "/cart" }}
+                onClick={() => setCartSheetOpen(true)}
                 className={`relative ${mobileIconPillClass}`}
               >
                 <ShoppingBag className="w-[17px] h-[17px]" />
@@ -412,7 +525,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                       <>
                         <div className="flex flex-col gap-1">
                           {cartPreview.map((line) => (
-                            <a
+                           <a 
                               key={line.product.id}
                               href={line.product.url || "/cart"}
                               className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
@@ -592,6 +705,73 @@ export default function Header({ title, showBackButton = false, variant = "publi
       )}
 
       <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} />
+
+      <PreviewBottomSheet
+        open={wishlistSheetOpen}
+        onClose={() => setWishlistSheetOpen(false)}
+        title="Wishlist"
+        icon={<Heart size={18} className="text-teal-deep" />}
+        isEmpty={wishlistPreview.length === 0}
+        emptyLabel="Your wishlist is empty."
+        emptyHref="/wishlist"
+        emptyCta="Browse products"
+        viewAllHref="/wishlist"
+        viewAllLabel={`View wishlist (${wishlistCount})`}
+      >
+        {wishlistPreview.map((entry) => (
+          <a
+            key={entry.id}
+            href={entry.url || "/wishlist"}
+            onClick={() => setWishlistSheetOpen(false)}
+            className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+          >
+            <ProductThumb image={entry.image} alt={entry.title} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-ink">{entry.title}</p>
+              {entry.price && (
+                <p className="text-xs text-ink/55">
+                  {entry.currencyCode ?? ""} {entry.price}
+                </p>
+              )}
+            </div>
+          </a>
+        ))}
+      </PreviewBottomSheet>
+
+      <PreviewBottomSheet
+        open={cartSheetOpen}
+        onClose={() => setCartSheetOpen(false)}
+        title="Cart"
+        icon={<ShoppingBag size={18} className="text-teal-deep" />}
+        isEmpty={cartPreview.length === 0}
+        emptyLabel="Your cart is empty."
+        emptyHref="/cart"
+        emptyCta="Start shopping"
+        viewAllHref="/cart"
+        viewAllLabel={`View cart (${cartCount})`}
+      >
+        {cartPreview.map((line) => (
+          <a
+            key={line.product.id}
+            href={line.product.url || "/cart"}
+            onClick={() => setCartSheetOpen(false)}
+            className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+          >
+            <ProductThumb image={line.product.image} alt={line.product.title} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-ink">{line.product.title}</p>
+              <div className="flex items-center gap-2 text-xs text-ink/55">
+                {line.product.estimatedPrice ? (
+                  <span>{line.product.estimatedPrice}</span>
+                ) : line.product.sourcePrice ? (
+                  <span>{line.product.currencyCode ?? ""} {line.product.sourcePrice}</span>
+                ) : null}
+                <span>· Qty {line.qty}</span>
+              </div>
+            </div>
+          </a>
+        ))}
+      </PreviewBottomSheet>
     </>
   )
 }
