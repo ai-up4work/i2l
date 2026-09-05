@@ -1,24 +1,48 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowRight, Check, Link } from 'lucide-react'
 import { OPEN_SHOP_EVENT } from '@/components/shared/Header'
 import { affiliatedStores } from '@/data/stores/data'
 
-// Featured store logos for the hero's "Browse Stores" row — pulled from
-// the same affiliatedStores array the /stores pages use, so this never
-// drifts out of sync with the real store list. Marketplaces lead here
-// since they're the most globally recognizable names for a first-time
-// visitor; local sellers get their moment on the /stores browse page.
+// Full pool of local-store logos for the hero's "Browse Stores" row —
+// pulled from the same affiliatedStores array the /stores pages use, so
+// this never drifts out of sync with the real store list. Marketplaces
+// lead here since they're the most globally recognizable names for a
+// first-time visitor; local sellers get their moment on the /stores
+// browse page.
 //
-// Pulls up to 6 now (was 4) — mobile only shows the first 4 (see the
-// `hidden lg:block` on avatars past index 2 below), laptop and up shows
-// all 6. Slicing here rather than conditionally in JS keeps this
-// CSS-driven: no resize-triggered re-render, no hydration mismatch
-// between server and client guessing the viewport size.
-const featuredStores = affiliatedStores.filter((store) => store.storeType === 'local').slice(0, 6)
+// This used to be a static slice(0, 6). It's now the full pool that the
+// avatar row rotates through (see VISIBLE_COUNT / useStoreCarousel
+// below) — same trust-signal row, but it can now surface more than six
+// stores over time instead of always showing the same fixed set.
+const localStores = affiliatedStores.filter((store) => store.storeType === 'local')
+
+const VISIBLE_COUNT = 6
+const ROTATE_MS = 3200
+
+// Advances through `localStores` VISIBLE_COUNT at a time, wrapping
+// around. Returns a stable static slice if there aren't enough stores to
+// make rotation worthwhile — no point animating a set that never
+// changes. Runs entirely client-side after mount, so the first paint
+// still matches the server (no hydration mismatch), it just starts
+// rotating a beat later.
+function useStoreCarousel() {
+  const [offset, setOffset] = useState(0)
+
+  useEffect(() => {
+    if (localStores.length <= VISIBLE_COUNT) return
+    const id = window.setInterval(() => {
+      setOffset((o) => (o + VISIBLE_COUNT) % localStores.length)
+    }, ROTATE_MS)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const count = Math.min(VISIBLE_COUNT, localStores.length)
+  return Array.from({ length: count }, (_, i) => localStores[(offset + i) % localStores.length])
+}
 
 /* ============================================================================
  * HERO
@@ -28,6 +52,7 @@ export default function Hero() {
   const router = useRouter()
   const [link, setLink] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const visibleStores = useStoreCarousel()
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -52,6 +77,22 @@ export default function Hero() {
 
   return (
     <section className="relative overflow-hidden bg-parchment" style={{ height: `calc(100dvh)` }}>
+      <style jsx>{`
+        @keyframes avatarPop {
+          from {
+            opacity: 0;
+            transform: scale(0.85);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        .avatarPop {
+          animation: avatarPop 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+      `}</style>
+
       <div className="pointer-events-none absolute inset-0">
         <Image
           src="/hero-demo.png"
@@ -119,22 +160,30 @@ export default function Hero() {
               form") before the "browse more" link, rather than a plain
               button or a generic feature-icon row.
 
-              Avatar count is responsive: 4 on mobile (index 0–3 always
-              visible), all 6 from the lg breakpoint up — the 5th–6th
-              avatars carry `hidden lg:block` so they simply don't render
-              below that width rather than shrinking to fit. */}
+              The avatar row now rotates through the full local-store pool
+              (see useStoreCarousel above) instead of a fixed static slice —
+              every few seconds the next window of stores pops in with a
+              short scale/fade, keyed on `${store.platform}-${i}` so React
+              remounts (and re-animates) each avatar when the window
+              shifts, even if it's showing a store that was visible before.
+
+              Avatar count is still responsive: 4 on mobile (index 0–3
+              always visible), all 6 from the lg breakpoint up — the
+              5th–6th avatars carry `hidden lg:block` so they simply don't
+              render below that width rather than shrinking to fit. */}
           <button
             type="button"
             onClick={handleBrowseStores}
             className="group -mx-3 mt-16 inline-flex items-center gap-3 rounded-full bg-parchment/85 px-3 py-2 text-left shadow-sm backdrop-blur-sm transition-colors duration-200 hover:bg-parchment"
           >
             <span className="flex -space-x-2.5">
-              {featuredStores.map((store, i) => (
+              {visibleStores.map((store, i) => (
                 <span
-                  key={store.platform}
-                  className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-parchment bg-card shadow-sm ${
+                  key={`${store.platform}-${i}`}
+                  className={`avatarPop relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-parchment bg-card shadow-sm ${
                     i >= 4 ? 'hidden lg:block' : ''
                   }`}
+                  style={{ animationDelay: `${i * 60}ms` }}
                 >
                   <Image src={store.logo} alt={store.name} fill className="object-contain" />
                 </span>

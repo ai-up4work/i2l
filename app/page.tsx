@@ -28,6 +28,7 @@ import HowItWorks from '@/components/landing/HowItWorks'
 import Footer from '@/components/landing/Footer'
 import StatsBand from '@/components/landing/StatsBand'
 import Community from '@/components/landing/Community'
+import Partners from '@/components/landing/Partners'
 import WhyChooseWishdrop from '@/components/landing/WhyChooseWishdrop'
 
 /* ============================================================================
@@ -211,31 +212,6 @@ function Destinations() {
   )
 }
 
-/* ============================================================================
- * PARTNERS
- * ==========================================================================*/
-function Partners() {
-  return (
-    <section className="mx-auto max-w-7xl px-6 py-16 text-center lg:px-10">
-      <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-gold">
-        Trusted by thousands <span className="text-ink/30">•</span> Partnered with the best
-      </p>
-
-      <div className="mt-12 flex flex-wrap items-center justify-center gap-x-14 gap-y-8">
-        {partners.map((partner) => (
-          <Image
-            key={partner.name}
-            src={partner.logo}
-            alt={partner.name}
-            width={140}
-            height={50}
-            className="h-9 w-auto object-contain sm:h-11"
-          />
-        ))}
-      </div>
-    </section>
-  )
-}
 
 /* ============================================================================
  * TESTIMONIALS
@@ -442,7 +418,7 @@ function ShopByCategory() {
         </a>
       </Reveal>
 
-      <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="mt-8 mb-16 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {topDeals.map((deal, index) => (
           <Reveal key={deal.brand} delay={index * 60}>
             <a
