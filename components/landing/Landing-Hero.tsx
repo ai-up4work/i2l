@@ -12,7 +12,13 @@ import { affiliatedStores } from '@/data/stores/data'
 // drifts out of sync with the real store list. Marketplaces lead here
 // since they're the most globally recognizable names for a first-time
 // visitor; local sellers get their moment on the /stores browse page.
-const featuredStores = affiliatedStores.filter((store) => store.storeType === 'marketplace').slice(0, 4)
+//
+// Pulls up to 6 now (was 4) — mobile only shows the first 4 (see the
+// `hidden lg:block` on avatars past index 2 below), laptop and up shows
+// all 6. Slicing here rather than conditionally in JS keeps this
+// CSS-driven: no resize-triggered re-render, no hydration mismatch
+// between server and client guessing the viewport size.
+const featuredStores = affiliatedStores.filter((store) => store.storeType === 'local').slice(0, 6)
 
 /* ============================================================================
  * HERO
@@ -111,28 +117,32 @@ export default function Hero() {
               sitting where the feature row used to live. Leads with actual
               store logos as a quick trust signal ("real stores, not just a
               form") before the "browse more" link, rather than a plain
-              button or a generic feature-icon row. */}
+              button or a generic feature-icon row.
+
+              Avatar count is responsive: 4 on mobile (index 0–3 always
+              visible), all 6 from the lg breakpoint up — the 5th–6th
+              avatars carry `hidden lg:block` so they simply don't render
+              below that width rather than shrinking to fit. */}
           <button
             type="button"
             onClick={handleBrowseStores}
-            className="group -mx-3 mt-7 inline-flex items-center gap-3 rounded-full px-3 py-2 text-left transition-colors duration-200 hover:bg-teal/[0.06]"
+            className="group -mx-3 mt-16 inline-flex items-center gap-3 rounded-full bg-parchment/85 px-3 py-2 text-left shadow-sm backdrop-blur-sm transition-colors duration-200 hover:bg-parchment"
           >
             <span className="flex -space-x-2.5">
-              {featuredStores.map((store) => (
+              {featuredStores.map((store, i) => (
                 <span
                   key={store.platform}
-                  className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border-2 border-parchment bg-card shadow-sm"
+                  className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-parchment bg-card shadow-sm ${
+                    i >= 4 ? 'hidden lg:block' : ''
+                  }`}
                 >
-                  <Image src={store.logo} alt={store.name} fill className="object-contain p-1.5" />
+                  <Image src={store.logo} alt={store.name} fill className="object-contain" />
                 </span>
               ))}
             </span>
 
             <span className="flex flex-col leading-tight">
               <span className="font-body text-sm font-semibold text-teal-deep">Browse top stores</span>
-              <span className="font-body text-xs text-ink/45">
-                {featuredStores.map((store) => store.name).join(', ')} &amp; more
-              </span>
             </span>
 
             <ArrowRight
