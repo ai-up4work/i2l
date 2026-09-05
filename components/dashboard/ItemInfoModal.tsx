@@ -704,8 +704,8 @@ export default function ItemInfoModal({
                     className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
                   >
                     {activeTab === 'Description' &&
-                      (result!.description ? (
-                        <p>{result!.description}</p>
+                      (((result as ScrapeResult & { description?: string }).description) ? (
+                        <p>{(result as ScrapeResult & { description?: string }).description}</p>
                       ) : (
                         <p className="text-ink/45">
                           We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
