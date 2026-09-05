@@ -1,11 +1,35 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Heart, Minus, Plus } from 'lucide-react'
+import Link from 'next/link'
+import { Heart, Minus, Plus, ShoppingCart } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import { findMatchingVariant } from '@/lib/product-options'
+import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
 import type { StoreProduct } from '@/lib/store.types'
+
+/**
+ * Builds the small serializable snapshot WishlistContext stores, out of
+ * the already-fetched StoreProduct. `product.url` (falling back to a
+ * platform-scoped id) is the identity key, same convention used by
+ * MarketplaceProductActions and ItemInfoModal, so the same listing
+ * saved from any of those three places dedupes to one wishlist entry
+ * instead of three.
+ */
+function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistProduct {
+  const url = product.url || ''
+  const id = url || `${platform}:${product.id}`
+  return {
+    id,
+    url: url || id,
+    site: platform,
+    title: product.name,
+    image: product.images?.[0] ?? product.image ?? null,
+    currencyCode: product.currency ?? null,
+    price: product.price != null ? String(product.price) : null,
+  }
+}
 
 export default function ProductActions({
   product,
@@ -15,9 +39,9 @@ export default function ProductActions({
   platform: string
 }) {
   const [qty, setQty] = useState(1)
-  const [wishlisted, setWishlisted] = useState(false)
   const [selectedSize, setSelectedSize] = useState<string | undefined>()
   const [selectedColor, setSelectedColor] = useState<string | undefined>()
+  const wishlist = useWishlist()
 
   const hasSizes = !!product.sizes?.length
   const hasColors = !!product.colors?.length
@@ -59,6 +83,17 @@ export default function ProductActions({
             ? 'That combination is unavailable'
             : undefined
 
+  const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform])
+  const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id)
+
+  // "Get Quote" reuses the same request-flow destination the marketplace
+  // branch already sends shoppers to — it doesn't depend on a size/color
+  // selection since it's just kicking off a request, not adding a
+  // specific variant to the bag.
+  const requestHref = `/login?redirect=${encodeURIComponent(
+    `/account/requests/new?productId=${product.id}`
+  )}`
+
   return (
     <div className="mt-6">
       <SizeAndColorPicker
@@ -90,6 +125,18 @@ export default function ProductActions({
           </button>
         </div>
 
+        <button
+          type="button"
+          onClick={() => wishlist.toggleItem(wishlistSnapshot)}
+          aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+          aria-pressed={wishlisted}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-all ${
+            wishlisted ? 'border-red-200 bg-red-50' : 'border-ink/15 hover:bg-card'
+          }`}
+        >
+          <Heart size={17} className={wishlisted ? 'fill-red-500 text-red-500' : 'text-ink'} />
+        </button>
+
         <div className="min-w-[160px] flex-1">
           <AddToBagButton
             product={product}
@@ -101,16 +148,13 @@ export default function ProductActions({
           />
         </div>
 
-        <button
-          type="button"
-          onClick={() => setWishlisted((v) => !v)}
-          aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-all ${
-            wishlisted ? 'border-red-200 bg-red-50' : 'border-ink/15 hover:bg-card'
-          }`}
+        <Link
+          href={requestHref}
+          className="flex h-11 min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-deep"
         >
-          <Heart size={17} className={wishlisted ? 'fill-red-500 text-red-500' : 'text-ink'} />
-        </button>
+          <ShoppingCart size={15} />
+          Get Quote
+        </Link>
       </div>
 
       {selectionHint ? (
