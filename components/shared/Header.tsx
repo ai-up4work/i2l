@@ -527,7 +527,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                           {cartPreview.map((line) => (
                            <a 
                               key={line.product.id}
-                              href={line.product.url || "/cart"}
+                              href={line.product.url || "/account/cart"}
                               className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
                             >
                               <ProductThumb image={line.product.image} alt={line.product.title} />
@@ -546,7 +546,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                           ))}
                         </div>
                         <div className="mt-1 border-t border-ink/10 pt-2">
-                          <a href="/cart" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
+                          <a href="/account/cart" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
                             View cart ({cartCount})
                             <ArrowLeft size={14} className="rotate-180" />
                           </a>
@@ -555,7 +555,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                     ) : (
                       <div className="px-2 py-3">
                         <p className="text-sm text-ink/60">Your cart is empty.</p>
-                        <a href="/cart" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
+                        <a href="/account/cart" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
                           Start shopping →
                         </a>
                       </div>
@@ -745,15 +745,15 @@ export default function Header({ title, showBackButton = false, variant = "publi
         icon={<ShoppingBag size={18} className="text-teal-deep" />}
         isEmpty={cartPreview.length === 0}
         emptyLabel="Your cart is empty."
-        emptyHref="/cart"
+        emptyHref="/account/cart"
         emptyCta="Start shopping"
-        viewAllHref="/cart"
+        viewAllHref="/account/cart"
         viewAllLabel={`View cart (${cartCount})`}
       >
         {cartPreview.map((line) => (
           <a
             key={line.product.id}
-            href={line.product.url || "/cart"}
+            href={line.product.url || "/account/cart"}
             onClick={() => setCartSheetOpen(false)}
             className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
           >
