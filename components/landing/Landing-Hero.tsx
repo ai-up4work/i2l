@@ -111,44 +111,46 @@ export default function Hero() {
               )}
             </button>
           </form>
+        </div>
 
-          {/* Browse Stores: the bordered "box" design from the reference,
-              scaled down to fit the hero's max-w-xl column instead of
-              running full page width. Header row (label + "View all
-              stores") on top, a divided row of real store logos below. */}
-          <div className="mt-8 max-w-xl overflow-hidden rounded-2xl border border-black/5 bg-card/80 shadow-lift backdrop-blur-sm">
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <WaveMark />
-                <span className="font-body text-xs font-semibold text-ink sm:text-sm">Our Affiliate Stores</span>
-              </div>
+        {/* Browse Stores: the bordered "box" design from the reference.
+            Deliberately sits OUTSIDE the max-w-xl heading/form column above
+            so it can span the section's full width (up to the max-w-7xl
+            container) instead of being capped to match the headline's
+            narrower column. Header row (label + "View all stores") on
+            top, a divided row of real store logos below. */}
+        <div className="mt-8 w-full max-w-7xl overflow-hidden rounded-2xl border border-black/5 bg-card/80 shadow-lift backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <WaveMark />
+              <span className="font-body text-xs font-semibold text-ink sm:text-sm">Our Affiliate Stores</span>
+            </div>
 
+            <a
+              href="/stores"
+              className="group inline-flex shrink-0 items-center gap-1 font-body text-xs font-semibold text-teal-deep transition-colors hover:text-indigo-deep sm:text-sm"
+            >
+              View all
+              <ArrowRight size={12} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+            </a>
+          </div>
+
+          <div className="flex divide-x divide-ink/10 border-t border-black/5">
+            {featuredStores.map((store) => (
               <a
-                href="/stores"
-                className="group inline-flex shrink-0 items-center gap-1 font-body text-xs font-semibold text-teal-deep transition-colors hover:text-indigo-deep sm:text-sm"
+                key={store.platform}
+                href={`/stores/${store.platform}`}
+                className="flex flex-1 items-center justify-center px-2 py-4 transition-colors duration-200 hover:bg-ink/[0.03] sm:px-4"
               >
-                View all
-                <ArrowRight size={12} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                <Image
+                  src={store.logo}
+                  alt={store.name}
+                  width={90}
+                  height={26}
+                  className="h-4 w-auto object-contain opacity-80 transition-opacity duration-200 hover:opacity-100 sm:h-5"
+                />
               </a>
-            </div>
-
-            <div className="flex divide-x divide-ink/10 border-t border-black/5">
-              {featuredStores.map((store) => (
-                <a
-                  key={store.platform}
-                  href={`/stores/${store.platform}`}
-                  className="flex flex-1 items-center justify-center px-2 py-4 transition-colors duration-200 hover:bg-ink/[0.03] sm:px-4"
-                >
-                  <Image
-                    src={store.logo}
-                    alt={store.name}
-                    width={90}
-                    height={26}
-                    className="h-4 w-auto object-contain opacity-80 grayscale transition-all duration-200 hover:opacity-100 hover:grayscale-0 sm:h-5"
-                  />
-                </a>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
       </div>
