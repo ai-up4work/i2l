@@ -11,6 +11,10 @@ type Tab = { label: string; icon: typeof Home; view: View; alsoActiveFor?: View[
 // it didn't earn a permanent bottom-nav slot. It's still reachable via
 // the Topbar/Sidebar menu.
 //
+
+export const MOBILE_BOTTOM_NAV_HEIGHT = 76
+
+
 // These are the four "flat" tabs, split left/right of the raised center
 // Add Request button below — not rendered as a single array anymore
 // since the center slot isn't a normal tab (no label under it, different

@@ -16,6 +16,7 @@ import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
 import Header from '@/components/shared/Header'
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import { useElementHeight } from '@/hooks/useElementHeight'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 const MOBILE_BOTTOM_NAV_H = 72
 
@@ -29,6 +30,7 @@ function AccountShell({
   const router = useRouter()
   const pathname = usePathname()
   const view = viewForPath(pathname)
+  const isMobile = useIsMobile() // true below lg (1024px), matching this layout's other breakpoints
 
   const [bannerOpen, setBannerOpen] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -38,7 +40,7 @@ function AccountShell({
   // so tapping it from Orders/Stores/etc. no longer loses that page.
   const [addRequestOpen, setAddRequestOpen] = useState(false)
 
- const {
+  const {
     draft,
     setDraft,
     modalOpen,
@@ -120,7 +122,11 @@ function AccountShell({
         className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto"
         style={{ paddingBottom: 'var(--account-bottom-nav-h)' }}
       >
-        <WelcomeBanner open={bannerOpen} onDismiss={() => setBannerOpen(false)} />
+        <WelcomeBanner
+          open={bannerOpen}
+          onDismiss={() => setBannerOpen(false)}
+          collapse={isMobile}
+        />
         <Topbar view={view} onBack={handleBack} onMenuClick={() => setSidebarOpen(true)} />
         {children}
       </section>
@@ -136,7 +142,7 @@ function AccountShell({
       <AddRequestOverlay
         open={addRequestOpen}
         onClose={() => setAddRequestOpen(false)}
-        link={link}
+        link={safeLink}
         setLink={setLink}
         onSubmit={handleAddRequestSubmit}
       />
@@ -150,8 +156,8 @@ function AccountShell({
           onClose={closeModal}
           onRequestItem={() => saveItemInfo({ preventDefault: () => {} } as React.FormEvent)}
           loading={lookupLoading}
-          onSelectVariant={(_, option) => {
-            if (option.url) selectVariant(option.url)
+          onSelectVariant={(url) => {
+            if (url) selectVariant(url)
           }}
         />
       )}
@@ -208,7 +214,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
     <div className="flex h-screen flex-col overflow-hidden">
       <DashboardProvider>
         <div ref={headerRef} className="hidden lg:block lg:mt-15">
-          <Header />
+          <Header variant="account" />
         </div>
         <AccountShell headerHeight={headerHeight}>{children}</AccountShell>
       </DashboardProvider>

@@ -19,12 +19,11 @@ import {
   MessageCircle,
   Star,
   LinkIcon,
-  Link,
 } from 'lucide-react'
-import { GlobeHemisphereWest, ShieldCheck, Truck } from '@phosphor-icons/react'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import { destinations, partners, testimonials } from '@/content/data'
 import Header from '@/components/shared/Header'
+import Hero from '@/components/landing/Landing-Hero'
 import HowItWorks from '@/components/landing/HowItWorks'
 import Footer from '@/components/landing/Footer'
 import StatsBand from '@/components/landing/StatsBand'
@@ -85,115 +84,6 @@ function Reveal({
     >
       {children}
     </Tag>
-  )
-}
-
-/* ============================================================================
- * HERO
- * ==========================================================================*/
-
-function Hero() {
-  const router = useRouter()
-  const [link, setLink] = useState('')
-  const [submitted, setSubmitted] = useState(false)
-
-  function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-
-    const trimmed = link.trim()
-    if (!trimmed || submitted) return
-
-    setSubmitted(true)
-
-    window.setTimeout(() => {
-      router.push(`/account?link=${encodeURIComponent(trimmed)}`)
-    }, 500)
-  }
-
-  const heroFeatures = [
-    { icon: GlobeHemisphereWest, title: 'Global Stores', text: 'Top brands worldwide' },
-    { icon: ShieldCheck, title: 'Safe & Secure', text: 'Your items, our priority' },
-    { icon: Truck, title: 'Fast Delivery', text: 'To your doorstep' },
-  ]
-
-  return (
-    <section className="relative overflow-hidden bg-parchment" style={{ height: `calc(100dvh)` }}>
-      <div className="pointer-events-none absolute inset-0">
-        <Image
-          src="/hero-demo.png"
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-center"
-        />
-      </div>
-
-      <div className="relative z-10 mx-auto flex h-full mt-12 max-w-7xl flex-col justify-center px-6 lg:px-10">
-        <div className="max-w-xl">
-          <p className="font-body text-xs font-extrabold uppercase tracking-[0.2em] text-gold">
-            Shop global. We deliver.
-          </p>
-
-          <h1
-            className="mt-4 font-display leading-[1.02] tracking-tight"
-            style={{ fontSize: 'clamp(2.5rem, 4.5vw + 0.75rem, 3.75rem)' }}
-          >
-            <span className="text-teal">Wish it. </span>
-            <span className="text-gold">We&apos;ll drop it</span>
-            <br />
-            <span className="text-indigo">right at your door.</span>
-          </h1>
-
-          <p className="mt-5 font-semibold max-w-sm font-body text-sm leading-relaxed text-ink/70 sm:text-base">
-            Shop from your favorite global stores and get it delivered safely to Sri Lanka.
-          </p>
-
-          <form
-            onSubmit={handleSubmit}
-            className="relative mt-16 flex w-full max-w-xl items-center gap-1 rounded-2xl border border-black/5 bg-card py-1.5 pl-5 pr-1.5 shadow-lift"
-          >
-            <Link size={16} className="shrink-0 text-ink/35" aria-hidden="true" />
-            <input
-              aria-label="Product link"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              placeholder="Paste product link (e.g. Amazon, eBay, etc.)"
-              disabled={submitted}
-              className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
-            />
-            <button
-              type="submit"
-              disabled={submitted || !link.trim()}
-              className="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-teal px-6 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
-            >
-              {submitted ? (
-                <>
-                  Sent <Check size={15} />
-                </>
-              ) : (
-                <>
-                  Get Quote <ArrowRight size={15} />
-                </>
-              )}
-            </button>
-          </form>
-          <div className="mt-20 flex flex-wrap items-center gap-x-8 gap-y-5">
-            {heroFeatures.map(({ icon: Icon, title, text }) => (
-              <div key={title} className="group flex items-center gap-3">
-                <span className="relative grid h-9 w-9 flex-none place-items-center rounded-2xl bg-gradient-to-br from-teal/15 via-card to-gold/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),0_2px_6px_-2px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-ink/5 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-[4deg]">
-                  <Icon size={18} weight="duotone" className="text-indigo" style={{ '--icon-secondary': 'var(--color-gold)' } as React.CSSProperties} />
-                </span>
-                <span className="leading-tight">
-                  <span className="block font-body text-xs font-semibold text-indigo sm:text-sm">{title}</span>
-                  <span className="block font-body text-[8px] text-indigo/50 sm:text-xs">{text}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
   )
 }
 

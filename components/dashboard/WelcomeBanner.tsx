@@ -5,15 +5,33 @@ import { AlertCircle, ArrowRight, X } from 'lucide-react'
 type WelcomeBannerProps = {
   open: boolean
   onDismiss: () => void
+  /** If true, content below snaps up to fill the space when closed.
+   *  If false (default), the banner just fades out and its space stays reserved. */
+  collapse?: boolean
+  /** Whether the fade/collapse is animated at all. Default true. */
+  animated?: boolean
+  /** Transition duration in ms. Ignored if animated=false. Default 300. */
+  durationMs?: number
+  /** Transition easing. Ignored if animated=false. Default 'ease-out'. */
+  easing?: string
 }
 
-export default function WelcomeBanner({ open, onDismiss }: WelcomeBannerProps) {
-  return (
+export default function WelcomeBanner({
+  open,
+  onDismiss,
+  collapse = false,
+  animated = true,
+  durationMs = 300,
+  easing = 'ease-out',
+}: WelcomeBannerProps) {
+  const transitionDuration = animated ? `${durationMs}ms` : '0ms'
+
+  const banner = (
     <div
-      className={`relative z-20 flex min-h-14 items-center gap-3 border-b border-gold/40 bg-gradient-to-r from-gold/15 via-gold/10 to-gold/20 px-4 py-3 text-sm text-ink transition-opacity duration-300 sm:px-6 lg:px-10 ${
-        open ? 'opacity-100' : 'pointer-events-none opacity-0'
-      }`}
-      aria-hidden={!open}
+      className={`relative z-20 flex min-h-14 items-center gap-3 border-b border-gold/40 bg-gradient-to-r from-gold/15 via-gold/10 to-gold/20 px-4 py-3 text-sm text-ink sm:px-6 lg:px-10 ${
+        animated ? 'transition-opacity' : ''
+      } ${open ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+      style={{ transitionDuration }}
     >
       {/* Decorative postal detail */}
       <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-gold-deep" />
@@ -56,6 +74,30 @@ export default function WelcomeBanner({ open, onDismiss }: WelcomeBannerProps) {
       >
         <X size={18} strokeWidth={1.8} />
       </button>
+    </div>
+  )
+
+  if (!collapse) {
+    // No layout change at all: banner keeps its space, just fades.
+    return (
+      <div aria-hidden={!open}>
+        {banner}
+      </div>
+    )
+  }
+
+  // Opt-in collapse: content below snaps up.
+  return (
+    <div
+      className={`grid overflow-hidden ${animated ? 'transition-[grid-template-rows]' : ''}`}
+      style={{
+        gridTemplateRows: open ? '1fr' : '0fr',
+        transitionDuration,
+        transitionTimingFunction: easing,
+      }}
+      aria-hidden={!open}
+    >
+      <div className="min-h-0 overflow-hidden">{banner}</div>
     </div>
   )
 }

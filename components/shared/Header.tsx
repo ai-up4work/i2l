@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { usePathname } from "next/navigation"
-import { ArrowLeft, LogIn, LogOut, Heart, ShoppingBag, UserPlus, ChevronDown } from "lucide-react"
+import { ArrowLeft, LogIn, LogOut, Heart, ShoppingBag, UserPlus, ChevronDown, User, Bell, Gift, ImageOff, Store } from "lucide-react"
 
 import BrandMark from "@/components/shared/BrandMark"
 import AirmailStripe, { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
@@ -11,15 +11,12 @@ import { useCart } from "@/contexts/Cartcontext"
 import { useWishlist } from "@/contexts/Wishlistcontext"
 import { ShopMegaMenuPanel } from "@/components/stores/ShopMegaMenu"
 import ShopBottomSheet from "@/components/stores/ShopBottomSheet"
-import Image from "next/image"
 
 interface NavItem { name: string; desc: string; href: string }
 interface NavLink {
   href: string
   label: string
   items?: NavItem[]
-  /** "Shop" renders ShopMegaMenuPanel on desktop; on mobile it's its own
-   *  header-bar trigger (see the Shop button below), not part of this list. */
   megaMenu?: boolean
 }
 
@@ -38,40 +35,36 @@ const navLinks: NavLink[] = [
 ]
 
 interface HeaderProps {
-  /** Optional label shown on the mobile nav trigger. Falls back to "Menu". */
   title?: string
   showBackButton?: boolean
+  variant?: "public" | "account"
 }
 
 const OUTER_H = 68
 const INNER_H = 54
 const MOBILE_ANIM_MS = 280
+const LEFT_NOTCH = 320
+const NOTCH_GAP = 40
+// Cap how many rows render in the Wishlist/Cart preview dropdowns before
+// falling back to "View all" — keeps the panel from growing unbounded.
+const PREVIEW_ITEM_LIMIT = 4
 
-/**
- * The header's TOTAL rendered height, including AirmailStripe which
- * renders above the OUTER_H bar inside this component. This is the
- * single source of truth for anyone reserving top-space for the fixed
- * header — other layouts (e.g. the account/dashboard shell, which places
- * its own content below this fixed header) MUST import this rather than
- * re-deriving or hardcoding a number, or the two will drift out of sync.
- */
 export const HEADER_BAR_HEIGHT = OUTER_H + AIRMAIL_STRIPE_HEIGHT
-
-// Shared event name so other parts of the page (e.g. the Hero CTA) can
-// ask the header to open the Shop mega menu / bottom sheet without
-// needing this component's internal state lifted or passed as props.
 export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
-
-// Single source of truth for the mobile background so the collapsed header
-// bar and the full-screen nav overlay never drift apart. It's a light
-// (parchment) surface, so all mobile foreground content uses `ink` tones.
 const MOBILE_BG = "bg-parchment"
 
-// Shared styling for the pill-shaped icon buttons on the right of the bar.
 const pillButtonClass =
   "flex items-center gap-2 rounded-lg border border-ink/15 bg-ink/5 px-3 py-1.5 text-ink transition-all duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep lg:py-2"
 
-/** Small numeric badge for the Cart/Wishlist pill buttons. Caps display at 99+. */
+const iconPillButtonClass =
+  "flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-lg border border-ink/15 bg-ink/5 text-ink transition-all duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep"
+
+// Compact variant for the tight mobile action row — smaller footprint
+// (h-8 w-8) and a lighter border so several icons sitting next to each
+// other don't read as a wall of boxes.
+const mobileIconPillClass =
+  "flex h-8 w-8 items-center justify-center rounded-lg border border-ink/10 bg-ink/[0.04] text-ink transition-colors duration-200 active:bg-teal/10 active:border-teal/40 active:text-teal-deep"
+
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
@@ -81,7 +74,25 @@ function CountBadge({ count }: { count: number }) {
   )
 }
 
-export default function Header({ title, showBackButton = false }: HeaderProps) {
+// Small thumbnail used in both dropdown previews — falls back to a plain
+// icon tile when a product has no image, rather than a broken <img>.
+function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
+  if (!image) {
+    return (
+      <div className="grid h-11 w-11 flex-none place-items-center rounded-lg border border-ink/10 bg-card">
+        <ImageOff size={16} className="text-ink/25" />
+      </div>
+    )
+  }
+  return (
+    <div className="h-11 w-11 flex-none overflow-hidden rounded-lg border border-ink/10 bg-white">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={image} alt={alt} className="h-full w-full object-contain p-1" />
+    </div>
+  )
+}
+
+export default function Header({ title, showBackButton = false, variant = "public" }: HeaderProps) {
   const { isAuthenticated, login, logout } = useAuth()
   const cart = useCart()
   const wishlist = useWishlist()
@@ -92,32 +103,47 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
   const [activeMobileMenu, setActiveMobileMenu] = useState<string | null>(null)
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
 
-  // Mobile nav links only — Shop lives on its own trigger in the bar,
-  // so it's excluded here rather than rendered as an accordion item.
-  const mobileNavLinks = navLinks.filter((link) => !link.megaMenu)
+  // Wishlist/cart counts are populated client-side (e.g. from localStorage),
+  // so the server always renders 0/empty. Gate on `hasMounted` so the very
+  // first client render still matches SSR — the real counts appear right
+  // after hydration instead of causing a mismatch.
+  const [hasMounted, setHasMounted] = useState(false)
+  useEffect(() => { setHasMounted(true) }, [])
+  const wishlistCount = hasMounted ? wishlist.count : 0
+  const cartCount = hasMounted ? cart.itemCount : 0
+
+  const visibleNavLinks = variant === "account" ? navLinks.filter((l) => l.megaMenu) : navLinks
+  // Shop is rendered as its own row above this list (opens the bottom sheet
+  // directly) instead of as a collapsible section, so exclude it here.
+  const mobileNavLinks = visibleNavLinks.filter((link) => !link.megaMenu)
 
   const pathname = usePathname()
-
-  // Desktop dropdowns (Shop / Support / Discovery) now open on click, not
-  // hover — avoids any "opens just from moving the mouse near it" feel,
-  // and sidesteps the whole class of phantom/stale-hover bugs that came
-  // from the header persisting across route changes. `navRef` scopes the
-  // click-outside listener below; `SHOP_PANEL_ID` lets that same listener
-  // recognize clicks inside the Shop mega menu even though it's portaled
-  // to `document.body` (outside `navRef`'s DOM subtree) — see
-  // ShopMegaMenuPanel in ShopMegaMenu.tsx, which sets this id on its
-  // portaled root.
   const navRef = useRef<HTMLElement>(null)
+  const actionsRef = useRef<HTMLDivElement>(null)
   const SHOP_PANEL_ID = "shop-mega-menu-panel"
+  const ACCOUNT_MENU_ID = "#account"
+  const WISHLIST_MENU_ID = "#wishlist"
+  const CART_MENU_ID = "#cart"
 
-  // Close any open dropdown on an outside click/tap, or Escape.
+  const [rightNotch, setRightNotch] = useState(LEFT_NOTCH)
+  useEffect(() => {
+    const el = actionsRef.current
+    if (!el) return
+    const update = () => setRightNotch(Math.max(LEFT_NOTCH, el.offsetWidth + 32))
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [isAuthenticated, variant])
+
   useEffect(() => {
     if (!activeDesktopMenu) return
     function handlePointerDown(e: MouseEvent) {
       const target = e.target as Node
       const insideNav = navRef.current?.contains(target)
+      const insideActions = actionsRef.current?.contains(target)
       const insideShopPanel = document.getElementById(SHOP_PANEL_ID)?.contains(target)
-      if (!insideNav && !insideShopPanel) setActiveDesktopMenu(null)
+      if (!insideNav && !insideActions && !insideShopPanel) setActiveDesktopMenu(null)
     }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setActiveDesktopMenu(null)
@@ -130,16 +156,10 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
     }
   }, [activeDesktopMenu])
 
-  // Closes any open dropdown on route change, so a menu never carries
-  // over open from whatever page you navigated away from.
   useEffect(() => {
     setActiveDesktopMenu(null)
   }, [pathname])
 
-  // Lets any component on the page (e.g. the Hero's secondary CTA) ask
-  // the header to open the Shop panel — desktop gets the mega menu,
-  // mobile/tablet gets the bottom sheet. Mirrors the lg breakpoint used
-  // everywhere else in this component to decide which UI is active.
   useEffect(() => {
     function handleOpenShop() {
       if (typeof window === "undefined") return
@@ -153,8 +173,6 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
     return () => window.removeEventListener(OPEN_SHOP_EVENT, handleOpenShop)
   }, [])
 
-  // Open/close choreography for the mobile overlay (mirrors the old
-  // marketing header so the animation feel is identical everywhere).
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>
     if (navOpen) {
@@ -173,36 +191,45 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
   }, [navOpen])
 
   const desktopClipPath =
-    `polygon(0 0, 100% 0, 100% ${OUTER_H}px, calc(100% - 320px) ${OUTER_H}px, ` +
-    `calc(100% - 360px) ${INNER_H}px, 360px ${INNER_H}px, 320px ${OUTER_H}px, 0 ${OUTER_H}px)`
+    `polygon(0 0, 100% 0, 100% ${OUTER_H}px, calc(100% - ${rightNotch}px) ${OUTER_H}px, ` +
+    `calc(100% - ${rightNotch + NOTCH_GAP}px) ${INNER_H}px, ${LEFT_NOTCH + NOTCH_GAP}px ${INNER_H}px, ${LEFT_NOTCH}px ${OUTER_H}px, 0 ${OUTER_H}px)`
+
+  const isAccountMenuOpen = activeDesktopMenu === ACCOUNT_MENU_ID
+  const isWishlistOpen = activeDesktopMenu === WISHLIST_MENU_ID
+  const isCartOpen = activeDesktopMenu === CART_MENU_ID
+
+  const wishlistPreview = wishlist.items
+    .slice()
+    .sort((a, b) => b.addedAt - a.addedAt)
+    .slice(0, PREVIEW_ITEM_LIMIT)
+  const cartPreview = cart.items
+    .slice()
+    .sort((a, b) => b.addedAt - a.addedAt)
+    .slice(0, PREVIEW_ITEM_LIMIT)
 
   return (
     <>
       <header className="fixed top-0 left-0 w-full z-50">
-        {/* Stripe renders in normal flow, above the header bar's own positioning context. */}
         <AirmailStripe />
 
         <div className="relative w-full" style={{ height: OUTER_H }}>
-          {/* Desktop background */}
           <div className="hidden lg:block absolute inset-0 pointer-events-none drop-shadow-[0_6px_14px_rgba(13,29,65,0.25)]">
             <div className="w-full h-full bg-parchment border-b border-teal/30" style={{ clipPath: desktopClipPath }} />
             <div className="absolute left-0 top-0 w-1/2 h-full overflow-hidden pointer-events-none z-10">
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
-                <path d={`M 0 ${OUTER_H} L 320 ${OUTER_H} L 360 ${INNER_H} L 2000 ${INNER_H}`} stroke="rgba(14, 140, 156, 0.5)" strokeWidth="1.5" fill="none" />
+                <path d={`M 0 ${OUTER_H} L ${LEFT_NOTCH} ${OUTER_H} L ${LEFT_NOTCH + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`} stroke="rgba(14, 140, 156, 0.5)" strokeWidth="1.5" fill="none" />
               </svg>
             </div>
             <div className="absolute right-0 top-0 w-1/2 h-full overflow-hidden pointer-events-none z-10" style={{ transform: "scaleX(-1)" }}>
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
-                <path d={`M 0 ${OUTER_H} L 320 ${OUTER_H} L 360 ${INNER_H} L 2000 ${INNER_H}`} stroke="rgba(14, 140, 156, 0.5)" strokeWidth="1.5" fill="none" />
+                <path d={`M 0 ${OUTER_H} L ${rightNotch} ${OUTER_H} L ${rightNotch + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`} stroke="rgba(14, 140, 156, 0.5)" strokeWidth="1.5" fill="none" />
               </svg>
             </div>
           </div>
 
-          {/* Mobile background — shares MOBILE_BG with the overlay below */}
           <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(14,140,156,0.3),0_6px_18px_-10px_rgba(13,29,65,0.5)]`} />
 
           <div className="relative z-10 container mx-auto px-4 flex items-center justify-between w-full max-w-[1600px] h-full">
-            {/* Left — vertically centered in OUTER_H (the thick strip) */}
             <div className="flex items-center gap-3 flex-shrink-0 z-20 pr-3 h-full">
               {showBackButton ? (
                 <button type="button" aria-label="Go back" className={pillButtonClass}>
@@ -216,15 +243,14 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
               )}
             </div>
 
-            {/* Desktop nav — vertically centered in the thin INNER_H notch */}
             <div className="hidden lg:flex items-center justify-center min-w-0 px-5 absolute left-1/2 top-0 -translate-x-1/2 z-20" style={{ height: INNER_H }}>
               <nav ref={navRef} className="flex items-center gap-6 -mt-2" aria-label="Primary navigation">
-                {navLinks.map((link) => {
+                {visibleNavLinks.map((link) => {
                   const isActive = activeDesktopMenu === link.href
                   const hasDropdown = link.megaMenu || !!link.items
                   return (
                     <div key={link.href} className="relative h-full flex items-center">
-                    <a  
+                      <a
                         href={link.href}
                         aria-expanded={hasDropdown ? isActive : undefined}
                         className="group relative flex items-center gap-1 text-sm font-semibold font-body tracking-wide text-ink/85 transition-colors duration-200 hover:text-teal-deep"
@@ -261,25 +287,48 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
               </nav>
             </div>
 
-            {/* Mobile trigger group — Shop, Menu, and the auth action live together,
-                right-aligned, so there's no dead space between them. Shop is its own
-                always-visible trigger (opens ShopBottomSheet directly) rather than
-                being nested inside the hamburger menu. */}
-            <div className="flex lg:hidden flex-1 items-center justify-end gap-2 h-full">
+            {/* Mobile actions — Heart, Bag, and Account are plain icon-only
+                buttons (no "Shop" button, no "Menu" label). Shop now lives
+                inside the hamburger menu as its own row. Account goes
+                straight to /account (or triggers login when signed out)
+                rather than carrying "ACCOUNT" text. */}
+            <div className="flex lg:hidden flex-1 items-center justify-end gap-1 h-full">
               <button
                 type="button"
-                aria-label="Shop"
-                onClick={() => setShopSheetOpen(true)}
-                className={pillButtonClass}
+                aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
+                onClick={() => { window.location.href = "/wishlist" }}
+                className={`relative ${mobileIconPillClass}`}
               >
-                <span className="font-display text-sm font-semibold tracking-wide">Shop</span>
+                <Heart className="w-[17px] h-[17px]" />
+                <CountBadge count={wishlistCount} />
+              </button>
+
+              <button
+                type="button"
+                aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ""}`}
+                onClick={() => { window.location.href = "/cart" }}
+                className={`relative ${mobileIconPillClass}`}
+              >
+                <ShoppingBag className="w-[17px] h-[17px]" />
+                <CountBadge count={cartCount} />
+              </button>
+
+              <button
+                type="button"
+                aria-label={isAuthenticated ? "Account" : "Sign in"}
+                onClick={() => { if (isAuthenticated) { window.location.href = "/account/" } else { login() } }}
+                className={`relative ${mobileIconPillClass}`}
+              >
+                <User className="w-[17px] h-[17px]" />
+                {isAuthenticated && (
+                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-gold-deep ring-2 ring-parchment" />
+                )}
               </button>
 
               <button type="button" aria-label={navOpen ? "Close menu" : "Open menu"} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}
-                className={`group flex items-center gap-2.5 rounded-full border px-4 py-2 transition-all duration-300 active:scale-95 ${
-                  navOpen ? "bg-teal/10 border-teal/50 text-teal-deep" : "bg-ink/5 border-ink/15 text-ink hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep"
+                className={`group flex items-center justify-center h-8 w-8 rounded-lg border transition-all duration-300 active:scale-95 ${
+                  navOpen ? "bg-teal/10 border-teal/50 text-teal-deep" : "bg-ink/5 border-ink/15 text-ink active:bg-teal/10 active:border-teal/40 active:text-teal-deep"
                 }`}>
-                <span className="font-display text-sm font-semibold tracking-wide">{title ?? "Menu"}</span>
                 <span className="relative flex h-4 w-5 items-center justify-center">
                   <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out ${navOpen ? "rotate-45" : "-translate-y-[5px]"}`} />
                   <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-200 ease-out ${navOpen ? "scale-x-0 opacity-0" : "scale-x-100 opacity-100"}`} />
@@ -288,56 +337,182 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
               </button>
             </div>
 
-            {/* Right — desktop only, vertically centered in OUTER_H.
-                The old avatar + name + email button is gone from here —
-                Cart and Wishlist are what a returning shopper actually
-                wants one click away, so they get the prime spot instead.
-                Account access still exists (via the mobile menu / a
-                dedicated account link elsewhere); this bar's job now is
-                "where's my stuff", not "who am I". */}
-            <div className="hidden lg:flex items-center justify-end gap-3 flex-shrink-0 z-20 pl-2 h-full">
-              <button
-                type="button"
-                aria-label="Wishlist"
-                title="Wishlist"
-                onClick={() => { window.location.href = "/wishlist" }}
-                className={`relative ${pillButtonClass} lg:px-3`}
-              >
-                <Heart className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
-                <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">WISHLIST</span>
-                <CountBadge count={wishlist.count} />
-              </button>
+            {/* Right — desktop only. Wishlist/Cart preview panels render real
+                rows (thumbnail + title + price) sourced from
+                WishlistEntry/CartLineItem, sorted newest-first, capped at
+                PREVIEW_ITEM_LIMIT with a "View all" link when there's more. */}
+            <div ref={actionsRef} className="hidden lg:flex items-center justify-end gap-2.5 flex-shrink-0 z-20 pl-2 h-full">
+              <div className="relative h-full flex items-center">
+                <button
+                  type="button"
+                  aria-label="Wishlist"
+                  aria-expanded={isWishlistOpen}
+                  onClick={() => setActiveDesktopMenu((prev) => (prev === WISHLIST_MENU_ID ? null : WISHLIST_MENU_ID))}
+                  className={`relative ${iconPillButtonClass}`}
+                >
+                  <Heart className="w-[18px] h-[18px]" />
+                  <CountBadge count={wishlistCount} />
+                </button>
+                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out ${isWishlistOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                  <div className="rounded-2xl border border-teal/20 bg-parchment p-3 shadow-xl shadow-ink/10">
+                    {wishlistPreview.length > 0 ? (
+                      <>
+                        <div className="flex flex-col gap-1">
+                          {wishlistPreview.map((entry) => (
+                            <a
+                              key={entry.id}
+                              href={entry.url || "/wishlist"}
+                              className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+                            >
+                              <ProductThumb image={entry.image} alt={entry.title} />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-ink">{entry.title}</p>
+                                {entry.price && (
+                                  <p className="text-xs text-ink/55">
+                                    {entry.currencyCode ?? ""} {entry.price}
+                                  </p>
+                                )}
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                        <div className="mt-1 border-t border-ink/10 pt-2">
+                          <a href="/wishlist" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
+                            View wishlist ({wishlistCount})
+                            <ArrowLeft size={14} className="rotate-180" />
+                          </a>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="px-2 py-3">
+                        <p className="text-sm text-ink/60">Your wishlist is empty.</p>
+                        <a href="/wishlist" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
+                          Browse products →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-              <button
-                type="button"
-                aria-label="Cart"
-                title="Cart"
-                onClick={() => { window.location.href = "/cart" }}
-                className={`relative ${pillButtonClass} lg:px-3`}
-              >
-                <ShoppingBag className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
-                <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">CART</span>
-                <CountBadge count={cart.itemCount} />
-              </button>
+              <div className="relative h-full flex items-center">
+                <button
+                  type="button"
+                  aria-label="Cart"
+                  aria-expanded={isCartOpen}
+                  onClick={() => setActiveDesktopMenu((prev) => (prev === CART_MENU_ID ? null : CART_MENU_ID))}
+                  className={`relative ${iconPillButtonClass}`}
+                >
+                  <ShoppingBag className="w-[18px] h-[18px]" />
+                  <CountBadge count={cartCount} />
+                </button>
+                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out ${isCartOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                  <div className="rounded-2xl border border-teal/20 bg-parchment p-3 shadow-xl shadow-ink/10">
+                    {cartPreview.length > 0 ? (
+                      <>
+                        <div className="flex flex-col gap-1">
+                          {cartPreview.map((line) => (
+                            <a
+                              key={line.product.id}
+                              href={line.product.url || "/cart"}
+                              className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+                            >
+                              <ProductThumb image={line.product.image} alt={line.product.title} />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-ink">{line.product.title}</p>
+                                <div className="flex items-center gap-2 text-xs text-ink/55">
+                                  {line.product.estimatedPrice ? (
+                                    <span>{line.product.estimatedPrice}</span>
+                                  ) : line.product.sourcePrice ? (
+                                    <span>{line.product.currencyCode ?? ""} {line.product.sourcePrice}</span>
+                                  ) : null}
+                                  <span>· Qty {line.qty}</span>
+                                </div>
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                        <div className="mt-1 border-t border-ink/10 pt-2">
+                          <a href="/cart" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
+                            View cart ({cartCount})
+                            <ArrowLeft size={14} className="rotate-180" />
+                          </a>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="px-2 py-3">
+                        <p className="text-sm text-ink/60">Your cart is empty.</p>
+                        <a href="/cart" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
+                          Start shopping →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {isAuthenticated ? (
-                <button type="button" aria-label="Log out" title="Logout" onClick={logout} className={`group ${pillButtonClass} lg:px-4`}>
-                  <LogOut className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 group-hover:-translate-x-0.5" />
-                  <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">LOGOUT</span>
-                </button>
+                <div className="relative h-full flex items-center">
+                  <button
+                    type="button"
+                    aria-label="Account menu"
+                    aria-expanded={isAccountMenuOpen}
+                    onClick={() => setActiveDesktopMenu((prev) => (prev === ACCOUNT_MENU_ID ? null : ACCOUNT_MENU_ID))}
+                    className={`relative ${pillButtonClass} lg:px-3`}
+                  >
+                    <User className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
+                    <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">ACCOUNT</span>
+                    <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 ${isAccountMenuOpen ? "-rotate-180" : ""}`} />
+                    <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-gold-deep ring-2 ring-parchment" />
+                  </button>
+
+                  <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                    <div className="rounded-2xl border border-teal/20 bg-parchment p-2 shadow-xl shadow-ink/10">
+                      <a href="/account/" className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10">
+                        <User size={16} className="text-teal-deep" />
+                        <span className="text-sm font-semibold text-ink">My Profile</span>
+                      </a>
+                      <a href="/account/notifications" className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10">
+                        <Bell size={16} className="text-teal-deep" />
+                        <span className="text-sm font-semibold text-ink">Notifications</span>
+                      </a>
+                      <a href="/account/referrals" className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10">
+                        <Gift size={16} className="text-teal-deep" />
+                        <span className="text-sm font-semibold text-ink">Invite &amp; Earn</span>
+                      </a>
+                      <div className="my-1 border-t border-ink/10" />
+                      <button
+                        type="button"
+                        onClick={logout}
+                        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10"
+                      >
+                        <LogOut size={16} className="text-ink/60" />
+                        <span className="text-sm font-semibold text-ink">Sign out</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <button type="button" aria-label="Sign in" title="Sign in" onClick={login} className={`group ${pillButtonClass} lg:px-4`}>
-                  <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 group-hover:translate-x-0.5" />
-                  <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">SIGN IN</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" aria-label="Sign in" title="Sign in" onClick={login} className={`group ${pillButtonClass} lg:px-4`}>
+                    <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 group-hover:translate-x-0.5" />
+                    <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">SIGN IN</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Get started"
+                    onClick={() => { window.location.href = "/signup" }}
+                    className="rounded-lg bg-teal-deep px-4 py-2 text-[11px] lg:text-[13px] font-semibold tracking-wider text-white transition-colors duration-200 hover:bg-indigo-deep"
+                  >
+                    GET STARTED
+                  </button>
+                </div>
               )}
             </div>
           </div>
         </div>
       </header>
 
-      {/* Mobile nav overlay — same light MOBILE_BG, so all content is ink-toned.
-          Shop is intentionally absent here; it's its own header-bar trigger above. */}
       {mounted && (
         <div className={`fixed inset-0 z-[100] flex h-dvh flex-col ${MOBILE_BG} transition-opacity duration-[280ms] ease-out lg:hidden ${visible ? "opacity-100" : "opacity-0"}`}>
           <AirmailStripe />
@@ -353,11 +528,28 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
           </div>
 
           <nav className="min-h-0 flex-1 overflow-y-auto nav-scroll" aria-label="Mobile navigation">
+            {/* Shop — moved here from the top bar. Same visual weight as the
+                other top-level rows below, but has no expandable sub-items:
+                it just opens the Shop bottom sheet directly. */}
+            <div className={`border-b border-teal/15 transition-all duration-300 ease-out ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
+              style={{ transitionDelay: visible ? "60ms" : "0ms" }}>
+              <button
+                type="button"
+                onClick={() => { setNavOpen(false); setShopSheetOpen(true) }}
+                className="flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Store size={18} className="text-teal-deep" />
+                  Shop
+                </span>
+              </button>
+            </div>
+
             {mobileNavLinks.map((link, index) => {
               const isExpanded = activeMobileMenu === link.href
               return (
                 <div key={link.href} className={`border-b border-teal/15 transition-all duration-300 ease-out ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
-                  style={{ transitionDelay: visible ? `${60 + index * 40}ms` : "0ms" }}>
+                  style={{ transitionDelay: visible ? `${100 + index * 40}ms` : "0ms" }}>
                   <button type="button" onClick={() => setActiveMobileMenu(isExpanded ? null : link.href)} aria-expanded={isExpanded}
                     className="flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide">
                     {link.label}
@@ -380,32 +572,10 @@ export default function Header({ title, showBackButton = false }: HeaderProps) {
             })}
           </nav>
 
-          {/* Cart + Wishlist replace the old profile summary here too, so the
-              mobile menu and desktop bar offer the same "here's your stuff"
-              shortcut instead of drifting into two different layouts. */}
           <div className={`flex-none space-y-3 px-6 pb-8 pt-4 transition-all duration-300 ease-out ${visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => { window.location.href = "/wishlist"; setNavOpen(false) }}
-                className="relative flex items-center justify-center gap-2 rounded-lg border border-ink/15 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200"
-              >
-                <Heart className="w-4 h-4 text-teal-deep" /> Wishlist
-                <CountBadge count={wishlist.count} />
-              </button>
-              <button
-                type="button"
-                onClick={() => { window.location.href = "/cart"; setNavOpen(false) }}
-                className="relative flex items-center justify-center gap-2 rounded-lg border border-ink/15 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200"
-              >
-                <ShoppingBag className="w-4 h-4 text-teal-deep" /> Cart
-                <CountBadge count={cart.itemCount} />
-              </button>
-            </div>
-
             {!isAuthenticated && (
-              <button type="button" onClick={() => setNavOpen(false)} className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-ink/15 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200">
-                <UserPlus className="w-4 h-4 text-teal-deep" /> Register
+              <button type="button" onClick={() => { window.location.href = "/signup"; setNavOpen(false) }} className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal-deep py-3 text-sm font-semibold text-white hover:bg-indigo-deep transition-colors duration-200">
+                <UserPlus className="w-4 h-4" /> Register
               </button>
             )}
             {isAuthenticated ? (

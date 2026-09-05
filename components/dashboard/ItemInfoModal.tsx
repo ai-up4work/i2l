@@ -29,6 +29,8 @@ import ShopifyProductView from '@/app/demo/scraper-qa/platforms/Shopifyproductvi
 import WooCommerceProductView from '@/app/demo/scraper-qa/platforms/Woocommerceproductview'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
+import { HEADER_BAR_HEIGHT } from '@/components/shared/Header'
+import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav'
 
 /**
  * Right-side "Product Details" overlay. Slides in from the right and
@@ -60,6 +62,30 @@ import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
  * wherever this overlay is mounted. `onRequestItem` is still called
  * afterwards so the parent can do whatever else it needs (toast, close,
  * analytics, etc) — it's additive, not replaced.
+ *
+ * Layering: this overlay renders BELOW the fixed site Header (z-50) and
+ * BELOW MobileBottomNav (z-40) — see the z-30 on the root below — so
+ * both stay visible and usable while this panel is open, rather than
+ * this panel covering them. The panel itself is then inset from the top
+ * and (on mobile only, since MobileBottomNav is lg:hidden) from the
+ * bottom, via the `.item-overlay-bounds` class below, so nothing inside
+ * the panel — the close button row, the sticky add-to-cart bar, the
+ * sticky review-step footer — ends up rendered underneath either of
+ * them.
+ *
+ * Top offset: uses the `--account-header-h` CSS custom property that
+ * AccountLayout sets on <main> from a LIVE measurement of Header's
+ * actual rendered height (see useElementHeight in that file), not the
+ * static HEADER_BAR_HEIGHT constant. Header's real height can drift from
+ * that constant (icon-only button swaps, the dynamic right-side notch,
+ * font-load shifts, safe-area insets, etc.), and previously did — this
+ * component was still trusting the frozen constant, which left a gap
+ * between the header and the top of this panel once the two diverged.
+ * Since this component always renders as a descendant of that <main>,
+ * it can simply inherit the variable rather than needing it threaded
+ * through as a prop. HEADER_BAR_HEIGHT is kept as the fallback value for
+ * the (currently theoretical) case this component renders somewhere
+ * that variable isn't set.
  */
 
 type ItemOverlayProps = {
@@ -357,7 +383,7 @@ export default function ItemInfoModal({
   })()
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Product details">
+    <div className="fixed inset-0 z-30" role="dialog" aria-modal="true" aria-label="Product details">
       <div
         className="absolute inset-0 bg-ink/40 backdrop-blur-[1px] motion-safe:[animation:overlayFadeIn_0.2s_ease-out_both]"
         onClick={onClose}
@@ -376,9 +402,38 @@ export default function ItemInfoModal({
           background-size: 400px 100%;
           motion-safe:animation: shimmer 1.4s ease-in-out infinite;
         }
+
+        /* Keeps this panel's top/bottom edges clear of the fixed site
+           Header and MobileBottomNav, both of which render ABOVE this
+           overlay (z-30) via their own higher z-indexes (z-50 / z-40) so
+           they stay visible/interactive while this panel is open. This
+           insets the panel itself so its own content — close button row,
+           sticky add-to-cart bar, sticky review footer — never renders
+           underneath either of them.
+
+           top: reads the SAME live-measured --account-header-h variable
+           AccountLayout sets on <main> (see useElementHeight there),
+           instead of the frozen HEADER_BAR_HEIGHT constant. Header's
+           real rendered height can drift from that constant — icon-only
+           button swaps, the dynamic right-side notch width, font-load
+           shifts — and when it does, trusting the stale constant here
+           left a visible gap between the header and this panel's top
+           edge. Since this component always renders as a descendant of
+           that <main>, the variable is simply inherited; the constant is
+           kept only as the fallback for the variable being unset.
+
+           MobileBottomNav is lg:hidden, so the bottom inset is dropped
+           at the lg breakpoint to match. */
+        .item-overlay-bounds {
+          top: var(--account-header-h, ${HEADER_BAR_HEIGHT}px);
+          bottom: calc(${MOBILE_BOTTOM_NAV_HEIGHT}px + env(safe-area-inset-bottom));
+        }
+        @media (min-width: 1024px) {
+          .item-overlay-bounds { bottom: 0; }
+        }
       `}</style>
 
-      <div className="absolute inset-y-0 right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift motion-safe:[animation:panelSlideIn_0.28s_cubic-bezier(0.16,1,0.3,1)_both] lg:w-1/2">
+      <div className="item-overlay-bounds absolute right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift motion-safe:[animation:panelSlideIn_0.28s_cubic-bezier(0.16,1,0.3,1)_both] lg:w-1/2">
         {/* Header — a small source tag (what site this was pulled from) on
             the listing step, or a "back to listing" cue on the review
             step, plus a close button. Wishlist now lives in the action
@@ -614,7 +669,7 @@ export default function ItemInfoModal({
                       className="flex min-w-[150px] flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
                     >
                       <ShoppingCart size={16} />
-                      {result!.unavailable ? 'Currently unavailable' : 'Request this item'}
+                      {result!.unavailable ? 'Not Available' : 'Get Quote'}
                     </button>
                   </div>
                 </div>
