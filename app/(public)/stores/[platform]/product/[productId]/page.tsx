@@ -32,7 +32,7 @@ import type { StoreProduct } from '@/lib/store.types'
 // "Request this item" flow, which has no cart to select a variant into.
 //
 // MARKETPLACE REQUEST FLOW: this page is wrapped in DashboardProvider so
-// "Get Quote" (ProductRequestButton) can open the SAME ItemInfoModal flow
+// "Checkout" (ProductRequestButton) can open the SAME ItemInfoModal flow
 // AddRequestOverlay uses elsewhere — pre-filled with this product's own
 // URL instead of asking the shopper to paste one — without needing the
 // /account layout or a login redirect first. ProductRequestOverlay renders
@@ -52,11 +52,22 @@ import type { StoreProduct } from '@/lib/store.types'
 // ProductRequestOverlay is a sibling of the sticky-bar/content div, both
 // under DashboardProvider — the var needs a common ancestor to reach both.
 //
-// GET QUOTE STATE: ProductRequestButton now accepts unavailable/loading/
+// CHECKOUT STATE: ProductRequestButton now accepts unavailable/loading/
 // disabled the same way FlipkartCommerceActions' buttons do — passing
-// unavailable={!product.inStock} here means a sold-out product's "Get
-// Quote" button visibly disables and swaps its label ("Not available")
+// unavailable={!product.inStock} here means a sold-out product's "Checkout"
+// button visibly disables and swaps its label ("Not available")
 // instead of silently doing nothing on click.
+//
+// SOLD OUT SIGNAL: shown in two places now, both understated —
+//   1. On the gallery image itself (soft corner tag + slight desaturation).
+//   2. Right above the variant picker (SizeAndColorPicker), since a
+//      sold-out product's sizes are read-only/for-reference only in the
+//      marketplace flow — a shopper landing straight on the size grid
+//      needs to know before they pick one why nothing is selectable.
+// Both use the same muted dot + text treatment (no solid-fill badge, no
+// all-caps) so they read as calm status info, not an error banner. The
+// disabled CTA (ProductActions / ProductRequestButton) is the third and
+// final signal, at the point of action.
 //
 // DISPLAYED PRICE: product.price/compareAtPrice come straight from the
 // upstream feed (Shopify/WooCommerce/marketplace), in the seller's own
@@ -70,6 +81,18 @@ import type { StoreProduct } from '@/lib/store.types'
 // still never disagreeing with the catalog grid or mini-cart (which
 // continue to use the single-method getProductPricing/getDisplayPriceLKR
 // helpers) on what either method actually costs.
+//
+// PRICING BLOCK STYLE: styled like a two-part shipping/customs slip —
+// a ticket-stub perforation (two page-background-colored circles punched
+// into the card's side edges) separates Economy from Express, instead of
+// a plain hairline divider. Each option gets its own full-opacity accent
+// color (teal for Economy, gold for Express) rather than graying Express
+// down — low-opacity grey reads as a disabled control in most UI
+// conventions, and both delivery methods here are equally real, just
+// visually distinct by hue. The perforation notch color assumes the page
+// background directly behind this card is `parchment` — if that
+// background ever changes, update the notch spans' bg-parchment to
+// match, or the seam will show instead of blending in.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -210,8 +233,13 @@ export default async function ProductDetailPage({
             </Link> */}
 
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="min-w-0">
+              <div className={`relative min-w-0 ${!product.inStock ? 'grayscale-[0.4] opacity-90' : ''}`}>
                 <ProductGallery images={product.images?.length ? product.images : [product.image]} alt={product.name} />
+                {!product.inStock && (
+                  <span className="absolute left-4 top-4 rounded-full border border-ink/10 bg-parchment/95 px-3 py-1 text-xs font-semibold text-ink/70 shadow-sm backdrop-blur-sm">
+                    Sold out
+                  </span>
+                )}
               </div>
               <div className="flex h-full min-w-0 flex-col">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
@@ -235,22 +263,24 @@ export default async function ProductDetailPage({
 
                 <SpecRow product={product} />
 
-                {/* Economy vs Express delivery-price comparison.
-                    One divided block, not two matching cards: Economy is
-                    the storefront default, so it carries the primary
-                    price treatment; Express sits underneath as a quieter
-                    comparison row, with the price delta spelled out as
-                    one line instead of making the shopper subtract two
-                    absolute numbers themselves. */}
-                <div className="mt-3 rounded-2xl border border-ink/10">
-                  <div className="flex items-center gap-3 px-4 py-3.5">
-                    <Package size={17} strokeWidth={1.75} className="shrink-0 text-teal-deep" />
+                {/* Economy vs Express delivery-price comparison, styled
+                    like a two-part shipping slip: a ticket-stub
+                    perforation separates the options instead of a plain
+                    divider. Each row carries its own full-opacity accent
+                    color (teal / gold) so neither reads as disabled;
+                    Economy keeps the larger price treatment since it's
+                    the storefront default, Express states its price
+                    delta in one line. */}
+                  <div className="mt-3 rounded-3xl border border-ink/15 bg-card shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">                  <div className="flex items-center gap-3 rounded-t-[calc(1.5rem-1px)] bg-teal/[0.05] px-5 py-4">
+                    <Package size={18} strokeWidth={1.75} className="shrink-0 text-teal-deep" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-ink">Economy</p>
+                      <p className="text-sm font-semibold text-ink">
+                        Economy <span className="font-normal text-teal-deep">· recommended</span>
+                      </p>
                       <p className="text-xs text-ink/45">Postal delivery, arrives in 2–3 weeks</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="font-display text-xl font-bold text-teal-deep sm:text-2xl">
+                      <p className="font-display text-2xl font-bold tabular-nums text-teal-deep sm:text-[28px]">
                         {dualPricing.economy.formattedPrice}
                       </p>
                       {dualPricing.economy.formattedCompareAtPrice != null && (
@@ -266,37 +296,45 @@ export default async function ProductDetailPage({
                     </div>
                   </div>
 
-                  <div className="mx-4 h-px bg-ink/8" />
+                  {/* Perforation seam — notches are page-background-colored
+                      circles punched into the card's side edges at the
+                      seam height. */}
+                  <div className="relative">
+                    <div className="border-t border-dashed border-ink/15" />
+                    <span className="absolute left-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
+                    <span className="absolute right-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
+                  </div>
 
-                  <div className="flex items-center gap-3 px-4 py-3.5">
-                    <Zap size={17} strokeWidth={1.75} className="shrink-0 text-ink/30" />
+                  <div className="flex items-center gap-3 rounded-b-[calc(1.5rem-1px)] bg-gold/[0.06] px-5 py-4">
+                    <Zap size={18} strokeWidth={1.75} className="shrink-0 text-gold-deep" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-ink/70">Express</p>
+                      <p className="text-sm font-semibold text-ink">Express</p>
                       <p className="text-xs text-ink/45">
                         Courier delivery, arrives in 3–5 days
                         {dualPricing.formattedExpressPremium != null && (
-                          <> · {dualPricing.formattedExpressPremium} more than Economy</>
+                          <> · {dualPricing.formattedExpressPremium} more</>
                         )}
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-base font-bold text-ink/60">{dualPricing.express.formattedPrice}</p>
+                      <p className="font-display text-xl font-bold tabular-nums text-gold-deep sm:text-2xl">
+                        {dualPricing.express.formattedPrice}
+                      </p>
                       {dualPricing.express.formattedCompareAtPrice != null && (
-                        <p className="text-xs text-ink/35 line-through">
-                          {dualPricing.express.formattedCompareAtPrice}
+                        <p className="text-xs text-ink/35">
+                          <span className="line-through">{dualPricing.express.formattedCompareAtPrice}</span>
+                          {dualPricing.express.discountPercent != null && (
+                            <span className="ml-1.5 text-gold-deep">
+                              {dualPricing.express.discountPercent}% less
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {!product.inStock && (
-                  <p className="mt-2 inline-block rounded-md bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-parchment">
-                    Sold out
-                  </p>
-                )}
-
-                <p className="mt-1 text-xs text-ink/45">Sold by {product.seller}</p>
+                <p className="mt-3 text-xs text-ink/45">Sold by {product.seller}</p>
 
                 {product.weightKg != null && (
                   <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-ink/50">
@@ -311,8 +349,23 @@ export default async function ProductDetailPage({
                     SizeAndColorPicker just displays availability. The
                     non-marketplace flow's interactive picker lives inside
                     ProductActions instead, since the selection needs to be
-                    wired into "Add to bag". */}
-                {isMarketplace && <SizeAndColorPicker product={product} />}
+                    wired into "Add to bag".
+                    When the product is sold out, a small status line sits
+                    just above the picker — same muted dot + text treatment
+                    as the gallery tag — since a sold-out product's sizes
+                    are shown for reference only here and can't actually
+                    be selected toward a purchase. */}
+                {isMarketplace && (
+                  <div className="mt-5">
+                    {!product.inStock && (
+                      <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/50">
+                        <span className="h-1.5 w-1.5 rounded-full bg-ink/35" />
+                        Sold out — sizes shown for reference only
+                      </p>
+                    )}
+                    <SizeAndColorPicker product={product} />
+                  </div>
+                )}
 
                 {isMarketplace ? (
                   <ProductRequestButton
@@ -320,7 +373,7 @@ export default async function ProductDetailPage({
                     unavailable={!product.inStock}
                     className="mt-6 flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep sm:w-auto sm:px-8"
                   >
-                    Get Quote
+                    CHECKOUT
                   </ProductRequestButton>
                 ) : (
                   <ProductActions product={product} platform={store.platform} />
