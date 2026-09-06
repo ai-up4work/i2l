@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Heart, Minus, Plus, ShoppingCart } from 'lucide-react'
+import { Heart, Minus, Plus } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
 import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
@@ -142,9 +142,9 @@ export default function ProductActions({
 
         <ProductRequestButton
           productUrl={product.url ?? ''}
+          unavailable={!product.inStock}
           className="flex h-11 min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-deep"
         >
-          <ShoppingCart size={15} />
           Get Quote
         </ProductRequestButton>
       </div>

@@ -51,6 +51,12 @@ import type { StoreProduct } from '@/lib/store.types'
 // layout. It's set on the outer wrapper (not lower) because
 // ProductRequestOverlay is a sibling of the sticky-bar/content div, both
 // under DashboardProvider — the var needs a common ancestor to reach both.
+//
+// GET QUOTE STATE: ProductRequestButton now accepts unavailable/loading/
+// disabled the same way FlipkartCommerceActions' buttons do — passing
+// unavailable={!product.inStock} here means a sold-out product's "Get
+// Quote" button visibly disables and swaps its label ("Not available")
+// instead of silently doing nothing on click.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -246,6 +252,7 @@ export default async function ProductDetailPage({
                 {isMarketplace ? (
                   <ProductRequestButton
                     productUrl={product.url ?? ''}
+                    unavailable={!product.inStock}
                     className="mt-6 flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep sm:w-auto sm:px-8"
                   >
                     Get Quote
