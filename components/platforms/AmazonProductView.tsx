@@ -33,6 +33,19 @@ import Image from 'next/image'
  * swatch tile's own `.a-text-price .a-offscreen`, scoped per-tile so it
  * can't cross-contaminate with a different tile's price/mrp, same
  * safety property as the main buybox price extraction).
+ *
+ * Commerce actions row: the qty stepper, wishlist heart, and "ADD TO
+ * CART" are grouped into their own nested `flex-nowrap` container, so
+ * they always render as one atomic unit — never split across two
+ * lines. "GET QUOTE" sits outside that group as a separate flex item:
+ *   - Desktop (sm and up): "GET QUOTE" is fixed to its natural content
+ *     width (grow-0, basis-auto) so it stops competing for the row's
+ *     free space; the atomic group is flex-1 and absorbs 100% of the
+ *     leftover width, which is what keeps "ADD TO CART" from being
+ *     squeezed.
+ *   - Mobile: if the row doesn't fit, "GET QUOTE" is the only thing
+ *     that wraps — it drops to its own second line at full width
+ *     (basis-full), while qty/wishlist/cart stay put on the first line.
  */
 
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
@@ -159,9 +172,15 @@ function DimensionSwatch({
 
 /**
  * Amazon-styled qty/wishlist/cart/request block — rendered inside the
- * "rest" (bottom-right on desktop) portion of the buy box. Qty stepper,
- * wishlist heart, Add to Cart, and Get Quote all sit inline in a single
- * wrapping row.
+ * "rest" (bottom-right on desktop) portion of the buy box.
+ *
+ * Qty stepper + wishlist heart + Add to Cart are wrapped in an inner
+ * `flex-nowrap` group so they always stay on one line as a unit.
+ * Get Quote is a separate flex item: on desktop it's fixed to its
+ * natural width (grow-0/basis-auto) so the inner group's flex-1 can
+ * claim all the leftover space; on mobile, if there isn't room, it
+ * alone wraps to a new line and takes the full row width (basis-full),
+ * while the group above it stays intact.
  */
 function AmazonCommerceActions({
   result,
@@ -189,51 +208,79 @@ function AmazonCommerceActions({
   return (
     <div className="mt-6 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+        {/* Atomic group: qty stepper + wishlist + Add to Cart. This
+            never splits across lines — flex-nowrap keeps it as one
+            unit for the outer row's wrap decision. flex-1 here means
+            it absorbs all the leftover row width once GET QUOTE is
+            pinned to its natural size on desktop (see below). */}
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
           <button
             type="button"
-            aria-label="Decrease quantity"
-            onClick={() => onQtyChange(Math.max(1, qty - 1))}
-            className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Minus size={15} />
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
           </button>
-          <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
-          <button
-            type="button"
-            aria-label="Increase quantity"
-            onClick={() => onQtyChange(qty + 1)}
-            className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+            color="#000000"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
           >
-            <Plus size={15} />
-          </button>
+            {justAdded ? 'ADDED' : 'ADD TO CART'}
+          </RequestActionButton>
         </div>
 
-        <button
-          type="button"
-          aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
-          aria-pressed={inWishlist}
-          onClick={onToggleWishlist}
-          disabled={!canAct}
-          className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
-        </button>
+        {/* Get Quote:
+            - Mobile (below sm): grow + basis-full → the only thing
+              allowed to wrap, and when it does it takes the entire
+              next line by itself.
+            - Desktop (sm and up): sm:grow-0 + sm:basis-auto → fixed to
+              its own natural content width, no longer competing with
+              the atomic group above for the row's free space. Without
+              sm:grow-0, `grow` stays active past the breakpoint and
+              this button claims half of all leftover space via
+              flex-grow, starving ADD TO CART (which can't shrink below
+              its whitespace-nowrap text) — that was the desktop bug.
 
-        <RequestActionButton
-          onClick={onAddToCart}
-          disabled={!canAct}
-          loading={loading}
-          unavailable={result.unavailable}
-          unavailableLabel="NOT AVAILABLE"
-          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
-          color="#000000"
-          disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
-        >
-          {justAdded ? 'ADDED' : 'ADD TO CART'}
-        </RequestActionButton>
-
+            NOTE: uses `grow` here, not `flex-1`. `flex-1` is shorthand
+            for `flex: 1 1 0%`, which itself sets flex-basis — combining
+            that shorthand with a separate `basis-*` utility on the same
+            element makes the two conflict unpredictably (`flex-1`'s
+            baked-in `flex-basis: 0%` can win over `basis-full`/
+            `sm:basis-auto` depending on Tailwind's internal class
+            order). `grow` only sets flex-grow, leaving flex-basis
+            entirely to the basis-* utilities, and `sm:grow-0` cancels
+            growth outright once we're past mobile. */}
         <RequestActionButton
           onClick={onRequestReview}
           disabled={!canAct}
@@ -243,7 +290,7 @@ function AmazonCommerceActions({
           icon={<ShoppingCart size={16} />}
           color="#ff9a00"
           disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95 sm:grow-0 sm:basis-auto"
         >
           GET QUOTE
         </RequestActionButton>

@@ -207,51 +207,65 @@ function FlipkartCommerceActions({
   return (
     <div className="mt-6 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#d6d6d6] px-2.5 py-1.5">
+        {/* Atomic group: qty stepper + wishlist + Add to Cart. This
+            never splits across lines — flex-nowrap keeps it as one
+            unit for the outer row's wrap decision. flex-1 here means
+            it absorbs all the leftover row width once GET QUOTE is
+            pinned to its natural size on desktop (see below). */}
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#d6d6d6] px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-[#d6d6d6] text-[#878787] transition-colors hover:border-[#2874F0]/40 hover:bg-[#2874F0]/5 hover:text-[#2874F0] active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums text-[#212121]">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-[#d6d6d6] text-[#878787] transition-colors hover:border-[#2874F0]/40 hover:bg-[#2874F0]/5 hover:text-[#2874F0] active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
           <button
             type="button"
-            aria-label="Decrease quantity"
-            onClick={() => onQtyChange(Math.max(1, qty - 1))}
-            className="grid h-7 w-7 place-items-center rounded-md border border-[#d6d6d6] text-[#878787] transition-colors hover:border-[#2874F0]/40 hover:bg-[#2874F0]/5 hover:text-[#2874F0] active:scale-90"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-[#d6d6d6] text-[#878787] transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Minus size={15} />
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
           </button>
-          <span className="min-w-[20px] text-center font-bold tabular-nums text-[#212121]">{qty}</span>
-          <button
-            type="button"
-            aria-label="Increase quantity"
-            onClick={() => onQtyChange(qty + 1)}
-            className="grid h-7 w-7 place-items-center rounded-md border border-[#d6d6d6] text-[#878787] transition-colors hover:border-[#2874F0]/40 hover:bg-[#2874F0]/5 hover:text-[#2874F0] active:scale-90"
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+            color="#007cd8"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
           >
-            <Plus size={15} />
-          </button>
+            {justAdded ? 'ADDED' : 'ADD TO CART'}
+          </RequestActionButton>
         </div>
 
-        <button
-          type="button"
-          aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
-          aria-pressed={inWishlist}
-          onClick={onToggleWishlist}
-          disabled={!canAct}
-          className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-[#d6d6d6] text-[#878787] transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
-        </button>
-
-        <RequestActionButton
-          onClick={onAddToCart}
-          disabled={!canAct}
-          loading={loading}
-          unavailable={result.unavailable}
-          unavailableLabel="NOT AVAILABLE"
-          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
-          color="#007cd8"
-          disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
-        >
-          {justAdded ? 'ADDED' : 'ADD TO CART'}
-        </RequestActionButton>
-
+        {/* Get Quote:
+            - Mobile (below sm): grow + basis-full → the only thing
+              allowed to wrap, and when it does it takes the entire
+              next line by itself.
+            - Desktop (sm and up): sm:grow-0 + sm:basis-auto → fixed to
+              its own natural content width, no longer competing with
+              the atomic group above for the row's free space. */}
         <RequestActionButton
           onClick={onRequestReview}
           disabled={!canAct}
@@ -261,7 +275,7 @@ function FlipkartCommerceActions({
           icon={<ShoppingCart size={16} />}
           color="#ffce00"
           disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95 sm:grow-0 sm:basis-auto"
         >
           GET QUOTE
         </RequestActionButton>

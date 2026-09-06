@@ -56,11 +56,11 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   const { ref: topbarRef, height: topbarHeight } = useElementHeight<HTMLDivElement>()
 
   // Banner measured on its own now (previously merged into topbarHeight).
-  // Needed in isolation because while ItemInfoModal is open, the banner
-  // is the ONLY thing that should still show above the overlay — Header
-  // and Topbar are hidden outright — so the overlay's top offset should
-  // equal exactly the banner's height (or 0 once dismissed), not
-  // banner+topbar, and not header height.
+  // Kept in isolation because it's still its own independently-toggleable
+  // element, even though — see the FIX note below — it's no longer shown
+  // "floating over" the item overlay. When the modal is closed, its height
+  // still needs to be tracked separately from Topbar/Header for the normal
+  // (non-overlay) layout math elsewhere on the page.
   const { ref: bannerRef, height: bannerHeight } = useElementHeight<HTMLDivElement>()
 
   const [bannerOpen, setBannerOpen] = useState(true)
@@ -76,24 +76,35 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   //    swap, NOT unmounted — see the className logic below — so their
   //    refs stay attached to the same node and useElementHeight keeps
   //    tracking them correctly once the modal closes again).
-  //  - WelcomeBanner, if still open, is bumped to a z-index above the
-  //    modal so it stays visibly on top of it rather than getting
-  //    covered — this is the "banner shown over the item overlay"
-  //    behavior.
+  //  - WelcomeBanner is ALSO hidden outright now (see bannerWrapperClass
+  //    below), for the same reason: previously this only bumped its
+  //    z-index to sit "above" the modal, but since the modal itself
+  //    ignores --account-header-h at >=1024px (item-overlay-bounds
+  //    forces top:0 there) while `main`'s desktop padding-top still
+  //    reserved exactly one bannerHeight for it, the banner's real,
+  //    fully-interactive box landed directly on top of the modal's own
+  //    header row — including its close (X) button — and silently ate
+  //    every click meant for the modal underneath. Hiding the banner
+  //    outright while the modal is open removes both the visual overlap
+  //    and the stolen clicks; it reappears exactly where it was as soon
+  //    as the modal closes.
   const overlayActive = modalOpen
 
   // --account-header-h drives ItemInfoModal's top offset via CSS var
-  // (see .item-overlay-bounds in ItemInfoModal).
-  //  - Modal open: just the banner's live height if it's still open,
-  //    else 0 — so the modal expands to fill that space the instant
-  //    the banner is dismissed, instead of leaving Header/Topbar's old
-  //    slot sitting empty (or, worse, showing through).
+  // (see .item-overlay-bounds in ItemInfoModal), AND drives main's own
+  // desktop padding-top (see the <style jsx> block below).
+  //  - Modal open: now always 0. The banner is hidden outright while the
+  //    modal is open (see bannerWrapperClass), so there's nothing left
+  //    above the content to reserve space for — and this matches
+  //    item-overlay-bounds, which also forces top:0 on desktop while the
+  //    modal is open. Before this fix, this branch returned bannerHeight
+  //    when the banner hadn't been dismissed yet, which desynced from
+  //    the modal's own (space-agnostic) top:0 and was the root cause of
+  //    the banner rendering inside/over the modal.
   //  - Modal closed: unchanged from before — Topbar height on mobile,
   //    Header height on desktop.
   const effectiveHeaderHeight = overlayActive
-    ? bannerOpen
-      ? bannerHeight
-      : 0
+    ? 0
     : isMobile
       ? topbarHeight
       : headerHeight
@@ -127,7 +138,12 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // class name used here.
   const headerWrapperClass = overlayActive ? 'hidden' : 'hidden lg:block lg:mt-15'
   const topbarWrapperClass = overlayActive ? 'hidden' : 'sticky top-0 z-20 bg-parchment lg:static'
-  const bannerWrapperClass = overlayActive ? 'relative z-40' : 'relative'
+  // FIX: was `overlayActive ? 'relative z-40' : 'relative'` — that kept
+  // the banner mounted, in normal flow, and pointer-events-enabled while
+  // the modal was open, just visually promoted above it. Now it's hidden
+  // outright while the modal is open, same treatment as Header/Topbar
+  // above, so it can neither overlap the modal's UI nor steal its clicks.
+  const bannerWrapperClass = overlayActive ? 'hidden' : 'relative'
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
