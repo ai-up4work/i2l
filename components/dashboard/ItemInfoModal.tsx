@@ -20,13 +20,27 @@ import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav
 
 /**
  * Right-side "Product Details" overlay. Now a thin shell: backdrop,
- * slide-in animation, header (source tag + close), and the request
+ * slide-in animation, header (status text + close), and the request
  * "review" step. All product-specific rendering — gallery, price,
  * variants, AND the WishDrop commerce layer (estimated price,
  * delivery/QC, qty/wishlist/cart/request buttons, Description/Details/
  * Shipping tabs) — lives inside whichever platform view is picked below,
  * via the shared <StoreCommercePanel> each one renders. This modal owns
  * NONE of that UI directly anymore.
+ *
+ * Header text: shows a status message ("Reading listing…" / "Listing"
+ * on error) only while there's no title to show yet or something went
+ * wrong. Once the listing has loaded successfully, the header shows
+ * nothing on the left — the product page this modal opens on top of
+ * already displays the title/store name above it, so repeating a
+ * "Product details" label here was redundant.
+ *
+ * Panel bounds: below 1024px, the panel respects --account-header-h at
+ * the top and the mobile bottom nav at the bottom (there's a real fixed
+ * header/nav to clear at that size). At 1024px and up, it goes full
+ * viewport height (top: 0; bottom: 0) — ignoring --account-header-h
+ * entirely on desktop/laptop, same as it already ignored the mobile
+ * bottom-nav offset there.
  */
 
 type ItemOverlayProps = {
@@ -43,24 +57,6 @@ type ItemOverlayProps = {
 }
 
 type Step = 'listing' | 'review'
-
-const SITE_LABELS: Record<string, string> = {
-  amazon: 'Amazon',
-  flipkart: 'Flipkart',
-  meesho: 'Meesho',
-  myntra: 'Myntra',
-  ebay: 'eBay',
-  ajio: 'Ajio',
-  jiomart: 'JioMart',
-  snapdeal: 'Snapdeal',
-  shopify: 'Shopify store',
-  woocommerce: 'Online store',
-}
-
-function siteLabel(site?: string | null) {
-  if (!site) return 'Online store'
-  return SITE_LABELS[site] ?? site.charAt(0).toUpperCase() + site.slice(1)
-}
 
 function ConfirmCheckbox({
   checked,
@@ -281,7 +277,7 @@ export default function ItemInfoModal({
           bottom: calc(${MOBILE_BOTTOM_NAV_HEIGHT}px + env(safe-area-inset-bottom));
         }
         @media (min-width: 1024px) {
-          .item-overlay-bounds { bottom: 0; }
+          .item-overlay-bounds { top: 0; bottom: 0; }
         }
         @media (prefers-reduced-motion: no-preference) {
           .item-overlay-panel { animation: panelSlideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -302,16 +298,18 @@ export default function ItemInfoModal({
               <ArrowLeft size={15} className="flex-none" />
               Back to listing
             </button>
-          ) : (
+          ) : showLoading || result?.error ? (
             <div
-              key={result?.site ?? (showLoading ? 'loading' : 'error')}
+              key={showLoading ? 'loading' : 'error'}
               className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
             >
               <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
               <span className="truncate text-sm font-semibold text-ink/70">
-                {showLoading ? 'Reading listing…' : result?.error ? 'Listing' : siteLabel(result?.site)}
+                {showLoading ? 'Reading listing…' : 'Listing'}
               </span>
             </div>
+          ) : (
+            <div />
           )}
           <button
             type="button"

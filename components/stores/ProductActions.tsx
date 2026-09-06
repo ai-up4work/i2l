@@ -1,9 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Link from 'next/link'
 import { Heart, Minus, Plus, ShoppingCart } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
+import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import { findMatchingVariant } from '@/lib/product-options'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
@@ -86,14 +86,6 @@ export default function ProductActions({
   const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform])
   const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id)
 
-  // "Get Quote" reuses the same request-flow destination the marketplace
-  // branch already sends shoppers to — it doesn't depend on a size/color
-  // selection since it's just kicking off a request, not adding a
-  // specific variant to the bag.
-  const requestHref = `/login?redirect=${encodeURIComponent(
-    `/account/requests/new?productId=${product.id}`
-  )}`
-
   return (
     <div className="mt-6">
       <SizeAndColorPicker
@@ -148,13 +140,13 @@ export default function ProductActions({
           />
         </div>
 
-        <Link
-          href={requestHref}
+        <ProductRequestButton
+          productUrl={product.url ?? ''}
           className="flex h-11 min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-deep"
         >
           <ShoppingCart size={15} />
           Get Quote
-        </Link>
+        </ProductRequestButton>
       </div>
 
       {selectionHint ? (

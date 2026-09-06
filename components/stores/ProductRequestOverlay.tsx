@@ -4,12 +4,6 @@
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 import { useDashboard } from '@/contexts/DashboardContext'
 
-/**
- * Renders ItemInfoModal bound to the shared DashboardContext, mirroring
- * exactly what AccountShell does — but scoped to the product page, so
- * clicking ProductRequestButton opens this modal in place instead of
- * routing anywhere. Only mounted/visible while modalOpen is true.
- */
 export default function ProductRequestOverlay() {
   const {
     draft,
