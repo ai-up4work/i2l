@@ -38,35 +38,64 @@ function useIsScrollable<T extends HTMLElement>(ref: React.RefObject<T | null>, 
   return scrollable
 }
 
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'])
+
+// Some CDNs (Amazon included) encode size/format variants as extra
+// dot-separated tokens between the stable asset id and the extension —
+// e.g. "71QyRZzbaUL._AC_SX342_.jpg" and "71QyRZzbaUL._AC_SL1500_.jpg" are
+// the same photo. Collapsing to "{id}.{ext}" strips those modifiers.
+function normalizeFilename(filename: string): string {
+  const parts = filename.split('.')
+  if (parts.length <= 1) return filename
+  const ext = parts[parts.length - 1].toLowerCase()
+  if (!IMAGE_EXTENSIONS.has(ext)) return filename
+  return `${parts[0]}.${ext}`
+}
+
 // Many product-image CDNs (Flipkart/Flixcart included) serve the same photo
 // at multiple resolutions by swapping numeric folder segments in the path,
 // e.g. .../image/800/1070/.../foo.jpeg vs .../image/80/110/.../foo.jpeg.
-// Stripping purely-numeric segments gives a stable identity per photo
-// regardless of which size variant was linked.
+// Combined with normalizeFilename above, this gives a stable identity per
+// photo regardless of which size/format variant was linked.
 function getImageIdentity(url: string): string {
   try {
     const u = new URL(url)
-    const segments = u.pathname.split('/').filter((seg) => seg && !/^\d+$/.test(seg))
-    return `${u.hostname}/${segments.join('/')}`
+    const segments = u.pathname.split('/').filter(Boolean)
+    const normalized = segments
+      .map((seg, i) => {
+        if (/^\d+$/.test(seg)) return null // drop pure-numeric resolution folders (Flipkart-style)
+        return i === segments.length - 1 ? normalizeFilename(seg) : seg
+      })
+      .filter((seg): seg is string => seg !== null)
+    return `${u.hostname}/${normalized.join('/')}`
   } catch {
     return url
   }
 }
 
-// Numeric path segments (the resolution folders above) are a reasonable
-// proxy for image size — bigger numbers, bigger image — so when two URLs
-// share an identity, prefer the one with the larger max numeric segment.
+// Size proxy gathered from whatever resolution signal the URL exposes:
+// pure-numeric path segments (Flipkart), "SX"/"SY"/"SL" tokens in the
+// filename (Amazon's ._AC_SX342_. convention), or common resize query
+// params. Deliberately narrow patterns — a bare digit scan would also
+// catch unrelated digits like a SKU embedded in the filename.
 function getSizeHint(url: string): number {
+  const candidates: number[] = []
   try {
     const u = new URL(url)
-    const nums = u.pathname
-      .split('/')
-      .filter((seg) => /^\d+$/.test(seg))
-      .map(Number)
-    return nums.length ? Math.max(...nums) : 0
+    u.pathname.split('/').forEach((seg) => {
+      if (/^\d+$/.test(seg)) candidates.push(Number(seg))
+    })
+    for (const m of u.pathname.matchAll(/S[XYL](\d+)/gi)) {
+      candidates.push(Number(m[1]))
+    }
+    for (const key of ['w', 'width', 'h', 'height', 'size']) {
+      const val = u.searchParams.get(key)
+      if (val && /^\d+$/.test(val)) candidates.push(Number(val))
+    }
   } catch {
-    return 0
+    // no candidates gathered — falls through to the 0 default below
   }
+  return candidates.length ? Math.max(...candidates) : 0
 }
 
 // Flipkart/Flixcart (and similar) inject marketing banners into the same
@@ -94,9 +123,17 @@ function isPromoImage(url: string): boolean {
   }
 }
 
+// A still frame with a play-button icon baked in, used to represent an
+// embedded video in the same image list — not a photo of the product itself.
+function isVideoOverlayThumb(url: string): boolean {
+  return /play-button-overlay/i.test(url)
+}
+
 function dedupeImages(images: string[]): string[] {
   const byIdentity = new Map<string, string>()
-  for (const url of images.filter((u) => Boolean(u) && !isPromoImage(u) && !isLowResolution(u))) {
+  for (const url of images.filter(
+    (u) => Boolean(u) && !isPromoImage(u) && !isVideoOverlayThumb(u) && !isLowResolution(u)
+  )) {
     const key = getImageIdentity(url)
     const existing = byIdentity.get(key)
     if (!existing || getSizeHint(url) > getSizeHint(existing)) {
