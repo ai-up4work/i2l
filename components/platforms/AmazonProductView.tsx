@@ -14,17 +14,17 @@ import Image from 'next/image'
  * marketplace product page — labeled variant rows with chip/swatch
  * styling, teal-deep price, the same stock-status treatment.
  *
- * LAYOUT (top to bottom):
- *   1. Gallery (shared ProductGallery component) + buy box, side by
- *      side, capped at max-w-6xl. The buy box's right column also
- *      contains AmazonCommerceActions (qty stepper, wishlist, Add to
- *      Cart, Get Quote, disclaimer) — all inline in a single wrapping
- *      row — directly beneath the price/variants/stock/original-listing-
- *      link stack.
- *   2. ProductInfoTabs — Description/Details/Shipping & Returns,
- *      inlined into this same file, still the BOTTOM-MOST, full-width
- *      section of the whole view. The real scraped size chart (when
- *      present) lives inside its Details tab.
+ * LAYOUT:
+ *   The top row (logo/rating + title), the gallery, and the rest of
+ *   the buy box (price/variants/stock/cart) are three separate grid
+ *   items placed via named grid-template-areas so the ordering can
+ *   differ by breakpoint:
+ *     - Mobile (default): stacked as info → gallery → rest, one column.
+ *     - sm: and up: gallery occupies its own left column spanning both
+ *       rows; info sits top-right, rest sits bottom-right — i.e. the
+ *       original two-column layout.
+ *   ProductInfoTabs (Description/Details/Shipping & Returns) remains
+ *   the bottom-most, full-width section below the grid.
  *
  * Variant chips/swatches now show BOTH the option's price and its
  * struck-through original/list price, sourced directly from
@@ -159,8 +159,9 @@ function DimensionSwatch({
 
 /**
  * Amazon-styled qty/wishlist/cart/request block — rendered inside the
- * right (buy box) column. Qty stepper, wishlist heart, Add to Cart,
- * and Get Quote all sit inline in a single wrapping row.
+ * "rest" (bottom-right on desktop) portion of the buy box. Qty stepper,
+ * wishlist heart, Add to Cart, and Get Quote all sit inline in a single
+ * wrapping row.
  */
 function AmazonCommerceActions({
   result,
@@ -439,25 +440,17 @@ export default function AmazonProductView({
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
-      <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — shared component, Amazon theme */}
-        <ProductGallery
-          images={images}
-          title={result.title}
-          resetKey={result.url}
-          theme={{
-            frameBorder: 'border-ink/10',
-            activeThumb: 'border-teal-deep ring-1 ring-teal-deep',
-            restingThumb: 'border-ink/10',
-            placeholderText: 'text-ink/40',
-          }}
-        />
-
-        {/* Buy box — also contains the qty/cart/quote block right
-            below the price/variants/stock/link stack. */}
-        <div className="min-w-0">
+      <div
+        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+      >
+        {/* Top of buy box: logo + rating, then title.
+            Mobile: first (area "info"). Desktop: top-right column. */}
+        <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
-              <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center"><Image src="/logos/amazon.png" alt="Amazon" width={60} height={12} /></a>            {result.rating && (
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
+              <Image src="/logos/amazon.png" alt="Amazon" width={60} height={12} />
+            </a>
+            {result.rating && (
               <>
                 <span className="text-ink/20">·</span>
                 <RatingStars rating={result.rating} count={result.review_count} />
@@ -468,8 +461,29 @@ export default function AmazonProductView({
           <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}
           </h1>
+        </div>
 
-          <div className="mt-3 flex items-baseline gap-2">
+        {/* Image gallery — shared component, Amazon theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          <ProductGallery
+            images={images}
+            title={result.title}
+            resetKey={result.url}
+            theme={{
+              frameBorder: 'border-ink/10',
+              activeThumb: 'border-teal-deep ring-1 ring-teal-deep',
+              restingThumb: 'border-ink/10',
+              placeholderText: 'text-ink/40',
+            }}
+          />
+        </div>
+
+        {/* Rest of buy box: price, variants, stock, cart/quote actions.
+            Mobile: third (area "rest"). Desktop: bottom-right column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="flex items-baseline gap-2">
             {price ? (
               <p className="text-3xl font-bold text-teal-deep">{price}</p>
             ) : (
@@ -546,8 +560,6 @@ export default function AmazonProductView({
             )}
           </p>
 
-          {/* Qty/wishlist/cart/request — inline row, inside the right
-              column, directly under the link above. */}
           <AmazonCommerceActions
             result={result}
             qty={qty}

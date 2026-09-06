@@ -13,14 +13,24 @@ import Image from 'next/image'
  * Renders a scrape result using the SAME structural layout as
  * AmazonProductView — gallery (shared ProductGallery component) + buy
  * box side by side (max-w-6xl), buy box ordered as platform/rating ->
- * title -> price -> variants -> stock -> original listing link ->
- * FlipkartCommerceActions, then a bottom-most full-width
- * ProductInfoTabs section — but restyled with Flipkart's own visual
- * language instead of Amazon's teal-deep tokens:
+ * title -> seller/hot-deal -> price -> variants -> stock -> original
+ * listing link -> FlipkartCommerceActions, then a bottom-most
+ * full-width ProductInfoTabs section — but restyled with Flipkart's
+ * own visual language instead of Amazon's teal-deep tokens:
  *   - blue (#2874F0) links/accents
  *   - green (#388E3C) rating pill + "Hot Deal" tag + in-stock text
  *   - orange (#ff9f00 / #fb641b) commerce CTAs
  *   - "Sold by X" seller line, "-X%" discount, struck MRP
+ *
+ * LAYOUT ON MOBILE (<sm): the buy box's top segment (platform/rating
+ * badge + title, area "info") is reordered ABOVE the gallery (area
+ * "gallery"), which sits above the rest of the buy box —
+ * seller/hot-deal, price, variants, stock, commerce actions (area
+ * "rest") — via CSS grid-template-areas rather than plain flex
+ * `order`, since three stacked items need to become a 2-col/2-row
+ * layout at sm: (gallery spanning both rows on the left, info/rest
+ * stacked on the right) — see the grid wrapper and the three
+ * `[grid-area:*]` wrapper divs below.
  *
  * Swatch/size tiles flagged `outOfStock` by the extractor render
  * disabled + muted with a small "Out of stock" label, same treatment
@@ -451,26 +461,16 @@ export default function FlipkartProductView({
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
-      <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — shared component, Flipkart theme */}
-        <ProductGallery
-          images={images}
-          title={result.title}
-          resetKey={result.url}
-          theme={{
-            frameBorder: 'border-[#e0e0e0]',
-            activeThumb: 'border-[#2874F0] ring-1 ring-[#2874F0]',
-            restingThumb: 'border-[#e0e0e0]',
-            placeholderText: 'text-[#a0a0a0]',
-          }}
-        />
-
-        {/* Buy box — same element order as AmazonProductView:
-            platform/rating -> title -> seller/hot-deal -> price ->
-            variants -> stock -> link -> commerce actions. */}
-        <div className="min-w-0">
+      <div
+        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+      >
+        {/* Top of buy box: platform/rating badge, then title.
+            Mobile: first (area "info"). Desktop: top-right column. */}
+        <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-[#878787]">
-            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center"><Image src="/logos/flipkart.png" alt="Flipkart" width={60} height={12} /></a>            
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
+              <Image src="/logos/flipkart.png" alt="Flipkart" width={60} height={12} />
+            </a>
             {result.rating && (
               <>
                 <span className="text-[#d6d6d6]">·</span>
@@ -482,8 +482,30 @@ export default function FlipkartProductView({
           <h1 className="mt-2 text-2xl font-medium leading-snug tracking-tight text-[#212121] sm:text-3xl">
             {result.title ?? <span className="italic text-[#a0a0a0]">No title found</span>}
           </h1>
+        </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+        {/* Image gallery — shared component, Flipkart theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          <ProductGallery
+            images={images}
+            title={result.title}
+            resetKey={result.url}
+            theme={{
+              frameBorder: 'border-[#e0e0e0]',
+              activeThumb: 'border-[#2874F0] ring-1 ring-[#2874F0]',
+              restingThumb: 'border-[#e0e0e0]',
+              placeholderText: 'text-[#a0a0a0]',
+            }}
+          />
+        </div>
+
+        {/* Rest of buy box: seller/hot-deal -> price -> variants -> stock
+            -> commerce actions. Mobile: third (area "rest"). Desktop:
+            bottom-right column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="flex flex-wrap items-center gap-2">
             {result.seller && <span className="text-xs font-medium text-[#878787]">Sold by {result.seller}</span>}
             {pctOff !== null && pctOff >= 50 && (
               <span className="rounded bg-[#388E3C] px-2 py-0.5 text-[10px] font-bold text-white">Hot Deal</span>

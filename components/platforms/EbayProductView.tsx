@@ -25,6 +25,15 @@ import Image from 'next/image'
  *   - condition badge, auction current-bid/ends block
  *   - "Buy It Now" / "Place Bid" framing on the primary CTA
  *
+ * LAYOUT ON MOBILE (<sm): the buy box's top segment (seller badge/
+ * condition + title, area "info") is reordered ABOVE the gallery
+ * (area "gallery"), which in turn sits above the rest of the buy box
+ * — price/auction/variants/stock/commerce actions (area "rest") — via
+ * CSS grid-template-areas rather than plain flex `order`, since three
+ * stacked items need to become a 2-col/2-row layout at sm: (gallery
+ * spanning both rows on the left, info/rest stacked on the right) —
+ * see the grid wrapper and the three `[grid-area:*]` wrapper divs below.
+ *
  * The primary CTA reuses the shared RequestActionButton (same component
  * FlipkartCommerceActions uses for "Get Quote") so loading/disabled/
  * unavailable states render identically across platforms — only the
@@ -270,20 +279,6 @@ function EbayCommerceActions({
           unavailable={result.unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
-          color="#000000"
-          disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
-        >
-          {justAdded ? 'ADDED' : 'ADD TO CART'}
-        </RequestActionButton>
-
-        <RequestActionButton
-          onClick={onAddToCart}
-          disabled={!canAct}
-          loading={loading}
-          unavailable={result.unavailable}
-          unavailableLabel="NOT AVAILABLE"
-          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
           color="#ffb100"
           disabledColor="#c7c7c7"
           className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
@@ -511,27 +506,16 @@ export default function EbayProductView({
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
-      <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — shared component, eBay theme */}
-        <ProductGallery
-          images={images}
-          title={result.title}
-          resetKey={result.url}
-          theme={{
-            frameBorder: 'border-[#eaeaea]',
-            activeThumb: 'border-[#3665F3] ring-1 ring-[#3665F3]',
-            restingThumb: 'border-[#eaeaea]',
-            placeholderText: 'text-[#9a9a9a]',
-          }}
-        />
-
-        {/* Buy box — same element order as AmazonProductView:
-            platform/seller-badge -> title -> price/discount -> auction
-            block -> variants -> quantity/returns meta -> stock -> link
-            -> commerce actions. */}
-        <div className="min-w-0">
+      <div
+        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+      >
+        {/* Top of buy box: platform/seller badge + condition, then title.
+            Mobile: first (area "info"). Desktop: top-right column. */}
+        <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs font-semibold text-[#6b6b6b]">
-            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center"><Image src="/logos/ebay.png" alt="eBay" width={60} height={12} /></a>            
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
+              <Image src="/logos/ebay.png" alt="eBay" width={60} height={12} />
+            </a>
             <ConditionBadge condition={condition} />
             {(result.rating || sellerFeedbackScore) && (
               <>
@@ -548,8 +532,30 @@ export default function EbayProductView({
           <h1 className="mt-2 text-2xl font-bold leading-snug tracking-tight text-[#191919] sm:text-3xl">
             {result.title ?? <span className="italic text-[#8a8a8a]">No title found</span>}
           </h1>
+        </div>
 
-          <div className="mt-3 flex flex-wrap items-baseline gap-2">
+        {/* Image gallery — shared component, eBay theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          <ProductGallery
+            images={images}
+            title={result.title}
+            resetKey={result.url}
+            theme={{
+              frameBorder: 'border-[#eaeaea]',
+              activeThumb: 'border-[#3665F3] ring-1 ring-[#3665F3]',
+              restingThumb: 'border-[#eaeaea]',
+              placeholderText: 'text-[#9a9a9a]',
+            }}
+          />
+        </div>
+
+        {/* Rest of buy box: price/discount -> auction block -> variants
+            -> quantity/returns meta -> stock -> commerce actions.
+            Mobile: third (area "rest"). Desktop: bottom-right column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <p className="text-3xl font-bold text-[#191919]">{price}</p>
             ) : (
@@ -634,7 +640,6 @@ export default function EbayProductView({
               <span className="text-[#2e7d32]">Available</span>
             )}
           </p>
-
 
           <EbayCommerceActions
             result={result}

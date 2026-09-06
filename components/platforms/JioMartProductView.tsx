@@ -20,6 +20,16 @@ import Image from 'next/image'
  * ProductInfoTabs section — restyled with JioMart's own blue
  * (#0d47a1) accent instead of Amazon's teal-deep tokens.
  *
+ * LAYOUT ON MOBILE (<sm): the buy box's top segment (logo/brand line +
+ * title + rating, area "info") is reordered ABOVE the gallery (area
+ * "gallery"), which sits above the rest of the buy box —
+ * price/discount, option rows, stock, commerce actions (area "rest")
+ * — via CSS grid-template-areas rather than plain flex `order`, since
+ * three stacked items need to become a 2-col/2-row layout at sm:
+ * (gallery spanning both rows on the left, info/rest stacked on the
+ * right) — see the grid wrapper and the three `[grid-area:*]` wrapper
+ * divs below.
+ *
  * ******************************************************************
  * STATUS: this is a best-effort first pass, NOT verified against a
  * real captured JioMart page — unlike MyntraProductView, which was
@@ -384,26 +394,16 @@ export default function JioMartProductView({
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
-      <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — shared component, JioMart theme */}
-        <ProductGallery
-          images={images}
-          title={result.title}
-          resetKey={result.url}
-          theme={{
-            frameBorder: 'border-[#e5e8ea]',
-            activeThumb: 'border-[#0d47a1] ring-1 ring-[#0d47a1]',
-            restingThumb: 'border-[#e5e8ea]',
-            placeholderText: 'text-[#94a0a6]',
-          }}
-        />
-
-        {/* Buy box — same element order as AmazonProductView:
-            platform/brand -> title -> rating -> price/discount ->
-            option rows -> stock -> link -> commerce actions. */}
-        <div className="min-w-0">
+      <div
+        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+      >
+        {/* Top of buy box: platform/brand line, then title, then rating.
+            Mobile: first (area "info"). Desktop: top-right column. */}
+        <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-[#5c6b73]">
-            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center"><Image src="/logos/jiomart.png" alt="JioMart" width={60} height={12} /></a>      
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
+              <Image src="/logos/jiomart.png" alt="JioMart" width={60} height={12} />
+            </a>
             {result.brand && (
               <>
                 <span className="text-[#c2c8cc]">·</span>
@@ -421,8 +421,30 @@ export default function JioMartProductView({
               <JioMartRatingBadge rating={result.rating} count={result.review_count} />
             </div>
           )}
+        </div>
 
-          <div className="mt-3 flex flex-wrap items-baseline gap-2">
+        {/* Image gallery — shared component, JioMart theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          <ProductGallery
+            images={images}
+            title={result.title}
+            resetKey={result.url}
+            theme={{
+              frameBorder: 'border-[#e5e8ea]',
+              activeThumb: 'border-[#0d47a1] ring-1 ring-[#0d47a1]',
+              restingThumb: 'border-[#e5e8ea]',
+              placeholderText: 'text-[#94a0a6]',
+            }}
+          />
+        </div>
+
+        {/* Rest of buy box: price/discount -> option rows -> stock ->
+            commerce actions. Mobile: third (area "rest"). Desktop:
+            bottom-right column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <p className="text-3xl font-bold text-[#26292b]">{price}</p>
             ) : (

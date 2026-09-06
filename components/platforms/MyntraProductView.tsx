@@ -20,10 +20,22 @@ import Image from 'next/image'
  * pill, "MORE COLORS" swatch strip, pill-shaped size selector, openable
  * size chart).
  *
+ * LAYOUT ON MOBILE (<sm): the buy box's top segment (brand logo link +
+ * rating badge + product name, area "info") is reordered ABOVE the
+ * gallery (area "gallery"), which sits above the rest of the buy box —
+ * price/savings, color swatches, size row/size chart, stock, commerce
+ * actions (area "rest") — via CSS grid-template-areas rather than
+ * plain flex `order`, since three stacked items need to become a
+ * 2-col/2-row layout at sm: (gallery spanning both rows on the left,
+ * info/rest stacked on the right) — see the grid wrapper and the three
+ * `[grid-area:*]` wrapper divs below.
+ *
  * All the Myntra-specific behavior from the previous version is kept
  * as-is:
  *   - brand/name split derived from `result.brand` (not from splitting
- *     the title on its first space)
+ *     the title on its first space) — now rendered as an <h1>, brand
+ *     bolded and name following it, matching how Amazon/eBay/Flipkart
+ *     render their own title line
  *   - "Color" dimension always rendered as an image swatch strip
  *     (ColorSwatchRow), never as text pills
  *   - "Size" (or any other non-color) dimension rendered as pill row
@@ -588,27 +600,52 @@ export default function MyntraProductView({
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
-      <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — shared component, Myntra theme */}
-        <ProductGallery
-          images={images}
-          title={result.title}
-          resetKey={result.url}
-          theme={{
-            frameBorder: 'border-[#eaeaec]',
-            activeThumb: 'border-[#ff3f6c] ring-1 ring-[#ff3f6c]',
-            restingThumb: 'border-[#eaeaec]',
-            placeholderText: 'text-[#94969f]',
-          }}
-        />
+      <div
+        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+      >
+        {/* Top of buy box: brand logo link + rating, then product name.
+            Mobile: first (area "info"). Desktop: top-right column. */}
+        <div className="min-w-0 [grid-area:info]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-[#535766]">
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center align-middle">
+              <Image src="/logos/myntra.png" alt="Myntra" width={60} height={12} className="align-middle" />
+            </a>
+            {result.rating && (
+              <>
+                <span className="text-[#eaeaec]">·</span>
+                <MyntraRatingBadge rating={result.rating} count={result.review_count} />
+              </>
+            )}
+          </div>
 
-        {/* Buy box — same element order as AmazonProductView:
-            brand/name -> rating -> price/savings -> color swatches ->
-            size row (+ size chart) -> stock -> link -> commerce
-            actions. */}
-        <div className="min-w-0">
-          <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2 align-middle"><Image src="/logos/myntra.png" alt="Myntra" width={60} height={12} className="align-middle"/></a>{result.rating && (<><span className="text-ink/20">·</span><MyntraRatingBadge rating={result.rating} count={result.review_count} /></>)}
-          <div className="mt-3 flex flex-wrap items-baseline gap-2">
+          <h1 className="mt-2 text-2xl font-bold leading-snug tracking-tight text-[#282c3f] sm:text-3xl">
+            {brand && <span>{brand} </span>}
+            {name ?? (!brand && <span className="italic text-[#94969f]">No title found</span>)}
+          </h1>
+        </div>
+
+        {/* Image gallery — shared component, Myntra theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          <ProductGallery
+            images={images}
+            title={result.title}
+            resetKey={result.url}
+            theme={{
+              frameBorder: 'border-[#eaeaec]',
+              activeThumb: 'border-[#ff3f6c] ring-1 ring-[#ff3f6c]',
+              restingThumb: 'border-[#eaeaec]',
+              placeholderText: 'text-[#94969f]',
+            }}
+          />
+        </div>
+
+        {/* Rest of buy box: price/savings -> color swatches -> size row
+            (+ size chart) -> stock -> commerce actions.
+            Mobile: third (area "rest"). Desktop: bottom-right column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <span className="text-3xl font-bold text-[#282c3f]">{price}</span>
             ) : (
@@ -651,7 +688,6 @@ export default function MyntraProductView({
               <span className="text-[#535766]">{result.availability}</span>
             )}
           </p>
-
 
           <MyntraCommerceActions
             result={result}
