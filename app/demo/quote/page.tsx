@@ -20,9 +20,11 @@ import {
   SIMPLE_PROFIT_PERCENT,
   SIMPLE_DELIVERY_FLAT_LKR,
   SIMPLE_EXTRA_MARGIN_FLAT_LKR,
+  SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR,
   type QuoteBreakdown,
   type SimpleQuoteBreakdown,
   type QuoteRates,
+  type DeliveryType,
   SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG,
   SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR,
 } from "@/lib/quote";
@@ -77,8 +79,9 @@ const SIMPLE_FORMULAS: Record<string, string> = {
   costWithProfit: "= Product cost + Profit amount",
   freightCharges: "= (Weight ÷ weight block kg) × freight rate per block",
   customsClearance: "= (Weight ÷ weight block kg) × customs clearance rate per block",
-  subtotal: "= Cost with profit + Freight Charges + Customs Clearance",
-  totalWithDelivery: "= Subtotal + delivery fee",
+  postalCharges: "= Weight (kg) × postal charge rate per kg",
+  subtotal: "= Cost with profit + Freight Charges + Customs Clearance (Express), or + Postal Charges (Economy)",
+  totalWithDelivery: "= Subtotal + delivery fee (Express only — Economy has no flat delivery fee)",
   totalCost: "= Total with delivery + extra margin",
 };
 
@@ -88,6 +91,7 @@ function formatLKR(value: number) {
 
 export default function QuoteDemoPage() {
   const [mode, setMode] = useState<Mode>("simple");
+  const [deliveryType, setDeliveryType] = useState<DeliveryType>("express");
 
   const [pcsPerUnit, setPcsPerUnit] = useState(1);
   const [valueAmount, setValueAmount] = useState(16800);
@@ -109,25 +113,26 @@ export default function QuoteDemoPage() {
   const [ssclPercentOverride, setSsclPercentOverride] = useState(HS_CODE_RATES.DEFAULT.sscLPercent);
   const [vatPercentOverride, setVatPercentOverride] = useState(HS_CODE_RATES.DEFAULT.vatPercent);
 
-  // Simple markup config
+  // Simple markup config — shared between Express & Economy
+  const [profitPercentOverride, setProfitPercentOverride] = useState(SIMPLE_PROFIT_PERCENT);
+  const [weightBlockOverride, setWeightBlockOverride] = useState(SIMPLE_WEIGHT_BLOCK_KG);
+  const [extraMarginOverride, setExtraMarginOverride] = useState(SIMPLE_EXTRA_MARGIN_FLAT_LKR);
+
+  // Simple markup config — Express only
   // NOTE: freightBlockRateOverride / customsBlockRateOverride are PER-KG
   // values (that's what the UI label says: "Freight / kg", "Customs
   // clearance / kg", and that's what they're seeded from:
   // SIMPLE_FREIGHT_RATE_PER_KG / SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG).
   // calculateSimpleQuote(), however, expects PER-BLOCK rates
   // (rate per weightBlockKg, e.g. per 0.5kg) — it does NOT convert from
-  // per-kg itself. Previously these per-kg values were passed straight
-  // through as the per-block override, which silently doubled Freight
-  // Charges and Customs Clearance on every Simple-mode quote (since a
-  // block is 0.5kg, per-block rate should be half the per-kg rate).
-  // Fixed below at the calculateSimpleQuote() call site, where we scale
-  // by the current weightBlockOverride instead of assuming 0.5kg.
-  const [profitPercentOverride, setProfitPercentOverride] = useState(SIMPLE_PROFIT_PERCENT);
+  // per-kg itself. These are scaled by the current weightBlockOverride
+  // at the calculateSimpleQuote() call site below.
   const [freightBlockRateOverride, setFreightBlockRateOverride] = useState(SIMPLE_FREIGHT_RATE_PER_KG);
   const [customsBlockRateOverride, setCustomsBlockRateOverride] = useState(SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG);
-  const [weightBlockOverride, setWeightBlockOverride] = useState(SIMPLE_WEIGHT_BLOCK_KG);
   const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(SIMPLE_DELIVERY_FLAT_LKR);
-  const [extraMarginOverride, setExtraMarginOverride] = useState(SIMPLE_EXTRA_MARGIN_FLAT_LKR);
+
+  // Simple markup config — Economy only
+  const [postalRateOverride, setPostalRateOverride] = useState(SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR);
 
   // When the selected HS code changes, re-sync the duty-rate override
   // fields to that code's real rates, so "Adjust rates & fees" always
@@ -161,6 +166,7 @@ export default function QuoteDemoPage() {
     setWeightBlockOverride(SIMPLE_WEIGHT_BLOCK_KG);
     setDeliveryFeeOverride(SIMPLE_DELIVERY_FLAT_LKR);
     setExtraMarginOverride(SIMPLE_EXTRA_MARGIN_FLAT_LKR);
+    setPostalRateOverride(SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR);
   }
 
   const customsQuote: QuoteBreakdown = useMemo(() => {
@@ -205,17 +211,16 @@ export default function QuoteDemoPage() {
       valueINR: valueAmount || 0,
       currencyCode: valueCurrency,
       weightKg: weightKg === "" ? undefined : Number(weightKg),
+      deliveryType,
       profitPercentOverride,
-      // FIX: freightBlockRateOverride / customsBlockRateOverride are
-      // PER-KG values (see comment on their useState above). Scale by
-      // the current weight-block size to get the PER-BLOCK rate that
-      // calculateSimpleQuote() actually expects. Previously these were
-      // passed through unscaled, which doubled both charges whenever
-      // weightBlockOverride was 0.5kg (the default).
+      // freightBlockRateOverride / customsBlockRateOverride are PER-KG
+      // values in this UI; scale by the current weight-block size to get
+      // the PER-BLOCK rate calculateSimpleQuote() expects (express only).
       freightRatePerBlockLKROverride: freightBlockRateOverride * weightBlockOverride,
       customsClearanceRatePerBlockLKROverride: customsBlockRateOverride * weightBlockOverride,
       weightBlockKgOverride: weightBlockOverride,
       deliveryFeeLKROverride: deliveryFeeOverride,
+      postalRatePerKgLKROverride: postalRateOverride,
       extraMarginLKROverride: extraMarginOverride,
     });
   }, [
@@ -223,11 +228,13 @@ export default function QuoteDemoPage() {
     valueAmount,
     valueCurrency,
     weightKg,
+    deliveryType,
     profitPercentOverride,
     freightBlockRateOverride,
     customsBlockRateOverride,
     weightBlockOverride,
     deliveryFeeOverride,
+    postalRateOverride,
     extraMarginOverride,
   ]);
 
@@ -254,28 +261,55 @@ export default function QuoteDemoPage() {
           </p>
         </header>
 
-        {/* Mode toggle */}
-        <div className="mb-8 inline-flex rounded-xl border border-[#1B2A4A]/15 bg-white/60 p-1">
-          {(
-            [
-              { key: "simple", label: "Simple markup" },
-              { key: "customs", label: "Customs cascade" },
-            ] as const
-          ).map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => setMode(m.key)}
-              className={
-                "rounded-lg px-4 py-1.5 text-sm font-medium transition-colors " +
-                (mode === m.key
-                  ? "bg-[#1B2A4A] text-white"
-                  : "text-[#1B2A4A]/60 hover:text-[#1B2A4A]")
-              }
-            >
-              {m.label}
-            </button>
-          ))}
+        {/* Mode toggle + delivery-type toggle */}
+        <div className="mb-8 flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-xl border border-[#1B2A4A]/15 bg-white/60 p-1">
+            {(
+              [
+                { key: "simple", label: "Simple markup" },
+                { key: "customs", label: "Customs cascade" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => setMode(m.key)}
+                className={
+                  "rounded-lg px-4 py-1.5 text-sm font-medium transition-colors " +
+                  (mode === m.key
+                    ? "bg-[#1B2A4A] text-white"
+                    : "text-[#1B2A4A]/60 hover:text-[#1B2A4A]")
+                }
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {mode === "simple" && (
+            <div className="inline-flex rounded-xl border border-[#1B2A4A]/15 bg-white/60 p-1">
+              {(
+                [
+                  { key: "express", label: "Express delivery" },
+                  { key: "economy", label: "Economy delivery" },
+                ] as const
+              ).map((d) => (
+                <button
+                  key={d.key}
+                  type="button"
+                  onClick={() => setDeliveryType(d.key)}
+                  className={
+                    "rounded-lg px-4 py-1.5 text-sm font-medium transition-colors " +
+                    (deliveryType === d.key
+                      ? "bg-[#0F8A7C] text-white"
+                      : "text-[#1B2A4A]/60 hover:text-[#1B2A4A]")
+                  }
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="grid items-stretch gap-8 lg:grid-cols-[380px_1fr]">
@@ -427,24 +461,35 @@ export default function QuoteDemoPage() {
                           onChange={setWeightBlockOverride}
                           suffix="kg"
                         />
-                        <ConfigField
-                        label={`Freight / kg`}
-                        value={freightBlockRateOverride}
-                        onChange={setFreightBlockRateOverride}
-                        suffix="LKR"
-                        />
-                        <ConfigField
-                        label={`Customs clearance / kg`}
-                        value={customsBlockRateOverride}
-                        onChange={setCustomsBlockRateOverride}
-                        suffix="LKR"
-                        />
-                        <ConfigField
-                          label="Delivery fee"
-                          value={deliveryFeeOverride}
-                          onChange={setDeliveryFeeOverride}
-                          suffix="LKR"
-                        />
+                        {deliveryType === "express" ? (
+                          <>
+                            <ConfigField
+                              label="Freight / kg"
+                              value={freightBlockRateOverride}
+                              onChange={setFreightBlockRateOverride}
+                              suffix="LKR"
+                            />
+                            <ConfigField
+                              label="Customs clearance / kg"
+                              value={customsBlockRateOverride}
+                              onChange={setCustomsBlockRateOverride}
+                              suffix="LKR"
+                            />
+                            <ConfigField
+                              label="Delivery fee"
+                              value={deliveryFeeOverride}
+                              onChange={setDeliveryFeeOverride}
+                              suffix="LKR"
+                            />
+                          </>
+                        ) : (
+                          <ConfigField
+                            label="Postal charge / kg"
+                            value={postalRateOverride}
+                            onChange={setPostalRateOverride}
+                            suffix="LKR"
+                          />
+                        )}
                         <ConfigField
                           label="Extra margin"
                           value={extraMarginOverride}
@@ -541,6 +586,8 @@ export default function QuoteDemoPage() {
             <div className="rounded-2xl bg-[#1B2A4A] p-6 text-white">
               <p className="text-sm text-white/60">
                 Total cost · {pcsPerUnit} unit{pcsPerUnit > 1 ? "s" : ""}
+                {mode === "simple" &&
+                  (deliveryType === "express" ? " · Express" : " · Economy")}
               </p>
               <p className="mt-1 font-serif text-4xl">{formatLKR(orderTotal)}</p>
               <p className="mt-1 text-sm text-white/60">
@@ -580,26 +627,38 @@ export default function QuoteDemoPage() {
               value={formatLKR(simpleQuote.costWithProfit)}
               formula={SIMPLE_FORMULAS.costWithProfit}
             />
-            <ResultRow
-              label="Freight Charges"
-              value={formatLKR(simpleQuote.freightCharges)}
-              formula={SIMPLE_FORMULAS.freightCharges}
-            />
-            <ResultRow
-              label="Customs Clearance"
-              value={formatLKR(simpleQuote.customsClearance)}
-              formula={SIMPLE_FORMULAS.customsClearance}
-            />
+            {deliveryType === "express" ? (
+              <>
+                <ResultRow
+                  label="Freight Charges"
+                  value={formatLKR(simpleQuote.freightCharges)}
+                  formula={SIMPLE_FORMULAS.freightCharges}
+                />
+                <ResultRow
+                  label="Customs Clearance"
+                  value={formatLKR(simpleQuote.customsClearance)}
+                  formula={SIMPLE_FORMULAS.customsClearance}
+                />
+              </>
+            ) : (
+              <ResultRow
+                label="Postal Charges"
+                value={formatLKR(simpleQuote.postalCharges)}
+                formula={SIMPLE_FORMULAS.postalCharges}
+              />
+            )}
             <ResultRow
               label="Subtotal"
               value={formatLKR(simpleQuote.subtotal)}
               formula={SIMPLE_FORMULAS.subtotal}
             />
-            <ResultRow
-              label="Total + Delivery"
-              value={formatLKR(simpleQuote.totalWithDelivery)}
-              formula={SIMPLE_FORMULAS.totalWithDelivery}
-            />
+            {deliveryType === "express" && (
+              <ResultRow
+                label="Total + Delivery"
+                value={formatLKR(simpleQuote.totalWithDelivery)}
+                formula={SIMPLE_FORMULAS.totalWithDelivery}
+              />
+            )}
             <ResultRow
               label="Total Cost (+ Extra Margin)"
               value={formatLKR(simpleQuote.totalCost)}
@@ -681,6 +740,7 @@ function SimpleDial({ quote }: { quote: SimpleQuoteBreakdown }) {
     { name: "Profit", value: quote.profitAmount },
     { name: "Freight Charges", value: quote.freightCharges },
     { name: "Customs Clearance", value: quote.customsClearance },
+    { name: "Postal Charges", value: quote.postalCharges },
     { name: "Delivery", value: quote.deliveryFee },
     { name: "Extra Margin", value: quote.extraMargin },
   ].filter((d) => d.value > 0);

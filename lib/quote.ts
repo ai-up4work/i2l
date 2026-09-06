@@ -44,6 +44,18 @@ export const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR = SIMPLE_CUSTOMS_CLEARA
 export const SIMPLE_DELIVERY_FLAT_LKR = 450;
 export const SIMPLE_EXTRA_MARGIN_FLAT_LKR = 250;
 
+// ---- Economy delivery (postal) variant of the simple markup mode ----
+// Economy replaces Express's separate Freight Charges + Customs
+// Clearance + flat Delivery Fee with a single "Postal Charges" line
+// (weight x rate/kg), and has no flat delivery fee. The flat Extra
+// Margin still applies on top, same as Express.
+export const SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR = 1100;
+
+// Which delivery method a Simple-markup quote uses. Express = the
+// original freight + customs-clearance + delivery-fee model. Economy =
+// a single postal-charges line and no flat delivery fee.
+export type DeliveryType = "express" | "economy";
+
 export interface QuoteRates {
   dutyPercent: number;       // Duty % only
   palPercent: number;        // PAL % only
@@ -297,6 +309,13 @@ function round2(value: number): number {
 // SIMPLE MARKUP MODE — a second, independent quote calculation.
 // Does not touch or replace calculateQuote() above; the two modes are
 // meant to be selected between (e.g. via a UI toggle), not combined.
+//
+// Within this mode, `deliveryType` selects between two fee structures:
+//   - "express" (default): Freight Charges + Customs Clearance (both
+//      scaled per weight block) + a flat Delivery Fee.
+//   - "economy": a single Postal Charges line (weight x rate/kg) and
+//      no flat Delivery Fee.
+// Both variants still apply the same Profit% and flat Extra Margin.
 // ============================================================
 
 export interface SimpleQuoteInput {
@@ -304,19 +323,22 @@ export interface SimpleQuoteInput {
   valueINR: number;       // Product cost per unit, in currencyCode's units
   currencyCode?: string;  // Upstream currency code (e.g. "INR"). Defaults to "INR".
   weightKg?: number;      // Weight (kg) — optional, falls back to weightBlockKgOverride / SIMPLE_WEIGHT_BLOCK_KG
+  deliveryType?: DeliveryType; // "express" (default) or "economy"
 
   // ---- Live config overrides (all optional; fall back to the constants above) ----
   profitPercentOverride?: number;
-  freightRatePerBlockLKROverride?: number;
-  customsClearanceRatePerBlockLKROverride?: number;
-  weightBlockKgOverride?: number;
-  deliveryFeeLKROverride?: number;
-  extraMarginLKROverride?: number;
+  freightRatePerBlockLKROverride?: number;         // express only
+  customsClearanceRatePerBlockLKROverride?: number; // express only
+  weightBlockKgOverride?: number;                   // express only (block-scaling basis)
+  deliveryFeeLKROverride?: number;                  // express only
+  postalRatePerKgLKROverride?: number;              // economy only
+  extraMarginLKROverride?: number;                  // both modes
 }
 
 export interface SimpleQuoteBreakdown {
   // Inputs echoed back
   pcsPerUnit: number;
+  deliveryType: DeliveryType;
   weightKg: number;
   valueINR: number;
   currencyCode: string;
@@ -327,12 +349,13 @@ export interface SimpleQuoteBreakdown {
   profitPercent: number;    // Step 3: profit % applied
   profitAmount: number;     // Step 3: profit amount (LKR)
   costWithProfit: number;   // product cost + profit
-  freightCharges: number;   // Step 4: Freight Charges
-  customsClearance: number; // Step 5: Customs Clearance
-  subtotal: number;         // costWithProfit + freight + customs clearance
-  deliveryFee: number;      // Step 6: flat delivery fee
+  freightCharges: number;   // Express only: Freight Charges (0 in economy)
+  customsClearance: number; // Express only: Customs Clearance (0 in economy)
+  postalCharges: number;    // Economy only: Postal Charges (0 in express)
+  subtotal: number;         // costWithProfit + freight/customs (express) or + postal (economy)
+  deliveryFee: number;      // Express only: flat delivery fee (0 in economy)
   totalWithDelivery: number;
-  extraMargin: number;      // Step 7: flat extra margin
+  extraMargin: number;      // flat extra margin, both modes
   totalCost: number;        // Final per-unit total cost (what the customer pays)
 
   // Order-level totals (per unit values x PCS/Unit)
@@ -346,32 +369,36 @@ export interface SimpleQuoteBreakdown {
  *
  * 1. Product cost (LKR) = Value x exchange rate
  * 2. Cost with profit = Product cost x (1 + Profit%)
+ *
+ * Express delivery:
  * 3. Freight Charges = (Weight / weightBlockKg) x rate-per-block
  * 4. Customs Clearance = (Weight / weightBlockKg) x rate-per-block
  * 5. Subtotal = Cost with profit + Freight Charges + Customs Clearance
  * 6. Total with delivery = Subtotal + flat delivery fee
  * 7. Total Cost = Total with delivery + flat extra margin
  *
+ * Economy delivery:
+ * 3. Postal Charges = Weight (kg) x postal rate per kg
+ * 4. Subtotal = Cost with profit + Postal Charges
+ * 5. Total with delivery = Subtotal (no flat delivery fee in economy)
+ * 6. Total Cost = Total with delivery + flat extra margin
+ *
  * Order-level totals multiply the per-unit Total Cost by PCS/Unit.
  *
  * All rates/fees can be overridden per-call via the *Override fields —
  * otherwise the module constants (SIMPLE_PROFIT_PERCENT,
- * SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR, etc.) are used as before.
+ * SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR, SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR,
+ * etc.) are used as before.
  */
 export function calculateSimpleQuote(
   input: SimpleQuoteInput
 ): SimpleQuoteBreakdown {
   const { pcsPerUnit, valueINR } = input;
   const currencyCode = input.currencyCode ?? "INR";
+  const deliveryType: DeliveryType = input.deliveryType ?? "express";
 
   const profitPercent = input.profitPercentOverride ?? SIMPLE_PROFIT_PERCENT;
   const weightBlockKg = input.weightBlockKgOverride ?? SIMPLE_WEIGHT_BLOCK_KG;
-  const freightRatePerBlockLKR =
-    input.freightRatePerBlockLKROverride ?? SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR;
-  const customsClearanceRatePerBlockLKR =
-    input.customsClearanceRatePerBlockLKROverride ??
-    SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR;
-  const deliveryFee = input.deliveryFeeLKROverride ?? SIMPLE_DELIVERY_FLAT_LKR;
   const extraMargin = input.extraMarginLKROverride ?? SIMPLE_EXTRA_MARGIN_FLAT_LKR;
 
   const weightKg = input.weightKg ?? weightBlockKg;
@@ -384,15 +411,37 @@ export function calculateSimpleQuote(
   const profitAmount = productCostLKR * (profitPercent / 100);
   const costWithProfit = productCostLKR + profitAmount;
 
-  // 3 & 4. Freight and customs clearance, scaled by weight block
-  const weightBlocks = weightKg / weightBlockKg;
-  const freightCharges = weightBlocks * freightRatePerBlockLKR;
-  const customsClearance = weightBlocks * customsClearanceRatePerBlockLKR;
+  let freightCharges = 0;
+  let customsClearance = 0;
+  let postalCharges = 0;
+  let deliveryFee = 0;
+
+  if (deliveryType === "express") {
+    const freightRatePerBlockLKR =
+      input.freightRatePerBlockLKROverride ?? SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR;
+    const customsClearanceRatePerBlockLKR =
+      input.customsClearanceRatePerBlockLKROverride ??
+      SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR;
+
+    // 3 & 4. Freight and customs clearance, scaled by weight block
+    const weightBlocks = weightKg / weightBlockKg;
+    freightCharges = weightBlocks * freightRatePerBlockLKR;
+    customsClearance = weightBlocks * customsClearanceRatePerBlockLKR;
+
+    // 6. Flat delivery fee (express only)
+    deliveryFee = input.deliveryFeeLKROverride ?? SIMPLE_DELIVERY_FLAT_LKR;
+  } else {
+    // Economy: single postal-charges line, no flat delivery fee
+    const postalRatePerKgLKR =
+      input.postalRatePerKgLKROverride ?? SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR;
+    postalCharges = weightKg * postalRatePerKgLKR;
+    deliveryFee = 0;
+  }
 
   // 5. Subtotal
-  const subtotal = costWithProfit + freightCharges + customsClearance;
+  const subtotal = costWithProfit + freightCharges + customsClearance + postalCharges;
 
-  // 6. Flat delivery fee
+  // Total with delivery (delivery fee is 0 for economy)
   const totalWithDelivery = subtotal + deliveryFee;
 
   // 7. Flat extra margin -> final total cost
@@ -400,6 +449,7 @@ export function calculateSimpleQuote(
 
   return {
     pcsPerUnit,
+    deliveryType,
     weightKg,
     valueINR,
     currencyCode,
@@ -411,6 +461,7 @@ export function calculateSimpleQuote(
     costWithProfit: round2(costWithProfit),
     freightCharges: round2(freightCharges),
     customsClearance: round2(customsClearance),
+    postalCharges: round2(postalCharges),
     subtotal: round2(subtotal),
     deliveryFee: round2(deliveryFee),
     totalWithDelivery: round2(totalWithDelivery),
@@ -423,9 +474,14 @@ export function calculateSimpleQuote(
 }
 
 // ---- Example usage ----
-// const example = calculateSimpleQuote({
+// const expressExample = calculateSimpleQuote({
 //   pcsPerUnit: 2,
 //   valueINR: 4500,
 //   weightKg: 0.8,
 // });
-// console.log(example);
+// const economyExample = calculateSimpleQuote({
+//   pcsPerUnit: 1,
+//   valueINR: 1000,
+//   deliveryType: "economy",
+// });
+// console.log(expressExample, economyExample);
