@@ -292,7 +292,7 @@ function EbayCommerceActions({
           icon={<ShoppingCart size={16} />}
           color="#3665F3"
           disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-full px-5 py-3 text-sm font-bold shadow-[0_1px_2px_rgba(54,101,243,0.3)] hover:brightness-95"
+          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
           Get Quote
         </RequestActionButton>
