@@ -12,7 +12,7 @@ import { affiliatedStores } from '@/components/dashboard/data';
 import type { StoreProduct, StoreApiResponse } from '@/lib/store.types';
 import Image from 'next/image';
 import { formatPrice } from '@/lib/currency';
-import { getEconomyCatalogPriceLKR } from '@/lib/quote';
+import { getProductPricing, getCartLineTotalLKR, getCartSubtotalLKR, formatCartLinesForWhatsApp, formatLKR } from '@/lib/pricing';
 import Flag from '@/components/ui/Flag';
 
 type SortKey = 'newest' | 'price-asc' | 'price-desc' | 'sale';
@@ -34,23 +34,6 @@ const FALLBACK_IMAGE = '/placeholder-product.png';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 type CartItem = StoreProduct & { qty: number };
-
-// Every price shown on this page (grid cards, discount badge, mini-cart
-// lines/subtotal, WhatsApp order text) is the Economy catalog price —
-// product cost + profit + Postal Charges, in LKR — not the upstream
-// feed's own-currency sticker price. Same math and same function
-// (getEconomyCatalogPriceLKR, lib/quote.ts) the product detail page
-// uses, so a shopper never sees two different numbers for the same item
-// between the grid and the PDP. Kept as one helper so every call site
-// here stays in sync automatically.
-function economyPriceLKR(item: Pick<StoreProduct, 'price' | 'currency' | 'weightKg'>): number {
-  return getEconomyCatalogPriceLKR({
-    pcsPerUnit: 1,
-    valueINR: item.price,
-    currencyCode: item.currency,
-    weightKg: item.weightKg ?? undefined,
-  });
-}
 
 function cartKey(platform: string) {
   return `store_cart_${platform}`;
@@ -90,18 +73,10 @@ function ProductCard({
 }) {
   const [wishlisted, setWishlisted] = useState(false);
 
-  // Catalog (Economy) prices — see economyPriceLKR() above. Discount % is
-  // computed from these, not the raw feed prices, so the badge matches
-  // the two LKR numbers actually shown below it.
-  const catalogPriceLKR = economyPriceLKR(product);
-  const catalogCompareAtPriceLKR =
-    product.compareAtPrice != null
-      ? economyPriceLKR({ ...product, price: product.compareAtPrice })
-      : null;
-
-  const discount = catalogCompareAtPriceLKR && product.onSale
-    ? Math.round((1 - catalogPriceLKR / catalogCompareAtPriceLKR) * 100)
-    : null;
+  // All display pricing (price, "was" price, discount %) comes from the
+  // shared lib/pricing.ts helper — same one the PDP uses — so this card
+  // can never disagree with the product detail page on what something costs.
+  const pricing = getProductPricing(product);
 
   return (
     <div className="group flex flex-col">
@@ -121,9 +96,9 @@ function ProductCard({
         />
 
         <div className="absolute top-3 left-3 flex flex-col gap-1">
-          {discount && (
+          {pricing.discountPercent != null && (
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-gold text-white">
-              -{discount}%
+              -{pricing.discountPercent}%
             </span>
           )}
           {!product.inStock && (
@@ -173,9 +148,9 @@ function ProductCard({
 
         <div className="flex items-center justify-between mt-auto">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-sm font-bold text-teal-deep">{formatPrice(catalogPriceLKR, 'LKR')}</span>
-            {catalogCompareAtPriceLKR != null && product.onSale && (
-              <span className="text-[10px] text-ink/40 line-through">{formatPrice(catalogCompareAtPriceLKR, 'LKR')}</span>
+            <span className="text-sm font-bold text-teal-deep">{pricing.formattedPrice}</span>
+            {pricing.formattedCompareAtPrice != null && (
+              <span className="text-[10px] text-ink/40 line-through">{pricing.formattedCompareAtPrice}</span>
             )}
           </div>
         </div>
@@ -199,16 +174,14 @@ function MiniCart({
 }) {
   // Catalog (Economy) prices throughout — same numbers the grid cards
   // and PDP show, so the bag/WhatsApp message never quotes a different
-  // total than what the shopper saw while browsing.
-  const total = items.reduce((s, i) => s + economyPriceLKR(i) * i.qty, 0);
+  // total than what the shopper saw while browsing. All from lib/pricing.ts.
+  const total = getCartSubtotalLKR(items);
   const WA = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '+94755354830').replace(/\D/g, '');
 
-  const lines = items
-    .map((i) => `\u2022 ${i.name} x${i.qty} \u2014 ${formatPrice(economyPriceLKR(i) * i.qty, 'LKR')}`)
-    .join('\n');
+  const lines = formatCartLinesForWhatsApp(items);
 
   const whatsappText = encodeURIComponent(
-    `Hi! I'd like to order from ${storeName}\n\n${lines}\n\nTotal: ${formatPrice(total, 'LKR')}\n\nPlease confirm availability and delivery. Thank you!`
+    `Hi! I'd like to order from ${storeName}\n\n${lines}\n\nTotal: ${formatLKR(total)}\n\nPlease confirm availability and delivery. Thank you!`
   );
 
   return (
@@ -251,7 +224,7 @@ function MiniCart({
                   <p className="text-[10px] text-ink/45 font-body">{item.category}</p>
                   <p className="text-xs font-semibold text-ink truncate font-body">{item.name}</p>
                   <p className="text-xs font-bold text-ink mt-0.5 font-body">
-                    {formatPrice(economyPriceLKR(item), 'LKR')} x {item.qty}
+                    {formatLKR(getCartLineTotalLKR(item) / item.qty)} x {item.qty}
                   </p>
                 </div>
               </div>

@@ -1,11 +1,10 @@
 // app/(public)/stores/[platform]/product/[productId]/page.tsx
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronRight, ExternalLink, Star, Weight } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ExternalLink, Package, Star, Weight, Zap } from 'lucide-react'
 import { affiliatedStores } from '@/components/dashboard/data'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
-import { formatPrice } from '@/lib/currency'
-import { getCatalogPriceLKR } from '@/lib/quote'
+import { getDualDeliveryPricing } from '@/lib/pricing'
 import ProductActions from '@/components/stores/ProductActions'
 import ProductGallery from '@/components/stores/ProductGallery'
 import ProductRequestButton from '@/components/stores/ProductRequestButton'
@@ -63,14 +62,14 @@ import type { StoreProduct } from '@/lib/store.types'
 // upstream feed (Shopify/WooCommerce/marketplace), in the seller's own
 // currency — that's just their sticker price, not what we'd actually
 // quote a Sri Lankan shopper once freight/customs/postal and our markup
-// are folded in. getCatalogPriceLKR() (lib/quote.ts) runs the same
-// Economy-delivery math as the internal quote calculator and returns
-// just the "catalogPrice" step (product cost + profit + Postal Charges) —
-// deliberately excluding the flat Extra Margin, which stays hidden the
-// same way it does on /demo/quote's catalog view. We hardcode Economy
-// here since the PDP shows a single headline price with no delivery-
-// method picker; ProductRequestOverlay's own quote flow is where a
-// shopper can see the Express option and its full breakdown.
+// are folded in. getDualDeliveryPricing() (lib/pricing.ts) runs the
+// storefront's shared display-pricing logic — the Economy-locked and
+// Express-locked catalog math from lib/quote.ts, plus each method's own
+// discount-% calculation and the Express-over-Economy price delta — so
+// this page can show the shopper a delivery-method comparison while
+// still never disagreeing with the catalog grid or mini-cart (which
+// continue to use the single-method getProductPricing/getDisplayPriceLKR
+// helpers) on what either method actually costs.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -163,31 +162,11 @@ export default async function ProductDetailPage({
   const hasExtendedDescription =
     !!product.fullDescription && product.fullDescription.trim() !== product.description.trim()
 
-  // Headline price shown to the shopper: the Economy-delivery catalog
-  // price (product cost + profit + Postal Charges), in LKR — not the
-  // upstream feed's own-currency sticker price. See the module comment
-  // above for why Economy specifically, and what's deliberately excluded.
-  const catalogPriceLKR = getCatalogPriceLKR({
-    pcsPerUnit: 1,
-    valueINR: product.price,
-    currencyCode: product.currency,
-    weightKg: product.weightKg ?? undefined,
-    deliveryType: 'economy',
-  })
-
-  // Same treatment for the struck-through "was" price, so the discount
-  // shown is between two like-for-like landed prices rather than mixing
-  // a raw feed price against a marked-up one.
-  const catalogCompareAtPriceLKR =
-    product.compareAtPrice != null
-      ? getCatalogPriceLKR({
-          pcsPerUnit: 1,
-          valueINR: product.compareAtPrice,
-          currencyCode: product.currency,
-          weightKg: product.weightKg ?? undefined,
-          deliveryType: 'economy',
-        })
-      : undefined
+  // Economy AND Express pricing, computed by the shared lib/pricing.ts
+  // helper (same underlying lib/quote.ts math the catalog grid and
+  // mini-cart use) so neither number shown here can ever drift from the
+  // work-desk calculator.
+  const dualPricing = getDualDeliveryPricing(product)
 
   return (
     <DashboardProvider>
@@ -256,13 +235,59 @@ export default async function ProductDetailPage({
 
                 <SpecRow product={product} />
 
-                <div className="mt-3 flex items-baseline gap-2">
-                  <p className="text-3xl font-bold text-teal-deep">{formatPrice(catalogPriceLKR, 'LKR')}</p>
-                  {catalogCompareAtPriceLKR != null && product.onSale && (
-                    <p className="text-base font-semibold text-ink/40 line-through">
-                      {formatPrice(catalogCompareAtPriceLKR, 'LKR')}
-                    </p>
-                  )}
+                {/* Economy vs Express delivery-price comparison.
+                    One divided block, not two matching cards: Economy is
+                    the storefront default, so it carries the primary
+                    price treatment; Express sits underneath as a quieter
+                    comparison row, with the price delta spelled out as
+                    one line instead of making the shopper subtract two
+                    absolute numbers themselves. */}
+                <div className="mt-3 rounded-2xl border border-ink/10">
+                  <div className="flex items-center gap-3 px-4 py-3.5">
+                    <Package size={17} strokeWidth={1.75} className="shrink-0 text-teal-deep" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-ink">Economy</p>
+                      <p className="text-xs text-ink/45">Postal delivery, arrives in 2–3 weeks</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-display text-xl font-bold text-teal-deep sm:text-2xl">
+                        {dualPricing.economy.formattedPrice}
+                      </p>
+                      {dualPricing.economy.formattedCompareAtPrice != null && (
+                        <p className="text-xs text-ink/35">
+                          <span className="line-through">{dualPricing.economy.formattedCompareAtPrice}</span>
+                          {dualPricing.economy.discountPercent != null && (
+                            <span className="ml-1.5 text-teal-deep">
+                              {dualPricing.economy.discountPercent}% less
+                            </span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mx-4 h-px bg-ink/8" />
+
+                  <div className="flex items-center gap-3 px-4 py-3.5">
+                    <Zap size={17} strokeWidth={1.75} className="shrink-0 text-ink/30" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-ink/70">Express</p>
+                      <p className="text-xs text-ink/45">
+                        Courier delivery, arrives in 3–5 days
+                        {dualPricing.formattedExpressPremium != null && (
+                          <> · {dualPricing.formattedExpressPremium} more than Economy</>
+                        )}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-base font-bold text-ink/60">{dualPricing.express.formattedPrice}</p>
+                      {dualPricing.express.formattedCompareAtPrice != null && (
+                        <p className="text-xs text-ink/35 line-through">
+                          {dualPricing.express.formattedCompareAtPrice}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {!product.inStock && (
