@@ -6,18 +6,31 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 
+export interface ProductGalleryTheme {
+  frameBorder?: string
+  activeThumb?: string
+  restingThumb?: string
+  placeholderText?: string
+}
+
 interface ProductGalleryProps {
   images: string[]
-  title?: string
-  alt?: string
+  alt?: string | null
+  title?: string | null
+  resetKey?: string | number
+  theme?: ProductGalleryTheme
 }
 
 const AUTOPLAY_INTERVAL_MS = 8000
-const EASE = [0.16, 1, 0.3, 1] as const // gentle, decelerating — reads as considered rather than mechanical
+const EASE = [0.16, 1, 0.3, 1] as const
 
-// True only when the element's content is actually wider than the element
-// itself — i.e. scrolling would do something. Re-checked on resize and
-// whenever the deps change (image count, dialog open/close, etc).
+const DEFAULT_THEME: Required<ProductGalleryTheme> = {
+  frameBorder: 'border-ink/10',
+  activeThumb: 'ring-1 ring-ink',
+  restingThumb: 'ring-1 ring-ink/10',
+  placeholderText: 'text-ink/40',
+}
+
 function useIsScrollable<T extends HTMLElement>(ref: React.RefObject<T | null>, deps: unknown[]) {
   const [scrollable, setScrollable] = useState(false)
 
@@ -41,10 +54,6 @@ function useIsScrollable<T extends HTMLElement>(ref: React.RefObject<T | null>, 
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'])
 
-// Some CDNs (Amazon included) encode size/format variants as extra
-// dot-separated tokens between the stable asset id and the extension —
-// e.g. "71QyRZzbaUL._AC_SX342_.jpg" and "71QyRZzbaUL._AC_SL1500_.jpg" are
-// the same photo. Collapsing to "{id}.{ext}" strips those modifiers.
 function normalizeFilename(filename: string): string {
   const parts = filename.split('.')
   if (parts.length <= 1) return filename
@@ -53,18 +62,13 @@ function normalizeFilename(filename: string): string {
   return `${parts[0]}.${ext}`
 }
 
-// Many product-image CDNs (Flipkart/Flixcart included) serve the same photo
-// at multiple resolutions by swapping numeric folder segments in the path,
-// e.g. .../image/800/1070/.../foo.jpeg vs .../image/80/110/.../foo.jpeg.
-// Combined with normalizeFilename above, this gives a stable identity per
-// photo regardless of which size/format variant was linked.
 function getImageIdentity(url: string): string {
   try {
     const u = new URL(url)
     const segments = u.pathname.split('/').filter(Boolean)
     const normalized = segments
       .map((seg, i) => {
-        if (/^\d+$/.test(seg)) return null // drop pure-numeric resolution folders (Flipkart-style)
+        if (/^\d+$/.test(seg)) return null
         return i === segments.length - 1 ? normalizeFilename(seg) : seg
       })
       .filter((seg): seg is string => seg !== null)
@@ -74,11 +78,6 @@ function getImageIdentity(url: string): string {
   }
 }
 
-// Size proxy gathered from whatever resolution signal the URL exposes:
-// pure-numeric path segments (Flipkart), "SX"/"SY"/"SL" tokens in the
-// filename (Amazon's ._AC_SX342_. convention), or common resize query
-// params. Deliberately narrow patterns — a bare digit scan would also
-// catch unrelated digits like a SKU embedded in the filename.
 function getSizeHint(url: string): number {
   const candidates: number[] = []
   try {
@@ -99,19 +98,10 @@ function getSizeHint(url: string): number {
   return candidates.length ? Math.max(...candidates) : 0
 }
 
-// Flipkart/Flixcart (and similar) inject marketing banners into the same
-// image list as real product photos, distinguishable by a "/promos/" path
-// segment rather than the product's own asset path — these aren't photos
-// of the product and shouldn't appear in the gallery.
-// Below this, a size-hinted image variant is a thumbnail meant for lists/
-// carousels elsewhere on the source site, not something worth showing full
-// size on a product page or device screen.
 const MIN_ACCEPTABLE_SIZE = 200
 
 function isLowResolution(url: string): boolean {
   const size = getSizeHint(url)
-  // 0 means the URL had no numeric size segment to read (unknown, not
-  // necessarily small) — only filter when we positively detected a small size.
   return size > 0 && size < MIN_ACCEPTABLE_SIZE
 }
 
@@ -124,8 +114,6 @@ function isPromoImage(url: string): boolean {
   }
 }
 
-// A still frame with a play-button icon baked in, used to represent an
-// embedded video in the same image list — not a photo of the product itself.
 function isVideoOverlayThumb(url: string): boolean {
   return /play-button-overlay/i.test(url)
 }
@@ -138,17 +126,18 @@ function dedupeImages(images: string[]): string[] {
     const key = getImageIdentity(url)
     const existing = byIdentity.get(key)
     if (!existing || getSizeHint(url) > getSizeHint(existing)) {
-      byIdentity.set(key, url) // Map preserves first-seen key order even when the value is replaced
+      byIdentity.set(key, url)
     }
   }
   return Array.from(byIdentity.values())
 }
 
-export default function ProductGallery({ images, title, alt }: ProductGalleryProps) {
-  const imageAlt = title?.trim() || alt?.trim() || 'Product image'
-  // Dedupe by underlying photo (not exact URL) and keep the highest-res
-  // copy of each — product feeds often list the same shot multiple times
-  // at different sizes, which otherwise shows as repeated thumbnails/slides.
+export default function ProductGallery({ images, alt, title, resetKey, theme }: ProductGalleryProps) {
+  // `alt` is the true accessible label; `title` is a convenience fallback so callers
+  // that only have a product title (like AmazonProductView) don't have to duplicate it.
+  const resolvedAlt = alt ?? title ?? 'Product image'
+  const t = { ...DEFAULT_THEME, ...theme }
+
   const deduped = dedupeImages(images)
   const safeImages = deduped.length ? deduped : ['/placeholder.png']
   const hasMultiple = safeImages.length > 1
@@ -157,7 +146,7 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
   const [activeIndex, setActiveIndex] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
-  const [autoplayRunId, setAutoplayRunId] = useState(0) // bumped whenever a fresh autoplay countdown should start
+  const [autoplayRunId, setAutoplayRunId] = useState(0)
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const thumbStripRef = useRef<HTMLDivElement | null>(null)
@@ -165,6 +154,16 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
 
   const thumbsScrollable = useIsScrollable(thumbStripRef, [safeImages.length])
   const lightboxThumbsScrollable = useIsScrollable(lightboxThumbStripRef, [safeImages.length, lightboxOpen])
+
+  // Reset back to the first slide (and close the lightbox) whenever resetKey
+  // changes — i.e. when the caller navigates to a different product, rather
+  // than leaving the gallery on whatever slide index the previous product left it at.
+  useEffect(() => {
+    setActiveIndex(0)
+    setAutoplayRunId((n) => n + 1)
+    setLightboxOpen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey])
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -187,9 +186,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
     clearTimer()
   }, [clearTimer])
 
-  // Scrolls the thumbnail strip left/right by roughly one "page" of visible
-  // thumbnails, instead of jumping to a specific slide — this is just strip
-  // navigation, independent of which image is currently active.
   const scrollThumbs = useCallback((direction: 'left' | 'right') => {
     const el = thumbStripRef.current
     if (!el) return
@@ -197,8 +193,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
     el.scrollBy({ left: direction === 'left' ? -amount : amount, behavior: 'smooth' })
   }, [])
 
-  // Autoplay: only on the main inline gallery, only with >1 image, paused
-  // on hover/focus or while the lightbox is open.
   useEffect(() => {
     if (!hasMultiple || isHovering || lightboxOpen) {
       clearTimer()
@@ -211,8 +205,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
     return clearTimer
   }, [hasMultiple, isHovering, lightboxOpen, safeImages.length, clearTimer])
 
-  // Arrow-key nav while the lightbox is open. Radix's Dialog already handles
-  // Escape and focus trapping, so this only needs to add Left/Right.
   useEffect(() => {
     if (!lightboxOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -225,13 +217,12 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
 
   const isPlaying = hasMultiple && !isHovering && !lightboxOpen
   const crossfadeDuration = reduceMotion ? 0 : 0.7
+  const isPlaceholder = safeImages[activeIndex] === '/placeholder.png'
 
   return (
     <div>
-      {/* Main image — full width, height follows the active slide's natural
-          ratio; crossfade handled by Framer Motion's AnimatePresence. */}
       <div
-        className="group relative overflow-hidden rounded-2xl border border-ink/10 bg-card"
+        className={`group relative overflow-hidden rounded-2xl border ${t.frameBorder} bg-card`}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         onFocus={() => setIsHovering(true)}
@@ -243,17 +234,14 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
           aria-label="Open full-screen view"
           className="relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-2"
         >
-          {/* Sizing image: invisible, sets the container's aspect ratio to
-              match the active slide so the crossfade layer below can be
-              absolutely positioned without collapsing the container. */}
           <img src={safeImages[activeIndex]} alt="" aria-hidden="true" className="block w-full h-auto opacity-0" />
 
           <AnimatePresence initial={false}>
             <motion.img
               key={safeImages[activeIndex] + activeIndex}
               src={safeImages[activeIndex]}
-              alt={imageAlt}
-              className="absolute inset-0 h-full w-full object-contain"
+              alt={resolvedAlt}
+              className={`absolute inset-0 h-full w-full object-contain ${isPlaceholder ? t.placeholderText : ''}`}
               initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.015 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
@@ -262,9 +250,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
           </AnimatePresence>
         </button>
 
-        {/* Progress rail — doubles as a position indicator and, while
-            autoplaying, a countdown to the next slide. Each segment is
-            still a manual jump target. */}
         {hasMultiple && (
           <div className="absolute inset-x-3 top-3 flex gap-1">
             {safeImages.map((_, i) => (
@@ -295,8 +280,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
         )}
       </div>
 
-      {/* Thumbnails — snap-scrolling strip, scrollbar hidden, arrow buttons
-          scroll the strip instead */}
       {hasMultiple && (
         <div className="relative mt-3 flex items-center gap-1.5">
           {thumbsScrollable && (
@@ -325,11 +308,11 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
                 aria-label={`View image ${i + 1}`}
                 className={
                   i === activeIndex
-                    ? 'h-14 w-14 flex-none snap-start overflow-hidden rounded-lg ring-1 ring-ink shadow-sm transition-all duration-300'
-                    : 'h-14 w-14 flex-none snap-start overflow-hidden rounded-lg opacity-55 grayscale-[20%] ring-1 ring-ink/10 transition-all duration-300 hover:opacity-90 hover:grayscale-0 focus-visible:opacity-100 focus-visible:grayscale-0'
+                    ? `h-14 w-14 flex-none snap-start overflow-hidden rounded-lg shadow-sm transition-all duration-300 ${t.activeThumb}`
+                    : `h-14 w-14 flex-none snap-start overflow-hidden rounded-lg opacity-55 grayscale-[20%] transition-all duration-300 hover:opacity-90 hover:grayscale-0 focus-visible:opacity-100 focus-visible:grayscale-0 ${t.restingThumb}`
                 }
               >
-                <img src={img} alt={imageAlt} className="h-full w-full object-cover" />
+                <img src={img} alt="" className="h-full w-full object-cover" />
               </button>
             ))}
           </div>
@@ -347,8 +330,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
         </div>
       )}
 
-      {/* Fullscreen lightbox — Radix Dialog handles the focus trap, body
-          scroll lock, and Escape-to-close for us. */}
       <Dialog.Root open={lightboxOpen} onOpenChange={setLightboxOpen}>
         <Dialog.Portal>
           <Dialog.Overlay asChild>
@@ -367,7 +348,7 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
             onClick={() => setLightboxOpen(false)}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
-            <Dialog.Title className="sr-only">{alt} — full-screen image viewer</Dialog.Title>
+            <Dialog.Title className="sr-only">{resolvedAlt} — full-screen image viewer</Dialog.Title>
 
             <Dialog.Close asChild>
               <button
@@ -384,7 +365,7 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
                 <motion.img
                   key={safeImages[activeIndex] + activeIndex}
                   src={safeImages[activeIndex]}
-                  alt={alt}
+                  alt={resolvedAlt}
                   onClick={(e) => e.stopPropagation()}
                   className="block max-w-full max-h-[75vh] w-auto h-auto rounded-lg"
                   initial={{ opacity: 0 }}
@@ -420,8 +401,6 @@ export default function ProductGallery({ images, title, alt }: ProductGalleryPro
                   <ChevronRight size={20} />
                 </button>
 
-                {/* Bottom thumbnail strip — tap any thumbnail to jump straight
-                    to that image instead of stepping one-by-one with the arrows. */}
                 <div
                   ref={lightboxThumbStripRef}
                   className={`mt-4 flex max-w-full gap-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
