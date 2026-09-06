@@ -48,6 +48,18 @@ import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav
  * account header instead of painting a dim/blur layer over it. At
  * 1024px+ .item-overlay-bounds resets top/bottom to 0, so the backdrop
  * still goes fully edge-to-edge on desktop as before.
+ *
+ * Click-through fix: the outer `fixed inset-0` wrapper used to be a
+ * fully "live" hit-target for its entire box, even in the region above
+ * .item-overlay-bounds (the gap left uncovered on mobile, where the
+ * WelcomeBanner lives, since --account-header-h only accounts for
+ * Topbar/Header height, not the banner). That transparent gap still
+ * intercepted clicks meant for whatever was underneath, at z-20 —
+ * i.e. WelcomeBanner's "Details" link and dismiss button were dead
+ * while this modal was open, even though nothing was visibly on top of
+ * them. Fix: the outer wrapper is now `pointer-events-none`, and only
+ * the two actually-visible pieces — the backdrop and the panel — opt
+ * back in with `pointer-events-auto`. Nothing else changed.
  */
 
 type ItemOverlayProps = {
@@ -264,9 +276,14 @@ export default function ItemInfoModal({
   })()
 
   return (
-    <div className="fixed inset-0 z-30" role="dialog" aria-modal="true" aria-label="Product details">
+    <div
+      className="fixed inset-0 z-30 pointer-events-none"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Product details"
+    >
       <div
-        className="item-overlay-bounds absolute inset-x-0 bg-ink/40 backdrop-blur-[1px] motion-safe:[animation:overlayFadeIn_0.2s_ease-out_both]"
+        className="item-overlay-bounds pointer-events-auto absolute inset-x-0 bg-ink/40 backdrop-blur-[1px] motion-safe:[animation:overlayFadeIn_0.2s_ease-out_both]"
         onClick={onClose}
       />
 
@@ -294,7 +311,7 @@ export default function ItemInfoModal({
         }
       `}</style>
 
-      <div className="item-overlay-bounds item-overlay-panel absolute right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift">
+      <div className="item-overlay-bounds item-overlay-panel pointer-events-auto absolute right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift">
         <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
           {step === 'review' ? (
             <button

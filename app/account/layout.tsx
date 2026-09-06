@@ -20,37 +20,11 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 
 const MOBILE_BOTTOM_NAV_H = 72
 
-function AccountShell({
-  children,
-  headerHeight,
-}: {
-  children: React.ReactNode
-  headerHeight: number
-}) {
+function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const view = viewForPath(pathname)
   const isMobile = useIsMobile() // true below lg (1024px), matching this layout's other breakpoints
-
-  // NEW: Topbar is the thing actually visible on mobile (the desktop
-  // <Header> is `hidden` below lg, so its measured height is 0 there —
-  // that's why --account-header-h was collapsing to 0px on mobile and
-  // ItemInfoModal's overlay/backdrop had nothing to offset against).
-  // We now measure Topbar's real rendered height too, and make it
-  // sticky so it behaves like an actual persistent header on mobile.
-  const { ref: topbarRef, height: topbarHeight } = useElementHeight<HTMLDivElement>()
-
-  // On mobile, reserve space for the sticky Topbar. On lg+, keep using
-  // the desktop <Header> height as before (Topbar isn't sticky there).
-  const effectiveHeaderHeight = isMobile ? topbarHeight : headerHeight
-
-  const [bannerOpen, setBannerOpen] = useState(true)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [shopSheetOpen, setShopSheetOpen] = useState(false)
-  // Mirrors shopSheetOpen's pattern above — the + button opens this
-  // overlay in place instead of routing to a dedicated "addRequest" view,
-  // so tapping it from Orders/Stores/etc. no longer loses that page.
-  const [addRequestOpen, setAddRequestOpen] = useState(false)
 
   const {
     draft,
@@ -73,6 +47,56 @@ function AccountShell({
   // disabled={!link.trim()} was throwing. Remove this once the real
   // field names from DashboardContext are wired in above.
   const safeLink = link ?? ''
+
+  // Desktop <Header> now lives here (moved down from the outer
+  // AccountLayout component) so it can react to modalOpen — useDashboard
+  // isn't reachable from a component that merely renders <DashboardProvider>,
+  // only from one nested inside it.
+  const { ref: headerRef, height: headerHeight } = useElementHeight<HTMLDivElement>()
+  const { ref: topbarRef, height: topbarHeight } = useElementHeight<HTMLDivElement>()
+
+  // Banner measured on its own now (previously merged into topbarHeight).
+  // Needed in isolation because while ItemInfoModal is open, the banner
+  // is the ONLY thing that should still show above the overlay — Header
+  // and Topbar are hidden outright — so the overlay's top offset should
+  // equal exactly the banner's height (or 0 once dismissed), not
+  // banner+topbar, and not header height.
+  const { ref: bannerRef, height: bannerHeight } = useElementHeight<HTMLDivElement>()
+
+  const [bannerOpen, setBannerOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [shopSheetOpen, setShopSheetOpen] = useState(false)
+  // Mirrors shopSheetOpen's pattern above — the + button opens this
+  // overlay in place instead of routing to a dedicated "addRequest" view,
+  // so tapping it from Orders/Stores/etc. no longer loses that page.
+  const [addRequestOpen, setAddRequestOpen] = useState(false)
+
+  // True whenever ItemInfoModal is covering the screen. While true:
+  //  - Header and Topbar are hidden outright (display:none via a class
+  //    swap, NOT unmounted — see the className logic below — so their
+  //    refs stay attached to the same node and useElementHeight keeps
+  //    tracking them correctly once the modal closes again).
+  //  - WelcomeBanner, if still open, is bumped to a z-index above the
+  //    modal so it stays visibly on top of it rather than getting
+  //    covered — this is the "banner shown over the item overlay"
+  //    behavior.
+  const overlayActive = modalOpen
+
+  // --account-header-h drives ItemInfoModal's top offset via CSS var
+  // (see .item-overlay-bounds in ItemInfoModal).
+  //  - Modal open: just the banner's live height if it's still open,
+  //    else 0 — so the modal expands to fill that space the instant
+  //    the banner is dismissed, instead of leaving Header/Topbar's old
+  //    slot sitting empty (or, worse, showing through).
+  //  - Modal closed: unchanged from before — Topbar height on mobile,
+  //    Header height on desktop.
+  const effectiveHeaderHeight = overlayActive
+    ? bannerOpen
+      ? bannerHeight
+      : 0
+    : isMobile
+      ? topbarHeight
+      : headerHeight
 
   function handleNavigate(nextView: View) {
     if (nextView === 'addRequest') resetDraft()
@@ -98,147 +122,147 @@ function AccountShell({
     router.push(pathForView('home'))
   }
 
+  // Kept as plain conditionals (not template-string interpolation of
+  // arbitrary values) so Tailwind's class scanner can see every literal
+  // class name used here.
+  const headerWrapperClass = overlayActive ? 'hidden' : 'hidden lg:block lg:mt-15'
+  const topbarWrapperClass = overlayActive ? 'hidden' : 'sticky top-0 z-20 bg-parchment lg:static'
+  const bannerWrapperClass = overlayActive ? 'relative z-40' : 'relative'
+
   return (
-    <main
-      className="flex min-h-0 flex-1 overflow-hidden bg-parchment pt-0"
-      style={{
-        ['--account-header-h' as string]: `${effectiveHeaderHeight}px`,
-        ['--account-bottom-nav-h' as string]: `${MOBILE_BOTTOM_NAV_H}px`,
-      }}
-    >
-      {/* Applied to BOTH flex children of <main> — Sidebar and the
-          scrollable <section> — since padding-top on the flex container
-          shifts every row-aligned child down equally. This is what keeps
-          Sidebar's pinned "Personal Center" block, not just the main
-          content column, clear of the fixed header above. */}
-      <style jsx>{`
-        @media (min-width: 1024px) {
-          main {
-            padding-top: var(--account-header-h);
-          }
-        }
-      `}</style>
+    <div className="flex h-screen flex-col overflow-hidden">
+      <div ref={headerRef} className={headerWrapperClass}>
+        <Header variant="account" />
+      </div>
 
-      <Sidebar
-        view={view}
-        onNavigate={handleNavigate}
-        onLogoClick={() => router.push(pathForView('home'))}
-        onSignOut={() => {
-          /* existing sign-out handling */
+      <main
+        className="flex min-h-0 flex-1 overflow-hidden bg-parchment pt-0"
+        style={{
+          ['--account-header-h' as string]: `${effectiveHeaderHeight}px`,
+          ['--account-bottom-nav-h' as string]: `${MOBILE_BOTTOM_NAV_H}px`,
         }}
-        mobileOpen={sidebarOpen}
-        onMobileClose={() => setSidebarOpen(false)}
-      />
-
-      <section
-        className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto"
-        style={{ paddingBottom: 'var(--account-bottom-nav-h)' }}
       >
-        <WelcomeBanner
-          open={bannerOpen}
-          onDismiss={() => setBannerOpen(false)}
-          collapse={isMobile}
-        />
-        {/* NEW: sticky wrapper on mobile so Topbar behaves like a real
-            persistent header there (sticky is relative to this
-            scrolling <section>, which is its nearest scroll ancestor).
-            On lg+ it's static, same as before — desktop <Header> above
-            is the persistent header at that size instead. */}
-        <div ref={topbarRef} className="sticky top-0 z-20 bg-parchment lg:static">
-          <Topbar view={view} onBack={handleBack} onMenuClick={() => setSidebarOpen(true)} />
-        </div>
-        {children}
-      </section>
-
-      <MobileBottomNav
-        view={view}
-        onNavigate={handleNavigate}
-        onOpenShop={() => setShopSheetOpen(true)}
-        onOpenAddRequest={handleOpenAddRequest}
-        isAddRequestOpen={addRequestOpen}
-      />
-      <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} />
-      <AddRequestOverlay
-        open={addRequestOpen}
-        onClose={() => setAddRequestOpen(false)}
-        link={safeLink}
-        setLink={setLink}
-        onSubmit={handleAddRequestSubmit}
-      />
-
-      {modalOpen && (
-        <ItemInfoModal
-          open={modalOpen}
-          result={scrapeResult}
-          qty={draft.qty}
-          onQtyChange={(qty) => setDraft({ ...draft, qty })}
-          onClose={closeModal}
-          onRequestItem={() => saveItemInfo({ preventDefault: () => {} } as React.FormEvent)}
-          loading={lookupLoading}
-          onSelectVariant={(url) => {
-            if (url) selectVariant(url)
-          }}
-        />
-      )}
-
-      <button
-        aria-label="Open support chat"
-        className="support-fab fixed right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
-        style={{ bottom: 'calc(var(--account-bottom-nav-h) + 1.5rem)' }}
-      >
-        <CircleHelp />
-      </button>
-
-      <style jsx global>{`
-        .content-scroll {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(14, 140, 156, 0.25) transparent;
-        }
-        .content-scroll::-webkit-scrollbar {
-          width: 8px;
-        }
-        .content-scroll::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .content-scroll::-webkit-scrollbar-thumb {
-          background-color: rgba(14, 140, 156, 0.18);
-          border-radius: 999px;
-          border: 2px solid transparent;
-          background-clip: padding-box;
-          transition: background-color 0.2s ease;
-        }
-        .content-scroll:hover::-webkit-scrollbar-thumb {
-          background-color: rgba(14, 140, 156, 0.32);
-        }
-        .content-scroll::-webkit-scrollbar-thumb:hover {
-          background-color: rgba(14, 140, 156, 0.5);
-        }
-        @media (min-width: 1024px) {
-          .support-fab {
-            bottom: 1.5rem !important;
+        {/* Applied to BOTH flex children of <main> — Sidebar and the
+            scrollable <section> — since padding-top on the flex container
+            shifts every row-aligned child down equally. This is what keeps
+            Sidebar's pinned "Personal Center" block, not just the main
+            content column, clear of the fixed header above. */}
+        <style jsx>{`
+          @media (min-width: 1024px) {
+            main {
+              padding-top: var(--account-header-h);
+            }
           }
-        }
-      `}</style>
-    </main>
+        `}</style>
+
+        <Sidebar
+          view={view}
+          onNavigate={handleNavigate}
+          onLogoClick={() => router.push(pathForView('home'))}
+          onSignOut={() => {
+            /* existing sign-out handling */
+          }}
+          mobileOpen={sidebarOpen}
+          onMobileClose={() => setSidebarOpen(false)}
+        />
+
+        <section
+          className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto"
+          style={{ paddingBottom: 'var(--account-bottom-nav-h)' }}
+        >
+          <div ref={bannerRef} className={bannerWrapperClass}>
+            <WelcomeBanner
+              open={bannerOpen}
+              onDismiss={() => setBannerOpen(false)}
+              collapse={isMobile}
+            />
+          </div>
+
+          <div ref={topbarRef} className={topbarWrapperClass}>
+            <Topbar view={view} onBack={handleBack} onMenuClick={() => setSidebarOpen(true)} />
+          </div>
+
+          {children}
+        </section>
+
+        <MobileBottomNav
+          view={view}
+          onNavigate={handleNavigate}
+          onOpenShop={() => setShopSheetOpen(true)}
+          onOpenAddRequest={handleOpenAddRequest}
+          isAddRequestOpen={addRequestOpen}
+        />
+        <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} />
+        <AddRequestOverlay
+          open={addRequestOpen}
+          onClose={() => setAddRequestOpen(false)}
+          link={safeLink}
+          setLink={setLink}
+          onSubmit={handleAddRequestSubmit}
+        />
+
+        {modalOpen && (
+          <ItemInfoModal
+            open={modalOpen}
+            result={scrapeResult}
+            qty={draft.qty}
+            onQtyChange={(qty) => setDraft({ ...draft, qty })}
+            onClose={closeModal}
+            onRequestItem={() => saveItemInfo({ preventDefault: () => {} } as React.FormEvent)}
+            loading={lookupLoading}
+            onSelectVariant={(url) => {
+              if (url) selectVariant(url)
+            }}
+          />
+        )}
+
+        <button
+          aria-label="Open support chat"
+          className="support-fab fixed right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
+          style={{ bottom: 'calc(var(--account-bottom-nav-h) + 1.5rem)' }}
+        >
+          <CircleHelp />
+        </button>
+
+        <style jsx global>{`
+          .content-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(14, 140, 156, 0.25) transparent;
+          }
+          .content-scroll::-webkit-scrollbar {
+            width: 8px;
+          }
+          .content-scroll::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .content-scroll::-webkit-scrollbar-thumb {
+            background-color: rgba(14, 140, 156, 0.18);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            transition: background-color 0.2s ease;
+          }
+          .content-scroll:hover::-webkit-scrollbar-thumb {
+            background-color: rgba(14, 140, 156, 0.32);
+          }
+          .content-scroll::-webkit-scrollbar-thumb:hover {
+            background-color: rgba(14, 140, 156, 0.5);
+          }
+          @media (min-width: 1024px) {
+            .support-fab {
+              bottom: 1.5rem !important;
+            }
+          }
+        `}</style>
+      </main>
+    </div>
   )
 }
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
-  // Measures Header's real rendered height live — covers font-load shifts,
-  // future edits inside Header/AirmailStripe, browser zoom, etc. — instead
-  // of trusting a hand-maintained constant. NOTE: this is 0 on mobile,
-  // since the wrapper below is `hidden` there — AccountShell now uses
-  // Topbar's own measured height on mobile instead (see topbarHeight).
-  const { ref: headerRef, height: headerHeight } = useElementHeight<HTMLDivElement>()
-
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <DashboardProvider>
-        <div ref={headerRef} className="hidden lg:block lg:mt-15">
-          <Header variant="account" />
-        </div>
-        <AccountShell headerHeight={headerHeight}>{children}</AccountShell>
-      </DashboardProvider>
-    </div>
+    <DashboardProvider>
+      <AccountShell>{children}</AccountShell>
+    </DashboardProvider>
   )
 }
