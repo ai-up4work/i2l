@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, ShoppingCart, Loader2, Zap, ArrowLeft, ShoppingBag } from 'lucide-react'
+import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag } from 'lucide-react'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
 import FlipkartProductView from '@/components/platforms/FlipkartProductView'
@@ -60,6 +60,11 @@ import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav
  * them. Fix: the outer wrapper is now `pointer-events-none`, and only
  * the two actually-visible pieces — the backdrop and the panel — opt
  * back in with `pointer-events-auto`. Nothing else changed.
+ *
+ * Loading state: instead of a centered spinner, the loading state now
+ * renders <ProductSkeleton /> — a pulsing placeholder shaped like the
+ * eventual two-column image/details layout plus a tabs section, so the
+ * panel doesn't visually "jump" once the real listing content pops in.
  */
 
 type ItemOverlayProps = {
@@ -142,7 +147,54 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
           {result.currencyCode ?? ''} {result.price ?? '—'}
         </p>
       </div>
-     
+
+    </div>
+  )
+}
+
+// Pulsing placeholder shown while the listing is being scraped/read.
+// Shaped like the eventual two-column layout (image + details) plus a
+// tabs section, so there's no layout jump once real content lands.
+function ProductSkeleton() {
+  return (
+    <div
+      className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
+      aria-hidden="true"
+    >
+      <div className="grid gap-6 sm:grid-cols-2">
+        {/* image */}
+        <div className="aspect-square animate-pulse rounded-xl border border-ink/10 bg-ink/5" />
+
+        {/* details */}
+        <div className="flex flex-col gap-3">
+          <div className="h-5 w-24 animate-pulse rounded-full bg-ink/10" />
+          <div className="h-6 w-full animate-pulse rounded-md bg-ink/10" />
+          <div className="h-6 w-3/4 animate-pulse rounded-md bg-ink/10" />
+          <div className="mt-2 h-7 w-32 animate-pulse rounded-md bg-ink/10" />
+
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="h-4 w-40 animate-pulse rounded-md bg-ink/10" />
+            <div className="h-4 w-28 animate-pulse rounded-md bg-ink/10" />
+          </div>
+
+          <div className="mt-4 flex gap-2.5">
+            <div className="h-11 w-11 flex-none animate-pulse rounded-xl bg-ink/10" />
+            <div className="h-11 flex-1 animate-pulse rounded-xl bg-ink/10" />
+          </div>
+        </div>
+      </div>
+
+      {/* tabs */}
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-4 border-b border-ink/10 pb-2">
+          <div className="h-4 w-20 animate-pulse rounded-md bg-ink/10" />
+          <div className="h-4 w-16 animate-pulse rounded-md bg-ink/10" />
+          <div className="h-4 w-20 animate-pulse rounded-md bg-ink/10" />
+        </div>
+        <div className="h-4 w-full animate-pulse rounded-md bg-ink/10" />
+        <div className="h-4 w-full animate-pulse rounded-md bg-ink/10" />
+        <div className="h-4 w-2/3 animate-pulse rounded-md bg-ink/10" />
+      </div>
     </div>
   )
 }
@@ -354,10 +406,7 @@ export default function ItemInfoModal({
             [&::-webkit-scrollbar-thumb]:bg-ink/20"
         >
           {showLoading ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-sm font-semibold text-ink/50 motion-safe:[animation:overlayFadeIn_0.3s_ease-out_both]">
-              <Loader2 size={20} className="animate-spin" />
-              Reading the product page…
-            </div>
+            <ProductSkeleton />
           ) : result!.error ? (
             <div className="rounded-xl border border-red-300/40 bg-red-50 p-5 text-sm text-ink/70 motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
               Couldn&apos;t read this listing: {result!.error}
