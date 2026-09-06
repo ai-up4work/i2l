@@ -94,7 +94,7 @@ export default function QuoteDemoPage() {
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("express");
 
   const [pcsPerUnit, setPcsPerUnit] = useState(1);
-  const [valueAmount, setValueAmount] = useState(16800);
+  const [valueAmount, setValueAmount] = useState(1000);
   const [valueCurrency, setValueCurrency] = useState<CurrencyOption>("LKR");
   const [weightKg, setWeightKg] = useState<number | "">("");
   const [hsCode, setHsCode] = useState("");
