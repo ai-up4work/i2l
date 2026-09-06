@@ -487,7 +487,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                           {wishlistPreview.map((entry) => (
                             <a
                               key={entry.id}
-                              href={entry.url || "/wishlist"}
+                              href={entry.url || "/account/wishlist"}
                               className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
                             >
                               <ProductThumb image={entry.image} alt={entry.title} />
@@ -503,7 +503,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                           ))}
                         </div>
                         <div className="mt-1 border-t border-ink/10 pt-2">
-                          <a href="/wishlist" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
+                          <a href="/account/wishlist" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
                             View wishlist ({wishlistCount})
                             <ArrowLeft size={14} className="rotate-180" />
                           </a>
@@ -512,7 +512,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                     ) : (
                       <div className="px-2 py-3">
                         <p className="text-sm text-ink/60">Your wishlist is empty.</p>
-                        <a href="/wishlist" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
+                        <a href="/account/wishlist" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
                           Browse products →
                         </a>
                       </div>
@@ -726,15 +726,15 @@ export default function Header({ title, showBackButton = false, variant = "publi
         icon={<Heart size={18} className="text-teal-deep" />}
         isEmpty={wishlistPreview.length === 0}
         emptyLabel="Your wishlist is empty."
-        emptyHref="/wishlist"
+        emptyHref="/account/wishlist"
         emptyCta="Browse products"
-        viewAllHref="/wishlist"
+        viewAllHref="/account/wishlist"
         viewAllLabel={`View wishlist (${wishlistCount})`}
       >
         {wishlistPreview.map((entry) => (
           <a
             key={entry.id}
-            href={entry.url || "/wishlist"}
+            href={entry.url || "/account/wishlist"}
             onClick={() => setWishlistSheetOpen(false)}
             className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
           >

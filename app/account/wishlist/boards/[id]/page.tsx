@@ -46,7 +46,7 @@ export default function BoardDetailPage() {
             Home
           </button>{' '}
           /{' '}
-          <button type="button" onClick={() => router.push('/wishlist')} className="hover:text-ink/70">
+          <button type="button" onClick={() => router.push('/account/wishlist')} className="hover:text-ink/70">
             My Wishlist
           </button>
         </p>
@@ -59,7 +59,7 @@ export default function BoardDetailPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.push('/wishlist')}
+            onClick={() => router.push('/account/wishlist')}
             className="mt-6 rounded-none bg-ink px-6 py-3 text-sm font-bold tracking-wide text-white transition-opacity hover:opacity-90"
           >
             GO TO WISHLIST
@@ -91,7 +91,7 @@ export default function BoardDetailPage() {
           Home
         </button>{' '}
         /{' '}
-        <button type="button" onClick={() => router.push('/wishlist')} className="hover:text-ink/70">
+        <button type="button" onClick={() => router.push('/account/wishlist')} className="hover:text-ink/70">
           My Wishlist
         </button>{' '}
         / {board.name}
@@ -111,7 +111,7 @@ export default function BoardDetailPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.push('/wishlist')}
+            onClick={() => router.push('/account/wishlist')}
             className="mt-6 rounded-none bg-ink px-6 py-3 text-sm font-bold tracking-wide text-white transition-opacity hover:opacity-90"
           >
             GO TO WISHLIST TO ADD ITEMS
