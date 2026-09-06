@@ -8,8 +8,8 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 interface ProductGalleryProps {
   images: string[]
-  alt: string
   title?: string
+  alt?: string
 }
 
 const AUTOPLAY_INTERVAL_MS = 8000
@@ -144,7 +144,8 @@ function dedupeImages(images: string[]): string[] {
   return Array.from(byIdentity.values())
 }
 
-export default function ProductGallery({ images, alt }: ProductGalleryProps) {
+export default function ProductGallery({ images, title, alt }: ProductGalleryProps) {
+  const imageAlt = title?.trim() || alt?.trim() || 'Product image'
   // Dedupe by underlying photo (not exact URL) and keep the highest-res
   // copy of each — product feeds often list the same shot multiple times
   // at different sizes, which otherwise shows as repeated thumbnails/slides.
@@ -251,7 +252,7 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
             <motion.img
               key={safeImages[activeIndex] + activeIndex}
               src={safeImages[activeIndex]}
-              alt={alt}
+              alt={imageAlt}
               className="absolute inset-0 h-full w-full object-contain"
               initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.015 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -328,7 +329,7 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
                     : 'h-14 w-14 flex-none snap-start overflow-hidden rounded-lg opacity-55 grayscale-[20%] ring-1 ring-ink/10 transition-all duration-300 hover:opacity-90 hover:grayscale-0 focus-visible:opacity-100 focus-visible:grayscale-0'
                 }
               >
-                <img src={img} alt="" className="h-full w-full object-cover" />
+                <img src={img} alt={imageAlt} className="h-full w-full object-cover" />
               </button>
             ))}
           </div>
