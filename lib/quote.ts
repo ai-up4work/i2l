@@ -2,7 +2,10 @@
 //
 // Landed cost / quote calculation for WishDrop.
 // All rates/constants below are hardcoded placeholders — replace with real
-// values (freight rate, HS code duty schedule) as they change.
+// values (freight rate, HS code duty schedule) as they change. They can
+// also be overridden per-call (see the `*Override` fields on QuoteInput /
+// SimpleQuoteInput) — the demo page's "Adjust rates & fees" panel uses
+// this to let someone tweak values live without editing code.
 //
 // Currency conversion is NOT duplicated here — it defers to
 // lib/currency-config.ts (the same table formatPrice() uses elsewhere in
@@ -26,8 +29,8 @@ export const DEFAULT_WEIGHT_KG = 0.5;
 // Flat profit margin applied to product cost.
 export const SIMPLE_PROFIT_PERCENT = 30;
 
-const SIMPLE_FREIGHT_RATE_PER_KG = 2380;
-const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG = 3500;
+export const SIMPLE_FREIGHT_RATE_PER_KG = 2380;
+export const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG = 3500;
 
 // Freight & customs clearance are priced per 0.5kg "block" and scale
 // proportionally with weight: e.g. 1kg pays double the 0.5kg rate,
@@ -95,9 +98,14 @@ export interface QuoteInput {
   pcsPerUnit: number;      // PCS / Unit — quantity being ordered
   valueINR: number;        // Value — product price per unit, in currencyCode's units
   currencyCode?: string;   // Upstream currency code (e.g. "INR", "USD"). Defaults to "INR".
-  weightKg?: number;       // Weight (kg) — optional, falls back to DEFAULT_WEIGHT_KG
+  weightKg?: number;       // Weight (kg) — optional, falls back to defaultWeightKgOverride / DEFAULT_WEIGHT_KG
   hsCode: string;          // HS Code (select from dropdown) — determines duty rates
   freightLKR?: number;     // Optional manual freight override, in LKR. If omitted, calculated from weight.
+
+  // ---- Live config overrides (all optional; fall back to the constants above) ----
+  rateOverrides?: Partial<QuoteRates>;  // merged on top of the selected HS code's rates
+  freightRatePerKgLKR?: number;         // overrides FREIGHT_RATE_PER_KG_LKR
+  defaultWeightKgOverride?: number;     // overrides DEFAULT_WEIGHT_KG (used only when weightKg is omitted)
 }
 
 export interface QuoteBreakdown {
@@ -162,6 +170,11 @@ export interface QuoteBreakdown {
  * 12. Price/Landed Cost % = Product Price / Total Landed Cost x 100
  *
  * Order-level totals multiply the per-unit figures by PCS/Unit.
+ *
+ * All rates/fees can be overridden per-call via rateOverrides,
+ * freightRatePerKgLKR and defaultWeightKgOverride — otherwise the module
+ * constants (HS_CODE_RATES, FREIGHT_RATE_PER_KG_LKR, DEFAULT_WEIGHT_KG)
+ * are used as before.
  */
 export function calculateQuote(input: QuoteInput): QuoteBreakdown {
   const {
@@ -172,8 +185,13 @@ export function calculateQuote(input: QuoteInput): QuoteBreakdown {
   } = input;
 
   const currencyCode = input.currencyCode ?? "INR";
-  const weightKg = input.weightKg ?? DEFAULT_WEIGHT_KG;
-  const rates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT;
+
+  const freightRatePerKgLKR = input.freightRatePerKgLKR ?? FREIGHT_RATE_PER_KG_LKR;
+  const defaultWeightKg = input.defaultWeightKgOverride ?? DEFAULT_WEIGHT_KG;
+  const weightKg = input.weightKg ?? defaultWeightKg;
+
+  const baseRates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT;
+  const rates: QuoteRates = { ...baseRates, ...(input.rateOverrides ?? {}) };
 
   const {
     dutyPercent,
@@ -192,7 +210,7 @@ export function calculateQuote(input: QuoteInput): QuoteBreakdown {
 
   // 2. Freight — manual override wins, otherwise derived from weight
   const freight =
-    freightOverride ?? weightKg * FREIGHT_RATE_PER_KG_LKR;
+    freightOverride ?? weightKg * freightRatePerKgLKR;
 
   // 3. CIF
   const cif = productPriceLKR + freight;
@@ -285,7 +303,15 @@ export interface SimpleQuoteInput {
   pcsPerUnit: number;     // PCS / Unit — quantity being ordered
   valueINR: number;       // Product cost per unit, in currencyCode's units
   currencyCode?: string;  // Upstream currency code (e.g. "INR"). Defaults to "INR".
-  weightKg?: number;      // Weight (kg) — optional, falls back to SIMPLE_WEIGHT_BLOCK_KG (0.5)
+  weightKg?: number;      // Weight (kg) — optional, falls back to weightBlockKgOverride / SIMPLE_WEIGHT_BLOCK_KG
+
+  // ---- Live config overrides (all optional; fall back to the constants above) ----
+  profitPercentOverride?: number;
+  freightRatePerBlockLKROverride?: number;
+  customsClearanceRatePerBlockLKROverride?: number;
+  weightBlockKgOverride?: number;
+  deliveryFeeLKROverride?: number;
+  extraMarginLKROverride?: number;
 }
 
 export interface SimpleQuoteBreakdown {
@@ -320,44 +346,56 @@ export interface SimpleQuoteBreakdown {
  *
  * 1. Product cost (LKR) = Value x exchange rate
  * 2. Cost with profit = Product cost x (1 + Profit%)
- * 3. Freight Charges = (Weight / 0.5) x rate-per-0.5kg
- * 4. Customs Clearance = (Weight / 0.5) x rate-per-0.5kg
+ * 3. Freight Charges = (Weight / weightBlockKg) x rate-per-block
+ * 4. Customs Clearance = (Weight / weightBlockKg) x rate-per-block
  * 5. Subtotal = Cost with profit + Freight Charges + Customs Clearance
  * 6. Total with delivery = Subtotal + flat delivery fee
  * 7. Total Cost = Total with delivery + flat extra margin
  *
  * Order-level totals multiply the per-unit Total Cost by PCS/Unit.
+ *
+ * All rates/fees can be overridden per-call via the *Override fields —
+ * otherwise the module constants (SIMPLE_PROFIT_PERCENT,
+ * SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR, etc.) are used as before.
  */
 export function calculateSimpleQuote(
   input: SimpleQuoteInput
 ): SimpleQuoteBreakdown {
   const { pcsPerUnit, valueINR } = input;
   const currencyCode = input.currencyCode ?? "INR";
-  const weightKg = input.weightKg ?? SIMPLE_WEIGHT_BLOCK_KG;
+
+  const profitPercent = input.profitPercentOverride ?? SIMPLE_PROFIT_PERCENT;
+  const weightBlockKg = input.weightBlockKgOverride ?? SIMPLE_WEIGHT_BLOCK_KG;
+  const freightRatePerBlockLKR =
+    input.freightRatePerBlockLKROverride ?? SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR;
+  const customsClearanceRatePerBlockLKR =
+    input.customsClearanceRatePerBlockLKROverride ??
+    SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR;
+  const deliveryFee = input.deliveryFeeLKROverride ?? SIMPLE_DELIVERY_FLAT_LKR;
+  const extraMargin = input.extraMarginLKROverride ?? SIMPLE_EXTRA_MARGIN_FLAT_LKR;
+
+  const weightKg = input.weightKg ?? weightBlockKg;
 
   // 1. Convert to LKR via the shared currency table
   const exchangeRateUsed = rateToLKR(currencyCode);
   const productCostLKR = valueINR * exchangeRateUsed;
 
   // 2. Profit margin
-  const profitAmount = productCostLKR * (SIMPLE_PROFIT_PERCENT / 100);
+  const profitAmount = productCostLKR * (profitPercent / 100);
   const costWithProfit = productCostLKR + profitAmount;
 
   // 3 & 4. Freight and customs clearance, scaled by weight block
-  const weightBlocks = weightKg / SIMPLE_WEIGHT_BLOCK_KG;
-  const freightCharges = weightBlocks * SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR;
-  const customsClearance =
-    weightBlocks * SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR;
+  const weightBlocks = weightKg / weightBlockKg;
+  const freightCharges = weightBlocks * freightRatePerBlockLKR;
+  const customsClearance = weightBlocks * customsClearanceRatePerBlockLKR;
 
   // 5. Subtotal
   const subtotal = costWithProfit + freightCharges + customsClearance;
 
   // 6. Flat delivery fee
-  const deliveryFee = SIMPLE_DELIVERY_FLAT_LKR;
   const totalWithDelivery = subtotal + deliveryFee;
 
   // 7. Flat extra margin -> final total cost
-  const extraMargin = SIMPLE_EXTRA_MARGIN_FLAT_LKR;
   const totalCost = totalWithDelivery + extraMargin;
 
   return {
@@ -368,7 +406,7 @@ export function calculateSimpleQuote(
     exchangeRateUsed,
 
     productCostLKR: round2(productCostLKR),
-    profitPercent: SIMPLE_PROFIT_PERCENT,
+    profitPercent,
     profitAmount: round2(profitAmount),
     costWithProfit: round2(costWithProfit),
     freightCharges: round2(freightCharges),

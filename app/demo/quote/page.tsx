@@ -1,7 +1,7 @@
 // app/demo/quote/page.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   PieChart,
   Pie,
@@ -16,13 +16,15 @@ import {
   DEFAULT_WEIGHT_KG,
   FREIGHT_RATE_PER_KG_LKR,
   SIMPLE_WEIGHT_BLOCK_KG,
+  SIMPLE_FREIGHT_RATE_PER_KG,
   SIMPLE_PROFIT_PERCENT,
-  SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR,
-  SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR,
   SIMPLE_DELIVERY_FLAT_LKR,
   SIMPLE_EXTRA_MARGIN_FLAT_LKR,
   type QuoteBreakdown,
   type SimpleQuoteBreakdown,
+  type QuoteRates,
+  SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG,
+  SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR,
 } from "@/lib/quote";
 import { rateToLKR } from "@/lib/currency-config";
 
@@ -71,13 +73,13 @@ const CUSTOMS_FORMULAS: Record<string, string> = {
 
 const SIMPLE_FORMULAS: Record<string, string> = {
   productCost: "= Value entered × exchange rate (1 if already LKR)",
-  profitAmount: `= Product cost × ${SIMPLE_PROFIT_PERCENT}%`,
+  profitAmount: "= Product cost × Profit%",
   costWithProfit: "= Product cost + Profit amount",
-  freightCharges: `= (Weight ÷ ${SIMPLE_WEIGHT_BLOCK_KG}kg) × Rs ${SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR}`,
-  customsClearance: `= (Weight ÷ ${SIMPLE_WEIGHT_BLOCK_KG}kg) × Rs ${SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR}`,
+  freightCharges: "= (Weight ÷ weight block kg) × freight rate per block",
+  customsClearance: "= (Weight ÷ weight block kg) × customs clearance rate per block",
   subtotal: "= Cost with profit + Freight Charges + Customs Clearance",
-  totalWithDelivery: `= Subtotal + Rs ${SIMPLE_DELIVERY_FLAT_LKR} delivery fee`,
-  totalCost: `= Total with delivery + Rs ${SIMPLE_EXTRA_MARGIN_FLAT_LKR} extra margin`,
+  totalWithDelivery: "= Subtotal + delivery fee",
+  totalCost: "= Total with delivery + extra margin",
 };
 
 function formatLKR(value: number) {
@@ -94,6 +96,73 @@ export default function QuoteDemoPage() {
   const [hsCode, setHsCode] = useState("");
   const [manualFreight, setManualFreight] = useState<number | "">("");
 
+  // ---- Live config: editable rates & fees, toggled from the panel below ----
+  const [showConfig, setShowConfig] = useState(false);
+
+  // Customs cascade config
+  const [freightRateOverride, setFreightRateOverride] = useState(FREIGHT_RATE_PER_KG_LKR);
+  const [defaultWeightOverride, setDefaultWeightOverride] = useState(DEFAULT_WEIGHT_KG);
+  const [dutyPercentOverride, setDutyPercentOverride] = useState(HS_CODE_RATES.DEFAULT.dutyPercent);
+  const [palPercentOverride, setPalPercentOverride] = useState(HS_CODE_RATES.DEFAULT.palPercent);
+  const [cessPercentOverride, setCessPercentOverride] = useState(HS_CODE_RATES.DEFAULT.cessPercent);
+  const [surchargePercentOverride, setSurchargePercentOverride] = useState(HS_CODE_RATES.DEFAULT.surchargePercent);
+  const [ssclPercentOverride, setSsclPercentOverride] = useState(HS_CODE_RATES.DEFAULT.sscLPercent);
+  const [vatPercentOverride, setVatPercentOverride] = useState(HS_CODE_RATES.DEFAULT.vatPercent);
+
+  // Simple markup config
+  // NOTE: freightBlockRateOverride / customsBlockRateOverride are PER-KG
+  // values (that's what the UI label says: "Freight / kg", "Customs
+  // clearance / kg", and that's what they're seeded from:
+  // SIMPLE_FREIGHT_RATE_PER_KG / SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG).
+  // calculateSimpleQuote(), however, expects PER-BLOCK rates
+  // (rate per weightBlockKg, e.g. per 0.5kg) — it does NOT convert from
+  // per-kg itself. Previously these per-kg values were passed straight
+  // through as the per-block override, which silently doubled Freight
+  // Charges and Customs Clearance on every Simple-mode quote (since a
+  // block is 0.5kg, per-block rate should be half the per-kg rate).
+  // Fixed below at the calculateSimpleQuote() call site, where we scale
+  // by the current weightBlockOverride instead of assuming 0.5kg.
+  const [profitPercentOverride, setProfitPercentOverride] = useState(SIMPLE_PROFIT_PERCENT);
+  const [freightBlockRateOverride, setFreightBlockRateOverride] = useState(SIMPLE_FREIGHT_RATE_PER_KG);
+  const [customsBlockRateOverride, setCustomsBlockRateOverride] = useState(SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG);
+  const [weightBlockOverride, setWeightBlockOverride] = useState(SIMPLE_WEIGHT_BLOCK_KG);
+  const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(SIMPLE_DELIVERY_FLAT_LKR);
+  const [extraMarginOverride, setExtraMarginOverride] = useState(SIMPLE_EXTRA_MARGIN_FLAT_LKR);
+
+  // When the selected HS code changes, re-sync the duty-rate override
+  // fields to that code's real rates, so "Adjust rates & fees" always
+  // starts from the correct baseline instead of stale numbers.
+  useEffect(() => {
+    const base: QuoteRates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT;
+    setDutyPercentOverride(base.dutyPercent);
+    setPalPercentOverride(base.palPercent);
+    setCessPercentOverride(base.cessPercent);
+    setSurchargePercentOverride(base.surchargePercent);
+    setSsclPercentOverride(base.sscLPercent);
+    setVatPercentOverride(base.vatPercent);
+  }, [hsCode]);
+
+  function resetCustomsConfig() {
+    setFreightRateOverride(FREIGHT_RATE_PER_KG_LKR);
+    setDefaultWeightOverride(DEFAULT_WEIGHT_KG);
+    const base: QuoteRates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT;
+    setDutyPercentOverride(base.dutyPercent);
+    setPalPercentOverride(base.palPercent);
+    setCessPercentOverride(base.cessPercent);
+    setSurchargePercentOverride(base.surchargePercent);
+    setSsclPercentOverride(base.sscLPercent);
+    setVatPercentOverride(base.vatPercent);
+  }
+
+  function resetSimpleConfig() {
+    setProfitPercentOverride(SIMPLE_PROFIT_PERCENT);
+    setFreightBlockRateOverride(SIMPLE_FREIGHT_RATE_PER_KG);
+    setCustomsBlockRateOverride(SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG);
+    setWeightBlockOverride(SIMPLE_WEIGHT_BLOCK_KG);
+    setDeliveryFeeOverride(SIMPLE_DELIVERY_FLAT_LKR);
+    setExtraMarginOverride(SIMPLE_EXTRA_MARGIN_FLAT_LKR);
+  }
+
   const customsQuote: QuoteBreakdown = useMemo(() => {
     return calculateQuote({
       pcsPerUnit: pcsPerUnit || 1,
@@ -102,8 +171,33 @@ export default function QuoteDemoPage() {
       weightKg: weightKg === "" ? undefined : Number(weightKg),
       hsCode,
       freightLKR: manualFreight === "" ? undefined : Number(manualFreight),
+      freightRatePerKgLKR: freightRateOverride,
+      defaultWeightKgOverride: defaultWeightOverride,
+      rateOverrides: {
+        dutyPercent: dutyPercentOverride,
+        palPercent: palPercentOverride,
+        cessPercent: cessPercentOverride,
+        surchargePercent: surchargePercentOverride,
+        sscLPercent: ssclPercentOverride,
+        vatPercent: vatPercentOverride,
+      },
     });
-  }, [pcsPerUnit, valueAmount, valueCurrency, weightKg, hsCode, manualFreight]);
+  }, [
+    pcsPerUnit,
+    valueAmount,
+    valueCurrency,
+    weightKg,
+    hsCode,
+    manualFreight,
+    freightRateOverride,
+    defaultWeightOverride,
+    dutyPercentOverride,
+    palPercentOverride,
+    cessPercentOverride,
+    surchargePercentOverride,
+    ssclPercentOverride,
+    vatPercentOverride,
+  ]);
 
   const simpleQuote: SimpleQuoteBreakdown = useMemo(() => {
     return calculateSimpleQuote({
@@ -111,8 +205,31 @@ export default function QuoteDemoPage() {
       valueINR: valueAmount || 0,
       currencyCode: valueCurrency,
       weightKg: weightKg === "" ? undefined : Number(weightKg),
+      profitPercentOverride,
+      // FIX: freightBlockRateOverride / customsBlockRateOverride are
+      // PER-KG values (see comment on their useState above). Scale by
+      // the current weight-block size to get the PER-BLOCK rate that
+      // calculateSimpleQuote() actually expects. Previously these were
+      // passed through unscaled, which doubled both charges whenever
+      // weightBlockOverride was 0.5kg (the default).
+      freightRatePerBlockLKROverride: freightBlockRateOverride * weightBlockOverride,
+      customsClearanceRatePerBlockLKROverride: customsBlockRateOverride * weightBlockOverride,
+      weightBlockKgOverride: weightBlockOverride,
+      deliveryFeeLKROverride: deliveryFeeOverride,
+      extraMarginLKROverride: extraMarginOverride,
     });
-  }, [pcsPerUnit, valueAmount, valueCurrency, weightKg]);
+  }, [
+    pcsPerUnit,
+    valueAmount,
+    valueCurrency,
+    weightKg,
+    profitPercentOverride,
+    freightBlockRateOverride,
+    customsBlockRateOverride,
+    weightBlockOverride,
+    deliveryFeeOverride,
+    extraMarginOverride,
+  ]);
 
   const productPriceLKR =
     mode === "simple" ? simpleQuote.productCostLKR : customsQuote.productPriceLKR;
@@ -212,8 +329,8 @@ export default function QuoteDemoPage() {
               label="Weight (kg)"
               hint={
                 mode === "simple"
-                  ? `Leave blank to default to ${SIMPLE_WEIGHT_BLOCK_KG} kg`
-                  : `Leave blank to default to ${DEFAULT_WEIGHT_KG} kg`
+                  ? `Leave blank to default to ${weightBlockOverride} kg`
+                  : `Leave blank to default to ${defaultWeightOverride} kg`
               }
             >
               <input
@@ -221,7 +338,7 @@ export default function QuoteDemoPage() {
                 min={0}
                 step={0.1}
                 placeholder={String(
-                  mode === "simple" ? SIMPLE_WEIGHT_BLOCK_KG : DEFAULT_WEIGHT_KG
+                  mode === "simple" ? weightBlockOverride : defaultWeightOverride
                 )}
                 value={weightKg}
                 onChange={(e) =>
@@ -257,7 +374,7 @@ export default function QuoteDemoPage() {
 
                 <Field
                   label="Freight override (LKR)"
-                  hint={`Optional — otherwise calculated from weight × Rs ${FREIGHT_RATE_PER_KG_LKR}/kg`}
+                  hint={`Optional — otherwise calculated from weight × Rs ${freightRateOverride}/kg`}
                 >
                   <input
                     type="number"
@@ -274,6 +391,143 @@ export default function QuoteDemoPage() {
                 </Field>
               </>
             )}
+
+            {/* ---- Adjust rates & fees (config) toggle ---- */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowConfig((v) => !v)}
+                className="flex w-full items-center justify-between rounded-lg border border-dashed border-[#1B2A4A]/25 bg-[#1B2A4A]/[0.03] px-3 py-2 text-sm font-medium text-[#1B2A4A]/80 transition-colors hover:bg-[#1B2A4A]/[0.06]"
+              >
+                <span>⚙ Adjust rates &amp; fees</span>
+                <span
+                  className={
+                    "text-xs transition-transform " +
+                    (showConfig ? "rotate-180" : "")
+                  }
+                >
+                  ▾
+                </span>
+              </button>
+
+              {showConfig && (
+                <div className="mt-3 space-y-3 rounded-lg border border-[#1B2A4A]/10 bg-white/70 p-4">
+                  {mode === "simple" ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <ConfigField
+                          label="Profit"
+                          value={profitPercentOverride}
+                          onChange={setProfitPercentOverride}
+                          suffix="%"
+                        />
+                        <ConfigField
+                          label="Weight block"
+                          value={weightBlockOverride}
+                          onChange={setWeightBlockOverride}
+                          suffix="kg"
+                        />
+                        <ConfigField
+                        label={`Freight / kg`}
+                        value={freightBlockRateOverride}
+                        onChange={setFreightBlockRateOverride}
+                        suffix="LKR"
+                        />
+                        <ConfigField
+                        label={`Customs clearance / kg`}
+                        value={customsBlockRateOverride}
+                        onChange={setCustomsBlockRateOverride}
+                        suffix="LKR"
+                        />
+                        <ConfigField
+                          label="Delivery fee"
+                          value={deliveryFeeOverride}
+                          onChange={setDeliveryFeeOverride}
+                          suffix="LKR"
+                        />
+                        <ConfigField
+                          label="Extra margin"
+                          value={extraMarginOverride}
+                          onChange={setExtraMarginOverride}
+                          suffix="LKR"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={resetSimpleConfig}
+                        className="text-xs font-medium text-[#0F8A7C] hover:underline"
+                      >
+                        Reset to defaults
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <ConfigField
+                          label="Freight rate"
+                          value={freightRateOverride}
+                          onChange={setFreightRateOverride}
+                          suffix="LKR/kg"
+                        />
+                        <ConfigField
+                          label="Default weight"
+                          value={defaultWeightOverride}
+                          onChange={setDefaultWeightOverride}
+                          suffix="kg"
+                        />
+                        <ConfigField
+                          label="Duty"
+                          value={dutyPercentOverride}
+                          onChange={setDutyPercentOverride}
+                          suffix="%"
+                        />
+                        <ConfigField
+                          label="PAL"
+                          value={palPercentOverride}
+                          onChange={setPalPercentOverride}
+                          suffix="%"
+                        />
+                        <ConfigField
+                          label="Cess"
+                          value={cessPercentOverride}
+                          onChange={setCessPercentOverride}
+                          suffix="%"
+                        />
+                        <ConfigField
+                          label="Surcharge (on duty)"
+                          value={surchargePercentOverride}
+                          onChange={setSurchargePercentOverride}
+                          suffix="%"
+                        />
+                        <ConfigField
+                          label="SSCL"
+                          value={ssclPercentOverride}
+                          onChange={setSsclPercentOverride}
+                          suffix="%"
+                        />
+                        <ConfigField
+                          label="VAT"
+                          value={vatPercentOverride}
+                          onChange={setVatPercentOverride}
+                          suffix="%"
+                        />
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-[#1B2A4A]/45">
+                        Duty rates reset to the selected HS code's schedule
+                        whenever you change the HS code above.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={resetCustomsConfig}
+                        className="text-xs font-medium text-[#0F8A7C] hover:underline"
+                      >
+                        Reset to defaults
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
 
             <p className="pt-2 text-xs leading-relaxed text-[#1B2A4A]/50">
               {valueCurrency === "LKR"
@@ -544,6 +798,39 @@ function Field({
       {hint && (
         <span className="mt-1 block text-xs text-[#1B2A4A]/50">{hint}</span>
       )}
+    </label>
+  );
+}
+
+function ConfigField({
+  label,
+  value,
+  onChange,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  suffix?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-[#1B2A4A]/70">
+        {label}
+      </span>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full rounded-md border border-[#1B2A4A]/20 bg-white px-2 py-1.5 text-sm text-[#1B2A4A] outline-none focus:border-[#0F8A7C] focus:ring-2 focus:ring-[#0F8A7C]/20"
+        />
+        {suffix && (
+          <span className="shrink-0 text-[11px] text-[#1B2A4A]/45">
+            {suffix}
+          </span>
+        )}
+      </div>
     </label>
   );
 }
