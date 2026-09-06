@@ -38,11 +38,79 @@ function useIsScrollable<T extends HTMLElement>(ref: React.RefObject<T | null>, 
   return scrollable
 }
 
+// Many product-image CDNs (Flipkart/Flixcart included) serve the same photo
+// at multiple resolutions by swapping numeric folder segments in the path,
+// e.g. .../image/800/1070/.../foo.jpeg vs .../image/80/110/.../foo.jpeg.
+// Stripping purely-numeric segments gives a stable identity per photo
+// regardless of which size variant was linked.
+function getImageIdentity(url: string): string {
+  try {
+    const u = new URL(url)
+    const segments = u.pathname.split('/').filter((seg) => seg && !/^\d+$/.test(seg))
+    return `${u.hostname}/${segments.join('/')}`
+  } catch {
+    return url
+  }
+}
+
+// Numeric path segments (the resolution folders above) are a reasonable
+// proxy for image size — bigger numbers, bigger image — so when two URLs
+// share an identity, prefer the one with the larger max numeric segment.
+function getSizeHint(url: string): number {
+  try {
+    const u = new URL(url)
+    const nums = u.pathname
+      .split('/')
+      .filter((seg) => /^\d+$/.test(seg))
+      .map(Number)
+    return nums.length ? Math.max(...nums) : 0
+  } catch {
+    return 0
+  }
+}
+
+// Flipkart/Flixcart (and similar) inject marketing banners into the same
+// image list as real product photos, distinguishable by a "/promos/" path
+// segment rather than the product's own asset path — these aren't photos
+// of the product and shouldn't appear in the gallery.
+// Below this, a size-hinted image variant is a thumbnail meant for lists/
+// carousels elsewhere on the source site, not something worth showing full
+// size on a product page or device screen.
+const MIN_ACCEPTABLE_SIZE = 200
+
+function isLowResolution(url: string): boolean {
+  const size = getSizeHint(url)
+  // 0 means the URL had no numeric size segment to read (unknown, not
+  // necessarily small) — only filter when we positively detected a small size.
+  return size > 0 && size < MIN_ACCEPTABLE_SIZE
+}
+
+function isPromoImage(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return u.pathname.toLowerCase().includes('/promos/')
+  } catch {
+    return false
+  }
+}
+
+function dedupeImages(images: string[]): string[] {
+  const byIdentity = new Map<string, string>()
+  for (const url of images.filter((u) => Boolean(u) && !isPromoImage(u) && !isLowResolution(u))) {
+    const key = getImageIdentity(url)
+    const existing = byIdentity.get(key)
+    if (!existing || getSizeHint(url) > getSizeHint(existing)) {
+      byIdentity.set(key, url) // Map preserves first-seen key order even when the value is replaced
+    }
+  }
+  return Array.from(byIdentity.values())
+}
+
 export default function ProductGallery({ images, alt }: ProductGalleryProps) {
-  // Dedupe by URL (keeping first-seen order) — some product feeds repeat the
-  // same image under multiple slots, which would otherwise show as an
-  // identical thumbnail/slide.
-  const deduped = Array.from(new Set(images.filter(Boolean)))
+  // Dedupe by underlying photo (not exact URL) and keep the highest-res
+  // copy of each — product feeds often list the same shot multiple times
+  // at different sizes, which otherwise shows as repeated thumbnails/slides.
+  const deduped = dedupeImages(images)
   const safeImages = deduped.length ? deduped : ['/placeholder.png']
   const hasMultiple = safeImages.length > 1
   const reduceMotion = useReducedMotion()
