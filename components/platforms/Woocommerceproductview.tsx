@@ -8,6 +8,7 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
+import Image from 'next/image'
 
 /**
  * Renders a WooCommerce scrape result (source: 'woocommerce_api') using
@@ -426,7 +427,9 @@ export default function WooCommerceProductView({
             seller -> rating -> price/discount -> stock -> variant rows
             -> link -> commerce actions. */}
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+           <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2"><Image src="/logos/woocommerce.png" alt="WooCommerce" width={100} height={20} /></a>            
+     
+          <h1 className="font-display text-2xl mt-2 font-extrabold tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}
           </h1>
 
@@ -469,16 +472,6 @@ export default function WooCommerceProductView({
             )}
           </p>
 
-          {result.url && (
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-            >
-              Open original listing <ExternalLink size={12} />
-            </a>
-          )}
 
           <WooCommerceCommerceActions
             result={result}

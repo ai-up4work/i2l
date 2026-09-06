@@ -175,14 +175,6 @@ export default function AjioProductView({
 
           {result.seller && <p className="mt-4 text-[11px] font-medium text-ink/45">Sold by {result.seller}</p>}
 
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-          >
-            Open original listing <ExternalLink size={12} />
-          </a>
         </div>
       </div>
     </div>

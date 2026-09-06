@@ -123,14 +123,6 @@ export default function SnapdealProductView({
             </p>
           )}
 
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-          >
-            Open original listing <ExternalLink size={12} />
-          </a>
         </div>
       </div>
     </div>

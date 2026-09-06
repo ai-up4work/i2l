@@ -233,14 +233,6 @@ export default function MeeshoProductView({
             <p>source: {result.source === 'direct' ? 'fetched directly' : 'via ScraperAPI'}</p>
           </div>
 
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-[#9F2089] hover:underline"
-          >
-            Open original listing <ExternalLink size={12} />
-          </a>
         </div>
       </div>
     </div>

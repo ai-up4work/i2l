@@ -7,6 +7,7 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
+import Image from 'next/image'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -96,7 +97,7 @@ function ColorSwatchRow({
 
   return (
     <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-[#535766]">
+      <p className="text-[10px] mt-4 font-bold uppercase tracking-wide text-[#535766]">
         More Colors <span className="normal-case text-[#94969f]">({selectable.length})</span>
       </p>
       <div className="mt-2 flex flex-wrap gap-3">
@@ -143,7 +144,7 @@ function SizeRow({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-[#535766]">
+      <p className="text-[10px] mt-4 font-bold uppercase tracking-wide text-[#535766]">
         Select Size{selectedLabel && <span className="normal-case text-[#282c3f]"> — {selectedLabel}</span>}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -218,7 +219,7 @@ function SizeChartSection({
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center mt-4 justify-between">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -602,20 +603,7 @@ export default function MyntraProductView({
             size row (+ size chart) -> stock -> link -> commerce
             actions. */}
         <div className="min-w-0">
-          {brand && (
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#94969f]">Myntra</p>
-          )}
-          {brand && <h1 className="mt-1 text-xl font-bold text-[#282c3f] sm:text-2xl">{brand}</h1>}
-          <h2 className={`text-[15px] text-[#535766] ${brand ? 'mt-0.5' : 'mt-2'}`}>
-            {name || (!brand && <span className="italic text-[#94969f]">No title found</span>)}
-          </h2>
-
-          {result.rating && (
-            <div className="mt-2">
-              <MyntraRatingBadge rating={result.rating} count={result.review_count} />
-            </div>
-          )}
-
+          <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2 align-middle"><Image src="/logos/myntra.png" alt="Myntra" width={60} height={12} className="align-middle"/></a>{result.rating && (<><span className="text-ink/20">·</span><MyntraRatingBadge rating={result.rating} count={result.review_count} /></>)}
           <div className="mt-3 flex flex-wrap items-baseline gap-2">
             {price ? (
               <span className="text-3xl font-bold text-[#282c3f]">{price}</span>
@@ -660,16 +648,6 @@ export default function MyntraProductView({
             )}
           </p>
 
-          {result.url && (
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#ff3f6c] hover:underline"
-            >
-              Open original listing <ExternalLink size={12} />
-            </a>
-          )}
 
           <MyntraCommerceActions
             result={result}

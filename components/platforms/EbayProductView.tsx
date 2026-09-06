@@ -8,6 +8,7 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
+import Image from 'next/image'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -523,7 +524,7 @@ export default function EbayProductView({
             -> commerce actions. */}
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs font-semibold text-[#6b6b6b]">
-            <span>eBay</span>
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center"><Image src="/logos/ebay.png" alt="eBay" width={60} height={12} /></a>            
             <ConditionBadge condition={condition} />
             {(result.rating || sellerFeedbackScore) && (
               <>
@@ -627,16 +628,6 @@ export default function EbayProductView({
             )}
           </p>
 
-          {result.url && (
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#3665F3] hover:underline"
-            >
-              Open original listing <ExternalLink size={12} />
-            </a>
-          )}
 
           <EbayCommerceActions
             result={result}

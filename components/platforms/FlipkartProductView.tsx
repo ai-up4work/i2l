@@ -7,6 +7,7 @@ import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
+import Image from 'next/image'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -465,7 +466,7 @@ export default function FlipkartProductView({
             variants -> stock -> link -> commerce actions. */}
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-[#878787]">
-            <span>Flipkart</span>
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center"><Image src="/logos/flipkart.png" alt="Flipkart" width={60} height={12} /></a>            
             {result.rating && (
               <>
                 <span className="text-[#d6d6d6]">·</span>
@@ -555,17 +556,6 @@ export default function FlipkartProductView({
               <span className="text-[#878787]">{result.availability}</span>
             )}
           </p>
-
-          {result.url && (
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#2874F0] hover:underline"
-            >
-              Open original listing <ExternalLink size={12} />
-            </a>
-          )}
 
           <FlipkartCommerceActions
             result={result}

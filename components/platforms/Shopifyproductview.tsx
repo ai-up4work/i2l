@@ -8,6 +8,7 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
+import Image from 'next/image'
 
 /**
  * Renders a Shopify scrape result (source: 'shopify_api') using the
@@ -25,7 +26,7 @@ import RequestActionButton from '../stores/RequestActionButton'
  * API (see scrapeShopifyProduct in parsers.ts), not a DOM/JSON-LD
  * guess — hence the "Verified via Shopify's Product API" badge.
  *
- * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN: buildStoreVariantDimensions()
+ * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN:F buildStoreVariantDimensions()
  * in parsers.ts always sets `url: null` on every option — the one API
  * call already returned every variant's price/image/availability, so
  * there's nothing left to re-fetch by "selecting" a tile the way
@@ -433,7 +434,8 @@ export default function ShopifyProductView({
             seller -> rating -> price/discount -> stock -> variant rows
             -> link -> commerce actions. */}
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+          <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2"><Image src="/logos/shopify.png" alt="Shopify" width={60} height={12} /></a>            
+          <h1 className="font-display text-2xl font-extrabold mt-2 tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}
           </h1>
 
@@ -476,16 +478,6 @@ export default function ShopifyProductView({
             )}
           </p>
 
-          {result.url && (
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-            >
-              Open original listing <ExternalLink size={12} />
-            </a>
-          )}
 
           <ShopifyCommerceActions
             result={result}
