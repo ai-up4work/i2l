@@ -53,17 +53,24 @@ export const HEADER_BAR_HEIGHT = OUTER_H + AIRMAIL_STRIPE_HEIGHT
 export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
 const MOBILE_BG = "bg-parchment"
 
+// Shared focus-visible treatment — applied to every interactive control
+// below so keyboard navigation is always legible against the parchment
+// background, regardless of which button/link style it's layered onto.
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 focus-visible:ring-offset-parchment"
+
 const pillButtonClass =
-  "flex items-center gap-2 rounded-lg border border-ink/15 bg-ink/5 px-3 py-1.5 text-ink transition-all duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep lg:py-2"
+  `flex items-center gap-2 rounded-lg border border-ink/15 bg-ink/5 px-3 py-1.5 text-ink transition-colors duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
 
 const iconPillButtonClass =
-  "flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-lg border border-ink/15 bg-ink/5 text-ink transition-all duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep"
+  `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-lg border border-ink/15 bg-ink/5 text-ink transition-colors duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep motion-reduce:transition-none ${focusRing}`
 
-// Compact variant for the tight mobile action row — smaller footprint
-// (h-8 w-8) and a lighter border so several icons sitting next to each
-// other don't read as a wall of boxes.
-const mobileIconPillClass =
-  "flex h-8 w-8 items-center justify-center rounded-lg border border-ink/10 bg-ink/[0.04] text-ink transition-colors duration-200 active:bg-teal/10 active:border-teal/40 active:text-teal-deep"
+// Quiet variant for Wishlist/Cart/Account on mobile — no border or fill,
+// just the icon. Only the menu toggle keeps the boxed treatment now,
+// since it's the one control that actually expands something; giving
+// every icon the same weight read as a wall of identical buttons.
+const mobileIconQuietClass =
+  `flex h-9 w-9 items-center justify-center rounded-lg text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
 
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -148,11 +155,11 @@ function PreviewBottomSheet({
   return (
     <div className="fixed inset-0 z-[110] lg:hidden" role="dialog" aria-modal="true" aria-label={title}>
       <div
-        className={`absolute inset-0 bg-ink/40 transition-opacity duration-200 ease-out ${visible ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 bg-ink/40 transition-opacity duration-200 ease-out motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}
         onClick={onClose}
       />
       <div
-        className={`absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-teal/20 bg-parchment shadow-[0_-8px_30px_-8px_rgba(13,29,65,0.35)] transition-transform duration-[240ms] ease-out ${
+        className={`absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-teal/20 bg-parchment shadow-[0_-8px_30px_-8px_rgba(13,29,65,0.35)] transition-transform duration-[240ms] ease-out motion-reduce:transition-none ${
           visible ? "translate-y-0" : "translate-y-full"
         }`}
         style={{ maxHeight: "80vh" }}
@@ -166,7 +173,7 @@ function PreviewBottomSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/60 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep"
+            className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink/60 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep ${focusRing}`}
           >
             <X size={18} />
           </button>
@@ -179,9 +186,9 @@ function PreviewBottomSheet({
               <a
                 href={emptyHref}
                 onClick={onClose}
-                className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline"
+                className={`mt-2 inline-block rounded text-sm font-semibold text-teal-deep hover:underline ${focusRing}`}
               >
-                {emptyCta} →
+                {emptyCta}
               </a>
             </div>
           ) : (
@@ -191,7 +198,7 @@ function PreviewBottomSheet({
                 <a
                   href={viewAllHref}
                   onClick={onClose}
-                  className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10"
+                  className={`flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
                 >
                   {viewAllLabel}
                   <ArrowLeft size={14} className="rotate-180" />
@@ -362,7 +369,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
               {showBackButton ? (
                 <button type="button" aria-label="Go back" className={pillButtonClass}>
                   <ArrowLeft className="w-4 h-4 lg:w-5 lg:h-5" />
-                  <span className="hidden sm:inline text-sm font-semibold font-body">BACK</span>
+                  <span className="hidden sm:inline text-sm font-semibold font-body">Back</span>
                 </button>
               ) : (
                 <div className="flex items-center cursor-pointer group min-w-0">
@@ -381,7 +388,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                       <a
                         href={link.href}
                         aria-expanded={hasDropdown ? isActive : undefined}
-                        className="group relative flex items-center gap-1 text-sm font-semibold font-body tracking-wide text-ink/85 transition-colors duration-200 hover:text-teal-deep"
+                        className={`group relative flex items-center gap-1 rounded text-sm font-semibold font-body tracking-wide text-ink/85 transition-colors duration-200 hover:text-teal-deep ${focusRing}`}
                         onClick={(e) => {
                           if (!hasDropdown) return
                           e.preventDefault()
@@ -390,18 +397,18 @@ export default function Header({ title, showBackButton = false, variant = "publi
                       >
                         {link.label}
                         {hasDropdown && (
-                          <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 group-hover:text-teal-deep ${isActive ? "-rotate-180" : ""}`} />
+                          <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none group-hover:text-teal-deep ${isActive ? "-rotate-180" : ""}`} />
                         )}
-                        <span className={`absolute -bottom-1.5 left-0 h-[1.5px] w-full origin-center scale-x-0 bg-teal transition-transform duration-200 ease-out ${isActive ? "scale-x-100" : "group-hover:scale-x-100"}`} />
+                        <span className={`absolute -bottom-1.5 left-0 h-[1.5px] w-full origin-center scale-x-0 bg-teal transition-transform duration-200 ease-out motion-reduce:transition-none ${isActive ? "scale-x-100" : "group-hover:scale-x-100"}`} />
                       </a>
 
                       {link.megaMenu && <ShopMegaMenuPanel isActive={isActive} />}
 
                       {link.items && (
-                        <div className={`absolute left-1/2 top-full z-50 w-80 -translate-x-1/2 pt-3 transition-all duration-200 ease-out ${isActive ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                        <div className={`absolute left-1/2 top-full z-50 w-80 -translate-x-1/2 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isActive ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
                           <div className="rounded-2xl border border-teal/20 bg-parchment p-2 shadow-xl shadow-ink/10">
                             {link.items.map((item, i) => (
-                              <a key={item.name} href={item.href} className="block rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10" style={{ transitionDelay: isActive ? `${i * 25}ms` : "0ms" }}>
+                              <a key={item.name} href={item.href} className={`block rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`} style={{ transitionDelay: isActive ? `${i * 25}ms` : "0ms" }}>
                                 <div className="text-sm font-semibold font-body text-ink">{item.name}</div>
                                 <div className="mt-0.5 text-xs text-ink/55 font-body">{item.desc}</div>
                               </a>
@@ -415,15 +422,18 @@ export default function Header({ title, showBackButton = false, variant = "publi
               </nav>
             </div>
 
-            {/* Mobile actions — Heart and Bag now open bottom-sheet previews
+            {/* Mobile actions — Wishlist/Cart/Account are now quiet icon-only
+                controls (no border/fill); only the menu toggle keeps the
+                boxed treatment, since it's the one control that expands
+                something. Heart and Bag open bottom-sheet previews
                 (matching the desktop dropdowns) instead of navigating away.
                 Account still goes straight to /account (or triggers login). */}
-            <div className="flex lg:hidden flex-1 items-center justify-end gap-1 h-full">
+            <div className="flex lg:hidden flex-1 items-center justify-end gap-0.5 h-full">
               <button
                 type="button"
                 aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
                 onClick={() => setWishlistSheetOpen(true)}
-                className={`relative ${mobileIconPillClass}`}
+                className={`relative ${mobileIconQuietClass}`}
               >
                 <Heart className="w-[17px] h-[17px]" />
                 <CountBadge count={wishlistCount} />
@@ -433,7 +443,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                 type="button"
                 aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ""}`}
                 onClick={() => setCartSheetOpen(true)}
-                className={`relative ${mobileIconPillClass}`}
+                className={`relative ${mobileIconQuietClass}`}
               >
                 <ShoppingBag className="w-[17px] h-[17px]" />
                 <CountBadge count={cartCount} />
@@ -443,7 +453,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                 type="button"
                 aria-label={isAuthenticated ? "Account" : "Sign in"}
                 onClick={() => { if (isAuthenticated) { window.location.href = "/account/" } else { login() } }}
-                className={`relative ${mobileIconPillClass}`}
+                className={`relative ${mobileIconQuietClass}`}
               >
                 <User className="w-[17px] h-[17px]" />
                 {isAuthenticated && (
@@ -452,13 +462,13 @@ export default function Header({ title, showBackButton = false, variant = "publi
               </button>
 
               <button type="button" aria-label={navOpen ? "Close menu" : "Open menu"} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}
-                className={`group flex items-center justify-center h-8 w-8 rounded-lg border transition-all duration-300 active:scale-95 ${
+                className={`group ml-1 flex items-center justify-center h-9 w-9 rounded-lg border transition-all duration-300 active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ${focusRing} ${
                   navOpen ? "bg-teal/10 border-teal/50 text-teal-deep" : "bg-ink/5 border-ink/15 text-ink active:bg-teal/10 active:border-teal/40 active:text-teal-deep"
                 }`}>
                 <span className="relative flex h-4 w-5 items-center justify-center">
-                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out ${navOpen ? "rotate-45" : "-translate-y-[5px]"}`} />
-                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-200 ease-out ${navOpen ? "scale-x-0 opacity-0" : "scale-x-100 opacity-100"}`} />
-                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out ${navOpen ? "-rotate-45" : "translate-y-[5px]"}`} />
+                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out motion-reduce:transition-none ${navOpen ? "rotate-45" : "-translate-y-[5px]"}`} />
+                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-200 ease-out motion-reduce:transition-none ${navOpen ? "scale-x-0 opacity-0" : "scale-x-100 opacity-100"}`} />
+                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out motion-reduce:transition-none ${navOpen ? "-rotate-45" : "translate-y-[5px]"}`} />
                 </span>
               </button>
             </div>
@@ -479,7 +489,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                   <Heart className="w-[18px] h-[18px]" />
                   <CountBadge count={wishlistCount} />
                 </button>
-                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out ${isWishlistOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isWishlistOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
                   <div className="rounded-2xl border border-teal/20 bg-parchment p-3 shadow-xl shadow-ink/10">
                     {wishlistPreview.length > 0 ? (
                       <>
@@ -488,7 +498,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                             <a
                               key={entry.id}
                               href={entry.url || "/account/wishlist"}
-                              className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+                              className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
                             >
                               <ProductThumb image={entry.image} alt={entry.title} />
                               <div className="min-w-0 flex-1">
@@ -503,7 +513,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                           ))}
                         </div>
                         <div className="mt-1 border-t border-ink/10 pt-2">
-                          <a href="/account/wishlist" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
+                          <a href="/account/wishlist" className={`flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
                             View wishlist ({wishlistCount})
                             <ArrowLeft size={14} className="rotate-180" />
                           </a>
@@ -512,8 +522,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
                     ) : (
                       <div className="px-2 py-3">
                         <p className="text-sm text-ink/60">Your wishlist is empty.</p>
-                        <a href="/account/wishlist" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
-                          Browse products →
+                        <a href="/account/wishlist" className={`mt-2 inline-block rounded text-sm font-semibold text-teal-deep hover:underline ${focusRing}`}>
+                          Browse products
                         </a>
                       </div>
                     )}
@@ -532,7 +542,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                   <ShoppingBag className="w-[18px] h-[18px]" />
                   <CountBadge count={cartCount} />
                 </button>
-                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out ${isCartOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isCartOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
                   <div className="rounded-2xl border border-teal/20 bg-parchment p-3 shadow-xl shadow-ink/10">
                     {cartPreview.length > 0 ? (
                       <>
@@ -541,7 +551,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                            <a 
                               key={line.product.id}
                               href={line.product.url || "/account/cart"}
-                              className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+                              className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
                             >
                               <ProductThumb image={line.product.image} alt={line.product.title} />
                               <div className="min-w-0 flex-1">
@@ -559,7 +569,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                           ))}
                         </div>
                         <div className="mt-1 border-t border-ink/10 pt-2">
-                          <a href="/account/cart" className="flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10">
+                          <a href="/account/cart" className={`flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
                             View cart ({cartCount})
                             <ArrowLeft size={14} className="rotate-180" />
                           </a>
@@ -568,8 +578,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
                     ) : (
                       <div className="px-2 py-3">
                         <p className="text-sm text-ink/60">Your cart is empty.</p>
-                        <a href="/account/cart" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-teal-deep hover:underline">
-                          Start shopping →
+                        <a href="/account/cart" className={`mt-2 inline-block rounded text-sm font-semibold text-teal-deep hover:underline ${focusRing}`}>
+                          Start shopping
                         </a>
                       </div>
                     )}
@@ -587,22 +597,22 @@ export default function Header({ title, showBackButton = false, variant = "publi
                     className={`relative ${pillButtonClass} lg:px-3`}
                   >
                     <User className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
-                    <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">ACCOUNT</span>
-                    <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 ${isAccountMenuOpen ? "-rotate-180" : ""}`} />
+                    <span className="hidden sm:inline text-[13px] font-semibold">Account</span>
+                    <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${isAccountMenuOpen ? "-rotate-180" : ""}`} />
                     <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-gold-deep ring-2 ring-parchment" />
                   </button>
 
-                  <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
+                  <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
                     <div className="rounded-2xl border border-teal/20 bg-parchment p-2 shadow-xl shadow-ink/10">
-                      <a href="/account/" className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10">
+                      <a href="/account/" className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
                         <User size={16} className="text-teal-deep" />
                         <span className="text-sm font-semibold text-ink">My Profile</span>
                       </a>
-                      <a href="/account/notifications" className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10">
+                      <a href="/account/notifications" className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
                         <Bell size={16} className="text-teal-deep" />
                         <span className="text-sm font-semibold text-ink">Notifications</span>
                       </a>
-                      <a href="/account/referrals" className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10">
+                      <a href="/account/referrals" className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
                         <Gift size={16} className="text-teal-deep" />
                         <span className="text-sm font-semibold text-ink">Invite &amp; Earn</span>
                       </a>
@@ -610,7 +620,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
                       <button
                         type="button"
                         onClick={logout}
-                        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10"
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
                       >
                         <LogOut size={16} className="text-ink/60" />
                         <span className="text-sm font-semibold text-ink">Sign out</span>
@@ -621,16 +631,16 @@ export default function Header({ title, showBackButton = false, variant = "publi
               ) : (
                 <div className="flex items-center gap-2">
                   <button type="button" aria-label="Sign in" title="Sign in" onClick={login} className={`group ${pillButtonClass} lg:px-4`}>
-                    <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 group-hover:translate-x-0.5" />
-                    <span className="hidden sm:inline text-[11px] lg:text-[13px] font-semibold tracking-wider">SIGN IN</span>
+                    <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
+                    <span className="hidden sm:inline text-[13px] font-semibold">Sign in</span>
                   </button>
                   <button
                     type="button"
                     aria-label="Get started"
                     onClick={() => { window.location.href = "/signup" }}
-                    className="rounded-lg bg-teal-deep px-4 py-2 text-[11px] lg:text-[13px] font-semibold tracking-wider text-white transition-colors duration-200 hover:bg-indigo-deep"
+                    className={`rounded-lg bg-teal-deep px-4 py-2 text-[13px] font-semibold text-white transition-colors duration-200 hover:bg-indigo-deep ${focusRing}`}
                   >
-                    GET STARTED
+                    Get started
                   </button>
                 </div>
               )}
@@ -640,12 +650,12 @@ export default function Header({ title, showBackButton = false, variant = "publi
       </header>
 
       {mounted && (
-        <div className={`fixed inset-0 z-[100] flex h-dvh flex-col ${MOBILE_BG} transition-opacity duration-[280ms] ease-out lg:hidden ${visible ? "opacity-100" : "opacity-0"}`}>
+        <div className={`fixed inset-0 z-[100] flex h-dvh flex-col ${MOBILE_BG} transition-opacity duration-[280ms] ease-out motion-reduce:transition-none lg:hidden ${visible ? "opacity-100" : "opacity-0"}`}>
           <AirmailStripe />
 
-          <div className={`flex items-center justify-between px-6 transition-all duration-300 ease-out ${visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"}`} style={{ height: OUTER_H }}>
+          <div className={`flex items-center justify-between px-6 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"}`} style={{ height: OUTER_H }}>
             <BrandMark className="h-8 w-32" />
-            <button type="button" aria-label="Close menu" onClick={() => setNavOpen(false)} className="flex items-center justify-center w-9 h-9 rounded-lg text-ink hover:bg-teal/10 transition-colors duration-200">
+            <button type="button" aria-label="Close menu" onClick={() => setNavOpen(false)} className={`flex items-center justify-center w-9 h-9 rounded-lg text-ink hover:bg-teal/10 transition-colors duration-200 ${focusRing}`}>
               <span className="relative block h-4 w-5">
                 <span className="absolute left-0 top-1/2 h-0.5 w-5 -translate-y-1/2 rotate-45 rounded-full bg-ink" />
                 <span className="absolute left-0 top-1/2 h-0.5 w-5 -translate-y-1/2 -rotate-45 rounded-full bg-ink" />
@@ -657,12 +667,12 @@ export default function Header({ title, showBackButton = false, variant = "publi
             {/* Shop — moved here from the top bar. Same visual weight as the
                 other top-level rows below, but has no expandable sub-items:
                 it just opens the Shop bottom sheet directly. */}
-            <div className={`border-b border-teal/15 transition-all duration-300 ease-out ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
+            <div className={`border-b border-teal/15 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
               style={{ transitionDelay: visible ? "60ms" : "0ms" }}>
               <button
                 type="button"
                 onClick={() => { setNavOpen(false); setShopSheetOpen(true) }}
-                className="flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide"
+                className={`flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide ${focusRing}`}
               >
                 <span className="flex items-center gap-2.5">
                   <Store size={18} className="text-teal-deep" />
@@ -674,19 +684,19 @@ export default function Header({ title, showBackButton = false, variant = "publi
             {mobileNavLinks.map((link, index) => {
               const isExpanded = activeMobileMenu === link.href
               return (
-                <div key={link.href} className={`border-b border-teal/15 transition-all duration-300 ease-out ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
+                <div key={link.href} className={`border-b border-teal/15 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
                   style={{ transitionDelay: visible ? `${100 + index * 40}ms` : "0ms" }}>
                   <button type="button" onClick={() => setActiveMobileMenu(isExpanded ? null : link.href)} aria-expanded={isExpanded}
-                    className="flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide">
+                    className={`flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide ${focusRing}`}>
                     {link.label}
                     {!!link.items && (
-                      <ChevronDown size={18} className={`text-ink/40 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      <ChevronDown size={18} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${isExpanded ? "rotate-180" : ""}`} />
                     )}
                   </button>
-                  <div className={`grid overflow-hidden bg-teal/[0.06] transition-[grid-template-rows] duration-300 ease-out ${isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                  <div className={`grid overflow-hidden bg-teal/[0.06] transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                     <div className="min-h-0 overflow-hidden pb-2">
                       {link.items?.map((item) => (
-                        <a key={item.name} href={item.href} onClick={() => setNavOpen(false)} className="block px-6 py-3 font-body">
+                        <a key={item.name} href={item.href} onClick={() => setNavOpen(false)} className={`block px-6 py-3 font-body ${focusRing}`}>
                           <div className="text-sm font-semibold text-ink">{item.name}</div>
                           <div className="mt-0.5 text-xs text-ink/60">{item.desc}</div>
                         </a>
@@ -698,18 +708,18 @@ export default function Header({ title, showBackButton = false, variant = "publi
             })}
           </nav>
 
-          <div className={`flex-none space-y-3 px-6 pb-8 pt-4 transition-all duration-300 ease-out ${visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}>
+          <div className={`flex-none space-y-3 px-6 pb-8 pt-4 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}>
             {!isAuthenticated && (
-              <button type="button" onClick={() => { window.location.href = "/signup"; setNavOpen(false) }} className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal-deep py-3 text-sm font-semibold text-white hover:bg-indigo-deep transition-colors duration-200">
+              <button type="button" onClick={() => { window.location.href = "/signup"; setNavOpen(false) }} className={`flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal-deep py-3 text-sm font-semibold text-white hover:bg-indigo-deep transition-colors duration-200 ${focusRing}`}>
                 <UserPlus className="w-4 h-4" /> Register
               </button>
             )}
             {isAuthenticated ? (
-              <button type="button" onClick={() => { logout(); setNavOpen(false) }} className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-ink/5 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200">
+              <button type="button" onClick={() => { logout(); setNavOpen(false) }} className={`flex w-full items-center justify-center gap-2.5 rounded-lg bg-ink/5 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200 ${focusRing}`}>
                 <LogOut className="w-4 h-4" /> Logout
               </button>
             ) : (
-              <button type="button" onClick={() => { login(); setNavOpen(false) }} className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal/10 py-3 text-sm font-semibold text-teal-deep hover:bg-teal/20 transition-colors duration-200">
+              <button type="button" onClick={() => { login(); setNavOpen(false) }} className={`flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal/10 py-3 text-sm font-semibold text-teal-deep hover:bg-teal/20 transition-colors duration-200 ${focusRing}`}>
                 <LogIn className="w-4 h-4" /> Sign in
               </button>
             )}
@@ -736,7 +746,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
             key={entry.id}
             href={entry.url || "/account/wishlist"}
             onClick={() => setWishlistSheetOpen(false)}
-            className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+            className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
           >
             <ProductThumb image={entry.image} alt={entry.title} />
             <div className="min-w-0 flex-1">
@@ -768,7 +778,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
             key={line.product.id}
             href={line.product.url || "/account/cart"}
             onClick={() => setCartSheetOpen(false)}
-            className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
+            className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
           >
             <ProductThumb image={line.product.image} alt={line.product.title} />
             <div className="min-w-0 flex-1">

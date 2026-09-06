@@ -41,6 +41,13 @@ import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav
  * viewport height (top: 0; bottom: 0) — ignoring --account-header-h
  * entirely on desktop/laptop, same as it already ignored the mobile
  * bottom-nav offset there.
+ *
+ * Backdrop bounds: the dimmed/blurred backdrop now shares the same
+ * .item-overlay-bounds top/bottom offsets as the panel (inset-x-0
+ * instead of inset-0), so on mobile it stops short of the fixed
+ * account header instead of painting a dim/blur layer over it. At
+ * 1024px+ .item-overlay-bounds resets top/bottom to 0, so the backdrop
+ * still goes fully edge-to-edge on desktop as before.
  */
 
 type ItemOverlayProps = {
@@ -259,7 +266,7 @@ export default function ItemInfoModal({
   return (
     <div className="fixed inset-0 z-30" role="dialog" aria-modal="true" aria-label="Product details">
       <div
-        className="absolute inset-0 bg-ink/40 backdrop-blur-[1px] motion-safe:[animation:overlayFadeIn_0.2s_ease-out_both]"
+        className="item-overlay-bounds absolute inset-x-0 bg-ink/40 backdrop-blur-[1px] motion-safe:[animation:overlayFadeIn_0.2s_ease-out_both]"
         onClick={onClose}
       />
 

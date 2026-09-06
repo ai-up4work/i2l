@@ -32,6 +32,18 @@ function AccountShell({
   const view = viewForPath(pathname)
   const isMobile = useIsMobile() // true below lg (1024px), matching this layout's other breakpoints
 
+  // NEW: Topbar is the thing actually visible on mobile (the desktop
+  // <Header> is `hidden` below lg, so its measured height is 0 there —
+  // that's why --account-header-h was collapsing to 0px on mobile and
+  // ItemInfoModal's overlay/backdrop had nothing to offset against).
+  // We now measure Topbar's real rendered height too, and make it
+  // sticky so it behaves like an actual persistent header on mobile.
+  const { ref: topbarRef, height: topbarHeight } = useElementHeight<HTMLDivElement>()
+
+  // On mobile, reserve space for the sticky Topbar. On lg+, keep using
+  // the desktop <Header> height as before (Topbar isn't sticky there).
+  const effectiveHeaderHeight = isMobile ? topbarHeight : headerHeight
+
   const [bannerOpen, setBannerOpen] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
@@ -90,7 +102,7 @@ function AccountShell({
     <main
       className="flex min-h-0 flex-1 overflow-hidden bg-parchment pt-0"
       style={{
-        ['--account-header-h' as string]: `${headerHeight}px`,
+        ['--account-header-h' as string]: `${effectiveHeaderHeight}px`,
         ['--account-bottom-nav-h' as string]: `${MOBILE_BOTTOM_NAV_H}px`,
       }}
     >
@@ -127,7 +139,14 @@ function AccountShell({
           onDismiss={() => setBannerOpen(false)}
           collapse={isMobile}
         />
-        <Topbar view={view} onBack={handleBack} onMenuClick={() => setSidebarOpen(true)} />
+        {/* NEW: sticky wrapper on mobile so Topbar behaves like a real
+            persistent header there (sticky is relative to this
+            scrolling <section>, which is its nearest scroll ancestor).
+            On lg+ it's static, same as before — desktop <Header> above
+            is the persistent header at that size instead. */}
+        <div ref={topbarRef} className="sticky top-0 z-20 bg-parchment lg:static">
+          <Topbar view={view} onBack={handleBack} onMenuClick={() => setSidebarOpen(true)} />
+        </div>
         {children}
       </section>
 
@@ -207,7 +226,9 @@ function AccountShell({
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   // Measures Header's real rendered height live — covers font-load shifts,
   // future edits inside Header/AirmailStripe, browser zoom, etc. — instead
-  // of trusting a hand-maintained constant.
+  // of trusting a hand-maintained constant. NOTE: this is 0 on mobile,
+  // since the wrapper below is `hidden` there — AccountShell now uses
+  // Topbar's own measured height on mobile instead (see topbarHeight).
   const { ref: headerRef, height: headerHeight } = useElementHeight<HTMLDivElement>()
 
   return (
