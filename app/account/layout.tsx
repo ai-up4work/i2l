@@ -176,20 +176,30 @@ function AccountShell({ children }: { children: React.ReactNode }) {
         style={{
           ['--account-header-h' as string]: `${effectiveHeaderHeight}px`,
           ['--account-bottom-nav-h' as string]: `${MOBILE_BOTTOM_NAV_H}px`,
+          // Pushes BOTH flex children of <main> — Sidebar and the
+          // scrollable <section> (i.e. every page's content, not just
+          // this layout's own chrome) — down by --account-header-h.
+          //
+          // Desktop: always applied (unchanged from before). Header is
+          // effectively out-of-flow at that size, so main's own padding
+          // is what actually reserves its space, in both the normal and
+          // overlay states.
+          //
+          // Mobile: applied ONLY while overlayActive. Normally on
+          // mobile the banner and Topbar sit in-flow and push page
+          // content down themselves — no extra padding needed, and
+          // adding it unconditionally would double that spacing. But
+          // once the overlay opens, bannerWrapperClass switches the
+          // banner to `fixed`, pulling it out of flow — with nothing
+          // else in flow above it (Topbar is hidden too), page content
+          // was riding up to y:0 and landing directly under the
+          // floating banner on every account page. Padding main by
+          // --account-header-h in that state reclaims exactly the
+          // space the banner used to occupy, matching what already
+          // happened on desktop.
+          paddingTop: !isMobile || overlayActive ? 'var(--account-header-h)' : undefined,
         }}
       >
-        {/* Applied to BOTH flex children of <main> — Sidebar and the
-            scrollable <section> — since padding-top on the flex container
-            shifts every row-aligned child down equally. This is what keeps
-            Sidebar's pinned "Personal Center" block, not just the main
-            content column, clear of the fixed header above. */}
-        <style jsx>{`
-          @media (min-width: 1024px) {
-            main {
-              padding-top: var(--account-header-h);
-            }
-          }
-        `}</style>
 
         <Sidebar
           view={view}
