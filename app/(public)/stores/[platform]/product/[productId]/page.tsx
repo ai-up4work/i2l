@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronRight, ExternalLink, Star, Weight } from 'lucide-reac
 import { affiliatedStores } from '@/components/dashboard/data'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { formatPrice } from '@/lib/currency'
+import { getCatalogPriceLKR } from '@/lib/quote'
 import ProductActions from '@/components/stores/ProductActions'
 import ProductGallery from '@/components/stores/ProductGallery'
 import ProductRequestButton from '@/components/stores/ProductRequestButton'
@@ -57,6 +58,19 @@ import type { StoreProduct } from '@/lib/store.types'
 // unavailable={!product.inStock} here means a sold-out product's "Get
 // Quote" button visibly disables and swaps its label ("Not available")
 // instead of silently doing nothing on click.
+//
+// DISPLAYED PRICE: product.price/compareAtPrice come straight from the
+// upstream feed (Shopify/WooCommerce/marketplace), in the seller's own
+// currency — that's just their sticker price, not what we'd actually
+// quote a Sri Lankan shopper once freight/customs/postal and our markup
+// are folded in. getCatalogPriceLKR() (lib/quote.ts) runs the same
+// Economy-delivery math as the internal quote calculator and returns
+// just the "catalogPrice" step (product cost + profit + Postal Charges) —
+// deliberately excluding the flat Extra Margin, which stays hidden the
+// same way it does on /demo/quote's catalog view. We hardcode Economy
+// here since the PDP shows a single headline price with no delivery-
+// method picker; ProductRequestOverlay's own quote flow is where a
+// shopper can see the Express option and its full breakdown.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -149,6 +163,32 @@ export default async function ProductDetailPage({
   const hasExtendedDescription =
     !!product.fullDescription && product.fullDescription.trim() !== product.description.trim()
 
+  // Headline price shown to the shopper: the Economy-delivery catalog
+  // price (product cost + profit + Postal Charges), in LKR — not the
+  // upstream feed's own-currency sticker price. See the module comment
+  // above for why Economy specifically, and what's deliberately excluded.
+  const catalogPriceLKR = getCatalogPriceLKR({
+    pcsPerUnit: 1,
+    valueINR: product.price,
+    currencyCode: product.currency,
+    weightKg: product.weightKg ?? undefined,
+    deliveryType: 'economy',
+  })
+
+  // Same treatment for the struck-through "was" price, so the discount
+  // shown is between two like-for-like landed prices rather than mixing
+  // a raw feed price against a marked-up one.
+  const catalogCompareAtPriceLKR =
+    product.compareAtPrice != null
+      ? getCatalogPriceLKR({
+          pcsPerUnit: 1,
+          valueINR: product.compareAtPrice,
+          currencyCode: product.currency,
+          weightKg: product.weightKg ?? undefined,
+          deliveryType: 'economy',
+        })
+      : undefined
+
   return (
     <DashboardProvider>
       {/* Sets --account-header-h the same way AccountLayout does for its
@@ -217,10 +257,10 @@ export default async function ProductDetailPage({
                 <SpecRow product={product} />
 
                 <div className="mt-3 flex items-baseline gap-2">
-                  <p className="text-3xl font-bold text-teal-deep">{formatPrice(product.price, product.currency)}</p>
-                  {product.compareAtPrice && product.onSale && (
+                  <p className="text-3xl font-bold text-teal-deep">{formatPrice(catalogPriceLKR, 'LKR')}</p>
+                  {catalogCompareAtPriceLKR != null && product.onSale && (
                     <p className="text-base font-semibold text-ink/40 line-through">
-                      {formatPrice(product.compareAtPrice, product.currency)}
+                      {formatPrice(catalogCompareAtPriceLKR, 'LKR')}
                     </p>
                   )}
                 </div>

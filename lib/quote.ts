@@ -571,6 +571,195 @@ export function calculateRequestPreviewQuote(
   };
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================
+// CATALOG QUOTE — the price shown on the public catalog/product page.
+//
+// This is deliberately a *subset* of calculateSimpleQuote's math: it
+// stops at `subtotal` (product cost + profit + Freight/Customs, or +
+// Postal) and does NOT include the flat Delivery Fee or flat Extra
+// Margin. Those two flat fees are still charged at checkout — they're
+// just not shown as a line item on the catalog page. Instead they're
+// surfaced here as `serviceFeeLKR` (and split into `deliveryFeeLKR` +
+// `extraMarginLKR` if you want to break it apart), so the storefront can
+// frame them to the shopper as a single "Service & Delivery" (Express)
+// or "Service & Postal" (Economy) charge rather than exposing the raw
+// margin structure.
+//
+//   catalogPrice     = subtotal                (what's shown publicly)
+//   serviceFeeLKR    = deliveryFee + extraMargin (Express)
+//                    = extraMargin              (Economy — no flat delivery fee)
+//   actualTotalCost  = catalogPrice + serviceFeeLKR = totalCost (what's actually charged)
+//
+// Does not duplicate any math — it's a thin read of calculateSimpleQuote's
+// output, so it always stays in sync with the work-desk calculator.
+// ============================================================
+
+export interface CatalogQuoteBreakdown {
+  // Inputs echoed back
+  pcsPerUnit: number;
+  deliveryType: DeliveryType;
+  weightKg: number;
+  valueINR: number;
+  currencyCode: string;
+  exchangeRateUsed: number;
+
+  // Per-unit basis, in the order the storefront would walk a shopper through
+  productCostLKR: number;   // Value × exchange rate
+  profitPercent: number;
+  profitAmount: number;
+  costWithProfit: number;
+  freightCharges: number;   // Express only (0 in economy)
+  customsClearance: number; // Express only (0 in economy)
+  postalCharges: number;    // Economy only (0 in express)
+
+  catalogPrice: number;     // = subtotal — the number shown on the catalog page
+  deliveryFeeLKR: number;   // flat delivery fee, broken out (0 in economy)
+  extraMarginLKR: number;   // flat extra margin, broken out
+  serviceFeeLKR: number;    // = deliveryFeeLKR + extraMarginLKR — shown as "Service & Delivery/Postal" at checkout
+  actualTotalCost: number;  // = catalogPrice + serviceFeeLKR — what's really charged
+
+  // Order-level totals (per unit values x PCS/Unit)
+  orderCatalogPrice: number;
+  orderServiceFeeLKR: number;
+  orderActualTotalCost: number;
+}
+
+/**
+ * Catalog-page price breakdown. Wraps calculateSimpleQuote and exposes
+ * the pre-flat-fee subtotal as the "sticker price" for the catalog/
+ * product page, plus the flat fees bundled together as a single
+ * service/delivery charge you can reveal at checkout.
+ *
+ * Accepts the exact same input shape as calculateSimpleQuote (same
+ * overrides, same deliveryType switch) so it's a drop-in alternate view
+ * of the same underlying numbers — nothing is recalculated separately,
+ * so it can never drift out of sync with the work-desk calculator.
+ *
+ * Example (INR 1000, 0.5kg, default rates):
+ *   Express: catalogPrice = 7490, serviceFeeLKR = 700 (450 delivery + 250 margin), actualTotalCost = 8190
+ *   Economy: catalogPrice = 5100, serviceFeeLKR = 250 (margin only, no flat delivery fee), actualTotalCost = 5350
+ */
+export function calculateCatalogQuote(
+  input: SimpleQuoteInput
+): CatalogQuoteBreakdown {
+  const simple = calculateSimpleQuote(input);
+
+  const deliveryFeeLKR = simple.deliveryFee;
+  const extraMarginLKR = simple.extraMargin;
+  const serviceFeeLKR = round2(deliveryFeeLKR + extraMarginLKR);
+
+  return {
+    pcsPerUnit: simple.pcsPerUnit,
+    deliveryType: simple.deliveryType,
+    weightKg: simple.weightKg,
+    valueINR: simple.valueINR,
+    currencyCode: simple.currencyCode,
+    exchangeRateUsed: simple.exchangeRateUsed,
+
+    productCostLKR: simple.productCostLKR,
+    profitPercent: simple.profitPercent,
+    profitAmount: simple.profitAmount,
+    costWithProfit: simple.costWithProfit,
+    freightCharges: simple.freightCharges,
+    customsClearance: simple.customsClearance,
+    postalCharges: simple.postalCharges,
+
+    catalogPrice: simple.subtotal,
+    deliveryFeeLKR,
+    extraMarginLKR,
+    serviceFeeLKR,
+    actualTotalCost: simple.totalCost,
+
+    orderCatalogPrice: round2(simple.subtotal * simple.pcsPerUnit),
+    orderServiceFeeLKR: round2(serviceFeeLKR * simple.pcsPerUnit),
+    orderActualTotalCost: simple.orderTotalCost,
+  };
+}
+
+/**
+ * Convenience one-liner for catalog listing pages / product grids where
+ * you just need the display number per unit, not the full breakdown
+ * (e.g. rendering a price on many product cards without building a
+ * full breakdown object for each one).
+ *
+ * NOTE: this follows whatever `deliveryType` is passed in (or "express"
+ * if omitted, same default as calculateSimpleQuote) — it is NOT
+ * Economy-only. If you specifically want one delivery method regardless
+ * of what's in `input`, use calculateExpressCatalogQuote /
+ * calculateEconomyCatalogQuote (or their *PriceLKR one-liners) below
+ * instead, so the call site can't accidentally get the wrong method.
+ */
+export function getCatalogPriceLKR(input: SimpleQuoteInput): number {
+  return calculateCatalogQuote(input).catalogPrice;
+}
+
+// ---- Delivery-type-locked catalog wrappers ----
+// Same calculateCatalogQuote() math underneath — these just pin
+// deliveryType so the caller can't accidentally get the other method's
+// price by forgetting to set (or by overriding) deliveryType on the
+// input. Prefer these on the storefront/catalog/PDP wherever the
+// delivery method is a fixed business decision rather than something
+// the shopper picks.
+
+/** Same as calculateCatalogQuote, but always priced as Express (Freight Charges + Customs Clearance + flat Delivery Fee), regardless of any deliveryType passed in `input`. */
+export function calculateExpressCatalogQuote(
+  input: Omit<SimpleQuoteInput, "deliveryType">
+): CatalogQuoteBreakdown {
+  return calculateCatalogQuote({ ...input, deliveryType: "express" });
+}
+
+/** Same as calculateCatalogQuote, but always priced as Economy (single Postal Charges line, no flat Delivery Fee), regardless of any deliveryType passed in `input`. */
+export function calculateEconomyCatalogQuote(
+  input: Omit<SimpleQuoteInput, "deliveryType">
+): CatalogQuoteBreakdown {
+  return calculateCatalogQuote({ ...input, deliveryType: "economy" });
+}
+
+/** Convenience one-liner: Express catalogPrice only, for product cards/PDPs that always show the Express price. */
+export function getExpressCatalogPriceLKR(
+  input: Omit<SimpleQuoteInput, "deliveryType">
+): number {
+  return calculateExpressCatalogQuote(input).catalogPrice;
+}
+
+/** Convenience one-liner: Economy catalogPrice only, for product cards/PDPs that always show the Economy price. */
+export function getEconomyCatalogPriceLKR(
+  input: Omit<SimpleQuoteInput, "deliveryType">
+): number {
+  return calculateEconomyCatalogQuote(input).catalogPrice;
+}
+
 // ---- Example usage ----
 // const expressExample = calculateSimpleQuote({
 //   pcsPerUnit: 2,
@@ -591,3 +780,37 @@ export function calculateRequestPreviewQuote(
 //   deliveryType: "economy",
 // });
 // console.log(previewExample);
+//
+// const expressCatalog = calculateCatalogQuote({
+//   pcsPerUnit: 1,
+//   valueINR: 1000,
+//   weightKg: 0.5,
+//   deliveryType: "express",
+// });
+// // expressCatalog.catalogPrice     -> 7490  (what shows on the catalog page)
+// // expressCatalog.serviceFeeLKR    -> 700   (450 delivery + 250 extra margin)
+// // expressCatalog.actualTotalCost  -> 8190  (what's actually charged at checkout)
+//
+// const economyCatalog = calculateCatalogQuote({
+//   pcsPerUnit: 1,
+//   valueINR: 1000,
+//   weightKg: 0.5,
+//   deliveryType: "economy",
+// });
+// // economyCatalog.catalogPrice     -> 5100
+// // economyCatalog.serviceFeeLKR    -> 250   (extra margin only — no flat delivery fee in economy)
+// // economyCatalog.actualTotalCost  -> 5350
+//
+// const expressPrice = getExpressCatalogPriceLKR({
+//   pcsPerUnit: 1,
+//   valueINR: 1000,
+//   weightKg: 0.5,
+// });
+// // expressPrice -> 7490 — always Express, no deliveryType field needed/accepted
+//
+// const economyPrice = getEconomyCatalogPriceLKR({
+//   pcsPerUnit: 1,
+//   valueINR: 1000,
+//   weightKg: 0.5,
+// });
+// // economyPrice -> 5100 — always Economy, no deliveryType field needed/accepted
