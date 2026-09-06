@@ -313,14 +313,27 @@ export default function Header({ title, showBackButton = false, variant = "publi
   const isWishlistOpen = activeDesktopMenu === WISHLIST_MENU_ID
   const isCartOpen = activeDesktopMenu === CART_MENU_ID
 
-  const wishlistPreview = wishlist.items
-    .slice()
-    .sort((a, b) => b.addedAt - a.addedAt)
-    .slice(0, PREVIEW_ITEM_LIMIT)
-  const cartPreview = cart.items
-    .slice()
-    .sort((a, b) => b.addedAt - a.addedAt)
-    .slice(0, PREVIEW_ITEM_LIMIT)
+  // Same reasoning as wishlistCount/cartCount above: wishlist.items and
+  // cart.items are sourced client-side, so the server always sees an
+  // empty array here. Without gating on hasMounted, the client's first
+  // render can already have real items (if the context hydrates before
+  // this component's mount effect runs), producing a populated preview
+  // list where the server rendered the empty state — a hydration
+  // mismatch. Forcing an empty array until hasMounted keeps the first
+  // client render identical to SSR; the real preview swaps in on the
+  // next tick as an ordinary post-hydration update.
+  const wishlistPreview = hasMounted
+    ? wishlist.items
+        .slice()
+        .sort((a, b) => b.addedAt - a.addedAt)
+        .slice(0, PREVIEW_ITEM_LIMIT)
+    : []
+  const cartPreview = hasMounted
+    ? cart.items
+        .slice()
+        .sort((a, b) => b.addedAt - a.addedAt)
+        .slice(0, PREVIEW_ITEM_LIMIT)
+    : []
 
   return (
     <>

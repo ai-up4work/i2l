@@ -84,7 +84,20 @@
 // field on FlipkartVariantOption (see AmazonVariantOption in amazon.ts,
 // which this type aliases) — the picker UI is responsible for actually
 // disabling the button.
+//
+// TYPE-FIX NOTE: this file previously annotated several helper params as
+// `cheerio.Cheerio`, referencing a `cheerio` namespace that was never
+// imported (only the named types `CheerioAPI`/`Cheerio` were imported
+// from the 'cheerio' package). That fails to compile with "Cannot find
+// namespace 'cheerio'". Fixed by using the proper generic form
+// `Cheerio<Element>` everywhere a cheerio-wrapped node is passed around.
+// `Element` itself is a `domhandler` type (cheerio builds its DOM on
+// top of domhandler nodes) and is NOT re-exported from the 'cheerio'
+// package in this version — importing it from 'cheerio' fails with
+// "Module '"cheerio"' has no exported member 'Element'". It has to be
+// imported from 'domhandler' directly instead.
 import type { CheerioAPI, Cheerio } from 'cheerio'
+import type { Element } from 'domhandler'
 import { cleanText, detectCurrencyAndClean, domainCurrency } from '../shared'
 import type { AmazonVariantDimension, AmazonVariantOption } from './amazon'
 
@@ -115,7 +128,7 @@ export function extractFlipkartTitle($: CheerioAPI): string | null {
 // and whitespace-collapsed, so matches are against what a human would
 // actually read as "this element's label" rather than "this element and
 // everything inside it."
-function ownText($el: cheerio.Cheerio): string {
+function ownText($el: Cheerio<Element>): string {
   return $el
     .contents()
     .filter((_, node) => node.type === 'text')
@@ -137,7 +150,7 @@ const CURRENCY_TEXT_RE = /^[₹$]?\s?[\d,]+(?:\.\d+)?$/
 // Scans all `div`/`span` descendants of a cell for a currency-shaped,
 // non-strikethrough own-text — used to find the price cell among the
 // MRP cell's row-siblings without assuming an exact nesting depth.
-function findCurrencyText($scope: cheerio.Cheerio, $: CheerioAPI, exclude: string): string | null {
+function findCurrencyText($scope: Cheerio<Element>, $: CheerioAPI, exclude: string): string | null {
   let found: string | null = null
   $scope.find('div, span').each((_, node) => {
     if (found) return
@@ -274,7 +287,7 @@ export function isFlipkartUnavailable($: CheerioAPI): boolean {
 // "Sold Out") on a swatch tile.
 const TILE_OUT_OF_STOCK_RE = /out\s*of\s*stock/i
 
-function isTileOutOfStock($tile: cheerio.Cheerio): boolean {
+function isTileOutOfStock($tile: Cheerio<Element>): boolean {
   const text = cleanText($tile)
   return !!text && TILE_OUT_OF_STOCK_RE.test(text)
 }
@@ -315,7 +328,7 @@ function normalizeDimensionLabel(rawLabel: string): string | null {
 // dedup/keying in the UI. As a last resort, derive a stable label from
 // the image filename so tiles are at least uniquely identifiable, even
 // though it won't be a pretty color name.
-function deriveTileLabel($tile: cheerio.Cheerio): string | null {
+function deriveTileLabel($tile: Cheerio<Element>): string | null {
   const text = cleanText($tile)
   if (text) return text
 
@@ -331,7 +344,7 @@ function deriveTileLabel($tile: cheerio.Cheerio): string | null {
   return null
 }
 
-function isSelectedTile($tile: cheerio.Cheerio): boolean {
+function isSelectedTile($tile: Cheerio<Element>): boolean {
   const cls = $tile.attr('class') || ''
   const style = $tile.attr('style') || ''
   const state = $tile.attr('aria-checked') || $tile.attr('aria-selected')

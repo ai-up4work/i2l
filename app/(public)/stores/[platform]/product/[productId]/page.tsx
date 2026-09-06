@@ -89,7 +89,7 @@ export default async function ProductDetailPage({
     // instead of crashing the whole page into the nearest error boundary.
     console.error(`[product page] ${platform}/${productId}`, err)
     return (
-      <div className="mx-auto max-w-5xl px-6 pb-16 pt-8 lg:px-10">
+      <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
         <Link
           href={`/stores/${store.platform}`}
           className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
@@ -127,7 +127,7 @@ export default async function ProductDetailPage({
     <div className="min-h-screen">
       {/* Sticky breadcrumb + share nav */}
       <div className="sticky top-0 z-30 hidden bg-parchment/80 backdrop-blur-md sm:block">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-6 lg:px-10">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6 lg:px-10">
           <div className="flex min-w-0 items-center gap-2 text-xs text-ink/45">
             <Link href="/stores" className="shrink-0 font-medium transition-colors hover:text-ink">
               Stores
@@ -143,7 +143,7 @@ export default async function ProductDetailPage({
         </div>
       </div>
 
-      <div className="mx-auto max-w-5xl px-6 pb-16 pt-8 lg:px-10">
+      <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
         <Link
           href={`/stores/${store.platform}`}
           className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"

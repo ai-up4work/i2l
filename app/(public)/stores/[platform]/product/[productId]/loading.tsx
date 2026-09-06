@@ -1,6 +1,4 @@
 // app/(public)/stores/[platform]/product/[productId]/loading.tsx
-// app/(public)/stores/[platform]/product/[productId]/loading.tsx
-//
 // Next.js renders this automatically while the server component in
 // page.tsx is awaiting fetchStoreProduct(). No wiring needed beyond
 // dropping this file next to page.tsx.

@@ -41,9 +41,17 @@
 // Information" accordion table) filling in what gtmEvents doesn't carry
 // (MRP, rating, review count, country of origin, manufacturer, return
 // policy).
+//
+// TYPE-FIX NOTE: `Element` is a `domhandler` type — cheerio builds its
+// DOM on top of domhandler nodes, but this cheerio version does not
+// re-export `Element` from the 'cheerio' package itself. Importing it
+// as `import type { Element } from 'cheerio'` fails with "Module
+// '"cheerio"' has no exported member 'Element'". It must be imported
+// from 'domhandler' directly instead.
 // ******************************************************************
 
-import type { CheerioAPI, Element } from 'cheerio'
+import type { CheerioAPI } from 'cheerio'
+import type { Element } from 'domhandler'
 
 import { cleanText, detectCurrencyAndClean, domainCurrency } from '../shared'
 

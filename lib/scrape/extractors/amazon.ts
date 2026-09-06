@@ -350,6 +350,7 @@ export type AmazonVariantOption = {
   // every site that doesn't detect this per-tile — Amazon's own variant
   // extractor never sets this.
   outOfStock?: boolean
+  mrp?: string | null
 }
 
 export type AmazonVariantDimension = {
