@@ -6,7 +6,7 @@ import { ExternalLink, Star, Gavel, Package, Check, Minus, Plus, Heart, Shopping
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
-import ProductGallery from './ProductGallery'
+import ProductGallery from '@/components/stores/ProductGallery'
 
 /**
  * Renders a scrape result using the SAME structural layout as

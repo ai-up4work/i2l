@@ -5,7 +5,7 @@ import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Chec
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
-import ProductGallery from './ProductGallery'
+import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 
 /**

@@ -2,6 +2,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 interface ProductGalleryProps {
@@ -10,18 +12,52 @@ interface ProductGalleryProps {
 }
 
 const AUTOPLAY_INTERVAL_MS = 8000
-const TRANSITION_MS = 700
+const EASE = [0.16, 1, 0.3, 1] as const // gentle, decelerating — reads as considered rather than mechanical
+
+// True only when the element's content is actually wider than the element
+// itself — i.e. scrolling would do something. Re-checked on resize and
+// whenever the deps change (image count, dialog open/close, etc).
+function useIsScrollable<T extends HTMLElement>(ref: React.RefObject<T | null>, deps: unknown[]) {
+  const [scrollable, setScrollable] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => setScrollable(el.scrollWidth > el.clientWidth + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    window.addEventListener('resize', check)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', check)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+
+  return scrollable
+}
 
 export default function ProductGallery({ images, alt }: ProductGalleryProps) {
-  const safeImages = images.length ? images : ['/placeholder.png']
+  // Dedupe by URL (keeping first-seen order) — some product feeds repeat the
+  // same image under multiple slots, which would otherwise show as an
+  // identical thumbnail/slide.
+  const deduped = Array.from(new Set(images.filter(Boolean)))
+  const safeImages = deduped.length ? deduped : ['/placeholder.png']
   const hasMultiple = safeImages.length > 1
+  const reduceMotion = useReducedMotion()
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
+  const [autoplayRunId, setAutoplayRunId] = useState(0) // bumped whenever a fresh autoplay countdown should start
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const thumbStripRef = useRef<HTMLDivElement | null>(null)
+  const lightboxThumbStripRef = useRef<HTMLDivElement | null>(null)
+
+  const thumbsScrollable = useIsScrollable(thumbStripRef, [safeImages.length])
+  const lightboxThumbsScrollable = useIsScrollable(lightboxThumbStripRef, [safeImages.length, lightboxOpen])
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -40,6 +76,7 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
 
   const selectManual = useCallback((i: number) => {
     setActiveIndex(i)
+    setAutoplayRunId((n) => n + 1)
     clearTimer()
   }, [clearTimer])
 
@@ -54,7 +91,7 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
   }, [])
 
   // Autoplay: only on the main inline gallery, only with >1 image, paused
-  // on hover or while the lightbox is open.
+  // on hover/focus or while the lightbox is open.
   useEffect(() => {
     if (!hasMultiple || isHovering || lightboxOpen) {
       clearTimer()
@@ -62,15 +99,16 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
     }
     timerRef.current = setInterval(() => {
       setActiveIndex((i) => (i === safeImages.length - 1 ? 0 : i + 1))
+      setAutoplayRunId((n) => n + 1)
     }, AUTOPLAY_INTERVAL_MS)
     return clearTimer
   }, [hasMultiple, isHovering, lightboxOpen, safeImages.length, clearTimer])
 
-  // Keyboard nav while the lightbox is open
+  // Arrow-key nav while the lightbox is open. Radix's Dialog already handles
+  // Escape and focus trapping, so this only needs to add Left/Right.
   useEffect(() => {
     if (!lightboxOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setLightboxOpen(false)
       if (e.key === 'ArrowLeft') goPrev()
       if (e.key === 'ArrowRight') goNext()
     }
@@ -78,94 +116,110 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [lightboxOpen, goPrev, goNext])
 
-  // Lock body scroll while lightbox is open
-  useEffect(() => {
-    if (!lightboxOpen) return
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prevOverflow
-    }
-  }, [lightboxOpen])
+  const isPlaying = hasMultiple && !isHovering && !lightboxOpen
+  const crossfadeDuration = reduceMotion ? 0 : 0.7
 
   return (
     <div>
       {/* Main image — full width, height follows the active slide's natural
-          ratio; all slides sit stacked/absolute for the crossfade. */}
+          ratio; crossfade handled by Framer Motion's AnimatePresence. */}
       <div
-        className="relative overflow-hidden rounded-2xl border border-ink/10 bg-card"
+        className="group relative overflow-hidden rounded-2xl border border-ink/10 bg-card"
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
+        onFocus={() => setIsHovering(true)}
+        onBlur={() => setIsHovering(false)}
       >
         <button
           type="button"
           onClick={() => setLightboxOpen(true)}
-          className="relative block w-full"
+          aria-label="Open full-screen view"
+          className="relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-2"
         >
           {/* Sizing image: invisible, sets the container's aspect ratio to
               match the active slide so the crossfade layer below can be
               absolutely positioned without collapsing the container. */}
           <img src={safeImages[activeIndex]} alt="" aria-hidden="true" className="block w-full h-auto opacity-0" />
 
-          {safeImages.map((img, i) => (
-            <img
-              key={img + i}
-              src={img}
-              alt={i === activeIndex ? alt : ''}
-              aria-hidden={i !== activeIndex}
-              className="absolute inset-0 h-full w-full object-contain transition-opacity ease-in-out"
-              style={{
-                opacity: i === activeIndex ? 1 : 0,
-                transitionDuration: `${TRANSITION_MS}ms`,
-              }}
+          <AnimatePresence initial={false}>
+            <motion.img
+              key={safeImages[activeIndex] + activeIndex}
+              src={safeImages[activeIndex]}
+              alt={alt}
+              className="absolute inset-0 h-full w-full object-contain"
+              initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.015 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: crossfadeDuration, ease: EASE }}
             />
-          ))}
+          </AnimatePresence>
         </button>
 
+        {/* Progress rail — doubles as a position indicator and, while
+            autoplaying, a countdown to the next slide. Each segment is
+            still a manual jump target. */}
         {hasMultiple && (
-          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+          <div className="absolute inset-x-3 top-3 flex gap-1">
             {safeImages.map((_, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => selectManual(i)}
                 aria-label={`Go to image ${i + 1}`}
-                className={
-                  i === activeIndex
-                    ? 'h-1.5 w-5 rounded-full bg-white shadow transition-all'
-                    : 'h-1.5 w-1.5 rounded-full bg-white/60 shadow transition-all hover:bg-white/80'
-                }
-              />
+                aria-current={i === activeIndex}
+                className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/30"
+              >
+                {i < activeIndex ? (
+                  <span className="block h-full w-full bg-white" />
+                ) : i > activeIndex ? (
+                  <span className="block h-full w-0 bg-white" />
+                ) : (
+                  <motion.span
+                    key={autoplayRunId}
+                    className="block h-full bg-white"
+                    initial={{ width: '0%' }}
+                    animate={{ width: isPlaying && !reduceMotion ? '100%' : reduceMotion ? '100%' : '0%' }}
+                    transition={{ duration: isPlaying ? AUTOPLAY_INTERVAL_MS / 1000 : 0, ease: 'linear' }}
+                  />
+                )}
+              </button>
             ))}
           </div>
         )}
       </div>
 
-      {/* Thumbnails — scrollbar hidden, arrow buttons scroll the strip instead */}
+      {/* Thumbnails — snap-scrolling strip, scrollbar hidden, arrow buttons
+          scroll the strip instead */}
       {hasMultiple && (
         <div className="relative mt-3 flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => scrollThumbs('left')}
-            aria-label="Scroll thumbnails left"
-            className="grid h-7 w-7 flex-none place-items-center rounded-full border border-ink/10 bg-white text-ink/50 shadow-sm transition-colors hover:text-ink"
-          >
-            <ChevronLeft size={14} />
-          </button>
+          {thumbsScrollable && (
+            <button
+              type="button"
+              onClick={() => scrollThumbs('left')}
+              aria-label="Scroll thumbnails left"
+              className="grid h-7 w-7 flex-none place-items-center rounded-full border border-ink/10 bg-white text-ink/50 shadow-sm transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
+            >
+              <ChevronLeft size={14} />
+            </button>
+          )}
 
           <div
             ref={thumbStripRef}
-            className="flex flex-1 gap-2 overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className={`flex flex-1 snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+              thumbsScrollable ? '' : 'justify-center'
+            }`}
           >
             {safeImages.map((img, i) => (
               <button
                 key={img + i}
                 type="button"
                 onClick={() => selectManual(i)}
+                aria-current={i === activeIndex}
+                aria-label={`View image ${i + 1}`}
                 className={
                   i === activeIndex
-                    ? 'h-16 w-16 flex-none overflow-hidden rounded-lg ring-2 ring-teal'
-                    : 'h-16 w-16 flex-none overflow-hidden rounded-lg ring-1 ring-ink/10 opacity-70 transition-opacity hover:opacity-100'
+                    ? 'h-14 w-14 flex-none snap-start overflow-hidden rounded-lg ring-1 ring-ink shadow-sm transition-all duration-300'
+                    : 'h-14 w-14 flex-none snap-start overflow-hidden rounded-lg opacity-55 grayscale-[20%] ring-1 ring-ink/10 transition-all duration-300 hover:opacity-90 hover:grayscale-0 focus-visible:opacity-100 focus-visible:grayscale-0'
                 }
               >
                 <img src={img} alt="" className="h-full w-full object-cover" />
@@ -173,99 +227,127 @@ export default function ProductGallery({ images, alt }: ProductGalleryProps) {
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => scrollThumbs('right')}
-            aria-label="Scroll thumbnails right"
-            className="grid h-7 w-7 flex-none place-items-center rounded-full border border-ink/10 bg-white text-ink/50 shadow-sm transition-colors hover:text-ink"
-          >
-            <ChevronRight size={14} />
-          </button>
+          {thumbsScrollable && (
+            <button
+              type="button"
+              onClick={() => scrollThumbs('right')}
+              aria-label="Scroll thumbnails right"
+              className="grid h-7 w-7 flex-none place-items-center rounded-full border border-ink/10 bg-white text-ink/50 shadow-sm transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
+            >
+              <ChevronRight size={14} />
+            </button>
+          )}
         </div>
       )}
 
-        {/* Fullscreen lightbox / slideshow */}
-        {lightboxOpen && (
-        <div
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 px-4"
-            role="dialog"
-            aria-modal="true"
+      {/* Fullscreen lightbox — Radix Dialog handles the focus trap, body
+          scroll lock, and Escape-to-close for us. */}
+      <Dialog.Root open={lightboxOpen} onOpenChange={setLightboxOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay asChild>
+            <motion.div
+              className="fixed inset-0 z-50"
+              style={{ background: 'radial-gradient(ellipse at center, rgba(18,18,18,0.96), rgba(0,0,0,0.99))' }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.25 }}
+            />
+          </Dialog.Overlay>
+
+          <Dialog.Content
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center px-4 focus:outline-none"
             onClick={() => setLightboxOpen(false)}
-        >
-            <button
-            type="button"
-            onClick={() => setLightboxOpen(false)}
-            aria-label="Close"
-            className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
-            >
-            <X size={18} />
-            </button>
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
+            <Dialog.Title className="sr-only">{alt} — full-screen image viewer</Dialog.Title>
+
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                aria-label="Close"
+                className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                <X size={18} />
+              </button>
+            </Dialog.Close>
 
             <div className="flex min-h-0 flex-1 items-center justify-center">
-            <img
-                src={safeImages[activeIndex]}
-                alt={alt}
-                onClick={(e) => e.stopPropagation()}
-                className="block max-w-full max-h-[75vh] w-auto h-auto rounded-lg transition-opacity"
-                style={{ transitionDuration: `${TRANSITION_MS}ms` }}
-            />
+              <AnimatePresence initial={false} mode="wait">
+                <motion.img
+                  key={safeImages[activeIndex] + activeIndex}
+                  src={safeImages[activeIndex]}
+                  alt={alt}
+                  onClick={(e) => e.stopPropagation()}
+                  className="block max-w-full max-h-[75vh] w-auto h-auto rounded-lg"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: crossfadeDuration, ease: EASE }}
+                />
+              </AnimatePresence>
             </div>
 
             {hasMultiple && (
-            <>
+              <>
                 <button
-                type="button"
-                onClick={(e) => {
+                  type="button"
+                  onClick={(e) => {
                     e.stopPropagation()
                     goPrev()
-                }}
-                aria-label="Previous image"
-                className="absolute left-4 top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                  }}
+                  aria-label="Previous image"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
                 >
-                <ChevronLeft size={20} />
+                  <ChevronLeft size={20} />
                 </button>
                 <button
-                type="button"
-                onClick={(e) => {
+                  type="button"
+                  onClick={(e) => {
                     e.stopPropagation()
                     goNext()
-                }}
-                aria-label="Next image"
-                className="absolute right-4 top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                  }}
+                  aria-label="Next image"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
                 >
-                <ChevronRight size={20} />
+                  <ChevronRight size={20} />
                 </button>
 
                 {/* Bottom thumbnail strip — tap any thumbnail to jump straight
                     to that image instead of stepping one-by-one with the arrows. */}
                 <div
-                className="mt-4 flex max-w-full gap-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                onClick={(e) => e.stopPropagation()}
+                  ref={lightboxThumbStripRef}
+                  className={`mt-4 flex max-w-full gap-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                    lightboxThumbsScrollable ? '' : 'justify-center'
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                {safeImages.map((img, i) => (
+                  {safeImages.map((img, i) => (
                     <button
-                    key={img + i}
-                    type="button"
-                    onClick={() => selectManual(i)}
-                    aria-label={`Go to image ${i + 1}`}
-                    className={
+                      key={img + i}
+                      type="button"
+                      onClick={() => selectManual(i)}
+                      aria-label={`Go to image ${i + 1}`}
+                      aria-current={i === activeIndex}
+                      className={
                         i === activeIndex
-                        ? 'h-14 w-14 flex-none overflow-hidden rounded-lg ring-2 ring-white'
-                        : 'h-14 w-14 flex-none overflow-hidden rounded-lg ring-1 ring-white/30 opacity-60 transition-opacity hover:opacity-100'
-                    }
+                          ? 'h-12 w-12 flex-none overflow-hidden rounded-lg ring-1 ring-white transition-all duration-300'
+                          : 'h-12 w-12 flex-none overflow-hidden rounded-lg opacity-45 grayscale-[20%] ring-1 ring-white/20 transition-all duration-300 hover:opacity-80 hover:grayscale-0'
+                      }
                     >
-                    <img src={img} alt="" className="h-full w-full object-cover" />
+                      <img src={img} alt="" className="h-full w-full object-cover" />
                     </button>
-                ))}
+                  ))}
                 </div>
 
-                <span className="mt-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
-                {activeIndex + 1} / {safeImages.length}
+                <span className="mt-2 text-xs font-medium tracking-wide text-white/60 tabular-nums">
+                  {activeIndex + 1} of {safeImages.length}
                 </span>
-            </>
+              </>
             )}
-        </div>
-        )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   )
 }
