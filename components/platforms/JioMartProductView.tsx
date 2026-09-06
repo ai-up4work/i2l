@@ -7,6 +7,7 @@ import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from './ProductGallery'
+import RequestActionButton from '../stores/RequestActionButton'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -208,15 +209,17 @@ function JioMartCommerceActions({
           {justAdded ? 'Added' : 'Add to Cart'}
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onRequestReview}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#0d47a1] px-5 py-3 text-sm font-bold uppercase text-white transition-all duration-200 hover:brightness-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#c2c8cc]"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={<ShoppingCart size={16} />}
+          className="flex-1 whitespace-nowrap rounded-xl bg-[#fb641b] px-5 py-3 text-sm font-bold text-white hover:brightness-95 disabled:bg-[#c7c7c7]"
         >
-          <ShoppingCart size={16} />
-          {result.unavailable ? 'Not Available' : 'Get Quote'}
-        </button>
+          GET QUOTE
+        </RequestActionButton>
       </div>
 
       <p className="text-xs text-[#94a0a6]">You will not be charged now. This is just a request.</p>

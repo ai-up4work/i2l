@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Truck, ShieldCheck, Minus, Plus, ShoppingCart, ShoppingBag, Info, Heart, Check } from 'lucide-react'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import RequestActionButton from './RequestActionButton'
 
 const TABS = ['Description', 'Details', 'Shipping & Returns'] as const
 type Tab = (typeof TABS)[number]
@@ -146,15 +147,17 @@ export default function StoreCommercePanel({
             {justAdded ? 'Added' : 'Add to Cart'}
           </button>
 
-          <button
-            type="button"
-            onClick={onRequestReview}
-            disabled={loading || result.unavailable || !canAct}
-            className="flex min-w-[150px] flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
-          >
-            <ShoppingCart size={16} />
-            {result.unavailable ? 'Not Available' : 'Get Quote'}
-          </button>
+        <RequestActionButton
+          onClick={onRequestReview}
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={<ShoppingCart size={16} />}
+          className="flex-1 whitespace-nowrap rounded-xl bg-[#fb641b] px-5 py-3 text-sm font-bold text-white hover:brightness-95 disabled:bg-[#c7c7c7]"
+        >
+          GET QUOTE
+        </RequestActionButton>
         </div>
       </div>
       <p className="-mt-3 text-xs text-ink/40">You will not be charged now. This is just a request.</p>

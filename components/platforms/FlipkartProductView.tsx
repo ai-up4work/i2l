@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { ExternalLink, Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
+import RequestActionButton from '@/components/stores/RequestActionButton'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
@@ -236,15 +237,17 @@ function FlipkartCommerceActions({
           {justAdded ? 'ADDED' : 'ADD TO CART'}
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onRequestReview}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#fb641b] px-5 py-3 text-sm font-bold text-white transition-all duration-200 hover:brightness-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#c7c7c7]"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={<ShoppingCart size={16} />}
+          className="flex-1 whitespace-nowrap rounded-xl bg-[#fb641b] px-5 py-3 text-sm font-bold text-white hover:brightness-95 disabled:bg-[#c7c7c7]"
         >
-          <ShoppingCart size={16} />
-          {result.unavailable ? 'NOT AVAILABLE' : 'GET QUOTE'}
-        </button>
+          GET QUOTE
+        </RequestActionButton>
       </div>
 
       <p className="text-xs text-[#878787]">You will not be charged now. This is just a request.</p>
