@@ -1,7 +1,6 @@
-// app/(public)/stores/[platform]/product/[productId]/page.tsx
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronRight, ExternalLink, Package, Star, Weight, Zap } from 'lucide-react'
+import { ChevronRight, Package, Star, Weight, Zap } from 'lucide-react'
 import { affiliatedStores } from '@/components/dashboard/data'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { getDualDeliveryPricing } from '@/lib/pricing'
@@ -11,7 +10,6 @@ import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
-import TagList from '@/components/stores/TagList'
 import ExpandableDescription from '@/components/dashboard/ExpandableDescription'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import type { StoreProduct } from '@/lib/store.types'
@@ -95,11 +93,13 @@ import type { StoreProduct } from '@/lib/store.types'
 // background ever changes, update the notch spans' bg-parchment to
 // match, or the seam will show instead of blending in.
 //
-// FULL DETAILS TOGGLE: previously a native <details>/<summary>, which only
-// gives one toggle point (at the top). Swapped for ExpandableDescription
-// (client component, local useState) so the "Show less" control sits
-// AFTER the full-details text instead of requiring a scroll back up to
-// collapse — same label/chevron styling as before, just relocated.
+// FULL DETAILS TOGGLE: ExpandableDescription (client component) now
+// handles BOTH cases in one place — (a) a single long `description` with
+// no separate `fullDescription` (clamped to 3 lines, "Full details"
+// expands the same text fully), and (b) a genuinely separate short
+// description + longer fullDescription (shows short text, "Full details"
+// appends the extra text). No branching needed here on the page anymore —
+// always render ExpandableDescription and let it decide internally.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -180,12 +180,6 @@ export default async function ProductDetailPage({
   // add-to-bag → WhatsApp flow as the store catalog page.
   const isMarketplace = store.storeType === 'marketplace'
 
-  // Only show a "Full details" expander when there's a genuinely longer
-  // description distinct from the short one — not when the upstream feed
-  // just duplicated the same text into both fields.
-  const hasExtendedDescription =
-    !!product.fullDescription && product.fullDescription.trim() !== product.description.trim()
-
   // Economy AND Express pricing, computed by the shared lib/pricing.ts
   // helper (same underlying lib/quote.ts math the catalog grid and
   // mini-cart use) so neither number shown here can ever drift from the
@@ -238,22 +232,22 @@ export default async function ProductDetailPage({
               <div className="flex h-full min-w-0 flex-col">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
                   <span className="inline-flex items-center gap-2">
-                  <Link
-                    href={`/demo/quote?${new URLSearchParams({
-                      mode: 'simple',
-                      delivery: 'economy',
-                      pcs: '1',
-                      value: String(product.price),
-                      currency: product.currency,
-                      ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
-                    }).toString()}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="See price breakdown"
-                    className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
-                  >
-                    <img src={store.logo} alt="" className="h-full w-full object-cover" />
-                  </Link>
+                    <Link
+                      href={`/demo/quote?${new URLSearchParams({
+                        mode: 'simple',
+                        delivery: 'economy',
+                        pcs: '1',
+                        value: String(product.price),
+                        currency: product.currency,
+                        ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
+                      }).toString()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="See price breakdown"
+                      className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
+                    >
+                      <img src={store.logo} alt="" className="h-full w-full object-cover" />
+                    </Link>
                     {store.name} · {product.condition}
                   </span>
                   {product.averageRating != null && (
@@ -278,7 +272,8 @@ export default async function ProductDetailPage({
                     Economy keeps the larger price treatment since it's
                     the storefront default, Express states its price
                     delta in one line. */}
-                  <div className="mt-3 rounded-3xl border border-ink/15 bg-card shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">                  <div className="flex items-center gap-3 rounded-t-[calc(1.5rem-1px)] bg-teal/[0.05] px-5 py-4">
+                <div className="mt-3 rounded-3xl border border-ink/15 bg-card shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">
+                  <div className="flex items-center gap-3 rounded-t-[calc(1.5rem-1px)] bg-teal/[0.05] px-5 py-4">
                     <Package size={18} strokeWidth={1.75} className="shrink-0 text-teal-deep" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-ink">
@@ -386,14 +381,10 @@ export default async function ProductDetailPage({
                   <ProductActions product={product} platform={store.platform} />
                 )}
 
-                {hasExtendedDescription ? (
-                  <ExpandableDescription
-                    description={product.description}
-                    fullDescription={product.fullDescription!}
-                  />
-                ) : (
-                  <p className="mt-5 text-sm leading-relaxed text-ink/65">{product.description}</p>
-                )}
+                <ExpandableDescription
+                  description={product.description}
+                  fullDescription={product.fullDescription}
+                />
               </div>
             </div>
           </div>
