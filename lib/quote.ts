@@ -473,6 +473,104 @@ export function calculateSimpleQuote(
   };
 }
 
+// ============================================================
+// REQUEST PREVIEW QUOTE — thin wrapper around calculateSimpleQuote for
+// RequestPreviewPage.tsx, which works in terms of { unitPrice, qty } and
+// wants figures back in the item's original currency (not LKR), plus one
+// final LKR grand total.
+//
+// Mapping (per unit -> order level, LKR -> currencyCode via exchangeRateUsed):
+//   subtotal        = costWithProfit (product cost + profit), NOT a raw
+//                      conversion — profit is already baked in.
+//   serviceFee       = Freight Charges + Customs Clearance (Express), or
+//                      Postal Charges (Economy). This is the only piece
+//                      that differs between the two delivery methods.
+//   estimatedFeeUsd  = subtotal + serviceFee, in currencyCode's units.
+//                      (Field name kept for backward compatibility with
+//                      the existing UI destructuring; despite the name it
+//                      follows currencyCode, not literal USD.)
+//   estimatedTotalLkr = the real grand total, in LKR — includes the flat
+//                      Delivery Fee (Express only) and Extra Margin that
+//                      subtotal/serviceFee above deliberately exclude.
+// ============================================================
+
+export interface RequestPreviewQuoteInput {
+  unitPrice: number;      // per-unit product price, in currencyCode's units
+  qty: number;            // quantity being ordered
+  currencyCode?: string;  // e.g. draft.currency. Defaults to "INR".
+  weightKg?: number;      // optional; falls back to the weight-block default
+  deliveryType?: DeliveryType; // "express" (default) or "economy"
+
+  // Pass-through overrides (all optional) — same knobs as calculateSimpleQuote
+  profitPercentOverride?: number;
+  freightRatePerBlockLKROverride?: number;
+  customsClearanceRatePerBlockLKROverride?: number;
+  weightBlockKgOverride?: number;
+  deliveryFeeLKROverride?: number;
+  postalRatePerKgLKROverride?: number;
+  extraMarginLKROverride?: number;
+}
+
+export interface RequestPreviewQuoteBreakdown {
+  subtotal: number;         // order-level cost+profit, in currencyCode's units
+  serviceFee: number;       // order-level Freight+Customs (Express) or Postal (Economy), in currencyCode's units
+  estimatedFeeUsd: number;  // subtotal + serviceFee, in currencyCode's units
+  estimatedTotalLkr: number; // full order total incl. delivery fee/extra margin, in LKR
+  deliveryType: DeliveryType;
+  currencyCode: string;
+  exchangeRateUsed: number;
+}
+
+export function calculateRequestPreviewQuote(
+  input: RequestPreviewQuoteInput
+): RequestPreviewQuoteBreakdown {
+  const { unitPrice, qty } = input;
+  const currencyCode = input.currencyCode ?? "INR";
+
+  const simple = calculateSimpleQuote({
+    pcsPerUnit: qty,
+    valueINR: unitPrice,
+    currencyCode,
+    weightKg: input.weightKg,
+    deliveryType: input.deliveryType,
+    profitPercentOverride: input.profitPercentOverride,
+    freightRatePerBlockLKROverride: input.freightRatePerBlockLKROverride,
+    customsClearanceRatePerBlockLKROverride: input.customsClearanceRatePerBlockLKROverride,
+    weightBlockKgOverride: input.weightBlockKgOverride,
+    deliveryFeeLKROverride: input.deliveryFeeLKROverride,
+    postalRatePerKgLKROverride: input.postalRatePerKgLKROverride,
+    extraMarginLKROverride: input.extraMarginLKROverride,
+  });
+
+  const { exchangeRateUsed } = simple;
+
+  // Per-unit LKR "freight+customs" (Express) or "postal" (Economy) charge —
+  // the one piece that differs between delivery methods.
+  const serviceFeePerUnitLKR =
+    simple.deliveryType === "express"
+      ? simple.freightCharges + simple.customsClearance
+      : simple.postalCharges;
+
+  // Convert LKR per-unit figures back to currencyCode and scale to order level.
+  const subtotal = round2((simple.costWithProfit / exchangeRateUsed) * qty);
+  const serviceFee = round2((serviceFeePerUnitLKR / exchangeRateUsed) * qty);
+  const estimatedFeeUsd = round2(subtotal + serviceFee);
+
+  // The real grand total (LKR) — includes the flat Delivery Fee (Express
+  // only) and Extra Margin, which subtotal/serviceFee deliberately exclude.
+  const estimatedTotalLkr = simple.orderTotalCost;
+
+  return {
+    subtotal,
+    serviceFee,
+    estimatedFeeUsd,
+    estimatedTotalLkr,
+    deliveryType: simple.deliveryType,
+    currencyCode,
+    exchangeRateUsed,
+  };
+}
+
 // ---- Example usage ----
 // const expressExample = calculateSimpleQuote({
 //   pcsPerUnit: 2,
@@ -485,3 +583,11 @@ export function calculateSimpleQuote(
 //   deliveryType: "economy",
 // });
 // console.log(expressExample, economyExample);
+//
+// const previewExample = calculateRequestPreviewQuote({
+//   unitPrice: 1000,
+//   qty: 1,
+//   currencyCode: "INR",
+//   deliveryType: "economy",
+// });
+// console.log(previewExample);
