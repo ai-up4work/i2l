@@ -277,7 +277,7 @@ export default async function ProductDetailPage({
                       <p className="text-sm font-semibold text-ink">
                         Economy <span className="font-normal text-teal-deep">· recommended</span>
                       </p>
-                      <p className="text-xs text-ink/45">Postal delivery, arrives in 2–3 weeks</p>
+                      <p className="text-xs text-ink/45">Delivery arrives in 3–4 weeks</p>
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="font-display text-2xl font-bold tabular-nums text-teal-deep sm:text-[28px]">
@@ -310,7 +310,7 @@ export default async function ProductDetailPage({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-ink">Express</p>
                       <p className="text-xs text-ink/45">
-                        Courier delivery, arrives in 3–5 days
+                        Delivery arrives in 12 - 15 days
                         {dualPricing.formattedExpressPremium != null && (
                           <> · {dualPricing.formattedExpressPremium} more</>
                         )}
