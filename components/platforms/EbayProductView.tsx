@@ -7,6 +7,7 @@ import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
+import RequestActionButton from '@/components/stores/RequestActionButton'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -22,6 +23,11 @@ import ProductGallery from '@/components/stores/ProductGallery'
  *     NOT product rating — see note below)
  *   - condition badge, auction current-bid/ends block
  *   - "Buy It Now" / "Place Bid" framing on the primary CTA
+ *
+ * The primary CTA reuses the shared RequestActionButton (same component
+ * FlipkartCommerceActions uses for "Get Quote") so loading/disabled/
+ * unavailable states render identically across platforms — only the
+ * color ("#3665F3") and label ("Buy It Now" / "Place Bid") differ here.
  *
  * NOTE: eBay's `rating`/`review_count` fields represent SELLER
  * feedback, not a per-product review score — this view labels it
@@ -203,7 +209,10 @@ function AuctionBlock({
  * as AmazonCommerceActions (qty stepper, wishlist heart, Add to Cart,
  * Get Quote, all inline in one wrapping row) but with eBay's blue
  * (#3665F3) primary CTA and "Buy It Now" / "Place Bid" framing on the
- * quote button when the listing is an auction.
+ * quote button when the listing is an auction. The primary CTA is the
+ * shared RequestActionButton component so its loading/disabled spinner,
+ * unavailable label, and disabled styling stay in lockstep with every
+ * other platform view rather than being re-implemented per platform.
  */
 function EbayCommerceActions({
   result,
@@ -274,15 +283,19 @@ function EbayCommerceActions({
           {justAdded ? 'Added' : 'Add to Cart'}
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onRequestReview}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#3665F3] px-5 py-3 text-sm font-bold text-white shadow-[0_1px_2px_rgba(54,101,243,0.3)] transition-all duration-200 hover:brightness-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#c7c7c7]"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="Not Available"
+          icon={<ShoppingCart size={16} />}
+          color="#3665F3"
+          disabledColor="#c7c7c7"
+          className="flex-1 whitespace-nowrap rounded-full px-5 py-3 text-sm font-bold shadow-[0_1px_2px_rgba(54,101,243,0.3)] hover:brightness-95"
         >
-          <ShoppingCart size={16} />
-          {result.unavailable ? 'Not Available' : isAuction ? 'Place Bid' : 'Buy It Now'}
-        </button>
+          Get Quote
+        </RequestActionButton>
       </div>
 
       <p className="text-xs text-[#8a8a8a]">You will not be charged now. This is just a request.</p>

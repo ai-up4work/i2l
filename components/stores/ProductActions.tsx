@@ -145,7 +145,7 @@ export default function ProductActions({
           unavailable={!product.inStock}
           className="flex h-11 min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-deep"
         >
-          Get Quote
+          GET QUOTE
         </ProductRequestButton>
       </div>
 

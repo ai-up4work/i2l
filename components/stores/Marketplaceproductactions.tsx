@@ -142,7 +142,7 @@ export default function MarketplaceProductActions({
           className="flex min-w-[150px] flex-1 items-center justify-center gap-2 rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep sm:flex-none sm:w-auto sm:px-8"
         >
           <ShoppingCart size={16} />
-          Get Quote
+          GET QUOTE
         </Link>
       )}
     </div>

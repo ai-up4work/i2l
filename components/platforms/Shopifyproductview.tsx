@@ -254,7 +254,9 @@ function ShopifyCommerceActions({
           unavailable={result.unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={<ShoppingCart size={16} />}
-          className="flex-1 whitespace-nowrap rounded-xl bg-[#fb641b] px-5 py-3 text-sm font-bold text-white hover:brightness-95 disabled:bg-[#c7c7c7]"
+          color="#fb641b"
+          disabledColor="#c7c7c7"
+          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
           GET QUOTE
         </RequestActionButton>

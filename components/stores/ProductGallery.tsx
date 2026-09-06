@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 interface ProductGalleryProps {
   images: string[]
   alt: string
+  title?: string
 }
 
 const AUTOPLAY_INTERVAL_MS = 8000
