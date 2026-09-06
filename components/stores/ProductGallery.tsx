@@ -220,7 +220,7 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
   const isPlaceholder = safeImages[activeIndex] === '/placeholder.png'
 
   return (
-    <div>
+    <div className="min-w-0 w-full">
       <div
         className={`group relative overflow-hidden rounded-2xl border ${t.frameBorder} bg-card`}
         onMouseEnter={() => setIsHovering(true)}
