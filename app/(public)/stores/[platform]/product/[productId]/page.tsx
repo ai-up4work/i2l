@@ -12,6 +12,7 @@ import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import TagList from '@/components/stores/TagList'
+import ExpandableDescription from '@/components/dashboard/ExpandableDescription'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -93,6 +94,12 @@ import type { StoreProduct } from '@/lib/store.types'
 // background directly behind this card is `parchment` — if that
 // background ever changes, update the notch spans' bg-parchment to
 // match, or the seam will show instead of blending in.
+//
+// FULL DETAILS TOGGLE: previously a native <details>/<summary>, which only
+// gives one toggle point (at the top). Swapped for ExpandableDescription
+// (client component, local useState) so the "Show less" control sits
+// AFTER the full-details text instead of requiring a scroll back up to
+// collapse — same label/chevron styling as before, just relocated.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -156,12 +163,6 @@ export default async function ProductDetailPage({
     console.error(`[product page] ${platform}/${productId}`, err)
     return (
       <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
-        {/* <Link
-          href={`/stores/${store.platform}`}
-          className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
-        >
-          <ArrowLeft size={14} /> Back to {store.name}
-        </Link> */}
         <div className="mt-8 rounded-2xl border border-gold/40 bg-gold/10 p-6 text-center">
           <p className="text-sm font-semibold text-ink">Could not load this product</p>
           <p className="mt-1 text-xs text-ink/55">
@@ -225,13 +226,6 @@ export default async function ProductDetailPage({
               side is bounded by the gallery's height rather than free to
               grow past it. */}
           <div className="mx-auto max-w-6xl px-6 pb-10 pt-8 lg:px-10">
-            {/* <Link
-              href={`/stores/${store.platform}`}
-              className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
-            >
-              <ArrowLeft size={14} /> Back to {store.name}
-            </Link> */}
-
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
               <div className={`relative min-w-0 ${!product.inStock ? 'grayscale-[0.4] opacity-90' : ''}`}>
                 <ProductGallery images={product.images?.length ? product.images : [product.image]} alt={product.name} />
@@ -392,31 +386,14 @@ export default async function ProductDetailPage({
                   <ProductActions product={product} platform={store.platform} />
                 )}
 
-                <p className="mt-5 text-sm leading-relaxed text-ink/65">{product.description}</p>
-
-                {hasExtendedDescription && (
-                  <details className="group mt-2">
-                    <summary className="cursor-pointer list-none text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal">
-                      Full details
-                      <span className="ml-1 inline-block transition-transform group-open:rotate-180">⌄</span>
-                    </summary>
-                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink/65">
-                      {product.fullDescription}
-                    </p>
-                  </details>
+                {hasExtendedDescription ? (
+                  <ExpandableDescription
+                    description={product.description}
+                    fullDescription={product.fullDescription!}
+                  />
+                ) : (
+                  <p className="mt-5 text-sm leading-relaxed text-ink/65">{product.description}</p>
                 )}
-
-
-                {/* {product.url && (
-                  <a
-                    href={product.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-                  >
-                    View on {store.name}&rsquo;s site <ExternalLink size={12} />
-                  </a>
-                )} */}
               </div>
             </div>
           </div>
