@@ -6,17 +6,18 @@ import { BadgeCheck, ExternalLink, Star, Minus, Plus, Heart, ShoppingBag, Shoppi
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
+import ProductGallery from './ProductGallery'
 
 /**
  * Renders a WooCommerce scrape result (source: 'woocommerce_api') using
- * the SAME structural layout as AmazonProductView — gallery + buy box
- * side by side (max-w-6xl), main image with a thumbnail strip beneath
- * it, buy box ordered as badge/title -> seller -> rating ->
- * price/discount -> stock -> variant rows -> original listing link ->
- * WooCommerceCommerceActions, then a bottom-most full-width
- * ProductInfoTabs section — using the app's own design tokens
- * (teal/ink/indigo-deep/gold-deep) rather than imitating a fake
- * storefront skin: WooCommerce stores run on the merchant's own
+ * the SAME structural layout as AmazonProductView — gallery (shared
+ * ProductGallery component, same as MyntraProductView/EbayProductView)
+ * + buy box side by side (max-w-6xl), buy box ordered as badge/title ->
+ * seller -> rating -> price/discount -> stock -> variant rows ->
+ * original listing link -> WooCommerceCommerceActions, then a
+ * bottom-most full-width ProductInfoTabs section — using the app's own
+ * design tokens (teal/ink/indigo-deep/gold-deep) rather than imitating
+ * a fake storefront skin: WooCommerce stores run on the merchant's own
  * WordPress theme, so there's no single canonical look to match.
  * What's consistent and worth surfacing is that this data came straight
  * from the store's public Store API (/wp-json/wc/store/v1/products),
@@ -371,11 +372,9 @@ export default function WooCommerceProductView({
   canAct,
 }: PlatformViewProps) {
   const images = result.images ?? []
-  const [mainImage, setMainImage] = useState(images[0] ?? null)
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    setMainImage((result.images ?? [])[0] ?? null)
     const initial: Record<string, string> = {}
     for (const dim of result.variants ?? []) {
       const selectedOpt = dim.options.find((o) => o.selected)
@@ -405,35 +404,18 @@ export default function WooCommerceProductView({
       </div>
 
       <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — main image + thumbnail strip beneath, same
-            structure as AmazonProductView. */}
-        <div className="min-w-0">
-          <div className="aspect-square overflow-hidden rounded-xl border border-ink/10 bg-white">
-            {mainImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={mainImage} alt={result.title ?? 'Product image'} className="h-full w-full object-contain p-2" />
-            ) : (
-              <div className="grid h-full place-items-center text-xs text-ink/40">No image found</div>
-            )}
-          </div>
-          {images.length > 1 && (
-            <div className="mt-3 flex gap-2 overflow-x-auto">
-              {images.slice(0, 8).map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setMainImage(src)}
-                  className={`h-16 w-16 flex-none overflow-hidden rounded-xl border transition-colors ${
-                    mainImage === src ? 'border-teal-deep ring-1 ring-teal-deep' : 'border-ink/10'
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" className="h-full w-full object-contain" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Image gallery — shared component, app default theme */}
+        <ProductGallery
+          images={images}
+          title={result.title}
+          resetKey={result.url}
+          theme={{
+            frameBorder: 'border-ink/10',
+            activeThumb: 'border-teal-deep ring-1 ring-teal-deep',
+            restingThumb: 'border-ink/10',
+            placeholderText: 'text-ink/40',
+          }}
+        />
 
         {/* Buy box — same element order as AmazonProductView: title ->
             seller -> rating -> price/discount -> stock -> variant rows

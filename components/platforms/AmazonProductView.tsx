@@ -1,4 +1,3 @@
-// components/platforms/AmazonProductView.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -6,6 +5,7 @@ import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Chec
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
+import ProductGallery from './ProductGallery'
 
 /**
  * Renders a scrape result using the SAME visual language as the
@@ -13,11 +13,12 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
  * styling, teal-deep price, the same stock-status treatment.
  *
  * LAYOUT (top to bottom):
- *   1. Gallery + buy box, side by side, capped at max-w-6xl. The buy
- *      box's right column also contains AmazonCommerceActions
- *      (qty stepper, wishlist, Add to Cart, Get Quote, disclaimer) —
- *      all inline in a single wrapping row — directly beneath the
- *      price/variants/stock/original-listing-link stack.
+ *   1. Gallery (shared ProductGallery component) + buy box, side by
+ *      side, capped at max-w-6xl. The buy box's right column also
+ *      contains AmazonCommerceActions (qty stepper, wishlist, Add to
+ *      Cart, Get Quote, disclaimer) — all inline in a single wrapping
+ *      row — directly beneath the price/variants/stock/original-listing-
+ *      link stack.
  *   2. ProductInfoTabs — Description/Details/Shipping & Returns,
  *      inlined into this same file, still the BOTTOM-MOST, full-width
  *      section of the whole view. The real scraped size chart (when
@@ -401,12 +402,9 @@ export default function AmazonProductView({
   canAct,
 }: PlatformViewProps) {
   const images = result.images ?? []
-  const [mainImage, setMainImage] = useState(images[0] ?? null)
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    setMainImage((result.images ?? [])[0] ?? null)
-
     const initial: Record<string, string> = {}
     for (const dim of result.variants ?? []) {
       const selectedOpt = dim.options.find((o) => o.selected)
@@ -432,34 +430,18 @@ export default function AmazonProductView({
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
       <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery */}
-        <div className="min-w-0">
-          <div className="aspect-square overflow-hidden rounded-xl border border-ink/10 bg-white">
-            {mainImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={mainImage} alt={result.title ?? 'Product image'} className="h-full w-full object-contain p-2" />
-            ) : (
-              <div className="grid h-full place-items-center text-xs text-ink/40">No image found</div>
-            )}
-          </div>
-          {images.length > 1 && (
-            <div className="mt-3 flex gap-2 overflow-x-auto">
-              {images.slice(0, 8).map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setMainImage(src)}
-                  className={`h-16 w-16 flex-none overflow-hidden rounded-xl border transition-colors ${
-                    mainImage === src ? 'border-teal-deep ring-1 ring-teal-deep' : 'border-ink/10'
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" className="h-full w-full object-contain" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Image gallery — shared component, Amazon theme */}
+        <ProductGallery
+          images={images}
+          title={result.title}
+          resetKey={result.url}
+          theme={{
+            frameBorder: 'border-ink/10',
+            activeThumb: 'border-teal-deep ring-1 ring-teal-deep',
+            restingThumb: 'border-ink/10',
+            placeholderText: 'text-ink/40',
+          }}
+        />
 
         {/* Buy box — also contains the qty/cart/quote block right
             below the price/variants/stock/link stack. */}

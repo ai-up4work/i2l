@@ -368,7 +368,7 @@ export function extractFlipkartOptions($: CheerioAPI): Record<string, string> | 
     // "Selected Color: Purple" states the value directly in the same
     // row's text — strip the label prefix and use what's left.
     if (/^selected\s+/i.test(label)) {
-      const rowText = cleanText($el.parent())
+      const rowText = cleanText($el.parent()) || ''
       const value = rowText
         .replace(/^selected\s+(?:size|colou?r|style)s?\s*:?\s*/i, '')
         .trim()

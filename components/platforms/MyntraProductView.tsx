@@ -1,4 +1,3 @@
-// components/platforms/MyntraProductView.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -6,17 +5,18 @@ import { ExternalLink, Star, ChevronDown, Minus, Plus, Heart, ShoppingBag, Shopp
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
+import ProductGallery from './ProductGallery'
 
 /**
  * Renders a scrape result using the SAME structural layout as
- * AmazonProductView — gallery + buy box side by side (max-w-6xl), main
- * image with a thumbnail strip beneath it, buy box ordered as
- * brand/name -> rating -> price/savings -> color swatches -> size row
- * (+ size chart) -> stock -> original listing link ->
- * MyntraCommerceActions, then a bottom-most full-width ProductInfoTabs
- * section — but restyled with Myntra's own visual language (pink
- * #ff3f6c accents, teal rating pill, "MORE COLORS" swatch strip,
- * pill-shaped size selector, openable size chart).
+ * AmazonProductView — gallery (shared ProductGallery component) + buy
+ * box side by side (max-w-6xl), buy box ordered as brand/name ->
+ * rating -> price/savings -> color swatches -> size row (+ size chart)
+ * -> stock -> original listing link -> MyntraCommerceActions, then a
+ * bottom-most full-width ProductInfoTabs section — but restyled with
+ * Myntra's own visual language (pink #ff3f6c accents, teal rating
+ * pill, "MORE COLORS" swatch strip, pill-shaped size selector, openable
+ * size chart).
  *
  * All the Myntra-specific behavior from the previous version is kept
  * as-is:
@@ -534,13 +534,9 @@ export default function MyntraProductView({
   canAct,
 }: PlatformViewProps) {
   const images = result.images ?? []
-  const [mainImage, setMainImage] = useState(images[0] ?? null)
-
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    setMainImage((result.images ?? [])[0] ?? null)
-
     const initial: Record<string, string> = {}
     for (const dim of result.variants ?? []) {
       const selectedOpt = dim.options.find((o) => o.selected)
@@ -583,35 +579,18 @@ export default function MyntraProductView({
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
       <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — main image + thumbnail strip beneath, same
-            structure as AmazonProductView. */}
-        <div className="min-w-0">
-          <div className="aspect-square overflow-hidden rounded-xl border border-[#eaeaec] bg-white">
-            {mainImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={mainImage} alt={result.title ?? 'Product image'} className="h-full w-full object-contain p-2" />
-            ) : (
-              <div className="grid h-full place-items-center text-xs text-[#94969f]">No image found</div>
-            )}
-          </div>
-          {images.length > 1 && (
-            <div className="mt-3 flex gap-2 overflow-x-auto">
-              {images.slice(0, 8).map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setMainImage(src)}
-                  className={`h-16 w-16 flex-none overflow-hidden rounded-xl border transition-colors ${
-                    mainImage === src ? 'border-[#ff3f6c] ring-1 ring-[#ff3f6c]' : 'border-[#eaeaec]'
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" className="h-full w-full object-contain" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Image gallery — shared component, Myntra theme */}
+        <ProductGallery
+          images={images}
+          title={result.title}
+          resetKey={result.url}
+          theme={{
+            frameBorder: 'border-[#eaeaec]',
+            activeThumb: 'border-[#ff3f6c] ring-1 ring-[#ff3f6c]',
+            restingThumb: 'border-[#eaeaec]',
+            placeholderText: 'text-[#94969f]',
+          }}
+        />
 
         {/* Buy box — same element order as AmazonProductView:
             brand/name -> rating -> price/savings -> color swatches ->
