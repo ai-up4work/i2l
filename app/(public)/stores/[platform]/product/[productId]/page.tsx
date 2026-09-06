@@ -1,15 +1,18 @@
 // app/(public)/stores/[platform]/product/[productId]/page.tsx
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronRight, ShieldCheck, ExternalLink, Star, Weight } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ExternalLink, Star, Weight } from 'lucide-react'
 import { affiliatedStores } from '@/components/dashboard/data'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { formatPrice } from '@/lib/currency'
 import ProductActions from '@/components/stores/ProductActions'
 import ProductGallery from '@/components/stores/ProductGallery'
+import ProductRequestButton from '@/components/stores/ProductRequestButton'
+import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import TagList from '@/components/stores/TagList'
+import { DashboardProvider } from '@/contexts/DashboardContext'
 import type { StoreProduct } from '@/lib/store.types'
 
 // No generateStaticParams: live-feed stores (Shopify/WooCommerce) can add
@@ -27,6 +30,13 @@ import type { StoreProduct } from '@/lib/store.types'
 // needs to be interactive (clickable, tracks a selection) inside
 // ProductActions, but is also rendered here read-only for the marketplace
 // "Request this item" flow, which has no cart to select a variant into.
+//
+// MARKETPLACE REQUEST FLOW: this page is wrapped in DashboardProvider so
+// "Get Quote" (ProductRequestButton) can open the SAME ItemInfoModal flow
+// AddRequestOverlay uses elsewhere — pre-filled with this product's own
+// URL instead of asking the shopper to paste one — without needing the
+// /account layout or a login redirect first. ProductRequestOverlay renders
+// that modal in place, reading from the same DashboardContext instance.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -108,10 +118,6 @@ export default async function ProductDetailPage({
 
   if (!product) notFound()
 
-  const requestHref = `/login?redirect=${encodeURIComponent(
-    `/account/requests/new?productId=${product.id}`
-  )}`
-
   // Marketplaces (eBay, Amazon, etc.) go through the request/proxy-buy
   // flow; local sellers with a live or mock catalog get the same
   // add-to-bag → WhatsApp flow as the store catalog page.
@@ -124,148 +130,142 @@ export default async function ProductDetailPage({
     !!product.fullDescription && product.fullDescription.trim() !== product.description.trim()
 
   return (
-    <div className="min-h-screen">
-      {/* Sticky breadcrumb + share nav */}
-      <div className="sticky top-0 z-30 hidden bg-parchment/80 backdrop-blur-md sm:block">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6 lg:px-10">
-          <div className="flex min-w-0 items-center gap-2 text-xs text-ink/45">
-            <Link href="/stores" className="shrink-0 font-medium transition-colors hover:text-ink">
-              Stores
-            </Link>
-            <ChevronRight size={11} className="shrink-0" />
-            <Link href={`/stores/${store.platform}`} className="shrink-0 font-medium transition-colors hover:text-ink">
-              {store.name}
-            </Link>
-            <ChevronRight size={11} className="shrink-0" />
-            <span className="max-w-[160px] truncate font-medium text-ink">{product.name}</span>
-          </div>
-          <ShareButton title={product.name} />
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
-        <Link
-          href={`/stores/${store.platform}`}
-          className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
-        >
-          <ArrowLeft size={14} /> Back to {store.name}
-        </Link>
-
-        {/* items-stretch + h-full on the info column keep the two sides
-            matched in height, same fix as the old-money PDP: description
-            and the (now capped) tag list live inside this same flex
-            column instead of trailing below the grid, so the whole right
-            side is bounded by the gallery's height rather than free to
-            grow past it. */}
-            <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className="min-w-0">
-                <ProductGallery images={product.images?.length ? product.images : [product.image]} alt={product.name} />
-              </div>
-              <div className="flex h-full min-w-0 flex-col">
-                
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
-              <span className="inline-flex items-center gap-2">
-                <span className="grid h-5 w-5 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card">
-                  <img src={store.logo} alt="" className="h-full w-full object-cover" />
-                </span>
-                {store.name} · {product.condition}
-              </span>
-              {product.averageRating != null && (
-                <>
-                  <span className="text-ink/20">·</span>
-                  <RatingStars rating={product.averageRating} count={product.reviewCount} />
-                </>
-              )}
-            </div>
-
-            <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
-              {product.name}
-            </h1>
-
-            <SpecRow product={product} />
-
-            <div className="mt-3 flex items-baseline gap-2">
-              <p className="text-3xl font-bold text-teal-deep">{formatPrice(product.price, product.currency)}</p>
-              {product.compareAtPrice && product.onSale && (
-                <p className="text-base font-semibold text-ink/40 line-through">
-                  {formatPrice(product.compareAtPrice, product.currency)}
-                </p>
-              )}
-            </div>
-
-            {!product.inStock && (
-              <p className="mt-2 inline-block rounded-md bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-parchment">
-                Sold out
-              </p>
-            )}
-
-            <p className="mt-1 text-xs text-ink/45">Sold by {product.seller}</p>
-
-            {product.weightKg != null && (
-              <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-ink/50">
-                <Weight size={12} strokeWidth={1.8} className="text-ink/35" />
-                Ships at {product.weightKg} kg
-              </p>
-            )}
-
-            {/* Marketplace flow can't add a specific variant to a bag (it
-                goes through the request/proxy-buy flow instead), so the
-                picker renders read-only here — no onSelect props means
-                SizeAndColorPicker just displays availability. The
-                non-marketplace flow's interactive picker lives inside
-                ProductActions instead, since the selection needs to be
-                wired into "Add to bag". */}
-            {isMarketplace && <SizeAndColorPicker product={product} />}
-
-            {isMarketplace ? (
-              <Link
-                href={requestHref}
-                className="mt-6 flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep sm:w-auto sm:px-8"
-              >
-                Request this item
+    <DashboardProvider>
+      <div className="min-h-screen">
+        {/* Sticky breadcrumb + share nav */}
+        <div className="sticky top-0 z-30 hidden bg-parchment/80 backdrop-blur-md sm:block">
+          <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6 lg:px-10">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-ink/45">
+              <Link href="/stores" className="shrink-0 font-medium transition-colors hover:text-ink">
+                Stores
               </Link>
-            ) : (
-              <ProductActions product={product} platform={store.platform} />
-            )}
+              <ChevronRight size={11} className="shrink-0" />
+              <Link href={`/stores/${store.platform}`} className="shrink-0 font-medium transition-colors hover:text-ink">
+                {store.name}
+              </Link>
+              <ChevronRight size={11} className="shrink-0" />
+              <span className="max-w-[160px] truncate font-medium text-ink">{product.name}</span>
+            </div>
+            <ShareButton title={product.name} />
+          </div>
+        </div>
 
-            <p className="mt-5 text-sm leading-relaxed text-ink/65">{product.description}</p>
+        <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
+          <Link
+            href={`/stores/${store.platform}`}
+            className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
+          >
+            <ArrowLeft size={14} /> Back to {store.name}
+          </Link>
 
-            {hasExtendedDescription && (
-              <details className="group mt-2">
-                <summary className="cursor-pointer list-none text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal">
-                  Full details
-                  <span className="ml-1 inline-block transition-transform group-open:rotate-180">⌄</span>
-                </summary>
-                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink/65">
-                  {product.fullDescription}
+          {/* items-stretch + h-full on the info column keep the two sides
+              matched in height, same fix as the old-money PDP: description
+              and the (now capped) tag list live inside this same flex
+              column instead of trailing below the grid, so the whole right
+              side is bounded by the gallery's height rather than free to
+              grow past it. */}
+          <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
+            <div className="min-w-0">
+              <ProductGallery images={product.images?.length ? product.images : [product.image]} alt={product.name} />
+            </div>
+            <div className="flex h-full min-w-0 flex-col">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
+                <span className="inline-flex items-center gap-2">
+                  <span className="grid h-5 w-5 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card">
+                    <img src={store.logo} alt="" className="h-full w-full object-cover" />
+                  </span>
+                  {store.name} · {product.condition}
+                </span>
+                {product.averageRating != null && (
+                  <>
+                    <span className="text-ink/20">·</span>
+                    <RatingStars rating={product.averageRating} count={product.reviewCount} />
+                  </>
+                )}
+              </div>
+
+              <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+                {product.name}
+              </h1>
+
+              <SpecRow product={product} />
+
+              <div className="mt-3 flex items-baseline gap-2">
+                <p className="text-3xl font-bold text-teal-deep">{formatPrice(product.price, product.currency)}</p>
+                {product.compareAtPrice && product.onSale && (
+                  <p className="text-base font-semibold text-ink/40 line-through">
+                    {formatPrice(product.compareAtPrice, product.currency)}
+                  </p>
+                )}
+              </div>
+
+              {!product.inStock && (
+                <p className="mt-2 inline-block rounded-md bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-parchment">
+                  Sold out
                 </p>
-              </details>
-            )}
+              )}
 
-            <TagList tags={product.tags ?? []} />
+              <p className="mt-1 text-xs text-ink/45">Sold by {product.seller}</p>
 
-            {product.url && (
-              <a
-                href={product.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-              >
-                View on {store.name}&rsquo;s site <ExternalLink size={12} />
-              </a>
-            )}
+              {product.weightKg != null && (
+                <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-ink/50">
+                  <Weight size={12} strokeWidth={1.8} className="text-ink/35" />
+                  Ships at {product.weightKg} kg
+                </p>
+              )}
 
-            {/* <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-ink/10 bg-gold/10 px-4 py-3">
-              <ShieldCheck size={16} className="mt-0.5 flex-none text-gold-deep" strokeWidth={1.8} />
-              <p className="text-xs leading-relaxed text-ink/70">
-                {isMarketplace
-                  ? 'We buy, quality-check, and ship this to you — you pay only after we confirm the quote.'
-                  : 'Add to your bag, then confirm your order with the seller over WhatsApp.'}
-              </p>
-            </div> */}
+              {/* Marketplace flow can't add a specific variant to a bag (it
+                  goes through the request/proxy-buy flow instead), so the
+                  picker renders read-only here — no onSelect props means
+                  SizeAndColorPicker just displays availability. The
+                  non-marketplace flow's interactive picker lives inside
+                  ProductActions instead, since the selection needs to be
+                  wired into "Add to bag". */}
+              {isMarketplace && <SizeAndColorPicker product={product} />}
+
+              {isMarketplace ? (
+                <ProductRequestButton
+                  productUrl={product.url ?? ''}
+                  className="mt-6 flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep sm:w-auto sm:px-8"
+                >
+                  Get Quote
+                </ProductRequestButton>
+              ) : (
+                <ProductActions product={product} platform={store.platform} />
+              )}
+
+              <p className="mt-5 text-sm leading-relaxed text-ink/65">{product.description}</p>
+
+              {hasExtendedDescription && (
+                <details className="group mt-2">
+                  <summary className="cursor-pointer list-none text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal">
+                    Full details
+                    <span className="ml-1 inline-block transition-transform group-open:rotate-180">⌄</span>
+                  </summary>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink/65">
+                    {product.fullDescription}
+                  </p>
+                </details>
+              )}
+
+              <TagList tags={product.tags ?? []} />
+
+              {product.url && (
+                <a
+                  href={product.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
+                >
+                  View on {store.name}&rsquo;s site <ExternalLink size={12} />
+                </a>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      <ProductRequestOverlay />
+    </DashboardProvider>
   )
 }

@@ -20,6 +20,54 @@ const emptyDraft: Draft = {
   hasBatteries: null,
 }
 
+// Any page can mount its own <DashboardProvider> — the account layout has
+// one, and standalone flows (e.g. the marketplace product detail page)
+// mount a separate instance so "Get Quote" can open the modal in place
+// without needing to be inside /account. That means a plain client-state
+// `draft` doesn't survive router.push() from one provider instance into a
+// route tree backed by a DIFFERENT provider instance — the new instance
+// mounts with emptyDraft and whatever was collected is lost.
+//
+// sessionStorage does survive that navigation (same tab, same session), so
+// saveItemInfo below persists the draft just before navigating to the
+// confirm screen, and any DashboardProvider that mounts afterwards
+// rehydrates from it lazily. Cleared once consumed (resetDraft /
+// confirmRequest) so a stale draft doesn't leak into an unrelated later
+// request.
+const DRAFT_STORAGE_KEY = 'dashboard:pendingDraft'
+
+function loadPersistedDraft(): Draft {
+  if (typeof window === 'undefined') return emptyDraft
+  try {
+    const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY)
+    if (!raw) return emptyDraft
+    const parsed = JSON.parse(raw) as Partial<Draft>
+    return { ...emptyDraft, ...parsed }
+  } catch {
+    return emptyDraft
+  }
+}
+
+function persistDraft(draft: Draft) {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
+  } catch {
+    // sessionStorage can throw in private-browsing/quota-exceeded cases —
+    // worst case the confirm screen falls back to emptyDraft, same as
+    // before this persistence existed.
+  }
+}
+
+function clearPersistedDraft() {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.removeItem(DRAFT_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 type DashboardContextValue = {
   requests: ItemRequest[]
   draft: Draft
@@ -41,9 +89,10 @@ type DashboardContextValue = {
   resetDraft: () => void
   startItemInfo: (event: React.FormEvent) => Promise<void>
   // Same as startItemInfo, but takes a raw URL directly instead of reading
-  // it off a form-submit event. Used by startItemInfo itself, and by the
-  // landing-page redirect handoff (see app/account/page.tsx), which has
-  // no form event to prevent-default — it just has a URL from ?link=.
+  // it off a form-submit event. Used by startItemInfo itself, by the
+  // landing-page redirect handoff (see app/account/page.tsx), and by the
+  // marketplace product detail page's "Get Quote" button, none of which
+  // have a form event to prevent-default — they just have a URL.
   beginRequestForUrl: (url: string) => Promise<void>
   saveItemInfo: (event: React.FormEvent) => void
   confirmRequest: () => void
@@ -70,7 +119,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
 
   const [requests, setRequests] = useState<ItemRequest[]>(initialRequests)
-  const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [draft, setDraft] = useState<Draft>(loadPersistedDraft)
   const [pastedLink, setPastedLink] = useState('')
   const [promoCode, setPromoCode] = useState('')
   const [activeTab, setActiveTab] = useState('Ready to Pay (1)')
@@ -90,12 +139,14 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     setPastedLink('')
     setAutoFilled(false)
     resetLookup()
+    clearPersistedDraft()
   }, [resetLookup])
 
   // Core flow, independent of *how* the URL arrived (typed + submitted,
-  // or handed off via a query param from the landing page). Opens the
-  // modal immediately, scrapes in the background, fills the draft when
-  // the scrape resolves.
+  // handed off via a query param from the landing page, or passed
+  // directly from a product page's "Get Quote" button). Opens the modal
+  // immediately, scrapes in the background, fills the draft when the
+  // scrape resolves.
   const beginRequestForUrl = useCallback(
     async (rawUrl: string) => {
       const url = rawUrl.trim()
@@ -139,10 +190,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     (event: React.FormEvent) => {
       event.preventDefault()
       if (!draft.name.trim()) return
+      // Persist before navigating: pathForView('confirmRequest') may land
+      // in a route tree backed by a different <DashboardProvider> instance
+      // (see doc comment above DRAFT_STORAGE_KEY), so this is what lets
+      // that instance pick the draft back up.
+      persistDraft(draft)
       setModalOpen(false)
       router.push(pathForView('confirmRequest'))
     },
-    [draft.name, router],
+    [draft, router],
   )
 
   const confirmRequest = useCallback(() => {
@@ -158,6 +214,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       },
       ...current,
     ])
+    clearPersistedDraft()
     setActiveTab('Requested')
     router.push(pathForView('requests'))
   }, [draft, router])
