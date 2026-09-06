@@ -1,7 +1,8 @@
-// app/demo/quote/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   PieChart,
   Pie,
@@ -40,8 +41,12 @@ const HS_CODE_LABELS: Record<string, string> = {
   "9503.00": "9503.00 — Toys",
 };
 
-const CURRENCY_OPTIONS = ["LKR", "INR"] as const;
-type CurrencyOption = (typeof CURRENCY_OPTIONS)[number];
+// Always-shown currency pills for the Value field. If a product page
+// hands off a currency outside this list (e.g. USD), it's appended at
+// runtime (see currencyOptions below) so the incoming value is still
+// visible/selectable instead of silently coerced to LKR.
+const DEFAULT_CURRENCY_OPTIONS = ["LKR", "INR"] as const;
+type CurrencyOption = string;
 
 type Mode = "customs" | "simple";
 
@@ -89,16 +94,69 @@ function formatLKR(value: number) {
   return `Rs ${value.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function QuoteDemoPage() {
-  const [mode, setMode] = useState<Mode>("simple");
-  const [deliveryType, setDeliveryType] = useState<DeliveryType>("express");
+// ---- Query-param parsing helpers ----
+// Used to pre-fill this tool from a product page's "see price breakdown"
+// link (?mode=simple&delivery=economy&value=...&currency=...&weight=...
+// &pcs=...&hsCode=...). Anything missing/invalid falls back to this
+// tool's own original defaults, so a direct/standalone visit behaves
+// exactly as before.
 
-  const [pcsPerUnit, setPcsPerUnit] = useState(1);
-  const [valueAmount, setValueAmount] = useState(1000);
-  const [valueCurrency, setValueCurrency] = useState<CurrencyOption>("LKR");
-  const [weightKg, setWeightKg] = useState<number | "">("");
-  const [hsCode, setHsCode] = useState("");
+function parseMode(value: string | null): Mode {
+  return value === "customs" ? "customs" : "simple";
+}
+
+function parseDeliveryType(value: string | null): DeliveryType {
+  return value === "economy" ? "economy" : "express";
+}
+
+function parsePositiveNumber(value: string | null, fallback: number): number {
+  if (value == null) return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function parseOptionalWeight(value: string | null): number | "" {
+  if (!value) return "";
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : "";
+}
+
+function QuoteDemoPage() {
+  const searchParams = useSearchParams();
+
+  const [mode, setMode] = useState<Mode>(() => parseMode(searchParams.get("mode")));
+  const [deliveryType, setDeliveryType] = useState<DeliveryType>(() =>
+    parseDeliveryType(searchParams.get("delivery"))
+  );
+
+  const [pcsPerUnit, setPcsPerUnit] = useState(() =>
+    parsePositiveNumber(searchParams.get("pcs"), 1)
+  );
+  const [valueAmount, setValueAmount] = useState(() =>
+    parsePositiveNumber(searchParams.get("value"), 1000)
+  );
+  const [valueCurrency, setValueCurrency] = useState<CurrencyOption>(
+    () => searchParams.get("currency")?.toUpperCase() || "LKR"
+  );
+  const [weightKg, setWeightKg] = useState<number | "">(() =>
+    parseOptionalWeight(searchParams.get("weight"))
+  );
+  const [hsCode, setHsCode] = useState(() => searchParams.get("hsCode") ?? "");
   const [manualFreight, setManualFreight] = useState<number | "">("");
+
+  // Whether anything arrived via the query string — used to show the
+  // "pre-filled from a product page" banner and its clear link.
+  const cameFromProductPage = searchParams.toString().length > 0;
+
+  // Value-field currency pills: the two defaults, plus whatever currency
+  // came in from the query string if it isn't already one of them — so
+  // e.g. a USD product still shows up as a selectable pill instead of
+  // being silently coerced toward LKR/INR.
+  const currencyOptions = useMemo(() => {
+    const opts: string[] = [...DEFAULT_CURRENCY_OPTIONS];
+    if (!opts.includes(valueCurrency)) opts.push(valueCurrency);
+    return opts;
+  }, [valueCurrency]);
 
   // ---- Live config: editable rates & fees, toggled from the panel below ----
   const [showConfig, setShowConfig] = useState(false);
@@ -259,6 +317,15 @@ export default function QuoteDemoPage() {
             Enter what a customer wants to buy and see the landed cost
             breakdown WishDrop would quote them, step by step.
           </p>
+
+          {cameFromProductPage && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#0F8A7C]/25 bg-[#0F8A7C]/10 px-3 py-1 text-xs font-medium text-[#0F8A7C]">
+              Pre-filled from a product page
+              <Link href="/demo/quote" className="underline underline-offset-2 hover:text-[#0F8A7C]/80">
+                Clear
+              </Link>
+            </div>
+          )}
         </header>
 
         {/* Mode toggle + delivery-type toggle */}
@@ -335,7 +402,7 @@ export default function QuoteDemoPage() {
                   className="w-full bg-white px-3 py-2 text-[#1B2A4A] outline-none"
                 />
                 <div className="flex shrink-0 items-center border-l border-[#1B2A4A]/10 bg-[#1B2A4A]/[0.03]">
-                  {CURRENCY_OPTIONS.map((c) => (
+                  {currencyOptions.map((c) => (
                     <button
                       key={c}
                       type="button"
@@ -914,5 +981,17 @@ function ResultRow({
         </div>
       )}
     </div>
+  );
+}
+
+// useSearchParams requires a Suspense boundary in the App Router — this
+// wrapper is the actual default export; QuoteDemoPage (above) holds all
+// the real logic and is unchanged in behavior for a direct/standalone
+// visit with no query string.
+export default function QuoteDemoPageRoute() {
+  return (
+    <Suspense fallback={null}>
+      <QuoteDemoPage />
+    </Suspense>
   );
 }

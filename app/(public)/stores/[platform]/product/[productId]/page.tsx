@@ -244,9 +244,22 @@ export default async function ProductDetailPage({
               <div className="flex h-full min-w-0 flex-col">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
                   <span className="inline-flex items-center gap-2">
-                    <span className="grid h-5 w-5 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card">
-                      <img src={store.logo} alt="" className="h-full w-full object-cover" />
-                    </span>
+                  <Link
+                    href={`/demo/quote?${new URLSearchParams({
+                      mode: 'simple',
+                      delivery: 'economy',
+                      pcs: '1',
+                      value: String(product.price),
+                      currency: product.currency,
+                      ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
+                    }).toString()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="See price breakdown"
+                    className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
+                  >
+                    <img src={store.logo} alt="" className="h-full w-full object-cover" />
+                  </Link>
                     {store.name} · {product.condition}
                   </span>
                   {product.averageRating != null && (
@@ -393,9 +406,8 @@ export default async function ProductDetailPage({
                   </details>
                 )}
 
-                <TagList tags={product.tags ?? []} />
 
-                {product.url && (
+                {/* {product.url && (
                   <a
                     href={product.url}
                     target="_blank"
@@ -404,7 +416,7 @@ export default async function ProductDetailPage({
                   >
                     View on {store.name}&rsquo;s site <ExternalLink size={12} />
                   </a>
-                )}
+                )} */}
               </div>
             </div>
           </div>
