@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { CircleHelp, Info } from 'lucide-react'
 import HelpRail from './HelpRail'
-import { calculateQuote } from '@/lib/quote'
+import { calculateRequestPreviewQuote } from '@/lib/quote'
 import type { Draft } from './types'
 
 const LABEL_TO_SYMBOL: Record<string, string> = {
@@ -31,7 +31,15 @@ export default function RequestConfirmPage({
   const [confirmsPreowned, setConfirmsPreowned] = useState(false)
   const canProceed = confirmsRestrictions && confirmsPreowned
 
-  const { subtotal } = calculateQuote({ unitPrice: draft.unitPrice, qty: draft.qty })
+  // NOTE: `deliveryType` and `weightKg` aren't on `Draft` yet — defaulting
+  // to calculateRequestPreviewQuote's defaults (express, standard weight
+  // block) until those fields exist and can be threaded through, same as
+  // RequestPreviewPage.tsx.
+  const { subtotal } = calculateRequestPreviewQuote({
+    unitPrice: draft.unitPrice,
+    qty: draft.qty,
+    currencyCode: draft.currency,
+  })
   const symbol = LABEL_TO_SYMBOL[draft.currency] ?? draft.currency
 
   return (
