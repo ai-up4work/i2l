@@ -35,19 +35,28 @@ import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav
  * already displays the title/store name above it, so repeating a
  * "Product details" label here was redundant.
  *
- * Panel bounds: below 1024px, the panel respects --account-header-h at
- * the top and the mobile bottom nav at the bottom (there's a real fixed
- * header/nav to clear at that size). At 1024px and up, it goes full
- * viewport height (top: 0; bottom: 0) — ignoring --account-header-h
- * entirely on desktop/laptop, same as it already ignored the mobile
- * bottom-nav offset there.
+ * Panel bounds: at ALL breakpoints, the top of the panel follows
+ * --account-header-h (set by AccountShell to the Topbar/Header height
+ * normally, or to the WelcomeBanner's live height / 0 while this modal
+ * is open — see AccountShell for the full explanation). This lets the
+ * banner visually "push" the panel down while it's open, and lets the
+ * panel expand to fill that space the instant the banner is dismissed,
+ * on desktop just as it already did on mobile.
  *
- * Backdrop bounds: the dimmed/blurred backdrop now shares the same
+ * Only `bottom` differs by breakpoint: below 1024px there's a real
+ * fixed mobile bottom nav to clear, so bottom reserves
+ * MOBILE_BOTTOM_NAV_HEIGHT + safe-area inset. At 1024px+ there's no
+ * bottom nav, so bottom resets to 0.
+ *
+ * (Previously, `top` was ALSO force-reset to 0 at 1024px+, which broke
+ * the banner-push behavior on desktop entirely — the panel ignored
+ * --account-header-h and always started at the very top of the
+ * viewport regardless of whether the banner was open. Fixed below.)
+ *
+ * Backdrop bounds: the dimmed/blurred backdrop shares the same
  * .item-overlay-bounds top/bottom offsets as the panel (inset-x-0
- * instead of inset-0), so on mobile it stops short of the fixed
- * account header instead of painting a dim/blur layer over it. At
- * 1024px+ .item-overlay-bounds resets top/bottom to 0, so the backdrop
- * still goes fully edge-to-edge on desktop as before.
+ * instead of inset-0), so it never paints over whatever is meant to
+ * stay visible above the panel (banner, or nothing once dismissed).
  *
  * Click-through fix: the outer `fixed inset-0` wrapper used to be a
  * fully "live" hit-target for its entire box, even in the region above
@@ -353,7 +362,15 @@ export default function ItemInfoModal({
           bottom: calc(${MOBILE_BOTTOM_NAV_HEIGHT}px + env(safe-area-inset-bottom));
         }
         @media (min-width: 1024px) {
-          .item-overlay-bounds { top: 0; bottom: 0; }
+          /* NOTE: top intentionally NOT reset here anymore. It keeps
+             following --account-header-h at every breakpoint, which is
+             what lets the WelcomeBanner push this panel down while open
+             (var = banner height) and lets the panel reclaim that space
+             the instant the banner is dismissed (var = 0), on desktop
+             exactly like it already worked on mobile. Only bottom
+             differs by breakpoint, since there's no mobile bottom nav
+             to clear at 1024px+. */
+          .item-overlay-bounds { bottom: 0; }
         }
         @media (prefers-reduced-motion: no-preference) {
           .item-overlay-panel { animation: panelSlideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
