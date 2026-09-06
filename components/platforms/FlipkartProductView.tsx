@@ -228,15 +228,19 @@ function FlipkartCommerceActions({
           <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onAddToCart}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-[#ff9f00] px-4 py-3 text-sm font-bold text-white transition-all duration-200 hover:brightness-95 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+          color="#007cd8"
+          disabledColor="#c7c7c7"
+          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
-          {justAdded ? <Check size={16} /> : <ShoppingBag size={16} />}
           {justAdded ? 'ADDED' : 'ADD TO CART'}
-        </button>
+        </RequestActionButton>
 
         <RequestActionButton
           onClick={onRequestReview}
@@ -245,7 +249,7 @@ function FlipkartCommerceActions({
           unavailable={result.unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={<ShoppingCart size={16} />}
-          color="#fb641b"
+          color="#ffce00"
           disabledColor="#c7c7c7"
           className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >

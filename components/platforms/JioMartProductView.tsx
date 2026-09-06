@@ -200,15 +200,19 @@ function JioMartCommerceActions({
           <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onAddToCart}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#d6dbde] px-4 py-3 text-sm font-bold uppercase text-[#26292b] transition-all duration-200 hover:border-[#0d47a1]/40 hover:bg-[#0d47a1]/5 hover:text-[#0d47a1] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+          color="#ed7b82"
+          disabledColor="#c7c7c7"
+          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
-          {justAdded ? <Check size={16} className="text-[#0d47a1]" /> : <ShoppingBag size={16} />}
-          {justAdded ? 'Added' : 'Add to Cart'}
-        </button>
+          {justAdded ? 'ADDED' : 'ADD TO CART'}
+        </RequestActionButton>
 
         <RequestActionButton
           onClick={onRequestReview}
@@ -217,7 +221,7 @@ function JioMartCommerceActions({
           unavailable={result.unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={<ShoppingCart size={16} />}
-          color="#fb641b"
+          color="#e00a17"
           disabledColor="#c7c7c7"
           className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >

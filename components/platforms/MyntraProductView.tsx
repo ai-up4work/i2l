@@ -389,15 +389,19 @@ function MyntraCommerceActions({
           <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onAddToCart}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded border border-[#d4d5d9] px-4 py-3 text-sm font-bold uppercase text-[#282c3f] transition-all duration-200 hover:border-[#ff3f6c]/40 hover:bg-[#ff3f6c]/5 hover:text-[#ff3f6c] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+          color="#f0540f"
+          disabledColor="#c7c7c7"
+          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
-          {justAdded ? <Check size={16} className="text-[#ff3f6c]" /> : <ShoppingBag size={16} />}
-          {justAdded ? 'Added' : 'Add to Bag'}
-        </button>
+          {justAdded ? 'ADDED' : 'ADD TO CART'}
+        </RequestActionButton>
 
         <RequestActionButton
           onClick={onRequestReview}
@@ -406,7 +410,7 @@ function MyntraCommerceActions({
           unavailable={result.unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={<ShoppingCart size={16} />}
-          color="#fb641b"
+          color="#f319b0"
           disabledColor="#c7c7c7"
           className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >

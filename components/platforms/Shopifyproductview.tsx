@@ -238,15 +238,19 @@ function ShopifyCommerceActions({
           <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
         </button>
 
-        <button
-          type="button"
+        <RequestActionButton
           onClick={onAddToCart}
-          disabled={loading || result.unavailable || !canAct}
-          className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-ink/15 px-4 py-3 text-sm font-semibold text-ink transition-all duration-200 hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
+          color="#000000"
+          disabledColor="#c7c7c7"
+          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
-          {justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
-          {justAdded ? 'Added' : 'Add to Cart'}
-        </button>
+          {justAdded ? 'ADDED' : 'ADD TO CART'}
+        </RequestActionButton>
 
         <RequestActionButton
           onClick={onRequestReview}
@@ -255,7 +259,7 @@ function ShopifyCommerceActions({
           unavailable={result.unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={<ShoppingCart size={16} />}
-          color="#fb641b"
+          color="#95bf47"
           disabledColor="#c7c7c7"
           className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
         >
