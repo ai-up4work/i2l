@@ -120,12 +120,12 @@ export default async function ProductDetailPage({
     console.error(`[product page] ${platform}/${productId}`, err)
     return (
       <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
-        <Link
+        {/* <Link
           href={`/stores/${store.platform}`}
           className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
         >
           <ArrowLeft size={14} /> Back to {store.name}
-        </Link>
+        </Link> */}
         <div className="mt-8 rounded-2xl border border-gold/40 bg-gold/10 p-6 text-center">
           <p className="text-sm font-semibold text-ink">Could not load this product</p>
           <p className="mt-1 text-xs text-ink/55">
@@ -182,13 +182,13 @@ export default async function ProductDetailPage({
               column instead of trailing below the grid, so the whole right
               side is bounded by the gallery's height rather than free to
               grow past it. */}
-          <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
-            <Link
+          <div className="mx-auto max-w-6xl px-6 pb-10 pt-8 lg:px-10">
+            {/* <Link
               href={`/stores/${store.platform}`}
               className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-teal-deep transition-colors hover:text-teal"
             >
               <ArrowLeft size={14} /> Back to {store.name}
-            </Link>
+            </Link> */}
 
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
               <div className="min-w-0">
