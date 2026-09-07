@@ -45,10 +45,10 @@ export const sidebarGroups: SidebarGroup[] = [
     key: 'myAssets',
     label: 'My Assets',
     items: [
-      { type: 'view', label: 'Referrals', view: 'referrals' },
-      { type: 'view', label: 'Wallet', view: 'wallet' },
       { type: 'view', label: 'Coupons', view: 'coupons' },
       { type: 'view', label: 'Points', view: 'points' },
+      { type: 'view', label: 'Wallet', view: 'wallet' },
+      { type: 'view', label: 'Referrals', view: 'referrals' },
       { type: 'view', label: 'Gift Card', view: 'giftCard' },
     ],
   },

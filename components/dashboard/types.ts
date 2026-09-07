@@ -1,30 +1,46 @@
 import type { LucideIcon } from 'lucide-react'
 
+// ── Request status ──────────────────────────────────────────────────────
+// This is the SINGLE source of truth. The old types.ts had two versions
+// disagreeing on the flow — this replaces both.
+//
+// 'Cancelled' is deliberately NOT part of REQUEST_STATUS_FLOW below.
+// It isn't a step you move "forward" through — it's a branch off the
+// early stages, only reachable while nothing has been purchased yet.
 export type RequestStatus =
-  | 'Awaiting payment'
   | 'Requested'
-  | 'Verifying the request'
+  | 'Awaiting payment'
   | 'Order accepted'
-  | 'Product Received'
+  | 'Product received'
   | 'Quality check'
   | 'Packaging'
   | 'Shipped'
   | 'Delivered'
+  | 'Cancelled'
 
-// Canonical forward order — drives status tabs on OrdersHubPage and what
-// "next" means when advancing a request. Keep in sync with the
-// RequestStatus union above; nothing enforces that automatically.
+// Canonical forward order. Enforced by lib/orderStateMachine.ts — nothing
+// can jump stages or skip backward outside of that module.
 export const REQUEST_STATUS_FLOW: RequestStatus[] = [
-  'Awaiting payment',
   'Requested',
-  'Verifying the request',
+  'Awaiting payment',
   'Order accepted',
-  'Product Received',
+  'Product received',
   'Quality check',
   'Packaging',
   'Shipped',
   'Delivered',
 ]
+
+export type StatusActor = 'customer' | 'admin' | 'system'
+
+// One row per transition. This is what the timeline UI renders, and it's
+// the audit trail that answers "why can't I cancel this" for a customer.
+export type StatusEvent = {
+  status: RequestStatus
+  at: string // ISO timestamp
+  actor: StatusActor
+  note?: string
+}
 
 export type ItemRequest = {
   id: string
@@ -34,6 +50,9 @@ export type ItemRequest = {
   unitPrice: number
   image: string
   status: RequestStatus
+  statusHistory: StatusEvent[]
+  customerId: string
+  customerName: string
 }
 
 export type OfferTone = 'sun' | 'ebay' | 'welcome' | 'rakuten' | 'referral' | 'anime'
@@ -62,7 +81,6 @@ export type View =
   | 'ordersHub'
   | 'settings'
   | 'account'
-  // New — added for the Personal Center-style home page
   | 'paymentOptions'
   | 'profile'
   | 'coupons'
@@ -72,20 +90,17 @@ export type View =
   | 'messages'
   | 'serviceRecords'
   | 'wishlist'
-  | 'cart'
   | 'following'
   | 'recentlyViewed'
   | 'wishdropVip'
   | 'AddressBook'
   | 'trackingOrders'
-  | 'recentlyViewed'
   | 'myFollowing'
-
+  | 'cart'
 
 export type NavItem = {
   label: string
   icon: LucideIcon
-  
   view: View
 }
 
@@ -96,18 +111,14 @@ export type Draft = {
   unitPrice: number
   currency: string
   image: string
-  /** Air-freight declaration answers from ItemInfoModal; null while unanswered. */
   isLiquid: boolean | null
   hasBatteries: boolean | null
 }
 
 export type WarehouseAddress = {
   region: string
-  /** Emoji flag rendered in the row's circular badge — no image asset needed. */
   flag: string
-  /** Parenthetical note shown after the region name, e.g. "Tax-free", "New", "Deactivated". */
   note?: string
-  /** Deactivated/closing warehouses stay listed but can't be copied. */
   disabled?: boolean
   country: string
   recipientPrefix: string
@@ -143,11 +154,8 @@ export type PromoCodeStatus = 'Available' | 'Used' | 'Expired'
 
 export type PromoCode = {
   code: string
-  /** Category pill shown on the card, e.g. "Global Shopping", "Parcel Forwarding". */
   category: string
-  /** Big headline value, e.g. "LKR 1,200", "9% OFF". */
   discount: string
-  /** Shorter description below the headline, e.g. "Off your first order". */
   title: string
   expiresOn: string
   status: PromoCodeStatus
@@ -168,7 +176,7 @@ export type CreditTransaction = {
   id: string
   label: string
   date: string
-  amount: number // positive for earned/refunded, negative for redeemed/expired
+  amount: number
   type: CreditTransactionType
 }
 
