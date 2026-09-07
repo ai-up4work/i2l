@@ -554,7 +554,7 @@ export default function CartPage() {
     <div className="mx-auto max-w-6xl px-6 pb-16 pt-8 lg:px-10">
       {pendingRequestCount > 0 && (
         <Link
-          href={pathForView('requests')}
+          href={'/account/orders'}
           className="mb-5 flex items-center gap-2 rounded-2xl border border-teal/20 bg-teal/5 px-4 py-3 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/10"
         >
           <ClipboardList size={14} className="shrink-0" />
