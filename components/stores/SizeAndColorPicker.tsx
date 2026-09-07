@@ -4,6 +4,23 @@ import { optionAvailability, colorImageMap } from '@/lib/product-options'
 import { getSwatchColor } from '@/lib/color-swatches'
 import type { StoreProduct } from '@/lib/store.types'
 
+// Deterministic placeholder tint — same value always renders the same
+// tint so a size/color with no real image doesn't look random across
+// re-renders or refetches.
+const SWATCH_TINTS = [
+  'linear-gradient(135deg, #d8cdbf 0%, #b8a892 100%)',
+  'linear-gradient(135deg, #cfd9d4 0%, #a7bdb3 100%)',
+  'linear-gradient(135deg, #ddd0e0 0%, #b9a3c0 100%)',
+  'linear-gradient(135deg, #d9d2c3 0%, #b3a687 100%)',
+  'linear-gradient(135deg, #cdd6e0 0%, #a3b6cc 100%)',
+]
+function tintFor(label: string) {
+  let hash = 0
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0
+  return SWATCH_TINTS[hash % SWATCH_TINTS.length]
+}
+
+/** Original circle swatch — unchanged from before. */
 function ColorSwatch({
   name,
   available,
@@ -74,6 +91,12 @@ function ColorSwatch({
   )
 }
 
+/**
+ * Size option rendered as a small tinted tile (label's initials, keyed
+ * off the same deterministic palette as color swatches) instead of a
+ * plain text pill — sizes never carry a real image, so this is always
+ * the placeholder path, just styled like a swatch rather than a chip.
+ */
 function SizeChip({
   label,
   available,
@@ -86,23 +109,49 @@ function SizeChip({
   onClick?: () => void
 }) {
   const interactive = !!onClick
+  const clickable = interactive && available
+
   return (
     <button
       type="button"
-      onClick={interactive && available ? onClick : undefined}
+      onClick={clickable ? onClick : undefined}
       disabled={!interactive || !available}
       title={available ? undefined : 'Currently unavailable'}
       aria-pressed={selected}
-      className={
-        'rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ' +
-        (available
-          ? selected
-            ? 'border-teal-deep bg-teal-deep text-white'
-            : 'border-ink/15 text-ink/70' + (interactive ? ' hover:border-ink/30 cursor-pointer' : '')
-          : 'border-ink/10 text-ink/30 line-through decoration-ink/25 cursor-not-allowed')
-      }
+      className={`flex w-[52px] flex-col items-center gap-1 rounded-lg border p-1.5 text-center transition-all ${
+        selected
+          ? 'border-teal-deep bg-teal/5 shadow-[0_1px_2px_rgba(15,15,15,0.04),0_4px_10px_-6px_rgba(20,120,110,0.35)]'
+          : !available
+            ? 'cursor-not-allowed border-ink/8 bg-card/40 opacity-45 grayscale'
+            : clickable
+              ? 'border-ink/10 bg-white hover:-translate-y-0.5 hover:border-teal/40 hover:shadow-[0_4px_12px_-8px_rgba(15,15,15,0.18)]'
+              : 'cursor-default border-ink/10 bg-white'
+      }`}
     >
-      {label}
+      <span
+        className={`relative grid h-8 w-8 place-items-center overflow-hidden rounded-md ring-1 ${
+          selected ? 'ring-2 ring-teal-deep ring-offset-1 ring-offset-white' : 'ring-ink/10'
+        }`}
+        style={{ backgroundImage: tintFor(label) }}
+      >
+        <span className="text-[9px] font-bold uppercase tracking-tight text-white/85 drop-shadow-sm">
+          {label.trim().slice(0, 2)}
+        </span>
+        {selected && (
+          <span className="absolute bottom-[-1px] right-[-1px] grid h-3.5 w-3.5 place-items-center rounded-full bg-teal-deep text-white shadow-sm">
+            <svg width="8" height="8" viewBox="0 0 20 20" fill="none">
+              <path d="M4 10.5L8 14.5L16 6" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        )}
+      </span>
+      <span
+        className={`line-clamp-1 text-[10px] font-semibold ${
+          !available ? 'text-ink/35 line-through decoration-ink/25' : selected ? 'text-teal-deep' : 'text-ink/75'
+        }`}
+      >
+        {label}
+      </span>
     </button>
   )
 }
@@ -136,7 +185,7 @@ export default function SizeAndColorPicker({
   const colorImages = hasColors ? colorImageMap(product) : new Map<string, string>()
 
   return (
-    <div className="mt-4 flex flex-wrap gap-6">
+    <div className="mt-4 flex flex-col gap-4">
       {hasSizes && (
         <div>
           <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">Sizes</p>

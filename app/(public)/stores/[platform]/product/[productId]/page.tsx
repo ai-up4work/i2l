@@ -10,7 +10,7 @@ import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
-import ExpandableDescription from '@/components/dashboard/ExpandableDescription'
+import ProductInfoTabs from '@/components/stores/ProductInfoTabs'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -93,13 +93,14 @@ import type { StoreProduct } from '@/lib/store.types'
 // background ever changes, update the notch spans' bg-parchment to
 // match, or the seam will show instead of blending in.
 //
-// FULL DETAILS TOGGLE: ExpandableDescription (client component) now
-// handles BOTH cases in one place — (a) a single long `description` with
-// no separate `fullDescription` (clamped to 3 lines, "Full details"
-// expands the same text fully), and (b) a genuinely separate short
-// description + longer fullDescription (shows short text, "Full details"
-// appends the extra text). No branching needed here on the page anymore —
-// always render ExpandableDescription and let it decide internally.
+// FULL DETAILS / DESCRIPTION / SPECS: previously handled inline via
+// ExpandableDescription in the right-hand buy-box column. That's been
+// replaced with ProductInfoTabs — a bottom-most, full-width tab strip
+// (Description / Details / Shipping & Returns / Size chart), mirroring
+// ShopifyProductView's ProductInfoTabs layout and position. Tabs are
+// availability-driven: a tab only renders if the product actually has
+// data backing it (no empty "we don't have this" placeholder tabs here),
+// and the whole block renders null if nothing qualifies.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -214,11 +215,12 @@ export default async function ProductDetailPage({
           </div>
 
           {/* items-stretch + h-full on the info column keep the two sides
-              matched in height, same fix as the old-money PDP: description
-              and the (now capped) tag list live inside this same flex
-              column instead of trailing below the grid, so the whole right
-              side is bounded by the gallery's height rather than free to
-              grow past it. */}
+              matched in height, same fix as the old-money PDP: the buy-box
+              column is bounded by the gallery's height rather than free to
+              grow past it. ProductInfoTabs now sits below this grid instead
+              of inside the column, so it's not subject to that height
+              constraint — it's meant to grow full-width regardless of how
+              tall the gallery is. */}
           <div className="mx-auto max-w-6xl px-6 pb-10 pt-8 lg:px-10">
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
               <div className={`relative min-w-0 ${!product.inStock ? 'grayscale-[0.4] opacity-90' : ''}`}>
@@ -380,13 +382,13 @@ export default async function ProductDetailPage({
                 ) : (
                   <ProductActions product={product} platform={store.platform} />
                 )}
-
-                <ExpandableDescription
-                  description={product.description}
-                  fullDescription={product.fullDescription}
-                />
               </div>
             </div>
+
+            {/* Description / Details / Shipping & Returns / Size chart —
+                bottom-most, full-width tab strip, availability-driven
+                (a tab only appears if the product has data backing it). */}
+            <ProductInfoTabs product={product} />
           </div>
         </div>
 
