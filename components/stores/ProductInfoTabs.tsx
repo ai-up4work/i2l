@@ -1,8 +1,26 @@
-// components/stores/ProductInfoTabs.tsx
 'use client'
 
-import { useState } from 'react'
-import type { StoreProduct } from '@/lib/store.types'
+import { useEffect, useState } from 'react'
+import DOMPurify from 'dompurify'
+
+// Structural, not tied to StoreProduct — anything shaped like this
+// works (StoreProduct already satisfies it; ScrapeResult-derived
+// adapters, e.g. from ShopifyProductView, do too), so this component
+// stays reusable across platform views instead of forking per-source.
+export interface ProductInfoTabsData {
+  description?: string | null
+  fullDescription?: string | null
+  vendor?: string | null
+  productType?: string | null
+  sku?: string | null
+  condition?: string | null
+  seller?: string | null
+  itemLocation?: string | null
+  weightKg?: number | null
+  returnsAccepted?: boolean | null
+  returnPeriodDays?: number | null
+  sizeChart?: Array<Record<string, string> & { size: string }> | null
+}
 
 const ALL_TABS = ['Description', 'Details', 'Shipping & Returns', 'Size chart'] as const
 type InfoTab = (typeof ALL_TABS)[number]
@@ -16,29 +34,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-/**
- * Bottom-most, full-width Description / Details / Shipping & Returns /
- * Size chart tab strip — same visual language as ShopifyProductView's
- * ProductInfoTabs (teal active underline, fade-in on tab switch), but
- * driven by StoreProduct fields instead of a ScrapeResult.
- *
- * Availability-driven: a tab only appears if the product actually has
- * data for it — no "we don't have this" placeholder tabs. If nothing
- * qualifies at all, the whole section renders null.
- */
-export default function ProductInfoTabs({ product }: { product: StoreProduct }) {
-  // Some fields here (itemLocation, returnsAccepted, returnPeriodDays,
-  // sizeChart) aren't confirmed on StoreProduct yet — narrow this cast
-  // once you confirm the shape; everything is optional-chained so it's
-  // safe either way.
-  const p = product as StoreProduct & {
-    itemLocation?: string
-    returnsAccepted?: boolean
-    returnPeriodDays?: number
-    sizeChart?: Array<Record<string, string> & { size: string }>
-  }
+export default function ProductInfoTabs({ product }: { product: ProductInfoTabsData }) {
+  const p = product
 
-  const hasDescription = !!(p.description || p.fullDescription)
+  const rawDescription = p.fullDescription || p.description || ''
+  const hasDescription = rawDescription.trim().length > 0
   const hasDetails = !!(p.vendor || p.productType || p.sku || p.condition)
   const hasShipping = !!(p.seller || p.itemLocation || p.weightKg != null || p.returnsAccepted != null)
   const hasSizeChart = !!p.sizeChart?.length
@@ -54,6 +54,15 @@ export default function ProductInfoTabs({ product }: { product: StoreProduct }) 
   )
 
   const [activeTab, setActiveTab] = useState<InfoTab | null>(tabs[0] ?? null)
+
+  const [cleanDescriptionHtml, setCleanDescriptionHtml] = useState('')
+  useEffect(() => {
+    if (hasDescription) {
+      setCleanDescriptionHtml(DOMPurify.sanitize(rawDescription))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawDescription, hasDescription])
+
   if (!tabs.length || !activeTab) return null
 
   const sizeChartCols = hasSizeChart ? Object.keys(p.sizeChart![0]).filter((k) => k !== 'size') : []
@@ -82,7 +91,15 @@ export default function ProductInfoTabs({ product }: { product: StoreProduct }) 
         className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
       >
         {activeTab === 'Description' && (
-          <p className="whitespace-pre-line">{p.fullDescription || p.description}</p>
+          cleanDescriptionHtml ? (
+            <div className="merchant-description" dangerouslySetInnerHTML={{ __html: cleanDescriptionHtml }} />
+          ) : (
+            <div className="animate-pulse space-y-2">
+              <div className="h-3 w-full rounded bg-ink/10" />
+              <div className="h-3 w-5/6 rounded bg-ink/10" />
+              <div className="h-3 w-2/3 rounded bg-ink/10" />
+            </div>
+          )
         )}
 
         {activeTab === 'Details' && (
@@ -141,6 +158,57 @@ export default function ProductInfoTabs({ product }: { product: StoreProduct }) 
           </div>
         )}
       </div>
+
+      <style jsx>{`
+        .merchant-description :global(p) {
+          margin-bottom: 0.9em;
+        }
+        .merchant-description :global(h1),
+        .merchant-description :global(h2),
+        .merchant-description :global(h3) {
+          font-weight: 700;
+          color: inherit;
+          margin-top: 1.25em;
+          margin-bottom: 0.5em;
+        }
+        .merchant-description :global(h1) {
+          font-size: 1.25rem;
+        }
+        .merchant-description :global(h2) {
+          font-size: 1.1rem;
+        }
+        .merchant-description :global(h3) {
+          font-size: 1rem;
+        }
+        .merchant-description :global(ul),
+        .merchant-description :global(ol) {
+          margin: 0.75em 0;
+          padding-left: 1.25em;
+        }
+        .merchant-description :global(ul) {
+          list-style: disc;
+        }
+        .merchant-description :global(ol) {
+          list-style: decimal;
+        }
+        .merchant-description :global(li) {
+          margin-bottom: 0.35em;
+        }
+        .merchant-description :global(strong),
+        .merchant-description :global(b) {
+          font-weight: 600;
+        }
+        .merchant-description :global(a) {
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .merchant-description :global(> *:first-child) {
+          margin-top: 0;
+        }
+        .merchant-description :global(> *:last-child) {
+          margin-bottom: 0;
+        }
+      `}</style>
     </div>
   )
 }

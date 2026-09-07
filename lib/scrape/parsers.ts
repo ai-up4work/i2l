@@ -1018,10 +1018,6 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
     }
   }
 
-  // Respect a ?variant=<id> query param on the pasted URL, same as a real
-  // Shopify storefront would pre-select that variant on page load. Falls
-  // back to the first variant in the response when absent or unmatched —
-  // same default as before.
   const requestedVariantId = new URL(url).searchParams.get('variant')
   const currentVariant =
     (requestedVariantId && product.variants?.find((v) => v.id === requestedVariantId)) ||
@@ -1038,7 +1034,11 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
 
   const variants = buildStoreVariantDimensions(product, currentVariant)
 
-  const result: ScrapeResult = {
+  // Extra fields ScrapeResult doesn't formally declare yet, carried through
+  // the same way scrapeEbayProductViaApi does — so nothing StoreProduct
+  // actually returned gets thrown away just because the base ScrapeResult
+  // type hasn't caught up to modeling it.
+  const result: ScrapeResult & Record<string, any> = {
     url,
     site: 'shopify',
     source: 'shopify_api',
@@ -1054,10 +1054,28 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
     rating: null,
     review_count: null,
     availability: (currentVariant ? currentVariant.available : product.inStock) ? 'In stock' : 'Out of stock',
-    seller: product.vendor ?? null,
+    // BUGFIX: was `product.vendor` (the manufacturer) — mislabeled AND it
+    // silently discarded the real seller/store name. `product.seller` is
+    // the field WooCommerce's scraper already reads correctly.
+    seller: product.seller ?? null,
+    // `vendor` now goes where ScrapeResult already has a dedicated slot
+    // for it (same field eBay populates), instead of being discarded.
+    brand: product.vendor ?? null,
     images: product.images?.length ? product.images : product.image ? [product.image] : [],
     options: currentOptions,
     variants: variants.length ? variants : undefined,
+    // Previously dropped entirely.
+    sku: product.sku ?? null,
+    description: product.description || null,
+    fullDescription: product.fullDescription || null,
+    productType: product.productType ?? null,
+    category: product.category ?? null,
+    tags: product.tags?.length ? product.tags : null,
+    sizes: product.sizes?.length ? product.sizes : null,
+    colors: product.colors?.length ? product.colors : null,
+    gender: product.gender ?? null,
+    weightKg: product.weightKg ?? null,
+    handle: product.handle,
   }
 
   if (!(currentVariant ? currentVariant.available : product.inStock)) result.unavailable = true

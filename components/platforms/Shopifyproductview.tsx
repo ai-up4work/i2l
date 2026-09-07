@@ -2,11 +2,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BadgeCheck, ExternalLink, Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
+import { BadgeCheck, Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
+import ProductInfoTabs, { type ProductInfoTabsData } from '@/components/stores/ProductInfoTabs'
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 
@@ -26,7 +27,7 @@ import Image from 'next/image'
  * API (see scrapeShopifyProduct in parsers.ts), not a DOM/JSON-LD
  * guess — hence the "Verified via Shopify's Product API" badge.
  *
- * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN:F buildStoreVariantDimensions()
+ * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN: buildStoreVariantDimensions()
  * in parsers.ts always sets `url: null` on every option — the one API
  * call already returned every variant's price/image/availability, so
  * there's nothing left to re-fetch by "selecting" a tile the way
@@ -40,6 +41,20 @@ import Image from 'next/image'
  * label when no image was returned) with a checkmark badge + ring on
  * the selected tile and a soft hover lift — matching the visual weight
  * of Amazon/Flipkart's swatches rather than a flat chip row.
+ *
+ * DESCRIPTION / DETAILS / SHIPPING TABS: this used to have its own
+ * locally-forked ProductInfoTabs that read the already-HTML-stripped
+ * `description` field and rendered it inside a plain `<p>` — which
+ * both read the wrong field AND would have printed any HTML as
+ * literal escaped text even if it hadn't been stripped upstream. This
+ * now reuses the same shared components/stores/ProductInfoTabs.tsx
+ * used elsewhere in the app: it reads `fullDescription` (Shopify's raw
+ * body_html, preserved end-to-end through normaliseShopifyJsProduct ->
+ * scrapeShopifyProduct), sanitizes it client-side with DOMPurify, and
+ * renders it with real typographic styling (headings, lists, bold,
+ * links) via that component's scoped .merchant-description styles —
+ * see toInfoTabsData() below for the ScrapeResult -> shared-shape
+ * adapter.
  */
 
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
@@ -286,98 +301,42 @@ function ShopifyCommerceActions({
   )
 }
 
-/* ---------------------------------------------------------------------
- * ProductInfoTabs — inlined, using the app's own design tokens (teal
- * active indicator), same Description / Details / Shipping & Returns
- * structure and bottom-most full-width slot as AmazonProductView.
- * ------------------------------------------------------------------- */
-
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-ink/70">{label}</dt>
-      <dd className="text-right text-ink/55">{value}</dd>
-    </div>
-  )
-}
-
-function ProductInfoTabs({ result }: { result: ScrapeResult }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-
-  return (
-    <div className="mt-8 border-t border-ink/10 pt-6">
-      <div className="flex gap-5 border-b border-ink/10">
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab
-                ? 'border-teal-deep text-ink'
-                : 'border-transparent text-ink/40 hover:text-ink/70'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-      <div
-        key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
-      >
-        {activeTab === 'Description' &&
-          ((result as ScrapeResult & { description?: string }).description ? (
-            <p>{(result as ScrapeResult & { description?: string }).description}</p>
-          ) : (
-            <p className="text-ink/45">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.brand && <DetailRow label="Brand" value={result.brand} />}
-            {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-            {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-            {result.itemSpecifics?.map((spec) => (
-              <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-            ))}
-            {!result.brand && !result.mpn && !result.itemSpecifics?.length && (
-              <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
-            )}
-          </dl>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.seller && <DetailRow label="Sold by" value={result.seller} />}
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation &&
-              !result.seller && (
-                <p className="mt-1 text-ink/45">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
-  )
+/**
+ * Adapts a Shopify ScrapeResult onto the shared ProductInfoTabs
+ * component's input shape (components/stores/ProductInfoTabs.tsx).
+ * Only fields Shopify's scrape result actually populates are wired up
+ * (see scrapeShopifyProduct in parsers.ts) — itemLocation /
+ * returnsAccepted / returnPeriodDays aren't part of Shopify's public
+ * .js product feed, so they're left undefined and those rows simply
+ * won't render (every field on ProductInfoTabsData is optional).
+ *
+ * `vendor` here is intentionally sourced from `result.brand` — Shopify's
+ * product.vendor (the manufacturer, e.g. "Nike") is surfaced on
+ * ScrapeResult under the `brand` field, the same slot eBay populates
+ * from its own API — not from a `vendor` field on ScrapeResult, which
+ * doesn't exist.
+ */
+function toInfoTabsData(result: ScrapeResult): ProductInfoTabsData {
+  const r = result as ScrapeResult & {
+    fullDescription?: string | null
+    description?: string | null
+    productType?: string | null
+    sku?: string | null
+    weightKg?: number | null
+  }
+  return {
+    fullDescription: r.fullDescription,
+    description: r.description,
+    vendor: r.brand,
+    productType: r.productType,
+    sku: r.sku,
+    seller: r.seller,
+    weightKg: r.weightKg,
+    // Shopify's public feed has no size-chart concept — omitted rather
+    // than force-cast from ScrapeResult['sizeChart'], whose shape
+    // (Amazon/Myntra table format) doesn't match this component's
+    // { size: string, ...cols } row shape anyway.
+  }
 }
 
 /* ---------------------------------------------------------------------
@@ -452,7 +411,9 @@ export default function ShopifyProductView({
             seller -> rating -> price/discount -> stock -> variant rows
             -> link -> commerce actions. */}
         <div className="min-w-0">
-          <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2"><Image src="/logos/shopify.png" alt="Shopify" width={60} height={12} /></a>            
+          <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2">
+            <Image src="/logos/shopify.png" alt="Shopify" width={60} height={12} />
+          </a>
           <h1 className="font-display text-2xl font-extrabold mt-2 tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}
           </h1>
@@ -496,7 +457,6 @@ export default function ShopifyProductView({
             )}
           </p>
 
-
           <ShopifyCommerceActions
             result={result}
             qty={qty}
@@ -513,8 +473,10 @@ export default function ShopifyProductView({
       </div>
 
       {/* Description/Details/Shipping & Returns — bottom-most,
-          full-width section of the entire component. */}
-      <ProductInfoTabs result={result} />
+          full-width section of the entire component. Now the shared
+          components/stores/ProductInfoTabs.tsx (real HTML description
+          via DOMPurify, not the old locally-forked plain-<p> version). */}
+      <ProductInfoTabs product={toInfoTabsData(result)} />
     </div>
   )
 }

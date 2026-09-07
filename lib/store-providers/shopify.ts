@@ -41,6 +41,18 @@ function normaliseOptionName(name: string): string {
 }
 
 /**
+ * Some merchants leave Shopify's product_type field unset, which comes
+ * back as the literal string "0" rather than an empty string — seen on
+ * Old Money's feed. Treated the same as "no category info", everywhere
+ * product_type/type is surfaced as productType, so a spec row or Details
+ * tab never displays a bare "0" to the shopper.
+ */
+function normaliseProductType(type: string | undefined | null): string | undefined {
+  const trimmed = type?.trim();
+  return trimmed && trimmed !== '0' ? trimmed : undefined;
+}
+
+/**
  * Shopify's CDN URLs frequently come back protocol-relative ("//cdn.shopify.com/...")
  * on the .js endpoint (and occasionally elsewhere). Browsers resolve that fine against
  * an https page, but we sometimes use these URLs server-side / in <img src> before
@@ -122,6 +134,8 @@ interface ShopifyProductsResponse {
  * - product category lives in `type`, not `product_type`.
  * - tags is always an array here (never a comma-joined string).
  * - image URLs frequently come back protocol-relative ("//cdn...").
+ * - NEITHER `.js` NOR `.json` includes a currency field anywhere — see
+ *   fetchShopifyShopCurrency below for where that actually comes from.
  */
 interface ShopifyJsVariant {
   id: number;
@@ -161,6 +175,40 @@ interface ShopifyJsProduct {
 function normaliseTags(tags: string[] | string): string[] {
   if (Array.isArray(tags)) return tags;
   return tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Ground truth for a Shopify store's currency. Neither the `.js` nor the
+ * `.json` product endpoints ever include a currency field — the price
+ * numbers they return are only meaningful in whatever currency the shop
+ * itself is configured in, which those endpoints simply don't say.
+ *
+ * `/cart.js` is unauthenticated on every Shopify storefront and its
+ * response always includes the shop's real, live currency code — this
+ * is the standard trick for getting it without needing the Admin API or
+ * any credentials.
+ *
+ * Returns null (rather than throwing) on any failure, so callers can
+ * fall back to a heuristic (domainCurrency) or an explicitly configured
+ * value without this becoming a hard failure for the whole product
+ * fetch — a slow or blocked /cart.js shouldn't take down the entire
+ * page render over something that has a reasonable fallback.
+ */
+async function fetchShopifyShopCurrency(
+  origin: string,
+  headers: Record<string, string>
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${origin}/cart.js`, {
+      headers,
+      next: { revalidate: CACHE_SECONDS },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { currency?: unknown };
+    return typeof data.currency === 'string' && data.currency ? data.currency : null;
+  } catch {
+    return null;
+  }
 }
 
 export function normaliseShopifyProduct(
@@ -212,13 +260,13 @@ export function normaliseShopifyProduct(
     compareAtPrice,
     onSale: compareAtPrice != null && compareAtPrice > price,
     inStock: p.variants?.some((v) => v.available) ?? true,
-    category: p.product_type || 'General',
+    category: normaliseProductType(p.product_type) ?? 'General',
     condition: 'New',
     description: stripHtml(p.body_html ?? ''),
     seller,
     url: `${config.baseUrl}/products/${p.handle}`,
     vendor: p.vendor || undefined,
-    productType: p.product_type || undefined,
+    productType: normaliseProductType(p.product_type),
     tags: tags.length ? tags : undefined,
     options: options.length ? options : undefined,
     variants,
@@ -230,7 +278,10 @@ export function normaliseShopifyProduct(
     // Shopify's public /products.json exposes only one description field
     // (body_html) — no separate short/long split like WooCommerce's
     // short_description vs description — so fullDescription stays unset
-    // here rather than duplicating `description`.
+    // here rather than duplicating `description`. This normaliser only
+    // feeds the catalog listing/grid (fetchShopifyProducts), which never
+    // renders raw HTML, so there's no need for an unstripped copy here —
+    // contrast with normaliseShopifyJsProduct below, which does set it.
   };
 }
 
@@ -288,13 +339,23 @@ function normaliseShopifyJsProduct(
     // Prefer real per-variant availability; fall back to the product-level
     // `available` flag only when there's no variant data at all to check.
     inStock: p.variants?.length ? p.variants.some((v) => v.available) : p.available,
-    category: p.type || 'General',
+    category: normaliseProductType(p.type) ?? 'General',
     condition: 'New',
     description: stripHtml(p.description ?? ''),
+    // Product DETAIL page (this function only — see fetchShopifyProduct)
+    // renders description as real HTML via dangerouslySetInnerHTML +
+    // DOMPurify (ProductInfoTabs), so the raw markup needs to survive
+    // somewhere. `description` above stays plain/stripped for anywhere
+    // that expects plain text (search matching, list-view snippets, meta
+    // tags, etc.) — this is the same field, left unstripped, purely for
+    // that one HTML-aware render. ProductInfoTabs already prefers
+    // fullDescription over description, so no other call site needs to
+    // change to pick this up.
+    fullDescription: p.description || undefined,
     seller,
     url: `${config.baseUrl}/products/${p.handle}`,
     vendor: p.vendor || undefined,
-    productType: p.type || undefined,
+    productType: normaliseProductType(p.type),
     tags: tags.length ? tags : undefined,
     options: options.length ? options : undefined,
     variants,
@@ -318,6 +379,15 @@ function normaliseShopifyJsProduct(
  * - No server-side search → we over-fetch (up to 250) and filter client-side.
  * - No total-count header → "has more pages" is detected by requesting
  *   perPage + 1 items and checking whether the extra one came back.
+ *
+ * Currency here still comes from config.currency (a configured/guessed
+ * value), NOT fetchShopifyShopCurrency — that lookup is only wired into
+ * the single-product path below. Worth doing here too eventually (see
+ * note on fetchShopifyProducts), but a listing grid is more tolerant of
+ * an occasionally-wrong currency label than a product detail page's
+ * prominent price display is, and adding a /cart.js call to a
+ * multi-page catalog listing flow is a bigger cost/risk trade-off than
+ * adding one to a single-product lookup.
  */
 export async function fetchShopifyProducts(
   platform: string,
@@ -389,6 +459,21 @@ export async function fetchShopifyProducts(
  *
  * Returns null (not an error) on a 404, since "this handle doesn't exist"
  * is a normal notFound() case, not a failure of the upstream site.
+ *
+ * CURRENCY: fetches the shop's real currency via /cart.js
+ * (fetchShopifyShopCurrency) and prefers it over config.currency. This
+ * matters specifically for the ad-hoc, single-URL scrape path
+ * (scrapeShopifyProduct in parsers.ts), where config.currency is only
+ * ever a domain-name guess (domainCurrency()) that defaults to 'USD'
+ * when the domain gives no signal — e.g. a plain .com store on LKR
+ * pricing was previously mislabeled as USD purely because nothing in
+ * the pipeline ever asked Shopify what currency the store actually
+ * uses. For configured (non-ad-hoc) stores where config.currency was
+ * deliberately set and is already known-correct, this still prefers the
+ * live value on the assumption that real shop data beats a config
+ * value that could go stale if a store changes currency — if that's
+ * ever undesirable for a specific store, gate this behind something
+ * like `config.trustShopCurrency !== false`.
  */
 export async function fetchShopifyProduct(
   platform: string,
@@ -396,10 +481,10 @@ export async function fetchShopifyProduct(
   storeName: string,
   handle: string
 ): Promise<StoreProduct | null> {
-  const currency = config.currency ?? 'USD';
+  const mergedHeaders = { ...HEADERS, ...config.headers };
 
   const res = await fetch(`${config.baseUrl}/products/${encodeURIComponent(handle)}.js`, {
-    headers: { ...HEADERS, ...config.headers },
+    headers: mergedHeaders,
     next: { revalidate: CACHE_SECONDS },
   });
   if (res.status === 404) return null;
@@ -409,6 +494,9 @@ export async function fetchShopifyProduct(
   // returns the product object directly at the top level.
   const product = (await res.json()) as ShopifyJsProduct;
   if (!product?.id) return null;
+
+  const realCurrency = await fetchShopifyShopCurrency(config.baseUrl, mergedHeaders);
+  const currency = realCurrency ?? config.currency ?? 'USD';
 
   return normaliseShopifyJsProduct(product, platform, currency, storeName, config);
 }
