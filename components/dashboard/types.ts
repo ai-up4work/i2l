@@ -3,6 +3,9 @@ import type { LucideIcon } from 'lucide-react'
 export type RequestStatus =
   | 'Awaiting payment'
   | 'Requested'
+  | 'Verifying the request'
+  | 'Order accepted'
+  | 'Product Received'
   | 'Quality check'
   | 'Packaging'
   | 'Shipped'
@@ -14,6 +17,9 @@ export type RequestStatus =
 export const REQUEST_STATUS_FLOW: RequestStatus[] = [
   'Awaiting payment',
   'Requested',
+  'Verifying the request',
+  'Order accepted',
+  'Product Received',
   'Quality check',
   'Packaging',
   'Shipped',
