@@ -13,13 +13,13 @@ import type { StoreProduct } from '@/lib/store.types';
 // variant-selected items as plain products until it's updated to match.
 //
 // IMPORTANT: this sessionStorage cart is separate from CartContext (the
-// one ItemInfoModal and the header's cart badge read from). This button
-// used to only write to sessionStorage, so clicking "Add to bag" here
-// never moved the header badge or showed up anywhere CartContext is the
-// source of truth — it looked like the click did nothing. It now writes
-// to BOTH: sessionStorage (unchanged, for StoreCatalogClient's mini-cart)
-// and CartContext via `cart.addItem` (new, for the header badge / anything
-// else reading from CartContext).
+// one ItemInfoModal, the header's cart badge, and now /account/cart read
+// from). This button used to only write to sessionStorage, so clicking
+// "Add to bag" here never moved the header badge or showed up anywhere
+// CartContext is the source of truth — it looked like the click did
+// nothing. It now writes to BOTH: sessionStorage (unchanged, for
+// StoreCatalogClient's mini-cart) and CartContext via `cart.addItem`
+// (for the header badge and the cart preview page).
 type CartItem = StoreProduct & { qty: number; selectedOptions?: Record<string, string> };
 
 function cartKey(platform: string) {
@@ -56,6 +56,10 @@ function sameOptions(a?: Record<string, string>, b?: Record<string, string>) {
  * When a variant is selected, the id/url are suffixed with the option
  * values so different variants of the same product get separate lines
  * here too, matching the sessionStorage cart's per-variant behavior.
+ *
+ * weightKg is carried through so /account/cart can run the same
+ * Economy/Express delivery-cost math the PDP shows (getDualDeliveryPricing
+ * in lib/pricing.ts) per line, without re-fetching the product.
  */
 function toCartSnapshot(
   product: StoreProduct,
@@ -80,7 +84,9 @@ function toCartSnapshot(
     currencyCode: product.currency ?? null,
     sourcePrice: product.price != null ? String(product.price) : null,
     estimatedPrice: null,
-  };
+    weightKg: product.weightKg ?? null,
+    source: 'catalogue',
+  }
 }
 
 export default function AddToBagButton({
@@ -135,8 +141,7 @@ export default function AddToBagButton({
         : [...current, { ...product, qty: quantity, selectedOptions }];
     writeCart(platform, next);
 
-    // New: also write to CartContext, so the header cart badge and any
-    // other CartContext consumer actually reflect this add.
+    // CartContext — feeds the header cart badge and /account/cart.
     cart.addItem(toCartSnapshot(product, platform, selectedOptions), quantity);
 
     setAdded(true);
@@ -158,12 +163,6 @@ export default function AddToBagButton({
           {quantity > 1 ? ` (${quantity})` : ''}
           {optionsSummary ? ` · ${optionsSummary}` : ''}
         </div>
-        {/* <Link
-          href={`/stores/${platform}`}
-          className="text-xs font-semibold text-ink/50 underline hover:text-ink hover:no-underline"
-        >
-          Continue shopping
-        </Link> */}
       </div>
     );
   }

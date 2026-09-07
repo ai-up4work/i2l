@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { initialRequests, productImage } from '@/components/dashboard/data'
 import { pathForView } from '@/components/dashboard/routes'
@@ -36,6 +36,16 @@ const emptyDraft: Draft = {
 // request.
 const DRAFT_STORAGE_KEY = 'dashboard:pendingDraft'
 
+// Requests, unlike the draft above, are meant to last well beyond a single
+// session — they're the customer's actual order history. Persisted the
+// same way CartContext persists its items (localStorage + hydration guard
+// + cross-tab 'storage' listener), so a confirmed request survives a
+// refresh instead of quietly reverting to the mock seed data. Different
+// <DashboardProvider> instances (account layout vs. a standalone PDP) each
+// read/write the same key, so a request confirmed from either place shows
+// up in both.
+const REQUESTS_STORAGE_KEY = 'wishdrop:requests'
+
 function loadPersistedDraft(): Draft {
   if (typeof window === 'undefined') return emptyDraft
   try {
@@ -68,6 +78,37 @@ function clearPersistedDraft() {
   }
 }
 
+// Falls back to the demo seed (initialRequests) only when NOTHING has ever
+// been persisted (raw == null) — once anything has been saved, including
+// an explicitly-cleared empty array, that persisted value wins. Otherwise
+// a customer who clears/confirms every request would see the mock entry
+// resurrect itself on the next refresh.
+function loadInitialRequests(): ItemRequest[] {
+  if (typeof window === 'undefined') return initialRequests
+  try {
+    const raw = window.localStorage.getItem(REQUESTS_STORAGE_KEY)
+    if (raw == null) return initialRequests
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : initialRequests
+  } catch {
+    return initialRequests
+  }
+}
+
+// A cart line reduced to what a request record needs. unitPriceLKR is
+// expected to already be the converted display price (CartPage computes
+// this via getDualDeliveryPricing before calling confirmCartOrder) —
+// ItemRequest.unitPrice is always LKR, the same convention confirmRequest
+// already uses for pasted-link requests, so both paths land in the same
+// units without this context needing to know about currencies at all.
+export type CartOrderLine = {
+  name: string
+  url: string
+  qty: number
+  unitPriceLKR: number
+  image: string
+}
+
 type DashboardContextValue = {
   requests: ItemRequest[]
   draft: Draft
@@ -97,6 +138,12 @@ type DashboardContextValue = {
   saveItemInfo: (event: React.FormEvent) => void
   confirmRequest: () => void
   selectVariant: (url: string) => Promise<void>
+  // Turns confirmed cart lines into ordinary requests — same status, same
+  // list, same tracking page as a pasted-link request. Lets "Add to bag +
+  // Checkout" and "Paste a link" converge on one place the customer checks
+  // for everything they've asked WishDrop to get for them, instead of
+  // cart-confirmed items disappearing into a separate, untracked bucket.
+  confirmCartOrder: (lines: CartOrderLine[]) => void
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -118,7 +165,8 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
 
-  const [requests, setRequests] = useState<ItemRequest[]>(initialRequests)
+  const [requests, setRequests] = useState<ItemRequest[]>(loadInitialRequests)
+  const [requestsHydrated, setRequestsHydrated] = useState(false)
   const [draft, setDraft] = useState<Draft>(loadPersistedDraft)
   const [pastedLink, setPastedLink] = useState('')
   const [promoCode, setPromoCode] = useState('')
@@ -133,6 +181,41 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     lookup,
     reset: resetLookup,
   } = useProductLookup()
+
+  // Mark hydrated after first render so we don't stomp localStorage with
+  // whatever loadInitialRequests() fell back to during SSR, before the
+  // real persisted value has loaded client-side. Same pattern as
+  // CartContext/WishlistContext.
+  useEffect(() => {
+    setRequestsHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (!requestsHydrated) return
+    try {
+      window.localStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(requests))
+    } catch {
+      // Storage can fail (quota, private mode) — losing persistence isn't
+      // worth crashing the requests list over.
+    }
+  }, [requests, requestsHydrated])
+
+  // Keep multiple tabs/DashboardProvider instances in sync: if requests
+  // change in another tab (or another provider instance elsewhere in this
+  // tab writes to the same key), pick it up here.
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== REQUESTS_STORAGE_KEY) return
+      try {
+        const parsed = e.newValue ? JSON.parse(e.newValue) : initialRequests
+        setRequests(Array.isArray(parsed) ? parsed : initialRequests)
+      } catch {
+        // ignore malformed cross-tab payloads
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const resetDraft = useCallback(() => {
     setDraft(emptyDraft)
@@ -219,6 +302,23 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     router.push(pathForView('requests'))
   }, [draft, router])
 
+  const confirmCartOrder = useCallback((lines: CartOrderLine[]) => {
+    if (!lines.length) return
+    setRequests((current) => [
+      ...lines.map((line) => ({
+        id: `P${Math.floor(100000000 + Math.random() * 899999999)}`,
+        name: line.name,
+        url: line.url,
+        qty: line.qty,
+        unitPrice: line.unitPriceLKR,
+        image: line.image,
+        status: 'Requested' as const,
+      })),
+      ...current,
+    ])
+    setActiveTab('Requested')
+  }, [])
+
   const value = useMemo<DashboardContextValue>(
     () => ({
       requests,
@@ -242,6 +342,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       saveItemInfo,
       confirmRequest,
       selectVariant,
+      confirmCartOrder,
     }),
     [
       requests,
@@ -260,6 +361,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       saveItemInfo,
       confirmRequest,
       selectVariant,
+      confirmCartOrder,
     ],
   )
 

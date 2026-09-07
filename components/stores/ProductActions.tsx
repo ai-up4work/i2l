@@ -1,9 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { Heart, Minus, Plus } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
-import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import { findMatchingVariant } from '@/lib/product-options'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
@@ -140,13 +140,21 @@ export default function ProductActions({
           />
         </div>
 
-        <ProductRequestButton
-          productUrl={product.url ?? ''}
-          unavailable={!product.inStock}
+        {/* Was ProductRequestButton (the single-item "Get Quote" request
+            flow via DashboardContext) — wrong flow entirely for the
+            affiliate catalog: it bypassed CartContext (what
+            AddToBagButton actually writes to) and created a one-off
+            request instead of taking the shopper to a real cart preview.
+            This is a plain navigation to the cart page, which reads
+            whatever's already in CartContext (potentially added from
+            several different products/platforms) and shows the full
+            per-line + total breakdown. */}
+        <Link
+          href="/account/cart"
           className="flex h-11 min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-deep"
         >
           CHECKOUT
-        </ProductRequestButton>
+        </Link>
       </div>
 
       {selectionHint ? (

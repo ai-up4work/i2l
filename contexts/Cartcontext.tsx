@@ -18,22 +18,22 @@ import {
  * every scraped field (item specifics, description, etc).
  */
 export type CartProduct = {
-  /**
-   * Stable identity for a line item. Use the *listing URL* (the exact
-   * variant the shopper was looking at) so re-adding the same variant
-   * bumps quantity instead of creating a duplicate row, while a different
-   * variant of the same product becomes its own line item.
-   */
   id: string
   url: string
   site?: string | null
   title: string
   image?: string | null
   currencyCode?: string | null
-  /** Original price as shown on the source site, for reference/audit. */
   sourcePrice?: string | null
-  /** WishDrop's converted/estimated price at the moment it was added. */
   estimatedPrice?: string | null
+  weightKg?: number | null
+  /** How this line entered the cart — 'catalogue' via an affiliated
+   * store's "Add to bag" (AddToBagButton.tsx), 'link' via a pasted URL
+   * scraped through ItemInfoModal. Optional/undefined for any older
+   * persisted cart data written before this field existed — the cart
+   * page treats a missing source as 'link' since that's the harder case
+   * to misattribute (a catalogue item always has a real `site`). */
+  source?: 'catalogue' | 'link'
 }
 
 export type CartLineItem = {

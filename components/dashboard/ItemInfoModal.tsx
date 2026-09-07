@@ -17,6 +17,7 @@ import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
 import { HEADER_BAR_HEIGHT } from '@/components/shared/Header'
 import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav'
+import Image from 'next/image'
 
 /**
  * Right-side "Product Details" overlay. Now a thin shell: backdrop,
@@ -74,6 +75,17 @@ import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav
  * renders <ProductSkeleton /> — a pulsing placeholder shaped like the
  * eventual two-column image/details layout plus a tabs section, so the
  * panel doesn't visually "jump" once the real listing content pops in.
+ *
+ * CART/REQUEST SEPARATION: "Add to Cart" (handleAddToCart) and "Confirm
+ * & send request" (handleConfirmRequest) are two independent commitments
+ * — a cart line lives in CartContext and is checked out from
+ * /account/cart; a request lives in DashboardContext.requests and is
+ * submitted via onRequestItem (backed by saveItemInfo/confirmRequest,
+ * which read only from `draft` — never from cart state). They used to
+ * both write to CartContext, which meant confirming a request also
+ * silently created a cart line for the same product — and if that cart
+ * was later checked out, it would mint a SECOND, duplicate request. Only
+ * handleAddToCart touches cart.addItem now.
  */
 
 type ItemOverlayProps = {
@@ -126,6 +138,8 @@ function toProductSnapshot(result: ScrapeResult) {
     title: result.title ?? 'Untitled item',
     image: result.images?.[0] ?? null,
     currencyCode: result.currencyCode ?? null,
+    weightKg: (result as ScrapeResult & { weightKg?: number | null }).weightKg ?? null,
+    source: 'link' as const,
   }
 }
 
@@ -138,8 +152,7 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
     <div className="grid gap-6 sm:grid-cols-2">
       <div className="aspect-square overflow-hidden rounded-xl border border-ink/10 bg-white">
         {images[0] ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={images[0]} alt={result.title ?? ''} className="h-full w-full object-contain p-2" />
+          <Image src={images[0]} alt={result.title ?? ''} className="h-full w-full object-cover" width={120} height={120} />
         ) : (
           <div className="grid h-full w-full place-items-center text-ink/20">
             <ShoppingBag size={32} strokeWidth={1.2} />
@@ -274,14 +287,14 @@ export default function ItemInfoModal({
   }
 
   function handleConfirmRequest() {
-    if (productSnapshot) {
-      const cartProduct: CartProduct = {
-        ...productSnapshot,
-        sourcePrice: result?.price != null ? String(result.price) : null,
-        estimatedPrice: estimatedPrice ?? null,
-      }
-      cart.addItem(cartProduct, qty)
-    }
+    // Submitting a request only needs onRequestItem() — everything it
+    // needs (name/url/qty/unitPrice/image) already lives in
+    // DashboardContext's `draft`, populated earlier by
+    // beginRequestForUrl/selectVariant. This no longer touches
+    // cart.addItem: doing so here meant confirming a request also
+    // created a cart line for the same product, which could later be
+    // checked out into a second, duplicate request. Cart and requests
+    // are separate commitments now — see the file-level doc comment.
     onRequestItem()
     setStep('listing')
     setConfirmsRestrictions(false)
