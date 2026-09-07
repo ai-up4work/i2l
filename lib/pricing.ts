@@ -26,7 +26,9 @@
 import { formatPrice } from "./currency";
 import {
   getEconomyCatalogPriceLKR,
-  getExpressCatalogPriceLKR,
+  calculateEconomyCatalogQuote,
+  calculateExpressCatalogQuote,
+  type CatalogQuoteBreakdown,
   type DeliveryType,
   type SimpleQuoteInput,
 } from "./quote";
@@ -131,59 +133,68 @@ export function getProductPricing(product: ProductPriceableItem): ProductPricing
 }
 
 // ============================================================
-// PDP: Economy vs Express comparison block
+// PDP / CART: Economy vs Express comparison block
 // ============================================================
 //
 // Unlike getProductPricing (which always resolves through
 // DISPLAY_DELIVERY_TYPE / Economy), this runs the same price + "was"
 // price + discount% logic through BOTH delivery-locked catalog wrappers
-// in lib/quote.ts, so the PDP can show the shopper both methods — Economy
-// as the storefront default, Express as a priced comparison — instead of
-// only the single Economy price.
+// in lib/quote.ts, so the PDP/cart can show the shopper both methods —
+// Economy as the storefront default, Express as a priced comparison —
+// instead of only the single Economy price.
 //
-// The "was" price is computed separately per method (Economy's
-// compare-at through the Economy calculator, Express's through Express)
-// rather than converting one shared LKR compare-at price, because
-// freight/postal scale differently between the two methods — a single
-// shared strikethrough number would misrepresent one side.
+// PUBLIC PRICE BREAKDOWN: each DeliveryPriceOption carries the same
+// four-row breakdown a shopper sees on the review panel, read straight
+// off calculateCatalogQuote()'s public-safe fields (see lib/quote.ts):
 //
-// expressPremiumLKR/formattedExpressPremium exist so the PDP can say
-// "Express costs X more than Economy" as one line, instead of making the
-// shopper subtract two absolute prices themselves.
+//   Price          -> priceLKR          (item cost; already bundles the
+//                                         INR->LKR conversion, freight/
+//                                         postal, and handling — see
+//                                         calculateCatalogQuote)
+//   Service Charge -> serviceChargeLKR  (flat extra margin, both methods)
+//   Delivery       -> deliveryFeeLKR    (flat delivery fee — 0 for Economy,
+//                                         since Economy has no separate
+//                                         flat delivery fee, only a
+//                                         Postal Charges line baked into
+//                                         Price)
+//   Total          -> actualTotalLKR    (Price + Service Charge + Delivery
+//                                         = calculateCatalogQuote's
+//                                         actualTotalCost)
+//
+// This never exposes raw profit/freight/customs numbers — only the
+// same fields calculateCatalogQuote already marks as public-safe.
 
 export interface DeliveryPriceOption {
+  /** "Price" row — item cost, INR->LKR conversion + freight/postal + handling all inclusive. */
   priceLKR: number;
   compareAtPriceLKR: number | null;
   discountPercent: number | null;
   formattedPrice: string;
   formattedCompareAtPrice: string | null;
+  /** "Service Charge" row — flat extra margin, applies to both delivery methods. */
+  serviceChargeLKR: number;
+  formattedServiceCharge: string;
+  /** "Delivery" row — flat delivery fee. Always 0 for Economy (no flat delivery fee in that mode). */
+  deliveryFeeLKR: number;
+  formattedDeliveryFee: string;
+  /** "Total" row — Price + Service Charge + Delivery; what's actually charged for one unit. */
+  actualTotalLKR: number;
+  formattedActualTotal: string;
 }
 
 export interface DualDeliveryPricing {
   economy: DeliveryPriceOption;
   express: DeliveryPriceOption;
-  /** Express priceLKR - Economy priceLKR. Null if the difference isn't positive (shouldn't normally happen, but guards copy that assumes Express costs more). */
+  /** Express priceLKR - Economy priceLKR. Null if the difference isn't positive. */
   expressPremiumLKR: number | null;
   formattedExpressPremium: string | null;
 }
 
-function getDeliveryPriceOption(
-  product: ProductPriceableItem,
-  getPriceLKR: (input: Omit<SimpleQuoteInput, "deliveryType">) => number
-): DeliveryPriceOption {
-  const base: Omit<SimpleQuoteInput, "deliveryType"> = {
-    pcsPerUnit: 1,
-    valueINR: product.price,
-    currencyCode: product.currency,
-    weightKg: product.weightKg ?? undefined,
-  };
-
-  const priceLKR = getPriceLKR(base);
-
-  const showCompareAt = product.compareAtPrice != null && !!product.onSale;
-  const compareAtPriceLKR = showCompareAt
-    ? getPriceLKR({ ...base, valueINR: product.compareAtPrice as number })
-    : null;
+function toDeliveryPriceOption(quote: CatalogQuoteBreakdown, compareAtPriceLKR: number | null): DeliveryPriceOption {
+  const priceLKR = quote.catalogPrice;
+  const serviceChargeLKR = quote.extraMarginLKR;
+  const deliveryFeeLKR = quote.deliveryFeeLKR;
+  const actualTotalLKR = quote.actualTotalCost;
 
   const discountPercent =
     compareAtPriceLKR != null && compareAtPriceLKR > 0
@@ -196,20 +207,45 @@ function getDeliveryPriceOption(
     discountPercent,
     formattedPrice: formatLKR(priceLKR),
     formattedCompareAtPrice: compareAtPriceLKR != null ? formatLKR(compareAtPriceLKR) : null,
+    serviceChargeLKR,
+    formattedServiceCharge: formatLKR(serviceChargeLKR),
+    deliveryFeeLKR,
+    formattedDeliveryFee: formatLKR(deliveryFeeLKR),
+    actualTotalLKR,
+    formattedActualTotal: formatLKR(actualTotalLKR),
   };
+}
+
+function getDeliveryPriceOption(
+  product: ProductPriceableItem,
+  getCatalogQuote: (input: Omit<SimpleQuoteInput, "deliveryType">) => CatalogQuoteBreakdown
+): DeliveryPriceOption {
+  const base: Omit<SimpleQuoteInput, "deliveryType"> = {
+    pcsPerUnit: 1,
+    valueINR: product.price,
+    currencyCode: product.currency,
+    weightKg: product.weightKg ?? undefined,
+  };
+
+  const quote = getCatalogQuote(base);
+
+  const showCompareAt = product.compareAtPrice != null && !!product.onSale;
+  const compareAtPriceLKR = showCompareAt
+    ? getCatalogQuote({ ...base, valueINR: product.compareAtPrice as number }).catalogPrice
+    : null;
+
+  return toDeliveryPriceOption(quote, compareAtPriceLKR);
 }
 
 /**
  * Economy AND Express pricing for one product, plus the Express price
- * premium over Economy, for the PDP's delivery-method comparison block.
- *
- * Reuses the same locked catalog wrappers as everywhere else (no new
- * math), so it can never drift from calculateEconomyCatalogQuote /
- * calculateExpressCatalogQuote in lib/quote.ts.
+ * premium over Economy — for the PDP's delivery-method comparison block
+ * and the cart/checkout review panel's Price/Service Charge/Delivery/
+ * Total breakdown.
  */
 export function getDualDeliveryPricing(product: ProductPriceableItem): DualDeliveryPricing {
-  const economy = getDeliveryPriceOption(product, getEconomyCatalogPriceLKR);
-  const express = getDeliveryPriceOption(product, getExpressCatalogPriceLKR);
+  const economy = getDeliveryPriceOption(product, calculateEconomyCatalogQuote);
+  const express = getDeliveryPriceOption(product, calculateExpressCatalogQuote);
 
   const rawDelta = express.priceLKR - economy.priceLKR;
   const expressPremiumLKR = rawDelta > 0 ? rawDelta : null;
@@ -255,3 +291,41 @@ export function formatCartLinesForWhatsApp(items: (CartLineItem & { name: string
     .map((item) => `\u2022 ${item.name} x${item.qty} \u2014 ${formatLKR(getCartLineTotalLKR(item))}`)
     .join("\n");
 }
+
+// ============================================================
+// CHECKOUT TERMS & AGREEMENT
+// ============================================================
+//
+// Lives here rather than in a standalone content/legal file because the
+// agreement text a shopper accepts at checkout is directly about what
+// the numbers on this page mean (estimated pricing, payment timing) —
+// the same "what the price means" disclosure this file already owns via
+// the public-safe breakdown above. If the underlying business terms
+// change (e.g. when payment is actually collected), this is the one
+// place to update, same rationale as DISPLAY_DELIVERY_TYPE above.
+//
+// TERMS_VERSION is a plain dated string, not wired to anything yet —
+// once ItemRequest/dashboard gains a real field for shipping/checkout
+// metadata (see the SHIPPING FORM STATE comment in the cart page), this
+// is the value that should be stamped onto a confirmed order so it's
+// always traceable which terms version a shopper actually agreed to.
+
+/** Bump this whenever TERMS_SUMMARY or the linked terms document materially changes. */
+export const TERMS_VERSION = "2026-09-01";
+
+/** Where the full Terms and Conditions document lives. */
+export const TERMS_URL = "/legal/terms";
+
+/**
+ * One-line summary shown next to the checkout checkbox — kept short and
+ * accurate rather than trying to restate the whole document. Anything
+ * here should be defensible on its own (it's the only terms text most
+ * shoppers will actually read), so keep it limited to what's true today:
+ * prices shown are estimates until the seller confirms availability, and
+ * no payment is collected until then.
+ */
+export const TERMS_SUMMARY =
+  "Prices shown are estimates until the seller confirms availability, and you will not be charged until then.";
+
+/** Short label for the checkbox itself, paired with a link to TERMS_URL. */
+export const TERMS_CHECKBOX_LABEL = "I have read and agree to the Terms and Conditions.";
