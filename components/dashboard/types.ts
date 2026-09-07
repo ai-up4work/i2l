@@ -1,6 +1,24 @@
 import type { LucideIcon } from 'lucide-react'
 
-export type RequestStatus = 'Awaiting payment' | 'Requested'
+export type RequestStatus =
+  | 'Awaiting payment'
+  | 'Requested'
+  | 'Quality check'
+  | 'Packaging'
+  | 'Shipped'
+  | 'Delivered'
+
+// Canonical forward order — drives status tabs on OrdersHubPage and what
+// "next" means when advancing a request. Keep in sync with the
+// RequestStatus union above; nothing enforces that automatically.
+export const REQUEST_STATUS_FLOW: RequestStatus[] = [
+  'Awaiting payment',
+  'Requested',
+  'Quality check',
+  'Packaging',
+  'Shipped',
+  'Delivered',
+]
 
 export type ItemRequest = {
   id: string

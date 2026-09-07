@@ -27,7 +27,6 @@ import {
 } from 'lucide-react'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useDashboard } from '@/contexts/DashboardContext'
-import { pathForView } from '@/components/dashboard/routes'
 import {
   getDualDeliveryPricing,
   formatLKR,
@@ -513,7 +512,7 @@ export default function CartPage() {
 
     dashboard.confirmCartOrder(lines)
     cart.clearCart()
-    router.push(pathForView('requests'))
+    router.push('/account/orders')
   }
 
   if (!mounted) {
@@ -539,7 +538,7 @@ export default function CartPage() {
 
         {pendingRequestCount > 0 && (
           <Link
-            href={pathForView('requests')}
+            href={'/account/orders'}
             className="mt-5 flex items-center justify-center gap-1.5 text-xs font-semibold text-teal-deep hover:underline"
           >
             <ClipboardList size={14} />
