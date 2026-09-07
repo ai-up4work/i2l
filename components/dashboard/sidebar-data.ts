@@ -68,7 +68,6 @@ export const sidebarGroups: SidebarGroup[] = [
     items: [
       { type: 'view', label: 'Wishlist', view: 'wishlist' },
       { type: 'view', label: 'My Cart', view: 'cart' },
-      { type: 'view', label: 'Following', view: 'following' },
       { type: 'view', label: 'Recently Viewed', view: 'recentlyViewed' },
       { type: 'view', label: 'My Following', view: 'myFollowing' },
     ],
