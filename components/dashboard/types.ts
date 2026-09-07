@@ -72,6 +72,7 @@ export type View =
   | 'messages'
   | 'serviceRecords'
   | 'wishlist'
+  | 'cart'
   | 'following'
   | 'recentlyViewed'
   | 'wishdropVip'
