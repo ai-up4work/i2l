@@ -35,8 +35,8 @@ import DealCoupon, { type Deal } from '@/components/shared/DealCoupon'
 // that rendered a static button with no onClick and no useChat() at all.
 // That's why clicking it did nothing: it wasn't the same component as
 // the one wired to ChatContext.
-import ChatButton from '@/components/landing/ChatButton'
-import ChatPanel from '@/components/landing/ChatPanel'
+import ChatButton from '@/components/shared/ChatButton'
+import ChatPanel from '@/components/shared/ChatPanel'
 import { ChatProvider } from '@/contexts/ChatContext'
 
 /* ============================================================================
