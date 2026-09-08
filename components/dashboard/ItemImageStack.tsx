@@ -46,7 +46,7 @@ export function ItemImageStack({
               e.stopPropagation()
               setActive(i)
             }}
-            className="relative h-full rounded-3xl overflow-hidden cursor-pointer bg-[#e5e2d9] min-w-0"
+            className="relative h-full rounded-xl overflow-hidden cursor-pointer bg-[#e5e2d9] min-w-0"
             style={{
               // IMPORTANT: this ratio (not the transition duration/easing)
               // is what makes the resize itself look smooth. flex-grow
