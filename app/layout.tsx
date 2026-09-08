@@ -4,7 +4,6 @@ import "./globals.css";
 import AuthProvider from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/Cartcontext";
 import { WishlistProvider } from "@/contexts/Wishlistcontext";
-import { BoardsProvider } from "@/contexts/Boardscontext";
 import { NotificationProvider } from "@/contexts/Notificationcontext";
 
 const fraunces = Fraunces({
@@ -42,11 +41,9 @@ export default function RootLayout({
       >
         <AuthProvider>
           <CartProvider>
-            <BoardsProvider>
             <WishlistProvider>
               <NotificationProvider>{children}</NotificationProvider>
             </WishlistProvider>
-            </BoardsProvider>
           </CartProvider>
         </AuthProvider>
       </body>

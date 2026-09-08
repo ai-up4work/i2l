@@ -5,9 +5,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Heart, ImageOff, Plus, ShoppingBagIcon, X } from 'lucide-react'
 
-import { useWishlist, type WishlistEntry } from '@/contexts/Wishlistcontext'
+import { useWishlist, type BoardProduct, type WishlistEntry } from '@/contexts/Wishlistcontext'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
-import { useBoards, type BoardProduct } from '@/contexts/Boardscontext'
 
 const promoItem = { label: 'Layered Pendant Necklace', price: 'US$5.00' }
 
@@ -41,14 +40,13 @@ export default function WishlistPage() {
   const router = useRouter()
   const wishlist = useWishlist()
   const cart = useCart()
-  const boardsCtx = useBoards()
 
   const [tab, setTab] = useState<Tab>('items')
   const [createModalOpen, setCreateModalOpen] = useState(false)
 
   // Newest first — same ordering used in Header's preview dropdown/sheet.
   const items = wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt)
-  const boards = boardsCtx.boards
+  const boards = wishlist.boards.slice().sort((a, b) => a.position - b.position)
 
   const addWishlistEntryToBag = (entry: WishlistEntry) => {
     const product: CartProduct = {
@@ -78,7 +76,7 @@ export default function WishlistPage() {
         price: entry.price,
       }))
 
-    const board = boardsCtx.createBoard(name, selectedProducts)
+    const board = wishlist.createBoard(name, selectedProducts)
     setCreateModalOpen(false)
     router.push(`/account/wishlist/boards/${board.id}`)
   }
