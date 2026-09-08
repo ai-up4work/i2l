@@ -5,6 +5,7 @@ import AuthProvider from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/Cartcontext";
 import { WishlistProvider } from "@/contexts/Wishlistcontext";
 import { NotificationProvider } from "@/contexts/Notificationcontext";
+import { LoyaltyProvider } from "@/contexts/Loyaltycontext";
 
 const fraunces = Fraunces({
   variable: "--font-serif-display",
@@ -42,7 +43,9 @@ export default function RootLayout({
         <AuthProvider>
           <CartProvider>
             <WishlistProvider>
-              <NotificationProvider>{children}</NotificationProvider>
+              <LoyaltyProvider >
+                <NotificationProvider>{children}</NotificationProvider>
+              </LoyaltyProvider>
             </WishlistProvider>
           </CartProvider>
         </AuthProvider>
