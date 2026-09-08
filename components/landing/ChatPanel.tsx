@@ -211,7 +211,16 @@ function ThreadView({ threadId, onBack }: { threadId: string; onBack: () => void
   )
 }
 
-export default function ChatPanel() {
+export default function ChatPanel({
+  // Default matches the landing page's button (bottom-6) plus its own
+  // height. AccountShell overrides this to clear MobileBottomNav on
+  // mobile, same offset logic ChatButton now takes.
+  positionClassName = 'bottom-24 right-6',
+  hidden = false,
+}: {
+  positionClassName?: string
+  hidden?: boolean
+}) {
   const { isOpen, closeChat, threads, activeThreadId, setActiveThreadId } = useChat()
   const [view, setView] = useState<View>('list')
 
@@ -227,19 +236,15 @@ export default function ChatPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
-  if (!isOpen) return null
+  if (!isOpen || hidden) return null
 
   return (
     <div
-      className="fixed bottom-24 right-6 z-40 flex h-[32rem] w-[22rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-3xl border border-ink/10 bg-parchment shadow-lift"
+      className={`fixed z-40 flex h-[32rem] w-[22rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-3xl border border-ink/10 bg-parchment shadow-lift ${positionClassName}`}
       role="dialog"
       aria-modal="true"
       aria-label="Chat with support"
     >
-      {/* Header uses indigo — the theme's dedicated "weight & trust"
-          surface — rather than plain white, so the panel reads as a
-          distinct, deliberate part of the brand rather than a generic
-          widget dropped on top of the page. */}
       <div className="flex items-center justify-between bg-indigo px-4 py-3.5">
         <div>
           <p className="font-display text-sm font-semibold text-parchment">WishDrop support</p>
