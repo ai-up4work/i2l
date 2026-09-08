@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MessageCircle, Phone, Send, X } from 'lucide-react'
 import { useChat } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
+import AttachmentMedia from '@/components/chat/AttachmentMedia'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -145,7 +146,22 @@ export default function ChatPanel({
                           : 'bg-card text-ink border border-ink/10'
                       }`}
                     >
-                      <p className="whitespace-pre-wrap">{m.text}</p>
+                      {m.attachments && m.attachments.length > 0 && (
+                        <div
+                          className={`mb-1.5 grid gap-1 ${
+                            m.attachments.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
+                          }`}
+                        >
+                          {m.attachments.map((a) => (
+                            <AttachmentMedia
+                              key={a.id}
+                              attachment={a}
+                              className="max-h-56 w-full rounded-lg object-cover"
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {m.text && <p className="whitespace-pre-wrap">{m.text}</p>}
                       <p
                         className={`mt-1 text-right text-[10px] ${
                           m.sender === 'customer' ? 'text-parchment/70' : 'text-ink/40'
