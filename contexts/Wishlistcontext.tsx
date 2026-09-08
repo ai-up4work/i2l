@@ -170,13 +170,27 @@ function makeShareToken() {
 // ---------------------------------------------------------------------------
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
-  const initial = loadInitialState()
-  const [items, setItems] = useState<WishlistEntry[]>(initial.items)
-  const [boards, setBoards] = useState<Board[]>(initial.boards)
-  const [boardCounter, setBoardCounter] = useState(initial.boardCounter)
+  // Start with the SAME empty state on server and client. Reading
+  // localStorage here (even guarded by `typeof window`) would make the
+  // client's first render differ from the server-rendered HTML the moment
+  // there's anything persisted, which throws a hydration mismatch. Instead,
+  // we render empty first, then hydrate from storage in an effect below —
+  // that effect only runs client-side and runs *after* the DOM has already
+  // been reconciled against the server markup.
+  const [items, setItems] = useState<WishlistEntry[]>([])
+  const [boards, setBoards] = useState<Board[]>([])
+  const [boardCounter, setBoardCounter] = useState(0)
   const [hydrated, setHydrated] = useState(false)
 
+  // Runs once on mount, client-only. Pulls in whatever was actually saved,
+  // then flips `hydrated` so the persist-effect below is safe to start
+  // writing (it must not fire before this, or it would overwrite storage
+  // with the empty initial state).
   useEffect(() => {
+    const initial = loadInitialState()
+    setItems(initial.items)
+    setBoards(initial.boards)
+    setBoardCounter(initial.boardCounter)
     setHydrated(true)
   }, [])
 

@@ -76,14 +76,26 @@ function loadInitialItems(): CartLineItem[] {
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  // Lazy initializer avoids a flash of an empty cart -> populated cart on
-  // mount for the common case where this runs client-side anyway.
-  const [items, setItems] = useState<CartLineItem[]>(loadInitialItems)
+  // Start empty on BOTH server and client. Loading from localStorage during
+  // the initial render (even via a lazy `useState` initializer) makes the
+  // client's first render diverge from the server-rendered HTML the moment
+  // anything is actually persisted — e.g. server renders "Cart (0)" while
+  // the client's first render already says "Cart (3)" from localStorage,
+  // which throws a hydration mismatch and forces React to discard and
+  // re-render the whole subtree. Instead we render empty first, matching
+  // the server exactly, then hydrate the real data in an effect below —
+  // effects only run client-side, and only after the DOM has already been
+  // reconciled against the server markup, so there's nothing left to
+  // mismatch against.
+  const [items, setItems] = useState<CartLineItem[]>([])
   const [hydrated, setHydrated] = useState(false)
 
-  // Mark hydrated after first render so we don't stomp localStorage with an
-  // empty array during SSR before the real state has loaded client-side.
+  // Runs once on mount, client-only. Pulls in whatever was actually saved,
+  // then flips `hydrated` so the persist-effect below is safe to start
+  // writing (it must not fire before this, or it would overwrite storage
+  // with the empty initial state).
   useEffect(() => {
+    setItems(loadInitialItems())
     setHydrated(true)
   }, [])
 
