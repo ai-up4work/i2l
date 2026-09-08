@@ -51,7 +51,7 @@ export default function Topbar({ view, onBack, onMenuClick }: TopbarProps) {
   }, [notifOpen])
 
   return (
-    <header className="flex h-20 items-center gap-2.5 border-b border-ink/10 px-6 lg:px-10">
+    <header className="flex h-20 items-center gap-2.5 px-6 lg:px-10">
       {/* Mobile-only account menu trigger — lives in the same row as the
           rest of the icon cluster instead of a separate bar above it. */}
       <button
