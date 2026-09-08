@@ -32,6 +32,91 @@ import {
   type TimelineIconKey,
 } from '@/contexts/Ordercontexts'
 
+// ---------------------------------------------------------------------------
+// Squircle clip-path + item thumbnail. Shows one image for single-item
+// orders, or an overlapping peek-stack with a "+N" badge for multi-item
+// orders — so a 4-item order shows more than just the first photo.
+// ---------------------------------------------------------------------------
+
+function SquircleDefs() {
+  return (
+    <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden focusable="false">
+      <defs>
+        <clipPath id="squircle-clip" clipPathUnits="objectBoundingBox">
+          <path
+            d="M 0.5,0
+               C 0.888,0 0.917,0.021 0.946,0.05
+               C 0.976,0.079 1,0.109 1,0.5
+               C 1,0.892 0.976,0.921 0.946,0.95
+               C 0.917,0.979 0.888,1 0.5,1
+               C 0.113,1 0.083,0.979 0.054,0.95
+               C 0.024,0.921 0,0.892 0,0.5
+               C 0,0.109 0.024,0.079 0.054,0.05
+               C 0.083,0.021 0.113,0 0.5,0
+               Z"
+          />
+        </clipPath>
+      </defs>
+    </svg>
+  )
+}
+
+const STACK_OFFSET = 10 // px each image peeks out from behind the one in front
+
+function OrderThumbnail({ items, size = 80 }: { items: Order['items']; size?: number }) {
+  if (items.length === 1) {
+    return (
+      <img
+        src={items[0].image}
+        alt={items[0].name}
+        className="flex-none bg-ink/5 object-cover [clip-path:url(#squircle-clip)]"
+        style={{ height: size, width: size }}
+      />
+    )
+  }
+
+  const visible = items.slice(0, 3)
+  const overflow = items.length - visible.length
+  const peekOffset = Math.round(size * 0.16) // how far each chip behind peeks past the front photo
+  const containerSize = size + peekOffset * (visible.length - 1)
+
+  return (
+    <div className="relative flex-none" style={{ width: containerSize, height: containerSize }}>
+      {/* Chips behind the front photo, peeking out toward the bottom-right */}
+      {visible.map((item, i) => {
+        if (i === 0) return null
+        const inset = i * peekOffset
+        return (
+          <img
+            key={i}
+            src={item.image}
+            alt={item.name}
+            className="absolute border-2 border-parchment bg-ink/5 object-cover [clip-path:url(#squircle-clip)]"
+            style={{ height: size, width: size, top: inset, left: inset, zIndex: visible.length - i }}
+          />
+        )
+      })}
+
+      {/* Front photo, on top, with the overflow badge pinned to its corner */}
+      <div className="absolute left-0 top-0" style={{ width: size, height: size, zIndex: visible.length + 1 }}>
+        <img
+          src={visible[0].image}
+          alt={visible[0].name}
+          className="h-full w-full border-2 border-parchment bg-ink/5 object-cover [clip-path:url(#squircle-clip)]"
+        />
+        {overflow > 0 && (
+          <span
+            className="absolute -right-1.5 -top-1.5 flex items-center justify-center rounded-full border-2 border-parchment bg-ink text-[10px] font-semibold text-parchment"
+            style={{ height: 20, minWidth: 20, padding: '0 4px' }}
+          >
+            +{overflow}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const TIMELINE_ICONS: Record<TimelineIconKey, React.ComponentType<{ className?: string }>> = {
   confirmed: Package,
   purchased: Package,
@@ -169,6 +254,7 @@ function TrackOrderContent() {
 
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
+      <SquircleDefs />
       <div className="mx-auto max-w-6xl px-6 py-8 pb-16">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-xs text-ink/60">
@@ -254,11 +340,7 @@ function OrderPicker({ orders, onSelect }: { orders: Order[]; onSelect: (id: str
               onClick={() => onSelect(order.id)}
               className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink/[0.03]"
             >
-              <img
-                src={primary.image}
-                alt={primary.name}
-                className="h-14 w-14 flex-none rounded-2xl bg-ink/5 object-cover"
-              />
+              <OrderThumbnail items={order.items} size={56} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-ink">
                   {order.items.length > 1 ? `${order.items.length} items` : primary.name}
@@ -320,11 +402,7 @@ function OrderTrackingDetail({ order }: { order: Order }) {
       {/* Order summary card */}
       <div className="flex flex-col gap-5 rounded-3xl border border-ink/10 bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-5">
-          <img
-            src={primary.image}
-            alt={primary.name}
-            className="h-20 w-20 flex-none rounded-2xl bg-ink/5 object-cover"
-          />
+          <OrderThumbnail items={order.items} size={80} />
           <div>
             <div className="text-xs font-medium text-ink/50">Order #{order.id} · {order.date}</div>
             <div className="mt-1.5 font-display text-xl leading-tight text-ink">
@@ -352,34 +430,49 @@ function OrderTrackingDetail({ order }: { order: Order }) {
       ) : (
         <>
           {/* Status stepper */}
-          <div className="relative mt-8 flex justify-between px-1">
-            {SHIPPING_FLOW.map((step, i) => (
-              <div key={step} className="relative flex flex-1 flex-col items-center text-center">
-                <div
-                  className={`z-10 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                    i < currentIndex
-                      ? 'bg-teal text-white'
-                      : i === currentIndex
-                        ? 'bg-teal text-white ring-4 ring-teal/20'
-                        : 'bg-ink/10 text-ink/30'
-                  }`}
-                >
-                  {i < currentIndex ? <Check className="h-3.5 w-3.5" /> : i === currentIndex ? i + 1 : ''}
-                </div>
-                {i < SHIPPING_FLOW.length - 1 && (
+          <div className="relative mt-8 px-1">
+            {(() => {
+              const stepCount = SHIPPING_FLOW.length
+              const halfStep = 50 / stepCount // % offset from edge to first/last circle center
+              const fullSpan = 100 - halfStep * 2 // % width between first and last circle center
+              const progressWidth = stepCount > 1 ? (fullSpan * currentIndex) / (stepCount - 1) : 0
+
+              return (
+                <>
+                  {/* Base track line, behind every circle */}
                   <div
-                    className={`absolute top-3.5 h-0.5 ${i < currentIndex ? 'bg-teal' : 'bg-ink/12'}`}
-                    style={{
-                      left: `${((i + 0.5) / SHIPPING_FLOW.length) * 100}%`,
-                      width: `${(1 / SHIPPING_FLOW.length) * 100}%`,
-                    }}
+                    className="absolute top-3.5 h-0.5 bg-ink/12"
+                    style={{ left: `${halfStep}%`, right: `${halfStep}%` }}
                   />
-                )}
-                <span className={`mt-2.5 text-[11px] font-medium ${i <= currentIndex ? 'text-ink' : 'text-ink/40'}`}>
-                  {step}
-                </span>
-              </div>
-            ))}
+                  {/* Teal progress line, grows to the current step */}
+                  <div
+                    className="absolute top-3.5 h-0.5 bg-teal transition-all duration-300"
+                    style={{ left: `${halfStep}%`, width: `${progressWidth}%` }}
+                  />
+                </>
+              )
+            })()}
+
+            <div className="relative flex justify-between">
+              {SHIPPING_FLOW.map((step, i) => (
+                <div key={step} className="flex flex-1 flex-col items-center text-center">
+                  <div
+                    className={`z-10 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                      i < currentIndex
+                        ? 'bg-teal text-white'
+                        : i === currentIndex
+                          ? 'bg-teal text-white ring-4 ring-teal/20'
+                          : 'bg-ink/10 text-ink/30'
+                    }`}
+                  >
+                    {i < currentIndex ? <Check className="h-3.5 w-3.5" /> : i === currentIndex ? i + 1 : ''}
+                  </div>
+                  <span className={`mt-2.5 text-[11px] font-medium ${i <= currentIndex ? 'text-ink' : 'text-ink/40'}`}>
+                    {step}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Status banner */}
@@ -643,11 +736,7 @@ function RecentOrders({ orders, onSelect }: { orders: Order[]; onSelect: (id: st
               onClick={() => onSelect(order.id)}
               className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink/[0.03]"
             >
-              <img
-                src={primary.image}
-                alt={primary.name}
-                className="h-11 w-11 flex-none rounded-xl bg-ink/5 object-cover"
-              />
+              <OrderThumbnail items={order.items} size={44} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-ink">
                   {order.items.length > 1 ? `${order.items.length} items` : primary.name}
