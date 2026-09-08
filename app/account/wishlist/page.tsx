@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Heart, ImageOff, Plus, ShoppingBagIcon, X } from 'lucide-react'
+import { Check, Heart, ImageOff, LayoutGrid, ShoppingBagIcon, X } from 'lucide-react'
 
 import { useWishlist, type BoardProduct, type WishlistEntry } from '@/contexts/Wishlistcontext'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
@@ -34,19 +34,15 @@ function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
 // Component
 // ---------------------------------------------------------------------------
 
-type Tab = 'items' | 'boards'
-
 export default function WishlistPage() {
   const router = useRouter()
   const wishlist = useWishlist()
   const cart = useCart()
 
-  const [tab, setTab] = useState<Tab>('items')
   const [createModalOpen, setCreateModalOpen] = useState(false)
 
   // Newest first — same ordering used in Header's preview dropdown/sheet.
   const items = wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt)
-  const boards = wishlist.boards.slice().sort((a, b) => a.position - b.position)
 
   const addWishlistEntryToBag = (entry: WishlistEntry) => {
     const product: CartProduct = {
@@ -78,137 +74,88 @@ export default function WishlistPage() {
 
     const board = wishlist.createBoard(name, selectedProducts)
     setCreateModalOpen(false)
-    router.push(`/account/wishlist/boards/${board.id}`)
+    router.push(`/account/boards/${board.id}`)
   }
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
-      <div className="mt-6 text-center">
+      <div className="mt-6 flex flex-col items-center gap-3 text-center">
         <h1 className="font-display text-3xl text-ink sm:text-4xl">My Wishlist</h1>
-      </div>
 
-      {/* Items / Boards tabs */}
-      <div className="mx-auto mt-8 flex max-w-md items-center justify-center gap-16 border-b border-ink/10">
-        <button
-          type="button"
-          onClick={() => setTab('items')}
-          className={`relative pb-3 text-sm font-semibold tracking-wide transition-colors ${
-            tab === 'items' ? 'text-ink' : 'text-ink/40 hover:text-ink/60'
-          }`}
-        >
-          ITEMS({items.length})
-          {tab === 'items' && <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-ink" />}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('boards')}
-          className={`relative pb-3 text-sm font-semibold tracking-wide transition-colors ${
-            tab === 'boards' ? 'text-ink' : 'text-ink/40 hover:text-ink/60'
-          }`}
-        >
-          BOARDS({boards.length})
-          {tab === 'boards' && <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-ink" />}
-        </button>
-      </div>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* ITEMS TAB                                                          */}
-      {/* ------------------------------------------------------------------ */}
-      {tab === 'items' && (
-        <>
-          {items.length === 0 ? (
-            <>
-              <div className="mt-12 flex flex-col items-center text-center">
-                <p className="max-w-md text-sm text-ink/55">
-                  You currently have nothing saved to your Wishlist. Personalize your shopping
-                  experience with your Wishlist.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => router.push('/')}
-                  className="mt-5 rounded-none border border-ink px-10 py-3 text-sm font-bold tracking-wide text-ink transition-colors hover:bg-ink hover:text-white"
-                >
-                  SHOP NOW
-                </button>
-              </div>
-
-              <div className="mt-12 border-t border-ink/10" />
-
-              {/* Heart It promo */}
-              <div className="mt-10 flex flex-col items-center gap-8 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="font-display text-2xl text-ink">Heart It.</h2>
-                  <p className="mt-2 text-sm text-ink/55">Store everything you love on one page.</p>
-                  <ul className="mt-4 flex flex-col gap-2 text-sm text-ink/70">
-                    <li className="flex items-center gap-2">
-                      <Heart size={13} fill="currentColor" className="text-ink" />
-                      Think about it before purchasing it.
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Heart size={13} fill="currentColor" className="text-ink" />
-                      Get notification about out-of-stock items.
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="w-full max-w-[220px] flex-none rounded-xl border border-ink/10 bg-card p-3">
-                  <div className="aspect-square w-full rounded-lg bg-gold/10" />
-                  <div className="mt-2.5 flex items-center justify-between">
-                    <span className="text-sm font-bold text-ink">{promoItem.price}</span>
-                    <Heart size={16} className="text-ink/35" />
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
-              {items.map((item) => (
-                <WishlistCard
-                  key={item.id}
-                  item={item}
-                  onRemove={() => wishlist.removeItem(item.id)}
-                  onAddToBag={() => addWishlistEntryToBag(item)}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ------------------------------------------------------------------ */}
-      {/* BOARDS TAB                                                         */}
-      {/* ------------------------------------------------------------------ */}
-      {tab === 'boards' && (
-        <div className="mt-8">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => router.push('/account/boards')}
+            className="flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
+          >
+            <LayoutGrid size={14} />
+            My Boards ({wishlist.boards.length})
+          </button>
           <button
             type="button"
             onClick={() => setCreateModalOpen(true)}
-            className="flex w-full items-center gap-3 rounded-xl bg-ink/[0.04] px-5 py-6 text-left transition-colors hover:bg-ink/[0.06]"
+            disabled={items.length === 0}
+            className="rounded-lg bg-ink px-4 py-2 text-sm font-bold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            <span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-ink text-white">
-              <Plus size={16} />
-            </span>
-            <span className="font-semibold text-ink">Create a new board</span>
+            + NEW BOARD
           </button>
+        </div>
+      </div>
 
-          {boards.length > 0 && (
-            <div className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
-              {boards.map((board) => (
-                <button
-                  key={board.id}
-                  type="button"
-                  onClick={() => router.push(`/account/wishlist/boards/${board.id}`)}
-                  className="text-left"
-                >
-                  <BoardThumbGrid items={board.items} />
-                  <p className="mt-3 font-display text-base text-ink">{board.name}</p>
-                  <p className="mt-0.5 text-sm text-ink/50">
-                    {board.items.length} {board.items.length === 1 ? 'Item' : 'Items'}
-                  </p>
-                </button>
-              ))}
+      {items.length === 0 ? (
+        <>
+          <div className="mt-12 flex flex-col items-center text-center">
+            <p className="max-w-md text-sm text-ink/55">
+              You currently have nothing saved to your Wishlist. Personalize your shopping
+              experience with your Wishlist.
+            </p>
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="mt-5 rounded-none border border-ink px-10 py-3 text-sm font-bold tracking-wide text-ink transition-colors hover:bg-ink hover:text-white"
+            >
+              SHOP NOW
+            </button>
+          </div>
+
+          <div className="mt-12 border-t border-ink/10" />
+
+          {/* Heart It promo */}
+          <div className="mt-10 flex flex-col items-center gap-8 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-display text-2xl text-ink">Heart It.</h2>
+              <p className="mt-2 text-sm text-ink/55">Store everything you love on one page.</p>
+              <ul className="mt-4 flex flex-col gap-2 text-sm text-ink/70">
+                <li className="flex items-center gap-2">
+                  <Heart size={13} fill="currentColor" className="text-ink" />
+                  Think about it before purchasing it.
+                </li>
+                <li className="flex items-center gap-2">
+                  <Heart size={13} fill="currentColor" className="text-ink" />
+                  Get notification about out-of-stock items.
+                </li>
+              </ul>
             </div>
-          )}
+
+            <div className="w-full max-w-[220px] flex-none rounded-xl border border-ink/10 bg-card p-3">
+              <div className="aspect-square w-full rounded-lg bg-gold/10" />
+              <div className="mt-2.5 flex items-center justify-between">
+                <span className="text-sm font-bold text-ink">{promoItem.price}</span>
+                <Heart size={16} className="text-ink/35" />
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+          {items.map((item) => (
+            <WishlistCard
+              key={item.id}
+              item={item}
+              onRemove={() => wishlist.removeItem(item.id)}
+              onAddToBag={() => addWishlistEntryToBag(item)}
+            />
+          ))}
         </div>
       )}
 
@@ -223,8 +170,61 @@ export default function WishlistPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Wishlist item card
+// ---------------------------------------------------------------------------
+
+function WishlistCard({
+  item,
+  onRemove,
+  onAddToBag,
+}: {
+  item: WishlistEntry
+  onRemove: () => void
+  onAddToBag: () => void
+}) {
+  return (
+    <div className="group relative flex flex-col rounded-2xl border border-ink/10 bg-card p-3">
+      <div className="relative">
+        <ProductThumb image={item.image} alt={item.title} />
+
+        <button
+          type="button"
+          aria-label="Remove from wish list"
+          onClick={onRemove}
+          className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-teal-deep shadow-sm transition-colors hover:bg-white"
+        >
+          <Heart size={15} fill="currentColor" />
+        </button>
+
+        <button
+          type="button"
+          aria-label={`Add ${item.title} to bag`}
+          onClick={onAddToBag}
+          className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-ink text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          <ShoppingBagIcon size={14} />
+        </button>
+      </div>
+
+      <a href={item.url} className="mt-2.5 line-clamp-2 text-sm font-semibold text-ink hover:underline">
+        {item.title}
+      </a>
+
+      {item.price && (
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="text-sm font-bold text-ink">
+            {item.currencyCode ?? ''} {item.price}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Create board modal — name the board, optionally pick wishlist items to
 // seed it with. Skipping selection just creates an empty board.
+// (Inlined here rather than a separate component file.)
 // ---------------------------------------------------------------------------
 
 function CreateBoardModal({
@@ -350,92 +350,6 @@ function CreateBoardModal({
           </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Board cover thumbnails
-// ---------------------------------------------------------------------------
-
-function BoardThumbGrid({ items }: { items: { image?: string | null; title: string }[] }) {
-  const cover = items.slice(-3).reverse() // most recently added, up to 3
-
-  return (
-    <div className="grid grid-cols-2 gap-0.5 overflow-hidden rounded-lg">
-      <BoardThumbCell item={cover[0]} />
-      <div className="col-span-1 row-span-2">
-        <BoardThumbCell item={cover[1]} tall />
-      </div>
-      <BoardThumbCell item={cover[2]} />
-    </div>
-  )
-}
-
-function BoardThumbCell({ item, tall }: { item?: { image?: string | null; title: string }; tall?: boolean }) {
-  if (!item) {
-    return <div className={tall ? 'aspect-auto h-full bg-ink/[0.06]' : 'aspect-square bg-ink/[0.06]'} />
-  }
-  return (
-    <div className={`${tall ? 'aspect-auto h-full' : 'aspect-square'} overflow-hidden bg-card`}>
-      {item.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.image} alt={item.title} className="h-full w-full object-cover" />
-      ) : (
-        <div className="h-full w-full bg-ink/[0.06]" />
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Cards
-// ---------------------------------------------------------------------------
-
-function WishlistCard({
-  item,
-  onRemove,
-  onAddToBag,
-}: {
-  item: WishlistEntry
-  onRemove: () => void
-  onAddToBag: () => void
-}) {
-  return (
-    <div className="group relative flex flex-col rounded-2xl border border-ink/10 bg-card p-3">
-      <div className="relative">
-        <ProductThumb image={item.image} alt={item.title} />
-
-        <button
-          type="button"
-          aria-label="Remove from wish list"
-          onClick={onRemove}
-          className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-teal-deep shadow-sm transition-colors hover:bg-white"
-        >
-          <Heart size={15} fill="currentColor" />
-        </button>
-
-        <button
-          type="button"
-          aria-label={`Add ${item.title} to bag`}
-          onClick={onAddToBag}
-          className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-ink text-white shadow-sm transition-opacity hover:opacity-90"
-        >
-          <ShoppingBagIcon size={14} />
-        </button>
-      </div>
-
-      <a href={item.url} className="mt-2.5 line-clamp-2 text-sm font-semibold text-ink hover:underline">
-        {item.title}
-      </a>
-
-      {item.price && (
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <span className="text-sm font-bold text-ink">
-            {item.currencyCode ?? ''} {item.price}
-          </span>
-        </div>
-      )}
     </div>
   )
 }
