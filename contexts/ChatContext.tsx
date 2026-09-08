@@ -93,6 +93,31 @@ export function appendMessage(message: ChatMessage, userId: string): ChatMessage
   return next
 }
 
+// Admin-only: strip one attachment out of an already-sent message and
+// re-persist the thread. The client-facing ChatPanel has no equivalent —
+// customers can't delete images once sent, only ops/admin can moderate
+// what's shown. Note: this only removes the pointer from the message
+// list, the underlying blob is left as an orphan in IndexedDB (same
+// tradeoff forStorage already accepts elsewhere).
+export function removeAttachmentFromMessage(
+  userId: string,
+  messageId: string,
+  attachmentId: string
+): ChatMessage[] {
+  const all = readAllMessages(userId)
+  const next = all.map((m) => {
+    if (m.id !== messageId) return m
+    const attachments = (m.attachments ?? []).filter((a) => a.id !== attachmentId)
+    return { ...m, attachments }
+  })
+  try {
+    localStorage.setItem(storageKeyFor(userId), JSON.stringify(next))
+  } catch {
+    // Storage full/blocked — caller's own state still updates locally.
+  }
+  return next
+}
+
 function readLastReadAt(userId: string): number {
   if (typeof window === 'undefined') return 0
   try {

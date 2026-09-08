@@ -1,4 +1,4 @@
-// components/landing/ChatButton.tsx
+// components/shared/ChatButton.tsx
 'use client'
 
 import { MessageCircle, X } from 'lucide-react'

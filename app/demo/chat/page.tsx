@@ -22,6 +22,7 @@ import {
   appendMessage,
   fileToAttachment,
   readAllMessages,
+  removeAttachmentFromMessage,
   storageKeyFor,
   toReplyPreview,
   uid,
@@ -195,6 +196,15 @@ export default function AdminChatDemo() {
     if (ok.length) setPendingAttachments((prev) => [...prev, ...ok])
     if (firstError) setUploadError(firstError)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Admin-only moderation action: remove one attachment from an
+  // already-sent message. Updates local thread state immediately and
+  // persists via ChatContext's removeAttachmentFromMessage helper.
+  const handleDeleteAttachment = (messageId: string, attachmentId: string) => {
+    if (!selectedId) return
+    const next = removeAttachmentFromMessage(selectedId, messageId, attachmentId)
+    setThreads((prev) => ({ ...prev, [selectedId]: next }))
   }
 
   const jumpToMessage = (id: string) => {
@@ -412,12 +422,22 @@ export default function AdminChatDemo() {
                                 }`}
                               >
                                 {m.attachments.map((a) => (
-                                  <AttachmentMedia
-                                    key={`${a.id}-${refreshVersion}`}
-                                    attachment={a}
-                                    refreshKey={refreshVersion}
-                                    className="max-h-64 w-full rounded-md object-cover"
-                                  />
+                                  <div key={`${a.id}-${refreshVersion}`} className="group/attachment relative">
+                                    <AttachmentMedia
+                                      attachment={a}
+                                      refreshKey={refreshVersion}
+                                      className="max-h-64 w-full rounded-md object-cover"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteAttachment(m.id, a.id)}
+                                      aria-label="Delete attachment"
+                                      title="Delete attachment"
+                                      className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover/attachment:opacity-100"
+                                    >
+                                      <X size={13} />
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                             )}

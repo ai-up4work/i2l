@@ -13,7 +13,9 @@ import WelcomeBanner from '@/components/dashboard/WelcomeBanner'
 import { pathForView, viewForPath } from '@/components/dashboard/routes'
 import type { View } from '@/components/dashboard/types'
 import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
+import { useChat } from '@/contexts/ChatContext'
 import Header from '@/components/shared/Header'
+import ChatPanel from '@/components/shared/ChatPanel'
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -47,6 +49,11 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // disabled={!link.trim()} was throwing. Remove this once the real
   // field names from DashboardContext are wired in above.
   const safeLink = link ?? ''
+
+  // Drives the support FAB below: toggles the same ChatPanel used
+  // elsewhere in the app (ChatProvider is mounted in the root layout,
+  // so it's reachable here regardless of this layout's own nesting).
+  const { isOpen: chatOpen, toggleChat, unreadCount } = useChat()
 
   // Desktop <Header> now lives here (moved down from the outer
   // AccountLayout component) so it can react to modalOpen — useDashboard
@@ -263,12 +270,25 @@ function AccountShell({ children }: { children: React.ReactNode }) {
         )}
 
         <button
-          aria-label="Open support chat"
+          type="button"
+          onClick={toggleChat}
+          aria-label={chatOpen ? 'Close support chat' : 'Open support chat'}
           className="support-fab fixed right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
           style={{ bottom: 'calc(var(--account-bottom-nav-h) + 1.5rem)' }}
         >
           <CircleHelp />
+          {!chatOpen && unreadCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-[20px] place-items-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
         </button>
+
+        {/* Panel is positioned to open just above the FAB, mirroring the
+            FAB's own bottom offset (mobile bottom nav height + gap on
+            mobile, flush 1.5rem on lg — same breakpoint the FAB uses via
+            .support-fab's media query below). */}
+        <ChatPanel positionClassName="right-6 bottom-[calc(var(--account-bottom-nav-h)+5.5rem)] lg:bottom-24" />
 
         <style jsx global>{`
           .content-scroll {
