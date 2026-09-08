@@ -34,8 +34,10 @@ import {
 
 // ---------------------------------------------------------------------------
 // Squircle clip-path + item thumbnail. Shows one image for single-item
-// orders, or an overlapping peek-stack with a "+N" badge for multi-item
-// orders — so a 4-item order shows more than just the first photo.
+// orders. For multi-item orders, the front photo stays full-size and
+// clearly readable, with 1-2 chips peeking out behind its bottom-right
+// corner, and a "+N" overflow badge pinned to the front photo's own
+// top-right corner (not floating off the edge of a thin stack).
 // ---------------------------------------------------------------------------
 
 function SquircleDefs() {
@@ -60,8 +62,6 @@ function SquircleDefs() {
     </svg>
   )
 }
-
-const STACK_OFFSET = 10 // px each image peeks out from behind the one in front
 
 function OrderThumbnail({ items, size = 80 }: { items: Order['items']; size?: number }) {
   if (items.length === 1) {
@@ -128,6 +128,13 @@ const TIMELINE_ICONS: Record<TimelineIconKey, React.ComponentType<{ className?: 
 
 const DETAIL_TABS = ['Tracking', 'Details', 'Delivery'] as const
 type DetailTab = (typeof DETAIL_TABS)[number]
+
+// Maps the ?tab= query param to a DetailTab, case-insensitively, falling
+// back to 'Tracking' for anything missing or unrecognized.
+function resolveInitialTab(param: string | null): DetailTab {
+  const match = DETAIL_TABS.find((t) => t.toLowerCase() === param?.toLowerCase())
+  return match ?? 'Tracking'
+}
 
 function statusHeadline(status: Order['status']) {
   switch (status) {
@@ -234,6 +241,7 @@ function TrackOrderContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const orderId = searchParams.get('order')
+  const initialTab = resolveInitialTab(searchParams.get('tab'))
   const { orders, getOrderById } = useOrders()
   const [query, setQuery] = useState(orderId ?? '')
 
@@ -303,7 +311,7 @@ function TrackOrderContent() {
           </div>
         )}
 
-        {resolvedOrder && <OrderTrackingDetail order={resolvedOrder} />}
+        {resolvedOrder && <OrderTrackingDetail order={resolvedOrder} initialTab={initialTab} />}
 
         {needsSelection && (
           <OrderPicker orders={orders} onSelect={(id) => router.push(`/account/orders/track?order=${id}`)} />
@@ -380,8 +388,8 @@ function NoOrdersEmptyState({ onBrowse }: { onBrowse: () => void }) {
   )
 }
 
-function OrderTrackingDetail({ order }: { order: Order }) {
-  const [activeTab, setActiveTab] = useState<DetailTab>('Tracking')
+function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order; initialTab?: DetailTab }) {
+  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab)
   const currentIndex = shippingStepIndex(order.status)
   const isCancelled = order.status === 'Cancelled'
   const recipient = getOrderRecipient(order)
@@ -392,6 +400,11 @@ function OrderTrackingDetail({ order }: { order: Order }) {
 
   const currencySymbol = order.currency === 'LKR' ? 'Rs.' : '₹'
   const total = orderTotal(order)
+
+  const stepCount = SHIPPING_FLOW.length
+  const halfStep = 50 / stepCount
+  const fullSpan = 100 - halfStep * 2
+  const progressWidth = stepCount > 1 ? (fullSpan * currentIndex) / (stepCount - 1) : 0
 
   const copyTrackingNumber = () => {
     if (order.trackingNumber) navigator.clipboard.writeText(order.trackingNumber)
@@ -429,29 +442,20 @@ function OrderTrackingDetail({ order }: { order: Order }) {
         </div>
       ) : (
         <>
-          {/* Status stepper */}
+          {/* Status stepper — one continuous base track behind every
+              circle, with a teal progress line grown to the current
+              step, instead of separate per-segment lines trapped inside
+              each step's own 1/4-width flex container (which caused
+              them to look disconnected). */}
           <div className="relative mt-8 px-1">
-            {(() => {
-              const stepCount = SHIPPING_FLOW.length
-              const halfStep = 50 / stepCount // % offset from edge to first/last circle center
-              const fullSpan = 100 - halfStep * 2 // % width between first and last circle center
-              const progressWidth = stepCount > 1 ? (fullSpan * currentIndex) / (stepCount - 1) : 0
-
-              return (
-                <>
-                  {/* Base track line, behind every circle */}
-                  <div
-                    className="absolute top-3.5 h-0.5 bg-ink/12"
-                    style={{ left: `${halfStep}%`, right: `${halfStep}%` }}
-                  />
-                  {/* Teal progress line, grows to the current step */}
-                  <div
-                    className="absolute top-3.5 h-0.5 bg-teal transition-all duration-300"
-                    style={{ left: `${halfStep}%`, width: `${progressWidth}%` }}
-                  />
-                </>
-              )
-            })()}
+            <div
+              className="absolute top-3.5 h-0.5 bg-ink/12"
+              style={{ left: `${halfStep}%`, right: `${halfStep}%` }}
+            />
+            <div
+              className="absolute top-3.5 h-0.5 bg-teal transition-all duration-300"
+              style={{ left: `${halfStep}%`, width: `${Math.max(progressWidth, 0)}%` }}
+            />
 
             <div className="relative flex justify-between">
               {SHIPPING_FLOW.map((step, i) => (
@@ -494,7 +498,9 @@ function OrderTrackingDetail({ order }: { order: Order }) {
       {!isCancelled && (
         <>
           {/* Section tabs — Tracking / Details / Delivery live inline on the
-              page now, no modal. */}
+              page now, no modal. Which one opens first is driven by the
+              ?tab= query param, set by "Track Order" vs "View Details"
+              on the My Orders page. */}
           <div className="mt-9 flex gap-2 border-b border-ink/10">
             {DETAIL_TABS.map((tab) => (
               <button
@@ -716,6 +722,30 @@ function OrderTrackingDetail({ order }: { order: Order }) {
             </div>
           )}
         </>
+      )}
+
+      {/* Delivering-to strip stays visible regardless of active tab */}
+      {!isCancelled && (
+        <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-card p-4">
+          <div className="flex items-center gap-3">
+            <MapPin className="h-5 w-5 flex-none text-ink/40" />
+            <div>
+              <p className="text-xs font-medium text-ink/50">Delivering to</p>
+              <p className="text-sm font-semibold text-ink">{recipient.name}</p>
+              <p className="text-xs text-ink/50">
+                {recipient.city}, {recipient.country}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('Delivery')}
+            className="flex items-center gap-1 rounded-full border border-ink/15 px-4 py-2 text-xs font-semibold text-ink hover:border-teal/50"
+          >
+            View delivery details
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
     </div>
   )

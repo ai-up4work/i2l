@@ -5,9 +5,10 @@
  * customers can search, filter by status, track shipped orders, view
  * details, or reorder/buy again on completed orders.
  *
- * "Track Order" / "View Details" navigate to
- * /account/orders/track?order=<id>, which reads the order back out of the
- * same OrdersProvider context.
+ * "Track Order" navigates to /account/orders/track?order=<id> (opens on
+ * the Tracking tab). "View Details" navigates to the same page with
+ * &tab=details, opening directly on the Details tab instead. Both read
+ * the order back out of the same OrdersProvider context.
  *
  * Data comes from contexts/Ordercontexts.tsx (OrdersProvider / useOrders).
  * Swap the mock data there for a real fetch/query and this page keeps
@@ -175,6 +176,7 @@ function OrderCard({ order }: { order: Order }) {
   const currentStepIndex = order.status === 'Shipped' ? 2 : order.status === 'Delivered' ? 3 : -1
 
   const goToTracking = () => router.push(`/account/orders/track?order=${order.id}`)
+  const goToDetails = () => router.push(`/account/orders/track?order=${order.id}&tab=details`)
 
   return (
     <div className="rounded-2xl border border-ink/10 bg-card">
@@ -260,7 +262,7 @@ function OrderCard({ order }: { order: Order }) {
 
         {/* Actions */}
         <div className="mt-5 flex gap-2">
-          <OrderCardActions order={order} onGoToTracking={goToTracking} />
+          <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} />
         </div>
       </div>
 
@@ -329,7 +331,7 @@ function OrderCard({ order }: { order: Order }) {
 
           {/* Actions — pinned to the bottom of the column */}
           <div className="mt-auto flex gap-2 pt-5">
-            <OrderCardActions order={order} onGoToTracking={goToTracking} />
+            <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} />
           </div>
         </div>
       </div>
@@ -338,52 +340,69 @@ function OrderCard({ order }: { order: Order }) {
 }
 
 function ShippingProgress({ currentStepIndex }: { currentStepIndex: number }) {
+  const stepCount = SHIPPING_FLOW.length
+  const halfStep = 50 / stepCount
+  const fullSpan = 100 - halfStep * 2
+  const progressWidth = stepCount > 1 ? (fullSpan * currentStepIndex) / (stepCount - 1) : 0
+
   return (
     <div className="mt-5">
-      <div className="relative flex justify-between">
-        {SHIPPING_FLOW.map((step, i) => (
-          <div key={step} className="flex flex-1 flex-col items-center text-center">
-            <div
-              className={`z-10 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
-                i < currentStepIndex
-                  ? 'bg-teal text-white'
-                  : i === currentStepIndex
-                    ? 'bg-teal text-white ring-4 ring-teal/20'
-                    : 'bg-ink/12 text-transparent'
-              }`}
-            >
-              {i < currentStepIndex ? '✓' : ''}
-            </div>
-            {i < SHIPPING_FLOW.length - 1 && (
+      <div className="relative">
+        {/* Base track, spans the full width behind every circle */}
+        <div
+          className="absolute top-2.5 h-0.5 bg-ink/12"
+          style={{ left: `${halfStep}%`, right: `${halfStep}%` }}
+        />
+        {/* Teal progress, grows to the current step */}
+        <div
+          className="absolute top-2.5 h-0.5 bg-teal transition-all duration-300"
+          style={{ left: `${halfStep}%`, width: `${Math.max(progressWidth, 0)}%` }}
+        />
+
+        <div className="relative flex justify-between">
+          {SHIPPING_FLOW.map((step, i) => (
+            <div key={step} className="flex flex-1 flex-col items-center text-center">
               <div
-                className={`absolute top-2.5 h-0.5 ${i < currentStepIndex ? 'bg-teal' : 'bg-ink/12'}`}
-                style={{
-                  left: `${((i + 0.5) / SHIPPING_FLOW.length) * 100}%`,
-                  width: `${(1 / SHIPPING_FLOW.length) * 100}%`,
-                }}
-              />
-            )}
-            <span className="mt-2 text-[11px] text-ink/50">{step}</span>
-          </div>
-        ))}
+                className={`z-10 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                  i < currentStepIndex
+                    ? 'bg-teal text-white'
+                    : i === currentStepIndex
+                      ? 'bg-teal text-white ring-4 ring-teal/20'
+                      : 'bg-ink/12 text-transparent'
+                }`}
+              >
+                {i < currentStepIndex ? '✓' : ''}
+              </div>
+              <span className="mt-2 text-[11px] text-ink/50">{step}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
 }
 
-function OrderCardActions({ order, onGoToTracking }: { order: Order; onGoToTracking: () => void }) {
+function OrderCardActions({
+  order,
+  onGoToTracking,
+  onGoToDetails,
+}: {
+  order: Order
+  onGoToTracking: () => void
+  onGoToDetails: () => void
+}) {
   if (order.status === 'Quality Check' || order.status === 'Shipped') {
     return (
       <>
         <PrimaryButton onClick={onGoToTracking}>Track Order</PrimaryButton>
-        <SecondaryButton onClick={onGoToTracking}>View Details</SecondaryButton>
+        <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
       </>
     )
   }
   if (order.status === 'Delivered') {
     return (
       <>
-        <SecondaryButton onClick={onGoToTracking}>View Details</SecondaryButton>
+        <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
         <PrimaryButton>Buy Again</PrimaryButton>
       </>
     )
@@ -391,7 +410,7 @@ function OrderCardActions({ order, onGoToTracking }: { order: Order; onGoToTrack
   if (order.status === 'Cancelled') {
     return (
       <>
-        <SecondaryButton onClick={onGoToTracking}>View Details</SecondaryButton>
+        <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
         <PrimaryButton>Reorder</PrimaryButton>
       </>
     )
