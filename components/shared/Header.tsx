@@ -45,8 +45,8 @@ const INNER_H = 54
 const MOBILE_ANIM_MS = 280
 const LEFT_NOTCH = 320
 const NOTCH_GAP = 40
-// Cap how many rows render in the Wishlist/Cart preview dropdowns/sheets
-// before falling back to "View all" — keeps the panel from growing unbounded.
+// Cap how many rows render in the Wishlist/Cart preview panels before
+// falling back to "View all" — keeps the panel from growing unbounded.
 const PREVIEW_ITEM_LIMIT = 4
 
 export const HEADER_BAR_HEIGHT = OUTER_H + AIRMAIL_STRIPE_HEIGHT
@@ -67,10 +67,15 @@ const iconPillButtonClass =
 
 // Quiet variant for Wishlist/Cart/Account on mobile — no border or fill,
 // just the icon. Only the menu toggle keeps the boxed treatment now,
-// since it's the one control that actually expands something; giving
-// every icon the same weight read as a wall of identical buttons.
+// since it's the one control that actually expands something.
 const mobileIconQuietClass =
   `flex h-9 w-9 items-center justify-center rounded-lg text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
+
+// CTA used at the bottom of the cart panel — same visual language as the
+// product page's own "CHECKOUT" button (ProductActions / ProductRequestButton),
+// so the header cart never introduces a third, different-looking commit button.
+const checkoutButtonClass =
+  `flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep ${focusRing}`
 
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -81,53 +86,58 @@ function CountBadge({ count }: { count: number }) {
   )
 }
 
-// Small thumbnail used in both dropdown/sheet previews — falls back to a
-// plain icon tile when a product has no image, rather than a broken <img>.
+// Small thumbnail used in the cart/wishlist panel — falls back to a plain
+// icon tile when a product has no image, rather than a broken <img>.
 function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
   if (!image) {
     return (
-      <div className="grid h-11 w-11 flex-none place-items-center rounded-lg border border-ink/10 bg-card">
+      <div className="grid h-14 w-14 flex-none place-items-center rounded-lg border border-ink/10 bg-card">
         <ImageOff size={16} className="text-ink/25" />
       </div>
     )
   }
   return (
-    <div className="h-11 w-11 flex-none overflow-hidden rounded-lg border border-ink/10 bg-white">
+    <div className="h-14 w-14 flex-none overflow-hidden rounded-lg border border-ink/10 bg-white">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={image} alt={alt} className="h-full w-full object-contain p-1" />
     </div>
   )
 }
 
-const SHEET_ANIM_MS = 240
+const PANEL_ANIM_MS = 280
 
-// Shared bottom sheet used for Wishlist and Cart previews on mobile.
-// Mirrors the desktop dropdown content but renders as a slide-up sheet
-// with a backdrop, matching the pattern used by ShopBottomSheet.
-function PreviewBottomSheet({
+// Shared slide-over panel for Wishlist and Cart, used at every breakpoint —
+// same shape as the store catalog page's own MiniCart (full-height panel
+// pinned to the right edge, backdrop blur, rounded item rows) rather than
+// a hover dropdown on desktop and a bottom sheet on mobile. `footer` is
+// only ever passed for the cart (a Checkout CTA); the wishlist panel has
+// none, matching the fact that a wishlist has nothing to "complete".
+function SlideOverPanel({
   open,
   onClose,
   title,
   icon,
-  children,
   isEmpty,
   emptyLabel,
   emptyHref,
   emptyCta,
   viewAllHref,
   viewAllLabel,
+  children,
+  footer,
 }: {
   open: boolean
   onClose: () => void
   title: string
   icon: React.ReactNode
-  children: React.ReactNode
   isEmpty: boolean
   emptyLabel: string
   emptyHref: string
   emptyCta: string
   viewAllHref: string
   viewAllLabel: string
+  children: React.ReactNode
+  footer?: React.ReactNode
 }) {
   const [mounted, setMounted] = useState(false)
   const [visible, setVisible] = useState(false)
@@ -140,7 +150,7 @@ function PreviewBottomSheet({
       return () => cancelAnimationFrame(raf)
     }
     setVisible(false)
-    timeout = setTimeout(() => setMounted(false), SHEET_ANIM_MS)
+    timeout = setTimeout(() => setMounted(false), PANEL_ANIM_MS)
     return () => clearTimeout(timeout)
   }, [open])
 
@@ -153,35 +163,34 @@ function PreviewBottomSheet({
   if (!mounted) return null
 
   return (
-    <div className="fixed inset-0 z-[110] lg:hidden" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[110] flex justify-end" role="dialog" aria-modal="true" aria-label={title}>
       <div
-        className={`absolute inset-0 bg-ink/40 transition-opacity duration-200 ease-out motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}
         onClick={onClose}
       />
       <div
-        className={`absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-teal/20 bg-parchment shadow-[0_-8px_30px_-8px_rgba(13,29,65,0.35)] transition-transform duration-[240ms] ease-out motion-reduce:transition-none ${
-          visible ? "translate-y-0" : "translate-y-full"
+        className={`relative flex h-full w-full max-w-sm flex-col bg-parchment shadow-2xl transition-transform duration-[280ms] ease-out motion-reduce:transition-none ${
+          visible ? "translate-x-0" : "translate-x-full"
         }`}
-        style={{ maxHeight: "80vh" }}
       >
-        <div className="flex items-center justify-between border-b border-teal/15 px-5 py-4">
-          <span className="flex items-center gap-2.5 text-base font-display font-semibold tracking-wide text-ink">
+        <div className="flex items-center justify-between border-b border-ink/10 p-5">
+          <h3 className="flex items-center gap-2.5 text-sm font-bold font-display text-ink">
             {icon}
             {title}
-          </span>
+          </h3>
           <button
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink/60 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep ${focusRing}`}
+            className={`flex h-8 w-8 items-center justify-center rounded-full text-ink transition-colors hover:bg-teal/10 ${focusRing}`}
           >
-            <X size={18} />
+            <X size={14} />
           </button>
         </div>
 
-        <div className="max-h-[calc(80vh-64px)] overflow-y-auto px-3 pb-6 pt-2">
+        <div className="flex-1 overflow-y-auto p-4">
           {isEmpty ? (
-            <div className="px-3 py-6 text-center">
+            <div className="py-16 text-center">
               <p className="text-sm text-ink/60">{emptyLabel}</p>
               <a
                 href={emptyHref}
@@ -193,20 +202,20 @@ function PreviewBottomSheet({
             </div>
           ) : (
             <>
-              <div className="flex flex-col gap-1">{children}</div>
-              <div className="mt-1 border-t border-ink/10 pt-2">
-                <a
-                  href={viewAllHref}
-                  onClick={onClose}
-                  className={`flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
-                >
-                  {viewAllLabel}
-                  <ArrowLeft size={14} className="rotate-180" />
-                </a>
-              </div>
+              <div className="flex flex-col gap-2">{children}</div>
+              <a
+                href={viewAllHref}
+                onClick={onClose}
+                className={`mt-3 flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+              >
+                {viewAllLabel}
+                <ArrowLeft size={14} className="rotate-180" />
+              </a>
             </>
           )}
         </div>
+
+        {!isEmpty && footer && <div className="border-t border-ink/10 p-4">{footer}</div>}
       </div>
     </div>
   )
@@ -222,8 +231,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
   const [visible, setVisible] = useState(false)
   const [activeMobileMenu, setActiveMobileMenu] = useState<string | null>(null)
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
-  const [wishlistSheetOpen, setWishlistSheetOpen] = useState(false)
-  const [cartSheetOpen, setCartSheetOpen] = useState(false)
+  const [wishlistPanelOpen, setWishlistPanelOpen] = useState(false)
+  const [cartPanelOpen, setCartPanelOpen] = useState(false)
 
   // Wishlist/cart counts are populated client-side (e.g. from localStorage),
   // so the server always renders 0/empty. Gate on `hasMounted` so the very
@@ -244,8 +253,6 @@ export default function Header({ title, showBackButton = false, variant = "publi
   const actionsRef = useRef<HTMLDivElement>(null)
   const SHOP_PANEL_ID = "shop-mega-menu-panel"
   const ACCOUNT_MENU_ID = "#account"
-  const WISHLIST_MENU_ID = "#wishlist"
-  const CART_MENU_ID = "#cart"
 
   const [rightNotch, setRightNotch] = useState(LEFT_NOTCH)
   useEffect(() => {
@@ -317,18 +324,12 @@ export default function Header({ title, showBackButton = false, variant = "publi
     `calc(100% - ${rightNotch + NOTCH_GAP}px) ${INNER_H}px, ${LEFT_NOTCH + NOTCH_GAP}px ${INNER_H}px, ${LEFT_NOTCH}px ${OUTER_H}px, 0 ${OUTER_H}px)`
 
   const isAccountMenuOpen = activeDesktopMenu === ACCOUNT_MENU_ID
-  const isWishlistOpen = activeDesktopMenu === WISHLIST_MENU_ID
-  const isCartOpen = activeDesktopMenu === CART_MENU_ID
 
   // Same reasoning as wishlistCount/cartCount above: wishlist.items and
   // cart.items are sourced client-side, so the server always sees an
-  // empty array here. Without gating on hasMounted, the client's first
-  // render can already have real items (if the context hydrates before
-  // this component's mount effect runs), producing a populated preview
-  // list where the server rendered the empty state — a hydration
-  // mismatch. Forcing an empty array until hasMounted keeps the first
-  // client render identical to SSR; the real preview swaps in on the
-  // next tick as an ordinary post-hydration update.
+  // empty array here. Forcing an empty array until hasMounted keeps the
+  // first client render identical to SSR; the real preview swaps in on
+  // the next tick as an ordinary post-hydration update.
   const wishlistPreview = hasMounted
     ? wishlist.items
         .slice()
@@ -422,17 +423,14 @@ export default function Header({ title, showBackButton = false, variant = "publi
               </nav>
             </div>
 
-            {/* Mobile actions — Wishlist/Cart/Account are now quiet icon-only
-                controls (no border/fill); only the menu toggle keeps the
-                boxed treatment, since it's the one control that expands
-                something. Heart and Bag open bottom-sheet previews
-                (matching the desktop dropdowns) instead of navigating away.
-                Account still goes straight to /account (or triggers login). */}
+            {/* Mobile actions — Wishlist/Cart/Account are quiet icon-only
+                controls. Heart and Bag open the shared SlideOverPanel
+                (same one desktop uses) instead of navigating away. */}
             <div className="flex lg:hidden flex-1 items-center justify-end gap-0.5 h-full">
               <button
                 type="button"
                 aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
-                onClick={() => setWishlistSheetOpen(true)}
+                onClick={() => setWishlistPanelOpen(true)}
                 className={`relative ${mobileIconQuietClass}`}
               >
                 <Heart className="w-[17px] h-[17px]" />
@@ -442,7 +440,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
               <button
                 type="button"
                 aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ""}`}
-                onClick={() => setCartSheetOpen(true)}
+                onClick={() => setCartPanelOpen(true)}
                 className={`relative ${mobileIconQuietClass}`}
               >
                 <ShoppingBag className="w-[17px] h-[17px]" />
@@ -473,119 +471,29 @@ export default function Header({ title, showBackButton = false, variant = "publi
               </button>
             </div>
 
-            {/* Right — desktop only. Wishlist/Cart preview panels render real
-                rows (thumbnail + title + price) sourced from
-                WishlistEntry/CartLineItem, sorted newest-first, capped at
-                PREVIEW_ITEM_LIMIT with a "View all" link when there's more. */}
+            {/* Right — desktop only. Wishlist/Cart now open the same
+                SlideOverPanel as mobile instead of a hover dropdown, so
+                behavior and visuals match across breakpoints. */}
             <div ref={actionsRef} className="hidden lg:flex items-center justify-end gap-2.5 flex-shrink-0 z-20 pl-2 h-full">
-              <div className="relative h-full flex items-center">
-                <button
-                  type="button"
-                  aria-label="Wishlist"
-                  aria-expanded={isWishlistOpen}
-                  onClick={() => setActiveDesktopMenu((prev) => (prev === WISHLIST_MENU_ID ? null : WISHLIST_MENU_ID))}
-                  className={`relative ${iconPillButtonClass}`}
-                >
-                  <Heart className="w-[18px] h-[18px]" />
-                  <CountBadge count={wishlistCount} />
-                </button>
-                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isWishlistOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
-                  <div className="rounded-2xl border border-teal/20 bg-parchment p-3 shadow-xl shadow-ink/10">
-                    {wishlistPreview.length > 0 ? (
-                      <>
-                        <div className="flex flex-col gap-1">
-                          {wishlistPreview.map((entry) => (
-                            <a
-                              key={entry.id}
-                              href={entry.url || "/account/wishlist"}
-                              className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
-                            >
-                              <ProductThumb image={entry.image} alt={entry.title} />
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-ink">{entry.title}</p>
-                                {entry.price && (
-                                  <p className="text-xs text-ink/55">
-                                    {entry.currencyCode ?? ""} {entry.price}
-                                  </p>
-                                )}
-                              </div>
-                            </a>
-                          ))}
-                        </div>
-                        <div className="mt-1 border-t border-ink/10 pt-2">
-                          <a href="/account/wishlist" className={`flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
-                            View wishlist ({wishlistCount})
-                            <ArrowLeft size={14} className="rotate-180" />
-                          </a>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="px-2 py-3">
-                        <p className="text-sm text-ink/60">Your wishlist is empty.</p>
-                        <a href="/account/wishlist" className={`mt-2 inline-block rounded text-sm font-semibold text-teal-deep hover:underline ${focusRing}`}>
-                          Browse products
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <button
+                type="button"
+                aria-label="Wishlist"
+                onClick={() => setWishlistPanelOpen(true)}
+                className={`relative ${iconPillButtonClass}`}
+              >
+                <Heart className="w-[18px] h-[18px]" />
+                <CountBadge count={wishlistCount} />
+              </button>
 
-              <div className="relative h-full flex items-center">
-                <button
-                  type="button"
-                  aria-label="Cart"
-                  aria-expanded={isCartOpen}
-                  onClick={() => setActiveDesktopMenu((prev) => (prev === CART_MENU_ID ? null : CART_MENU_ID))}
-                  className={`relative ${iconPillButtonClass}`}
-                >
-                  <ShoppingBag className="w-[18px] h-[18px]" />
-                  <CountBadge count={cartCount} />
-                </button>
-                <div className={`absolute right-0 top-full z-50 w-80 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isCartOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
-                  <div className="rounded-2xl border border-teal/20 bg-parchment p-3 shadow-xl shadow-ink/10">
-                    {cartPreview.length > 0 ? (
-                      <>
-                        <div className="flex flex-col gap-1">
-                          {cartPreview.map((line) => (
-                           <a 
-                              key={line.product.id}
-                              href={line.product.url || "/account/cart"}
-                              className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
-                            >
-                              <ProductThumb image={line.product.image} alt={line.product.title} />
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-ink">{line.product.title}</p>
-                                <div className="flex items-center gap-2 text-xs text-ink/55">
-                                  {line.product.estimatedPrice ? (
-                                    <span>{line.product.estimatedPrice}</span>
-                                  ) : line.product.sourcePrice ? (
-                                    <span>{line.product.currencyCode ?? ""} {line.product.sourcePrice}</span>
-                                  ) : null}
-                                  <span>· Qty {line.qty}</span>
-                                </div>
-                              </div>
-                            </a>
-                          ))}
-                        </div>
-                        <div className="mt-1 border-t border-ink/10 pt-2">
-                          <a href="/account/cart" className={`flex items-center justify-between rounded-xl px-2 py-2 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
-                            View cart ({cartCount})
-                            <ArrowLeft size={14} className="rotate-180" />
-                          </a>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="px-2 py-3">
-                        <p className="text-sm text-ink/60">Your cart is empty.</p>
-                        <a href="/account/cart" className={`mt-2 inline-block rounded text-sm font-semibold text-teal-deep hover:underline ${focusRing}`}>
-                          Start shopping
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <button
+                type="button"
+                aria-label="Cart"
+                onClick={() => setCartPanelOpen(true)}
+                className={`relative ${iconPillButtonClass}`}
+              >
+                <ShoppingBag className="w-[18px] h-[18px]" />
+                <CountBadge count={cartCount} />
+              </button>
 
               {isAuthenticated ? (
                 <div className="relative h-full flex items-center">
@@ -729,9 +637,9 @@ export default function Header({ title, showBackButton = false, variant = "publi
 
       <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} />
 
-      <PreviewBottomSheet
-        open={wishlistSheetOpen}
-        onClose={() => setWishlistSheetOpen(false)}
+      <SlideOverPanel
+        open={wishlistPanelOpen}
+        onClose={() => setWishlistPanelOpen(false)}
         title="Wishlist"
         icon={<Heart size={18} className="text-teal-deep" />}
         isEmpty={wishlistPreview.length === 0}
@@ -745,8 +653,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
           <a
             key={entry.id}
             href={entry.url || "/account/wishlist"}
-            onClick={() => setWishlistSheetOpen(false)}
-            className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+            onClick={() => setWishlistPanelOpen(false)}
+            className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-card p-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
           >
             <ProductThumb image={entry.image} alt={entry.title} />
             <div className="min-w-0 flex-1">
@@ -759,11 +667,11 @@ export default function Header({ title, showBackButton = false, variant = "publi
             </div>
           </a>
         ))}
-      </PreviewBottomSheet>
+      </SlideOverPanel>
 
-      <PreviewBottomSheet
-        open={cartSheetOpen}
-        onClose={() => setCartSheetOpen(false)}
+      <SlideOverPanel
+        open={cartPanelOpen}
+        onClose={() => setCartPanelOpen(false)}
         title="Cart"
         icon={<ShoppingBag size={18} className="text-teal-deep" />}
         isEmpty={cartPreview.length === 0}
@@ -772,13 +680,22 @@ export default function Header({ title, showBackButton = false, variant = "publi
         emptyCta="Start shopping"
         viewAllHref="/account/cart"
         viewAllLabel={`View cart (${cartCount})`}
+        footer={
+          // Same CTA the product page uses (ProductActions / ProductRequestButton's
+          // "CHECKOUT" button) instead of the store catalog page's WhatsApp
+          // button — the header cart spans stores, so it hands off to
+          // /account/cart to actually complete the order.
+          <a href="/account/cart" onClick={() => setCartPanelOpen(false)} className={checkoutButtonClass}>
+            CHECKOUT
+          </a>
+        }
       >
         {cartPreview.map((line) => (
           <a
             key={line.product.id}
             href={line.product.url || "/account/cart"}
-            onClick={() => setCartSheetOpen(false)}
-            className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+            onClick={() => setCartPanelOpen(false)}
+            className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-card p-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
           >
             <ProductThumb image={line.product.image} alt={line.product.title} />
             <div className="min-w-0 flex-1">
@@ -794,7 +711,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
             </div>
           </a>
         ))}
-      </PreviewBottomSheet>
+      </SlideOverPanel>
     </>
   )
 }
