@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import Header from '@/components/shared/Header'
 import Footer from '@/components/landing/Footer'
-import ChatButton from '@/components/landing/ChatButton'
-import ChatPanel from '@/components/landing/ChatPanel'
+import ChatButton from '@/components/shared/ChatButton'
+import ChatPanel from '@/components/shared/ChatPanel'
 import { ChatProvider } from '@/contexts/ChatContext'
 
 // Header is `fixed`, so it doesn't reserve space in normal document flow —
