@@ -6,6 +6,12 @@ interface AuthUser {
   name: string
   email: string
   imageUrl?: string
+  // Customer-facing chat handle (e.g. "@safnas"). Optional and
+  // editable — think account-settings field, same pattern as a
+  // Slack/Discord display name. Falls back to a derived handle in
+  // ChatContext if unset, so this can roll out before the settings UI
+  // that lets customers change it does.
+  chatHandle?: string
 }
 
 interface AuthContextValue {
@@ -18,7 +24,12 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 // Swap this out for a real session once auth is wired up.
-const MOCK_USER: AuthUser = { name: "Safnas Kaldeen", email: "safnas@gmail.com", imageUrl: "/default-avatar.png" }
+const MOCK_USER: AuthUser = {
+  name: "Safnas Kaldeen",
+  email: "safnas@gmail.com",
+  imageUrl: "/default-avatar.png",
+  chatHandle: "@safnas",
+}
 
 interface AuthProviderProps {
   children: ReactNode

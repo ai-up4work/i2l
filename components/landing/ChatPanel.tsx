@@ -1,9 +1,9 @@
-// components/landing/ChatPanel.tsx
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { MessageCircle, Send, X } from 'lucide-react'
+import { MessageCircle, Phone, Send, X } from 'lucide-react'
 import { useChat } from '@/contexts/ChatContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -22,7 +22,6 @@ function formatDateLabel(ts: number) {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
-/** Groups messages under date-separator labels, WhatsApp-style. */
 function groupByDay(messages: { id: string; createdAt: number }[]) {
   const groups: { label: string; ids: string[] }[] = []
   for (const m of messages) {
@@ -44,13 +43,14 @@ export default function ChatPanel({
   positionClassName?: string
   hidden?: boolean
 }) {
-  const { isOpen, closeChat, messages, sendMessage, markRead } = useChat()
+  const { isOpen, closeChat, messages, sendMessage, markRead, isLocked, handle, getWhatsAppLink } = useChat()
+  const { login } = useAuth()
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (isOpen) markRead()
-  }, [isOpen, markRead])
+    if (isOpen && !isLocked) markRead()
+  }, [isOpen, isLocked, markRead])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -74,8 +74,6 @@ export default function ChatPanel({
       aria-modal="true"
       aria-label="Chat with WishDrop support"
     >
-      {/* Single-contact header, WhatsApp-style — an avatar + name + status,
-          not a thread picker, since there's only ever one conversation. */}
       <div className="flex items-center justify-between bg-indigo px-4 py-3.5">
         <div className="flex items-center gap-3">
           <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-teal-deep text-parchment">
@@ -83,25 +81,45 @@ export default function ChatPanel({
           </span>
           <div>
             <p className="font-display text-sm font-semibold text-parchment">WishDrop Support</p>
-            <p className="font-body text-[11px] text-parchment/55">Typically replies within a few hours</p>
+            <p className="font-body text-[11px] text-parchment/55">
+              {handle ? `Chatting as ${handle}` : 'Typically replies within a few hours'}
+            </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={closeChat}
-          aria-label="Close chat"
-          className="rounded-full p-1.5 text-parchment/70 transition-colors hover:bg-parchment/10 hover:text-parchment"
-        >
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Always-available WhatsApp handoff — visible whether logged
+              in or locked out, per the requirement that this option
+              isn't just a fallback for anonymous users. */}
+          <a
+            href={getWhatsAppLink()}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Continue on WhatsApp"
+            title="Continue on WhatsApp"
+            className="rounded-full p-1.5 text-parchment/70 transition-colors hover:bg-parchment/10 hover:text-parchment"
+          >
+            <Phone size={16} />
+          </a>
+          <button
+            type="button"
+            onClick={closeChat}
+            aria-label="Close chat"
+            className="rounded-full p-1.5 text-parchment/70 transition-colors hover:bg-parchment/10 hover:text-parchment"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
-      {/* One continuous scrollback — every request/link/question the
-          customer has ever sent lives in this same timeline, the way a
-          real WhatsApp conversation with a single business contact
-          would, rather than being split into separate thread screens. */}
       <div ref={scrollRef} className="flex-1 space-y-1 overflow-y-auto bg-parchment p-3">
-        {messages.length === 0 ? (
+        {isLocked ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center px-4">
+            <MessageCircle size={28} className="text-ink/20" strokeWidth={1.4} />
+            <p className="font-body text-sm text-ink/50">
+              Sign in to chat with us — or continue the conversation on WhatsApp instead.
+            </p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <MessageCircle size={28} className="text-ink/20" strokeWidth={1.4} />
             <p className="font-body text-sm text-ink/50">
@@ -144,25 +162,45 @@ export default function ChatPanel({
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-ink/10 bg-parchment p-2.5">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Type a message, or paste a link..."
-          className="flex-1 rounded-full border border-ink/15 bg-card px-4 py-2.5 font-body text-sm text-ink placeholder:text-ink/35 focus:border-teal-deep focus:outline-none focus:ring-2 focus:ring-teal/20"
-        />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={!draft.trim()}
-          aria-label="Send message"
-          className="grid h-10 w-10 flex-none place-items-center rounded-full bg-teal-deep text-parchment transition-colors hover:bg-indigo-deep disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Send size={15} />
-        </button>
-      </div>
+      {isLocked ? (
+        <div className="flex flex-col gap-2 border-t border-ink/10 bg-parchment p-3">
+          <button
+            type="button"
+            onClick={login}
+            className="rounded-full bg-teal-deep py-2.5 font-body text-sm font-semibold text-parchment transition-colors hover:bg-indigo-deep"
+          >
+            Log in to chat
+          </button>
+          <a
+            href={getWhatsAppLink()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-ink/15 py-2.5 text-center font-body text-sm font-semibold text-ink/70 transition-colors hover:bg-ink/[0.03]"
+          >
+            Continue on WhatsApp
+          </a>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 border-t border-ink/10 bg-parchment p-2.5">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Type a message, or paste a link..."
+            className="flex-1 rounded-full border border-ink/15 bg-card px-4 py-2.5 font-body text-sm text-ink placeholder:text-ink/35 focus:border-teal-deep focus:outline-none focus:ring-2 focus:ring-teal/20"
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!draft.trim()}
+            aria-label="Send message"
+            className="grid h-10 w-10 flex-none place-items-center rounded-full bg-teal-deep text-parchment transition-colors hover:bg-indigo-deep disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Send size={15} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
