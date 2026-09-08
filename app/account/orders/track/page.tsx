@@ -724,29 +724,6 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
         </>
       )}
 
-      {/* Delivering-to strip stays visible regardless of active tab */}
-      {!isCancelled && (
-        <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-card p-4">
-          <div className="flex items-center gap-3">
-            <MapPin className="h-5 w-5 flex-none text-ink/40" />
-            <div>
-              <p className="text-xs font-medium text-ink/50">Delivering to</p>
-              <p className="text-sm font-semibold text-ink">{recipient.name}</p>
-              <p className="text-xs text-ink/50">
-                {recipient.city}, {recipient.country}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setActiveTab('Delivery')}
-            className="flex items-center gap-1 rounded-full border border-ink/15 px-4 py-2 text-xs font-semibold text-ink hover:border-teal/50"
-          >
-            View delivery details
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
     </div>
   )
 }
