@@ -17,6 +17,7 @@
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cn": "^0.2.6",
     "domhandler": "^6.0.1",
     "dompurify": "^3.4.15",
     "flag-icons": "^7.5.0",

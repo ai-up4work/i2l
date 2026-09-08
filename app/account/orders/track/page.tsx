@@ -7,6 +7,8 @@ import {
   Calendar,
   Check,
   Compass,
+  Copy,
+  ExternalLink,
   MapPin,
   Package,
   PackageCheck,
@@ -19,6 +21,7 @@ import {
   OrdersProvider,
   useOrders,
   itemMeta,
+  orderTotal,
   getOrderRecipient,
   getOrderTimeline,
   getTodayLabel,
@@ -37,6 +40,9 @@ const TIMELINE_ICONS: Record<TimelineIconKey, React.ComponentType<{ className?: 
   shipped: Truck,
   delivered: PackageCheck,
 }
+
+const DETAIL_TABS = ['Tracking', 'Details', 'Delivery'] as const
+type DetailTab = (typeof DETAIL_TABS)[number]
 
 function statusHeadline(status: Order['status']) {
   switch (status) {
@@ -146,8 +152,14 @@ function TrackOrderContent() {
   const { orders, getOrderById } = useOrders()
   const [query, setQuery] = useState(orderId ?? '')
 
-  const order = orderId ? getOrderById(orderId) : undefined
-  const notFound = !!orderId && !order
+  const explicitOrder = orderId ? getOrderById(orderId) : undefined
+  const notFound = !!orderId && !explicitOrder
+
+  // No order specified in the URL: if the customer only has one order,
+  // just show it directly — there's nothing to choose between. If they
+  // have more than one, we ask which one instead of guessing.
+  const resolvedOrder = explicitOrder ?? (!orderId && orders.length === 1 ? orders[0] : undefined)
+  const needsSelection = !orderId && orders.length > 1
 
   const handleTrack = () => {
     const trimmed = query.trim()
@@ -169,7 +181,11 @@ function TrackOrderContent() {
 
         {/* Header */}
         <h1 className="mt-4 font-display text-4xl font-semibold text-indigo">Track your order</h1>
-        <p className="mt-1.5 text-sm text-ink/70">Enter your order number to see the latest updates.</p>
+        <p className="mt-1.5 text-sm text-ink/70">
+          {needsSelection
+            ? 'Choose an order below, or search by order number.'
+            : 'Enter your order number to see the latest updates.'}
+        </p>
 
         {/* Search */}
         <div className="mt-6 flex gap-3">
@@ -201,9 +217,22 @@ function TrackOrderContent() {
           </div>
         )}
 
-        {order && <OrderTrackingDetail order={order} />}
+        {resolvedOrder && <OrderTrackingDetail order={resolvedOrder} />}
 
-        {!order && <RecentOrders orders={orders} onSelect={(id) => router.push(`/account/orders/track?order=${id}`)} />}
+        {needsSelection && (
+          <OrderPicker orders={orders} onSelect={(id) => router.push(`/account/orders/track?order=${id}`)} />
+        )}
+
+        {!orderId && orders.length === 0 && <NoOrdersEmptyState onBrowse={() => router.push('/')} />}
+
+        {/* When tracking a specific order and there's more than one on the
+            account, surface the rest as a lightweight fallback list too. */}
+        {explicitOrder && orders.length > 1 && (
+          <RecentOrders
+            orders={orders.filter((o) => o.id !== explicitOrder.id)}
+            onSelect={(id) => router.push(`/account/orders/track?order=${id}`)}
+          />
+        )}
 
         <GoodHandsBanner />
       </div>
@@ -211,7 +240,66 @@ function TrackOrderContent() {
   )
 }
 
+function OrderPicker({ orders, onSelect }: { orders: Order[]; onSelect: (id: string) => void }) {
+  return (
+    <div className="mt-8">
+      <h2 className="text-sm font-semibold text-ink/60">Which order would you like to track?</h2>
+      <div className="mt-3 divide-y divide-ink/8 rounded-2xl border border-ink/10 bg-card">
+        {orders.map((order) => {
+          const primary = order.items[0]
+          return (
+            <button
+              key={order.id}
+              type="button"
+              onClick={() => onSelect(order.id)}
+              className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink/[0.03]"
+            >
+              <img
+                src={primary.image}
+                alt={primary.name}
+                className="h-14 w-14 flex-none rounded-2xl bg-ink/5 object-cover"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-ink">
+                  {order.items.length > 1 ? `${order.items.length} items` : primary.name}
+                </p>
+                <p className="mt-0.5 text-xs text-ink/50">
+                  Order #{order.id} · {order.date}
+                </p>
+              </div>
+              <span className={`flex-none rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
+                {order.status}
+              </span>
+              <ArrowRight className="h-4 w-4 flex-none text-ink/30" />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function NoOrdersEmptyState({ onBrowse }: { onBrowse: () => void }) {
+  return (
+    <div className="mt-8 flex flex-col items-center gap-3 rounded-3xl border border-dashed border-ink/15 bg-card p-10 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink/5 text-ink/40">
+        <Package className="h-6 w-6" />
+      </div>
+      <p className="text-sm font-semibold text-ink">You don&apos;t have any orders yet</p>
+      <p className="text-xs text-ink/50">Once you place an order, you&apos;ll be able to track it here.</p>
+      <button
+        type="button"
+        onClick={onBrowse}
+        className="mt-1 rounded-full bg-teal-deep px-5 py-2.5 text-xs font-semibold text-white hover:opacity-90"
+      >
+        Start shopping
+      </button>
+    </div>
+  )
+}
+
 function OrderTrackingDetail({ order }: { order: Order }) {
+  const [activeTab, setActiveTab] = useState<DetailTab>('Tracking')
   const currentIndex = shippingStepIndex(order.status)
   const isCancelled = order.status === 'Cancelled'
   const recipient = getOrderRecipient(order)
@@ -220,11 +308,16 @@ function OrderTrackingDetail({ order }: { order: Order }) {
   const primary = order.items[0]
   const headerLabel = timeline[0]?.date === today ? `Today, ${today}` : timeline[0]?.date
 
+  const currencySymbol = order.currency === 'LKR' ? 'Rs.' : '₹'
+  const total = orderTotal(order)
+
+  const copyTrackingNumber = () => {
+    if (order.trackingNumber) navigator.clipboard.writeText(order.trackingNumber)
+  }
+
   return (
     <div className="mt-8">
-      {/* Order summary card — the hero element: larger radius, more air,
-          image sized and rounded to feel like one cohesive object rather
-          than a small chip dropped into a bigger card. */}
+      {/* Order summary card */}
       <div className="flex flex-col gap-5 rounded-3xl border border-ink/10 bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-5">
           <img
@@ -305,63 +398,231 @@ function OrderTrackingDetail({ order }: { order: Order }) {
         </>
       )}
 
-      {/* Tracking timeline */}
-      {!isCancelled && timeline.length > 0 && (
-        <div className="mt-9">
-          <h2 className="font-display text-xl text-ink">Tracking timeline</h2>
-          {headerLabel && <p className="mt-1.5 text-xs font-medium text-teal-deep">{headerLabel}</p>}
-          <div className="mt-4">
-            {timeline.map((event, i) => {
-              const Icon = TIMELINE_ICONS[event.icon]
-              const isCurrent = i === 0
-              const isLast = i === timeline.length - 1
-              return (
-                <div key={i} className="flex gap-4">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`flex h-8 w-8 flex-none items-center justify-center rounded-full ${
-                        isCurrent ? 'bg-teal text-white' : 'border-2 border-ink/15 text-ink/40'
-                      }`}
-                    >
-                      <Icon className="h-4 w-4" />
+      {!isCancelled && (
+        <>
+          {/* Section tabs — Tracking / Details / Delivery live inline on the
+              page now, no modal. */}
+          <div className="mt-9 flex gap-2 border-b border-ink/10">
+            {DETAIL_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={`relative -mb-px flex items-center gap-1.5 px-1 pb-3 text-sm font-semibold transition-colors ${
+                  activeTab === tab ? 'text-teal-deep' : 'text-ink/45 hover:text-ink/70'
+                }`}
+              >
+                {tab === 'Tracking' && <Truck className="h-4 w-4" />}
+                {tab === 'Details' && <Package className="h-4 w-4" />}
+                {tab === 'Delivery' && <MapPin className="h-4 w-4" />}
+                {tab}
+                {activeTab === tab && (
+                  <span className="absolute -bottom-px left-0 h-0.5 w-full rounded-full bg-teal-deep" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Tracking tab */}
+          {activeTab === 'Tracking' && (
+            <div className="mt-7">
+              {(order.carrier || order.trackingNumber) && (
+                <div className="rounded-2xl border border-ink/10 bg-card p-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-medium text-ink/50">Carrier</p>
+                      <p className="mt-1 text-sm font-semibold text-ink">{order.carrier ?? 'Not yet assigned'}</p>
                     </div>
-                    {!isLast && <div className={`w-0.5 flex-1 ${isCurrent ? 'bg-teal/50' : 'bg-ink/10'}`} />}
+                    <div>
+                      <p className="text-xs font-medium text-ink/50">Tracking number</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <p className="font-mono text-sm font-semibold text-ink">
+                          {order.trackingNumber ?? 'Not yet assigned'}
+                        </p>
+                        {order.trackingNumber && (
+                          <button
+                            type="button"
+                            onClick={copyTrackingNumber}
+                            className="rounded-full p-1 text-ink/40 hover:bg-ink/5 hover:text-ink"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className={isLast ? 'pb-1' : 'pb-6'}>
-                    <p className="text-sm font-semibold text-ink">{event.title}</p>
-                    {event.subtitle && <p className="text-xs text-ink/50">{event.subtitle}</p>}
-                    <p className="mt-0.5 text-xs text-ink/40">
-                      {event.date === today ? event.time : `${event.date} · ${event.time}`}
-                    </p>
+                  {order.trackingNumber && (
+                    <button
+                      type="button"
+                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 py-2.5 text-xs font-semibold text-ink hover:border-teal/50"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Track on carrier site
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {timeline.length > 0 && (
+                <>
+                  {headerLabel && <p className="mt-6 text-xs font-medium text-teal-deep">{headerLabel}</p>}
+                  <div className="mt-3">
+                    {timeline.map((event, i) => {
+                      const Icon = TIMELINE_ICONS[event.icon]
+                      const isCurrent = i === 0
+                      const isLast = i === timeline.length - 1
+                      return (
+                        <div key={i} className="flex gap-4">
+                          <div className="flex flex-col items-center">
+                            <div
+                              className={`flex h-8 w-8 flex-none items-center justify-center rounded-full ${
+                                isCurrent ? 'bg-teal text-white' : 'border-2 border-ink/15 text-ink/40'
+                              }`}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            {!isLast && <div className={`w-0.5 flex-1 ${isCurrent ? 'bg-teal/50' : 'bg-ink/10'}`} />}
+                          </div>
+                          <div className={isLast ? 'pb-1' : 'pb-6'}>
+                            <p className="text-sm font-semibold text-ink">{event.title}</p>
+                            {event.subtitle && <p className="text-xs text-ink/50">{event.subtitle}</p>}
+                            <p className="mt-0.5 text-xs text-ink/40">
+                              {event.date === today ? event.time : `${event.date} · ${event.time}`}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Details tab */}
+          {activeTab === 'Details' && (
+            <div className="mt-7 space-y-4">
+              <div className="rounded-2xl border border-ink/10 bg-card p-5">
+                <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink">
+                  <Package className="h-4 w-4 text-ink/40" />
+                  Order information
+                </h3>
+                <div className="space-y-2.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-ink/50">Order number</span>
+                    <span className="font-mono font-medium text-ink">#{order.id}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-ink/50">Order date</span>
+                    <span className="font-medium text-ink">{order.date}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-ink/50">Status</span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
+                      {order.status}
+                    </span>
+                  </div>
+                  <div className="mt-1 border-t border-ink/10 pt-2.5 flex justify-between">
+                    <span className="text-ink/50">Total</span>
+                    <span className="font-semibold text-ink">
+                      {currencySymbol} {total.toLocaleString()}
+                    </span>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+              </div>
 
-      {/* Delivery details */}
-      {!isCancelled && (
-        <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-card p-4">
-          <div className="flex items-center gap-3">
-            <MapPin className="h-5 w-5 flex-none text-ink/40" />
-            <div>
-              <p className="text-xs font-medium text-ink/50">Delivering to</p>
-              <p className="text-sm font-semibold text-ink">{recipient.name}</p>
-              <p className="text-xs text-ink/50">
-                {recipient.city}, {recipient.country}
-              </p>
+              <div className="rounded-2xl border border-ink/10 bg-card p-5">
+                <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink">
+                  <Package className="h-4 w-4 text-ink/40" />
+                  Items ({order.items.length})
+                </h3>
+                <div className="space-y-4">
+                  {order.items.map((item, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="h-12 w-12 flex-none rounded-xl bg-ink/5 object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink">{item.name}</p>
+                        <p className="text-xs text-ink/50">{itemMeta(item)}</p>
+                      </div>
+                      <p className="flex-none text-sm font-semibold text-ink">
+                        {currencySymbol} {(item.qty * item.unitPrice).toLocaleString()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2.5 sm:flex-row">
+                <button
+                  type="button"
+                  className="flex-1 rounded-full border border-ink/15 py-2.5 text-sm font-semibold text-ink hover:border-teal/50"
+                >
+                  View invoice
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded-full border border-ink/15 py-2.5 text-sm font-semibold text-ink hover:border-teal/50"
+                >
+                  Contact support
+                </button>
+                {order.status === 'Delivered' && (
+                  <button
+                    type="button"
+                    className="flex-1 rounded-full bg-teal-deep py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Return or exchange
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-full border border-ink/15 px-4 py-2 text-xs font-semibold text-ink hover:border-teal/50"
-          >
-            View delivery details
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
+          )}
+
+          {/* Delivery tab */}
+          {activeTab === 'Delivery' && (
+            <div className="mt-7 space-y-4">
+              <div className="rounded-2xl border border-ink/10 bg-card p-5">
+                <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink">
+                  <MapPin className="h-4 w-4 text-ink/40" />
+                  Delivery address
+                </h3>
+                <div className="space-y-0.5 text-sm">
+                  <p className="font-medium text-ink">{recipient.name}</p>
+                  <p className="text-ink/60">
+                    {recipient.city}, {recipient.country}
+                  </p>
+                </div>
+              </div>
+
+              {order.estimatedDelivery && (
+                <div className="rounded-2xl border border-ink/10 bg-card p-5">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
+                    <Calendar className="h-4 w-4 text-ink/40" />
+                    Estimated delivery
+                  </h3>
+                  <p className="text-sm text-ink/60">{order.estimatedDelivery}</p>
+                </div>
+              )}
+
+              {order.status === 'Delivered' && (
+                <div className="rounded-2xl border border-teal/20 bg-teal/8 p-5">
+                  <div className="flex items-start gap-3">
+                    <PackageCheck className="mt-0.5 h-5 w-5 flex-none text-teal-deep" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-ink">Delivery confirmed</h4>
+                      <p className="mt-1 text-sm text-ink/60">
+                        Your package was delivered to {recipient.name} in {recipient.city}.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -371,10 +632,7 @@ function RecentOrders({ orders, onSelect }: { orders: Order[]; onSelect: (id: st
   if (orders.length === 0) return null
   return (
     <div className="mt-10">
-      <h2 className="text-sm font-semibold text-ink/60">Or choose from your recent orders</h2>
-      {/* Lighter, divider-based list instead of another stack of bordered
-          cards — keeps this a quiet fallback rather than competing with
-          the tracking detail above it. */}
+      <h2 className="text-sm font-semibold text-ink/60">Or track a different order</h2>
       <div className="mt-3 divide-y divide-ink/8 rounded-2xl border border-ink/10 bg-card">
         {orders.slice(0, 4).map((order) => {
           const primary = order.items[0]
