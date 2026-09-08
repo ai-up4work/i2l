@@ -1,24 +1,3 @@
-/**
- * app/account/orders/track/page.tsx
- *
- * Order tracking page — search-first design matching the "Track Your Order"
- * reference screen: a search box up top (backed by the `?order=` query
- * param) and, once an order is found, the full tracking detail (summary
- * card, status stepper, status banner, tracking timeline, delivery info)
- * rendered below it. A short "recent orders" list is shown when nothing is
- * being tracked yet, purely for discoverability — it disappears as soon as
- * an order is loaded, so it never competes with the tracking detail.
- *
- * Data comes from the same OrdersProvider/useOrders context used by
- * app/account/orders/page.tsx, so this page always reflects the same order
- * list. Swap MOCK_ORDERS in contexts/Ordercontexts.tsx for a real
- * fetch/query and this page keeps working as-is — recipient/timeline for
- * any order without hand-authored values are synthesized automatically by
- * getOrderRecipient()/getOrderTimeline().
- *
- * `useSearchParams` requires a <Suspense> boundary in the App Router, hence
- * the split between the default export and TrackOrderContent.
- */
 'use client'
 
 import { Suspense, useState } from 'react'
@@ -88,26 +67,20 @@ function TrackOrderSkeleton() {
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
       <div className="mx-auto max-w-6xl animate-pulse px-6 py-8 pb-16">
-        {/* Breadcrumb */}
         <div className="h-3 w-40 rounded bg-ink/10" />
-
-        {/* Header */}
         <div className="mt-5 h-9 w-72 rounded bg-ink/10" />
         <div className="mt-2.5 h-4 w-80 rounded bg-ink/10" />
 
-        {/* Search */}
         <div className="mt-6 flex gap-3">
           <div className="h-12 flex-1 rounded-full bg-ink/10" />
           <div className="h-12 w-28 flex-none rounded-full bg-ink/10" />
         </div>
 
-        {/* Order summary card */}
-        <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-ink/10 bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-ink/10 bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-16 w-16 flex-none rounded-xl bg-ink/10" />
+            <div className="h-20 w-20 flex-none rounded-2xl bg-ink/10" />
             <div>
               <div className="h-3 w-24 rounded bg-ink/10" />
-              <div className="mt-2 h-3 w-16 rounded bg-ink/10" />
               <div className="mt-2.5 h-4 w-40 rounded bg-ink/10" />
               <div className="mt-2 h-3 w-28 rounded bg-ink/10" />
             </div>
@@ -118,7 +91,6 @@ function TrackOrderSkeleton() {
           </div>
         </div>
 
-        {/* Status stepper */}
         <div className="mt-7 flex justify-between px-1">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="flex flex-1 flex-col items-center gap-2">
@@ -128,7 +100,6 @@ function TrackOrderSkeleton() {
           ))}
         </div>
 
-        {/* Status banner */}
         <div className="mt-6 flex items-center gap-4 rounded-2xl bg-ink/5 p-4">
           <div className="h-10 w-10 flex-none rounded-full bg-ink/10" />
           <div className="flex-1">
@@ -137,7 +108,6 @@ function TrackOrderSkeleton() {
           </div>
         </div>
 
-        {/* Tracking timeline */}
         <div className="mt-8">
           <div className="h-5 w-40 rounded bg-ink/10" />
           <div className="mt-3 h-3 w-24 rounded bg-ink/10" />
@@ -154,7 +124,6 @@ function TrackOrderSkeleton() {
           </div>
         </div>
 
-        {/* Delivery details */}
         <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-card p-4">
           <div className="flex items-center gap-3">
             <div className="h-5 w-5 flex-none rounded bg-ink/10" />
@@ -191,19 +160,15 @@ function TrackOrderContent() {
       <div className="mx-auto max-w-6xl px-6 py-8 pb-16">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-xs text-ink/60">
-          <button
-            type="button"
-            onClick={() => router.push('/account/orders')}
-            className="hover:text-ink"
-          >
+          <button type="button" onClick={() => router.push('/account/orders')} className="hover:text-ink">
             Account
           </button>
           <span>›</span>
-          <span className="text-ink">Tracking My Orders</span>
+          <span className="text-ink">Tracking my orders</span>
         </nav>
 
         {/* Header */}
-        <h1 className="mt-4 font-display text-4xl font-semibold text-indigo">Track Your Order</h1>
+        <h1 className="mt-4 font-display text-4xl font-semibold text-indigo">Track your order</h1>
         <p className="mt-1.5 text-sm text-ink/70">Enter your order number to see the latest updates.</p>
 
         {/* Search */}
@@ -238,12 +203,7 @@ function TrackOrderContent() {
 
         {order && <OrderTrackingDetail order={order} />}
 
-        {!order && (
-          <RecentOrders
-            orders={orders}
-            onSelect={(id) => router.push(`/account/orders/track?order=${id}`)}
-          />
-        )}
+        {!order && <RecentOrders orders={orders} onSelect={(id) => router.push(`/account/orders/track?order=${id}`)} />}
 
         <GoodHandsBanner />
       </div>
@@ -258,25 +218,26 @@ function OrderTrackingDetail({ order }: { order: Order }) {
   const timeline = getOrderTimeline(order)
   const today = getTodayLabel()
   const primary = order.items[0]
-  const headerLabel = timeline[0]?.date === today ? `Today · ${today}` : timeline[0]?.date
+  const headerLabel = timeline[0]?.date === today ? `Today, ${today}` : timeline[0]?.date
 
   return (
     <div className="mt-8">
-      {/* Order summary card */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-ink/10 bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
+      {/* Order summary card — the hero element: larger radius, more air,
+          image sized and rounded to feel like one cohesive object rather
+          than a small chip dropped into a bigger card. */}
+      <div className="flex flex-col gap-5 rounded-3xl border border-ink/10 bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-5">
           <img
             src={primary.image}
             alt={primary.name}
-            className="h-16 w-16 flex-none rounded-xl bg-ink/5 object-cover"
+            className="h-20 w-20 flex-none rounded-2xl bg-ink/5 object-cover"
           />
           <div>
-            <div className="text-xs font-semibold tracking-wide text-ink">ORDER #{order.id}</div>
-            <div className="mt-0.5 text-xs text-ink/50">{order.date}</div>
-            <div className="mt-1.5 font-display text-lg text-ink">
+            <div className="text-xs font-medium text-ink/50">Order #{order.id} · {order.date}</div>
+            <div className="mt-1.5 font-display text-xl leading-tight text-ink">
               {order.items.length > 1 ? `${order.items.length} items` : primary.name}
             </div>
-            {order.items.length === 1 && <div className="text-xs text-ink/60">{itemMeta(primary)}</div>}
+            {order.items.length === 1 && <div className="mt-0.5 text-xs text-ink/60">{itemMeta(primary)}</div>}
           </div>
         </div>
 
@@ -298,11 +259,11 @@ function OrderTrackingDetail({ order }: { order: Order }) {
       ) : (
         <>
           {/* Status stepper */}
-          <div className="relative mt-7 flex justify-between px-1">
+          <div className="relative mt-8 flex justify-between px-1">
             {SHIPPING_FLOW.map((step, i) => (
               <div key={step} className="relative flex flex-1 flex-col items-center text-center">
                 <div
-                  className={`z-10 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
+                  className={`z-10 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-colors ${
                     i < currentIndex
                       ? 'bg-teal text-white'
                       : i === currentIndex
@@ -321,7 +282,7 @@ function OrderTrackingDetail({ order }: { order: Order }) {
                     }}
                   />
                 )}
-                <span className={`mt-2 text-[11px] font-medium ${i <= currentIndex ? 'text-ink' : 'text-ink/40'}`}>
+                <span className={`mt-2.5 text-[11px] font-medium ${i <= currentIndex ? 'text-ink' : 'text-ink/40'}`}>
                   {step}
                 </span>
               </div>
@@ -330,7 +291,7 @@ function OrderTrackingDetail({ order }: { order: Order }) {
 
           {/* Status banner */}
           {order.note && (
-            <div className="mt-6 flex items-center gap-4 rounded-2xl bg-teal/8 p-4">
+            <div className="mt-7 flex items-center gap-4 rounded-2xl bg-teal/8 p-4">
               <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-teal/15 text-teal-deep">
                 <ShieldCheck className="h-5 w-5" />
               </div>
@@ -346,12 +307,10 @@ function OrderTrackingDetail({ order }: { order: Order }) {
 
       {/* Tracking timeline */}
       {!isCancelled && timeline.length > 0 && (
-        <div className="mt-8">
-          <h2 className="font-display text-xl text-ink">Tracking Timeline</h2>
-          {headerLabel && (
-            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-teal-deep">{headerLabel}</p>
-          )}
-          <div className="mt-3">
+        <div className="mt-9">
+          <h2 className="font-display text-xl text-ink">Tracking timeline</h2>
+          {headerLabel && <p className="mt-1.5 text-xs font-medium text-teal-deep">{headerLabel}</p>}
+          <div className="mt-4">
             {timeline.map((event, i) => {
               const Icon = TIMELINE_ICONS[event.icon]
               const isCurrent = i === 0
@@ -384,11 +343,11 @@ function OrderTrackingDetail({ order }: { order: Order }) {
 
       {/* Delivery details */}
       {!isCancelled && (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-card p-4">
+        <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-card p-4">
           <div className="flex items-center gap-3">
             <MapPin className="h-5 w-5 flex-none text-ink/40" />
             <div>
-              <p className="text-[11px] font-semibold tracking-wide text-ink/50">DELIVERING TO</p>
+              <p className="text-xs font-medium text-ink/50">Delivering to</p>
               <p className="text-sm font-semibold text-ink">{recipient.name}</p>
               <p className="text-xs text-ink/50">
                 {recipient.city}, {recipient.country}
@@ -411,9 +370,12 @@ function OrderTrackingDetail({ order }: { order: Order }) {
 function RecentOrders({ orders, onSelect }: { orders: Order[]; onSelect: (id: string) => void }) {
   if (orders.length === 0) return null
   return (
-    <div className="mt-8">
+    <div className="mt-10">
       <h2 className="text-sm font-semibold text-ink/60">Or choose from your recent orders</h2>
-      <div className="mt-3 flex flex-col gap-2.5">
+      {/* Lighter, divider-based list instead of another stack of bordered
+          cards — keeps this a quiet fallback rather than competing with
+          the tracking detail above it. */}
+      <div className="mt-3 divide-y divide-ink/8 rounded-2xl border border-ink/10 bg-card">
         {orders.slice(0, 4).map((order) => {
           const primary = order.items[0]
           return (
@@ -421,7 +383,7 @@ function RecentOrders({ orders, onSelect }: { orders: Order[]; onSelect: (id: st
               key={order.id}
               type="button"
               onClick={() => onSelect(order.id)}
-              className="flex items-center gap-4 rounded-xl border border-ink/10 bg-card p-3.5 text-left transition-colors hover:border-teal/50"
+              className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink/[0.03]"
             >
               <img
                 src={primary.image}
