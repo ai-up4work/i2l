@@ -42,7 +42,7 @@ export type ChatMessage = {
 const STORAGE_PREFIX = 'wishdrop_platform_chat_v2'
 const LAST_READ_PREFIX = 'wishdrop_platform_chat_last_read_v1'
 const DISPLAY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
-const WHATSAPP_NUMBER = '94770000000'
+const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94755354830' // fallback for dev
 
 // Attachments themselves live in IndexedDB now (see lib/chat/attachmentDb.ts).
 // This cap just guards against pathologically large picks.

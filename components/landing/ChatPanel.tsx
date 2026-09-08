@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { MessageCircle, Phone, Send, X } from 'lucide-react'
+import { MessageCircle, Phone, Send, X, } from 'lucide-react'
+import { FaWhatsapp } from 'react-icons/fa'
 import { useChat } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
@@ -99,7 +100,7 @@ export default function ChatPanel({
             title="Continue on WhatsApp"
             className="rounded-full p-1.5 text-parchment/70 transition-colors hover:bg-parchment/10 hover:text-parchment"
           >
-            <Phone size={16} />
+            <FaWhatsapp size={16} />
           </a>
           <button
             type="button"
