@@ -1,4 +1,3 @@
-// app/account/boards/page.tsx
 'use client'
 
 import { useState } from 'react'
@@ -6,6 +5,42 @@ import { useRouter } from 'next/navigation'
 import { Check, ImageOff, Plus, X } from 'lucide-react'
 
 import { useWishlist, type BoardProduct, type WishlistEntry } from '@/contexts/Wishlistcontext'
+
+// ---------------------------------------------------------------------------
+// Loading skeleton — mirrors this page's actual shape: centered title +
+// subtitle, the "create a new board" bar, then the board grid (each tile
+// matching BoardThumbGrid's 2-col/tall-middle layout).
+// ---------------------------------------------------------------------------
+
+function BoardsPageSkeleton() {
+  return (
+    <>
+      <div className="mt-6 flex flex-col items-center gap-2">
+        <div className="h-8 w-40 animate-pulse rounded bg-ink/10 sm:h-9 sm:w-48" />
+        <div className="h-3.5 w-full max-w-md animate-pulse rounded bg-ink/10" />
+        <div className="h-3.5 w-2/3 max-w-sm animate-pulse rounded bg-ink/10" />
+      </div>
+
+      <div className="mt-8">
+        <div className="h-[76px] w-full animate-pulse rounded-xl bg-ink/[0.04]" />
+
+        <div className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex flex-col">
+              <div className="grid grid-cols-2 gap-0.5 overflow-hidden rounded-lg">
+                <div className="aspect-square animate-pulse bg-ink/10" />
+                <div className="col-span-1 row-span-2 h-full animate-pulse bg-ink/10" />
+                <div className="aspect-square animate-pulse bg-ink/10" />
+              </div>
+              <div className="mt-3 h-4 w-2/3 animate-pulse rounded bg-ink/10" />
+              <div className="mt-1.5 h-3.5 w-1/3 animate-pulse rounded bg-ink/10" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
 
 export default function BoardsPage() {
   const router = useRouter()
@@ -35,16 +70,17 @@ export default function BoardsPage() {
     router.push(`/account/boards/${board.id}`)
   }
 
+  if (!wishlist.hydrated) {
+    return (
+      <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
+        <BoardsPageSkeleton />
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
-      <p className="mt-6 text-sm text-ink/45">
-        <button type="button" onClick={() => router.push('/')} className="hover:text-ink/70">
-          Home
-        </button>{' '}
-        / Boards
-      </p>
-
-      <div className="mt-3 text-center">
+      <div className="mt-6 text-center">
         <h1 className="font-display text-3xl text-ink sm:text-4xl">My Boards</h1>
         <p className="mt-2 text-sm text-ink/55">
           Group your saved items by occasion, outfit, or gift list — then share or check out a

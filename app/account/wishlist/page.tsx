@@ -1,4 +1,3 @@
-// app/wishlist/page.tsx
 'use client'
 
 import { useState } from 'react'
@@ -27,6 +26,36 @@ function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton — mirrors this page's actual shape: centered title,
+// the "My Boards" + "New Board" button row, then the product grid.
+// ---------------------------------------------------------------------------
+
+function WishlistPageSkeleton() {
+  return (
+    <>
+      <div className="mt-6 flex flex-col items-center gap-3 text-center">
+        <div className="h-8 w-48 animate-pulse rounded bg-ink/10 sm:h-9 sm:w-56" />
+        <div className="flex items-center gap-2">
+          <div className="h-9 w-32 animate-pulse rounded-lg bg-ink/10" />
+          <div className="h-9 w-28 animate-pulse rounded-lg bg-ink/10" />
+        </div>
+      </div>
+
+      <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div key={i} className="flex flex-col rounded-2xl border border-ink/10 bg-card p-3">
+            <div className="aspect-square w-full animate-pulse rounded-xl bg-ink/10" />
+            <div className="mt-2.5 h-3.5 w-4/5 animate-pulse rounded bg-ink/10" />
+            <div className="mt-1.5 h-3.5 w-1/2 animate-pulse rounded bg-ink/10" />
+            <div className="mt-2 h-3.5 w-1/3 animate-pulse rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 
@@ -75,6 +104,14 @@ export default function WishlistPage() {
     const board = wishlist.createBoard(name, selectedProducts)
     setCreateModalOpen(false)
     router.push(`/account/boards/${board.id}`)
+  }
+
+  if (!wishlist.hydrated) {
+    return (
+      <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
+        <WishlistPageSkeleton />
+      </div>
+    )
   }
 
   return (

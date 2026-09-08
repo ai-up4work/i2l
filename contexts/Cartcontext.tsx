@@ -43,6 +43,12 @@ export type CartLineItem = {
 }
 
 type CartContextValue = {
+  /**
+   * False until the initial localStorage read has completed. Consumers
+   * should render a loading/skeleton state while this is false instead of
+   * treating an empty `items` array as "genuinely empty".
+   */
+  hydrated: boolean
   items: CartLineItem[]
   /** Total units across all line items (sum of qty) — what a cart badge usually shows. */
   itemCount: number
@@ -93,7 +99,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Runs once on mount, client-only. Pulls in whatever was actually saved,
   // then flips `hydrated` so the persist-effect below is safe to start
   // writing (it must not fire before this, or it would overwrite storage
-  // with the empty initial state).
+  // with the empty initial state). Consumers use `hydrated` to distinguish
+  // "still loading" from "genuinely empty".
   useEffect(() => {
     setItems(loadInitialItems())
     setHydrated(true)
@@ -169,6 +176,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<CartContextValue>(
     () => ({
+      hydrated,
       items,
       itemCount: items.reduce((sum, line) => sum + line.qty, 0),
       lineCount: items.length,
@@ -179,7 +187,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       isInCart,
       getQty,
     }),
-    [items, addItem, removeItem, updateQty, clearCart, isInCart, getQty],
+    [hydrated, items, addItem, removeItem, updateQty, clearCart, isInCart, getQty],
   )
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>

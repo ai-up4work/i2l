@@ -33,6 +33,41 @@ function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Loading skeleton — mirrors this page's actual shape: centered title, the
+// toolbar row (item-count text + Share/Add-all buttons), then the item
+// grid, each card matching BoardItemCard's layout.
+// ---------------------------------------------------------------------------
+
+function BoardDetailPageSkeleton() {
+  return (
+    <>
+      <div className="mt-6 flex flex-col items-center gap-2">
+        <div className="h-7 w-56 animate-pulse rounded bg-ink/10" />
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-ink/[0.04] px-4 py-3">
+        <div className="h-4 w-40 animate-pulse rounded bg-ink/10" />
+        <div className="flex items-center gap-2">
+          <div className="h-9 w-24 animate-pulse rounded-lg bg-ink/10" />
+          <div className="h-9 w-36 animate-pulse rounded-lg bg-ink/10" />
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div key={i} className="flex flex-col rounded-2xl border border-ink/10 bg-card p-3">
+            <div className="aspect-square w-full animate-pulse rounded-xl bg-ink/10" />
+            <div className="mt-2.5 h-3.5 w-4/5 animate-pulse rounded bg-ink/10" />
+            <div className="mt-1.5 h-3.5 w-1/2 animate-pulse rounded bg-ink/10" />
+            <div className="mt-2 h-5 w-16 animate-pulse rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
 export default function BoardDetailPage() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
@@ -46,19 +81,19 @@ export default function BoardDetailPage() {
 
   const board = wishlist.getBoard(boardId)
 
+  // Still loading from storage — show a skeleton rather than a premature
+  // "Board Not Found", since `board` will read as undefined until hydrated.
+  if (!wishlist.hydrated) {
+    return (
+      <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
+        <BoardDetailPageSkeleton />
+      </div>
+    )
+  }
+
   if (!board) {
     return (
       <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
-        <p className="mt-6 text-sm text-ink/45">
-          <button type="button" onClick={() => router.push('/')} className="hover:text-ink/70">
-            Home
-          </button>{' '}
-          /{' '}
-          <button type="button" onClick={() => router.push('/account/boards')} className="hover:text-ink/70">
-            Boards
-          </button>
-        </p>
-
         <div className="mt-16 flex flex-col items-center text-center">
           <Shirt size={40} className="text-ink/25" strokeWidth={1.25} />
           <p className="mt-4 text-lg font-semibold text-ink">Board Not Found</p>
@@ -110,18 +145,7 @@ export default function BoardDetailPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
-      <p className="mt-6 text-sm text-ink/45">
-        <button type="button" onClick={() => router.push('/')} className="hover:text-ink/70">
-          Home
-        </button>{' '}
-        /{' '}
-        <button type="button" onClick={() => router.push('/account/boards')} className="hover:text-ink/70">
-          Boards
-        </button>{' '}
-        / {board.name}
-      </p>
-
-      <div className="mt-3 flex flex-col items-center gap-2 text-center">
+      <div className="mt-6 flex flex-col items-center gap-2 text-center">
         <h1 className="font-display text-2xl uppercase tracking-wide text-ink">
           {board.name} ({items.length})
         </h1>

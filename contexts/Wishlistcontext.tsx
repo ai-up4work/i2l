@@ -1,4 +1,3 @@
-// contexts/Wishlistcontext.tsx
 'use client'
 
 import {
@@ -72,6 +71,15 @@ export type AddBoardToCartResult = {
 }
 
 type WishlistContextValue = {
+  // ---- hydration -------------------------------------------------------
+  /**
+   * False until the initial localStorage read has completed. Consumers
+   * should render a loading/skeleton state while this is false instead of
+   * treating an empty `items`/`boards` array as "genuinely empty" — the
+   * data hasn't been read yet, it just looks the same as if it were.
+   */
+  hydrated: boolean
+
   // ---- flat wishlist -------------------------------------------------
   items: WishlistEntry[]
   count: number
@@ -185,7 +193,8 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   // Runs once on mount, client-only. Pulls in whatever was actually saved,
   // then flips `hydrated` so the persist-effect below is safe to start
   // writing (it must not fire before this, or it would overwrite storage
-  // with the empty initial state).
+  // with the empty initial state). Consumers use `hydrated` to distinguish
+  // "still loading" from "genuinely empty".
   useEffect(() => {
     const initial = loadInitialState()
     setItems(initial.items)
@@ -546,6 +555,8 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<WishlistContextValue>(
     () => ({
+      hydrated,
+
       items,
       count: items.length,
       addItem,
@@ -580,6 +591,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       addBoardToCart,
     }),
     [
+      hydrated,
       items,
       addItem,
       removeItem,
