@@ -3,62 +3,86 @@
 
 import { useState } from 'react'
 import {
-  ShoppingBagIcon,
-  LayoutGrid,
+  Sparkles,
+  Smartphone,
   Share2,
   CalendarCheck,
+  PackageCheck,
+  Gift,
   RotateCcw,
-  Sparkles,
 } from 'lucide-react'
 
-import { useLoyalty, CHECK_IN_POINTS } from '@/contexts/Loyaltycontext'
+import { useLoyalty, CHECK_IN_POINTS, MILESTONE_POINTS } from '@/contexts/Loyaltycontext'
+import { POINTS_PER_CURRENCY_UNIT } from '@/lib/loyaltyPoints'
 
 // ---------------------------------------------------------------------------
-// One simulated trigger — mirrors a real action elsewhere in the app that
-// isn't wired to award points yet (add to cart, create a board, share a
-// board, place an order). Clicking it calls addPoints directly, exactly
-// like the real call site would once wired in.
+// Every trigger here maps 1:1 to a real earning rule from lib/loyaltyPoints.ts.
+// The four milestone buttons will only ever pay out ONCE per account, ever —
+// click them repeatedly and watch the log show "already claimed" after the
+// first hit. That's the point (pun intended): there's no cap to configure,
+// because the claimed-flag itself is the cap.
 // ---------------------------------------------------------------------------
 
-type TriggerAction = {
-  id: string
-  label: string
-  detail: string
-  points: number
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
-}
+const MOCK_ORDER_TOTAL = 48 // pretend delivered-order total
 
-const TRIGGERS: TriggerAction[] = [
-  { id: 'add-to-cart', label: 'Add to cart', detail: 'Simulates Cartcontext.addItem', points: 5, icon: ShoppingBagIcon },
-  { id: 'create-board', label: 'Create a board', detail: 'Simulates Wishlistcontext.createBoard', points: 20, icon: LayoutGrid },
-  { id: 'share-board', label: 'Share a board', detail: 'Simulates Wishlistcontext.generateShareLink', points: 15, icon: Share2 },
-  { id: 'place-order', label: 'Place a $48 order', detail: '1 point per $1 spent (placeholder rule)', points: 48, icon: Sparkles },
-]
-
-// ---------------------------------------------------------------------------
-// Log of simulated events, newest first — makes it visible *why* the
-// balance is what it is, rather than just watching a number jump.
-// ---------------------------------------------------------------------------
-
-type LogEntry = { id: string; label: string; delta: number; at: number }
+type LogEntry = { id: string; label: string; delta: number; at: number; blocked?: boolean }
 
 export default function LoyaltyDemoPage() {
   const loyalty = useLoyalty()
   const [log, setLog] = useState<LogEntry[]>([])
   const [manualAmount, setManualAmount] = useState('100')
+  const [deliveredOrderCount, setDeliveredOrderCount] = useState(0)
 
-  const pushLog = (label: string, delta: number) => {
-    setLog((prev) => [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, label, delta, at: Date.now() }, ...prev].slice(0, 12))
+  const pushLog = (label: string, delta: number, blocked?: boolean) => {
+    setLog((prev) =>
+      [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, label, delta, at: Date.now(), blocked }, ...prev].slice(0, 14),
+    )
   }
 
-  const runTrigger = (trigger: TriggerAction) => {
-    loyalty.addPoints(trigger.points)
-    pushLog(trigger.label, trigger.points)
+  // Simulates a delivered order: awards spend-linked points via a fake
+  // order id (so repeat clicks are genuinely different orders, not a
+  // dedup-triggered no-op), then checks the 5-orders milestone.
+  const runDeliveredOrder = () => {
+    const fakeOrder = {
+      id: `WD-DEMO-${Date.now()}`,
+      date: new Date().toLocaleDateString(),
+      status: 'Delivered' as const,
+      currency: 'INR' as const,
+      items: [{ name: 'Demo item', qty: 1, unitPrice: MOCK_ORDER_TOTAL, image: '' }],
+    }
+    const isFirst = deliveredOrderCount === 0
+    const awarded = loyalty.addOrderPoints(fakeOrder)
+    pushLog(`Order delivered ($${MOCK_ORDER_TOTAL})`, awarded)
+
+    if (isFirst) {
+      const bonus = loyalty.claimMilestone('firstPurchase')
+      if (bonus > 0) pushLog('Milestone: first purchase', bonus)
+    }
+
+    const nextCount = deliveredOrderCount + 1
+    setDeliveredOrderCount(nextCount)
+    const milestoneBonus = loyalty.claimFiveOrdersMilestoneIfReached(nextCount)
+    if (milestoneBonus > 0) pushLog('Milestone: 5 orders completed', milestoneBonus)
+  }
+
+  const runMobileVerified = () => {
+    const awarded = loyalty.claimMilestone('mobileVerified')
+    pushLog('Mobile number verified', awarded, awarded === 0)
+  }
+
+  const runFirstBoardShared = () => {
+    const awarded = loyalty.claimMilestone('firstBoardShared')
+    pushLog('Shared first board', awarded, awarded === 0)
   }
 
   const runCheckIn = () => {
     const succeeded = loyalty.checkIn()
     if (succeeded) pushLog('Daily check-in', CHECK_IN_POINTS)
+  }
+
+  const runFestivalGift = () => {
+    const awarded = loyalty.grantBroadcastPoints('demo-festival-2026', 150)
+    pushLog('Festival gift (broadcast)', awarded, awarded === 0)
   }
 
   const runManual = (sign: 1 | -1) => {
@@ -71,6 +95,7 @@ export default function LoyaltyDemoPage() {
   const runReset = () => {
     loyalty.resetLoyalty()
     setLog([])
+    setDeliveredOrderCount(0)
   }
 
   if (!loyalty.hydrated) {
@@ -86,39 +111,74 @@ export default function LoyaltyDemoPage() {
       <div className="rounded-2xl border border-dashed border-ink/20 bg-ink/[0.02] px-5 py-4">
         <p className="text-sm font-semibold text-ink">Loyalty demo</p>
         <p className="mt-1 text-sm text-ink/60">
-          No real earning flow is wired into checkout, boards, or cart yet. This page simulates each
-          trigger by calling <code className="rounded bg-ink/8 px-1 py-0.5 text-xs">useLoyalty().addPoints()</code> directly,
-          so you can preview tier changes without building the real integrations first. Open the actual
-          VIP page in another tab to see it update live.
+          Every trigger below maps to a real rule in <code className="rounded bg-ink/8 px-1 py-0.5 text-xs">lib/loyaltyPoints.ts</code>.
+          The four milestone buttons only pay out once, ever — click again and the log shows &ldquo;already claimed.&rdquo; The festival
+          gift simulates a broadcast/admin grant: also once-only, but via a separate campaign id, not a personal earning cap.
         </p>
       </div>
 
-      {/* Simulated triggers */}
       <div className="mt-6 rounded-2xl border border-ink/10 bg-card p-6">
-        <h2 className="font-display text-sm text-ink">Simulate an action</h2>
+        <h2 className="font-display text-sm text-ink">Spend-linked (repeatable — costs real money each time)</h2>
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {TRIGGERS.map((trigger) => {
-            const Icon = trigger.icon
-            return (
-              <button
-                key={trigger.id}
-                type="button"
-                onClick={() => runTrigger(trigger)}
-                className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5"
-              >
-                <span className="grid size-9 flex-none place-items-center rounded-lg bg-teal/12 text-teal-deep">
-                  <Icon size={16} strokeWidth={1.8} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-ink">{trigger.label}</span>
-                  <span className="block truncate text-xs text-ink/45">{trigger.detail}</span>
-                </span>
-                <span className="flex-none text-sm font-bold tabular-nums text-teal-deep">+{trigger.points}</span>
-              </button>
-            )
-          })}
+          <button
+            type="button"
+            onClick={runDeliveredOrder}
+            className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-teal/12 text-teal-deep">
+              <PackageCheck size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Order delivered (${MOCK_ORDER_TOTAL})</span>
+              <span className="block truncate text-xs text-ink/45">
+                {POINTS_PER_CURRENCY_UNIT} pt/$1 · triggers first-purchase / 5-orders milestones too
+              </span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-teal-deep">
+              +{MOCK_ORDER_TOTAL * POINTS_PER_CURRENCY_UNIT}
+            </span>
+          </button>
+        </div>
 
-          {/* Check-in is its own case: once-per-day, so the button disables itself. */}
+        <h2 className="mt-6 font-display text-sm text-ink">One-time milestones (claimable once, ever)</h2>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={runMobileVerified}
+            className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-indigo-deep/12 text-indigo-deep">
+              <Smartphone size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Mobile number verified</span>
+              <span className="block truncate text-xs text-ink/45">OTP-verified, not just typed in</span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-indigo-deep">
+              +{MILESTONE_POINTS.mobileVerified}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={runFirstBoardShared}
+            className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-teal/12 text-teal-deep">
+              <Share2 size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Shared first board</span>
+              <span className="block truncate text-xs text-ink/45">Account-level — not per board, not per share</span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-teal-deep">
+              +{MILESTONE_POINTS.firstBoardShared}
+            </span>
+          </button>
+        </div>
+
+        <h2 className="mt-6 font-display text-sm text-ink">Recurring (capped by &ldquo;once per day&rdquo;)</h2>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
             type="button"
             onClick={runCheckIn}
@@ -138,8 +198,28 @@ export default function LoyaltyDemoPage() {
           </button>
         </div>
 
+        <h2 className="mt-6 font-display text-sm text-ink">Broadcast grant (admin-issued, not user-earned)</h2>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={runFestivalGift}
+            className="flex items-center gap-3 rounded-xl border border-gold/30 bg-gold/5 px-4 py-3 text-left transition-colors hover:border-gold/50"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-gold/15 text-gold-deep">
+              <Gift size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Festival gift (all customers)</span>
+              <span className="block truncate text-xs text-ink/45">
+                Idempotent per campaign id — no personal earning cap applies
+              </span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-gold-deep">+150</span>
+          </button>
+        </div>
+
         {/* Manual adjuster, for testing arbitrary tier boundaries. */}
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink/10 pt-4">
+        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-ink/10 pt-4">
           <span className="text-xs font-semibold text-ink/50">Manual adjust</span>
           <input
             type="number"
@@ -173,14 +253,20 @@ export default function LoyaltyDemoPage() {
         </div>
       </div>
 
-      {/* Event log */}
       {log.length > 0 && (
         <div className="mt-4 rounded-2xl border border-ink/10 bg-card p-6">
           <h2 className="font-display text-sm text-ink">Recent simulated events</h2>
           <ul className="mt-3 flex flex-col gap-1.5">
             {log.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between text-sm">
-                <span className="text-ink/70">{entry.label}</span>
+                <span className="text-ink/70">
+                  {entry.label}
+                  {entry.blocked && (
+                    <span className="ml-2 rounded-full bg-ink/8 px-2 py-0.5 text-[10px] font-semibold text-ink/50">
+                      already claimed
+                    </span>
+                  )}
+                </span>
                 <span className={`font-semibold tabular-nums ${entry.delta >= 0 ? 'text-teal-deep' : 'text-red-600'}`}>
                   {entry.delta >= 0 ? '+' : ''}
                   {entry.delta}

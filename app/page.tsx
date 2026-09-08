@@ -1,4 +1,4 @@
-// app/page.tsx (or wherever this landing page lives)
+// app/page.tsx
 'use client'
 
 import {
@@ -16,7 +16,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  MessageCircle,
   Star,
   LinkIcon,
 } from 'lucide-react'
@@ -31,19 +30,22 @@ import Community from '@/components/landing/Community'
 import Partners from '@/components/landing/Partners'
 import WhyChooseWishdrop from '@/components/landing/WhyChooseWishdrop'
 import DealCoupon, { type Deal } from '@/components/shared/DealCoupon'
+// REAL, CONNECTED chat components — this page previously had its own
+// dead local `ChatButton` function (see removed "CHAT BUTTON" section)
+// that rendered a static button with no onClick and no useChat() at all.
+// That's why clicking it did nothing: it wasn't the same component as
+// the one wired to ChatContext.
+import ChatButton from '@/components/landing/ChatButton'
+import ChatPanel from '@/components/landing/ChatPanel'
+import { ChatProvider } from '@/contexts/ChatContext'
 
 /* ============================================================================
  * ROUTE CONSTANT — single source of truth for where a pasted link goes.
- * pathForView('addRequest') was drifting from the real route
- * (/account/requests/new), which is why the redirect was landing on a
- * dead page. Both Hero and FinalCTA now point at the same literal path
- * that ShopByCategory already uses for its category tiles.
  * ==========================================================================*/
 const NEW_REQUEST_PATH = '/account/requests/new'
 
 /* ============================================================================
  * MOTION PRIMITIVE — scroll-triggered reveal, respects reduced motion.
- * Purely presentational: wraps existing content, never alters it.
  * ==========================================================================*/
 
 function Reveal({
@@ -213,7 +215,6 @@ function Destinations() {
   )
 }
 
-
 /* ============================================================================
  * TESTIMONIALS
  * ==========================================================================*/
@@ -298,7 +299,7 @@ function Testimonials() {
 }
 
 /* ============================================================================
- * DEALS & CATEGORIES (deals promo strip + shop by category)
+ * DEALS & CATEGORIES
  * ==========================================================================*/
 
 const topDeals: Deal[] = [
@@ -396,12 +397,6 @@ function ShopByCategory() {
         </a>
       </div>
 
-      {/* FIX: this Reveal had lost its flex layout classes (was just
-          " mt-10"), so the heading block and "View all deals" link were
-          stacking as plain block elements instead of sitting on one row
-          with the button aligned to the right — restored the same
-          title-left / action-right row pattern used elsewhere on this
-          page (see Destinations's header, ShopByCategory's own pattern). */}
       <Reveal className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.2em] text-gold">
@@ -419,8 +414,6 @@ function ShopByCategory() {
         </a>
       </Reveal>
 
-      {/* Card rendering now lives in DealCoupon (components/landing/DealCoupon.tsx)
-          — this just supplies the data and the scroll-reveal stagger. */}
       <div className="mt-8 mb-16 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {topDeals.map((deal, index) => (
           <Reveal key={deal.brand} delay={index * 60}>
@@ -429,10 +422,6 @@ function ShopByCategory() {
         ))}
       </div>
 
-      {/* Mobile-only counterpart to the header's "View all deals" link
-          (hidden below sm: — see above). Placed after the coupon grid
-          instead of above it, so mobile users see the deals first and
-          the "view all" escape hatch comes after. */}
       <div className="mt-6 flex justify-center sm:hidden">
         <a
           href="/deals"
@@ -510,7 +499,7 @@ function FinalCTA() {
               type="submit"
               disabled={submitted || !link.trim()}
               aria-label="Start Shopping"
-              className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal px-4 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo-deep active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100 sm:px-6"
+              className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal px-4 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo-deep active:scale-95 disabled:cursor-default disabled:active:scale-100 sm:px-6"
             >
               {submitted ? (
                 <>
@@ -530,65 +519,67 @@ function FinalCTA() {
 }
 
 /* ============================================================================
- * CHAT BUTTON
- * ==========================================================================*/
-
-function ChatButton() {
-  return (
-    <button
-      aria-label="Chat with support"
-      className="fixed bottom-6 right-6 z-40 grid h-14 w-14 animate-pulse-ring place-items-center rounded-full bg-gold text-parchment shadow-lift transition-transform duration-200 hover:scale-110 motion-reduce:animate-none"
-    >
-      <MessageCircle />
-    </button>
-  )
-}
-
-/* ============================================================================
  * PAGE
  * ==========================================================================*/
+// NOTE: the local `ChatButton` function that used to live here (a static,
+// unconnected button under a "CHAT BUTTON" comment) has been removed —
+// it's replaced below by the real ChatButton/ChatPanel pair imported at
+// the top, which are wired to ChatContext.
+//
+// This page renders its own <Header /> and <Footer /> rather than relying
+// on app/(public)/layout.tsx, meaning it sits OUTSIDE that layout's tree
+// — so the ChatProvider added there never reaches this page. Wrapping
+// this page's own content in <ChatProvider> here makes it self-sufficient
+// regardless of that. If this file actually does live inside the
+// (public) route group after all, this nested provider is harmless (the
+// nearest one wins) but redundant — worth then removing the outer one in
+// app/(public)/layout.tsx to avoid two independent chat states existing
+// across your public pages.
 
 export default function Home() {
   return (
-    <main className="bg-parchment">
-      <style jsx global>{`
-        @keyframes float-slow {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-10px); }
-        }
-        @keyframes fade-slide-in {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes pulse-ring {
-          0% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0.45); }
-          70% { box-shadow: 0 0 0 14px rgba(193, 39, 45, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0); }
-        }
-        .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
-        .animate-fade-slide-in { animation: fade-slide-in 0.45s ease-out both; }
-        .animate-pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-float-slow, .animate-fade-slide-in, .animate-pulse-ring {
-            animation: none !important;
+    <ChatProvider>
+      <main className="bg-parchment">
+        <style jsx global>{`
+          @keyframes float-slow {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
           }
-        }
-      `}</style>
+          @keyframes fade-slide-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0.45); }
+            70% { box-shadow: 0 0 0 14px rgba(193, 39, 45, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0); }
+          }
+          .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+          .animate-fade-slide-in { animation: fade-slide-in 0.45s ease-out both; }
+          .animate-pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
+          @media (prefers-reduced-motion: reduce) {
+            .animate-float-slow, .animate-fade-slide-in, .animate-pulse-ring {
+              animation: none !important;
+            }
+          }
+        `}</style>
 
-      <Header />
+        <Header />
 
-      <Hero />
-      <Partners />
-      <ShopByCategory />
-      <WhyChooseWishdrop />
-      <StatsBand />
-      <HowItWorks />
-      <Destinations />
-      <Community />
-      <Testimonials />
-      <FinalCTA />
-      <Footer />
-      <ChatButton />
-    </main>
+        <Hero />
+        <Partners />
+        <ShopByCategory />
+        <WhyChooseWishdrop />
+        <StatsBand />
+        <HowItWorks />
+        <Destinations />
+        <Community />
+        <Testimonials />
+        <FinalCTA />
+        <Footer />
+        <ChatButton />
+        <ChatPanel />
+      </main>
+    </ChatProvider>
   )
 }

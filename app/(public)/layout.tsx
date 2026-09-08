@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Header from '@/components/shared/Header'
 import Footer from '@/components/landing/Footer'
 import ChatButton from '@/components/landing/ChatButton'
+import ChatPanel from '@/components/landing/ChatPanel'
+import { ChatProvider } from '@/contexts/ChatContext'
 
 // Header is `fixed`, so it doesn't reserve space in normal document flow —
 // anything rendered below it would otherwise sit underneath it. Rather than
@@ -38,15 +40,22 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   const headerOffset = useHeaderOffset()
 
   return (
-    <div className="bg-parchment">
-      <Header />
+    // ChatProvider has to wrap both ChatButton and ChatPanel — they're
+    // siblings below that both call useChat(), and React Context only
+    // works if they share a common provider ancestor. Without this wrap,
+    // ChatButton throws the moment it tries to render.
+    <ChatProvider>
+      <div className="bg-parchment">
+        <Header />
 
-      {/* paddingTop is measured live from the actual <header> element above,
-          so this stays correct regardless of Header's internal height. */}
-      <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
+        {/* paddingTop is measured live from the actual <header> element above,
+            so this stays correct regardless of Header's internal height. */}
+        <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
 
-      <Footer />
-      <ChatButton />
-    </div>
+        <Footer />
+        <ChatButton />
+        <ChatPanel />
+      </div>
+    </ChatProvider>
   )
 }

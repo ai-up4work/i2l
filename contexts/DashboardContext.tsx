@@ -242,6 +242,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         unitPrice: draft.unitPrice,
         image: draft.image,
         status: 'Awaiting payment',
+        statusHistory: [],
+        customerId: '',
+        customerName: '',
       },
       ...current,
     ])
@@ -261,6 +264,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         unitPrice: line.unitPriceLKR,
         image: line.image,
         status: 'Awaiting payment' as const,
+        statusHistory: [],
+        customerId: '',
+        customerName: '',
       })),
       ...current,
     ])

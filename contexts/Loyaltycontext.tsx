@@ -10,65 +10,92 @@ import {
   type ReactNode,
 } from 'react'
 
+import type { Order } from '@/contexts/Ordercontexts'
+import {
+  TIER_ORDER,
+  TIER_THRESHOLDS,
+  CHECK_IN_POINTS,
+  MILESTONE_POINTS,
+  pointsForOrder,
+  pointsForMilestone,
+  hasReachedFiveOrdersMilestone,
+  canGrantCampaign,
+  type Tier,
+  type MilestoneKey,
+} from '@/lib/loyaltyPoints'
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type Tier = 'V0' | 'V1' | 'V2' | 'V3'
-
-export const TIER_ORDER: Tier[] = ['V0', 'V1', 'V2', 'V3']
-
-/**
- * Points needed to REACH each tier (not "points needed to advance from the
- * previous one"). V0 is 0 by definition — every account starts there.
- * These are placeholder numbers; swap them for whatever the real business
- * rule ends up being (e.g. driven by cumulative order spend instead of a
- * generic points balance).
- */
-export const TIER_THRESHOLDS: Record<Tier, number> = {
-  V0: 0,
-  V1: 500,
-  V2: 2000,
-  V3: 5000,
-}
-
-/** How many points a same-day check-in awards. */
-export const CHECK_IN_POINTS = 10
+export type { Tier, MilestoneKey }
+export { TIER_ORDER, TIER_THRESHOLDS, CHECK_IN_POINTS, MILESTONE_POINTS }
 
 type LoyaltyState = {
   username: string
   points: number
   /** Epoch ms of the last successful check-in, or null if never checked in. */
   lastCheckInAt: number | null
+  /** Milestone keys already claimed — each can only ever be claimed once. */
+  claimedMilestones: MilestoneKey[]
+  /** Order ids already awarded points for — prevents the same delivered
+   *  order from paying out twice if the award job runs more than once. */
+  claimedOrderIds: string[]
+  /** Broadcast/admin campaign ids already granted to this account. */
+  claimedCampaignIds: string[]
 }
 
 type LoyaltyContextValue = {
-  /**
-   * False until the initial localStorage read has completed. Consumers
-   * should render a loading/skeleton state while this is false instead of
-   * treating the default points/tier as real data.
-   */
   hydrated: boolean
 
   username: string
   points: number
   lastCheckInAt: number | null
 
-  /** Derived from `points` against TIER_THRESHOLDS — never stored directly. */
   tier: Tier
-  /** 0–100, how far through the current tier's segment `points` sits. 100 at max tier. */
   progressToNext: number
-  /** Plain-language requirements for the next tier, empty at max tier. */
   nextTierRequirements: string[]
-  /** True once per calendar day — false again after `checkIn()` until the next day. */
   canCheckInToday: boolean
 
   setUsername: (name: string) => void
-  /** Adds (or subtracts, if negative) to the points balance. Never goes below 0. */
+  /** Directly adds/subtracts points. Never goes below 0. Use only for
+   *  manual/admin adjustments or amounts already computed elsewhere —
+   *  prefer the rule-governed functions below for anything user-triggered. */
   addPoints: (delta: number) => void
   setPoints: (value: number) => void
-  /** Awards CHECK_IN_POINTS and records the check-in. No-ops (returns false) if already checked in today. */
+
+  /**
+   * Awards points for a real delivered order via lib's `pointsForOrder`.
+   * No-ops (returns 0) if the order isn't 'Delivered', or if this order id
+   * has already been awarded. Safe to call repeatedly on the same order —
+   * only the first eligible call pays out.
+   */
+  addOrderPoints: (order: Order) => number
+  /**
+   * Claims a one-time milestone bonus (firstPurchase, mobileVerified,
+   * firstBoardShared). Returns the amount awarded, or 0 if this account
+   * has already claimed it. `mobileVerified` should only ever be called
+   * after OTP verification succeeds, not on the raw form submit.
+   */
+  claimMilestone: (key: Exclude<MilestoneKey, 'fiveOrdersCompleted'>) => number
+  /**
+   * Checks the 5-orders milestone against the account's current count of
+   * eligible (Delivered, non-cancelled) orders, and claims it if reached
+   * and not already claimed. Pass the count from your orders data source.
+   * Returns the amount awarded, or 0.
+   */
+  claimFiveOrdersMilestoneIfReached: (eligibleOrderCount: number) => number
+  /** Awards CHECK_IN_POINTS once per calendar day. Returns false if already checked in today. */
   checkIn: () => boolean
+  /**
+   * Grants a broadcast/admin campaign's points (e.g. a festival gift sent
+   * to all V3 members) — NOT subject to any per-account earning cap, since
+   * this isn't triggered by user action. Idempotent per `campaignId`:
+   * returns 0 if this account has already been granted that campaign,
+   * however many times the admin job runs.
+   */
+  grantBroadcastPoints: (campaignId: string, points: number) => number
+
   resetLoyalty: () => void
 }
 
@@ -88,7 +115,7 @@ function tierForPoints(points: number): Tier {
 
 function progressForPoints(points: number, tier: Tier): number {
   const currentIndex = TIER_ORDER.indexOf(tier)
-  if (currentIndex === TIER_ORDER.length - 1) return 100 // max tier
+  if (currentIndex === TIER_ORDER.length - 1) return 100
 
   const nextTier = TIER_ORDER[currentIndex + 1]
   const floor = TIER_THRESHOLDS[tier]
@@ -121,18 +148,13 @@ function isSameCalendarDay(a: number, b: number): boolean {
 
 const STORAGE_KEY = 'wishdrop:loyalty'
 
-/**
- * MOCK DATA — there's no real points-earning flow wired up yet from actual
- * checkout, so this seeds a plausible mid-journey member instead of a blank
- * "Member / 0 points" on first load. 1,240 sits partway through the
- * V1→V2 segment (500–2000), a more useful default to design/test against
- * than the V0 floor. Delete/replace this once real account + order data
- * exists.
- */
 const MOCK_STATE: LoyaltyState = {
   username: 'Ava Chen',
   points: 1240,
   lastCheckInAt: null,
+  claimedMilestones: [],
+  claimedOrderIds: [],
+  claimedCampaignIds: [],
 }
 
 const DEFAULT_STATE: LoyaltyState = MOCK_STATE
@@ -147,6 +169,9 @@ function loadInitialState(): LoyaltyState {
       username: typeof parsed.username === 'string' && parsed.username.trim() ? parsed.username : DEFAULT_STATE.username,
       points: typeof parsed.points === 'number' && Number.isFinite(parsed.points) ? Math.max(0, parsed.points) : DEFAULT_STATE.points,
       lastCheckInAt: typeof parsed.lastCheckInAt === 'number' ? parsed.lastCheckInAt : null,
+      claimedMilestones: Array.isArray(parsed.claimedMilestones) ? parsed.claimedMilestones : [],
+      claimedOrderIds: Array.isArray(parsed.claimedOrderIds) ? parsed.claimedOrderIds : [],
+      claimedCampaignIds: Array.isArray(parsed.claimedCampaignIds) ? parsed.claimedCampaignIds : [],
     }
   } catch {
     return DEFAULT_STATE
@@ -158,14 +183,12 @@ function loadInitialState(): LoyaltyState {
 // ---------------------------------------------------------------------------
 
 export function LoyaltyProvider({ children }: { children: ReactNode }) {
-  // Same SSR-safe hydration dance as Wishlistcontext/Cartcontext: render
-  // the same default (the mock state) on server and client, then swap in
-  // whatever's actually in localStorage in an effect (client-only,
-  // post-reconcile), and flip `hydrated` so consumers know when it's safe
-  // to trust the data.
   const [username, setUsernameState] = useState(DEFAULT_STATE.username)
   const [points, setPointsState] = useState(DEFAULT_STATE.points)
   const [lastCheckInAt, setLastCheckInAt] = useState<number | null>(DEFAULT_STATE.lastCheckInAt)
+  const [claimedMilestones, setClaimedMilestones] = useState<MilestoneKey[]>(DEFAULT_STATE.claimedMilestones)
+  const [claimedOrderIds, setClaimedOrderIds] = useState<string[]>(DEFAULT_STATE.claimedOrderIds)
+  const [claimedCampaignIds, setClaimedCampaignIds] = useState<string[]>(DEFAULT_STATE.claimedCampaignIds)
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
@@ -173,19 +196,29 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
     setUsernameState(initial.username)
     setPointsState(initial.points)
     setLastCheckInAt(initial.lastCheckInAt)
+    setClaimedMilestones(initial.claimedMilestones)
+    setClaimedOrderIds(initial.claimedOrderIds)
+    setClaimedCampaignIds(initial.claimedCampaignIds)
     setHydrated(true)
   }, [])
 
   useEffect(() => {
     if (!hydrated) return
     try {
-      const payload: LoyaltyState = { username, points, lastCheckInAt }
+      const payload: LoyaltyState = {
+        username,
+        points,
+        lastCheckInAt,
+        claimedMilestones,
+        claimedOrderIds,
+        claimedCampaignIds,
+      }
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch {
       // Storage can fail (quota, private mode) — losing persistence isn't
       // worth crashing the loyalty feature over.
     }
-  }, [username, points, lastCheckInAt, hydrated])
+  }, [username, points, lastCheckInAt, claimedMilestones, claimedOrderIds, claimedCampaignIds, hydrated])
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
@@ -198,6 +231,9 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
         if (typeof parsed.lastCheckInAt === 'number' || parsed.lastCheckInAt === null) {
           setLastCheckInAt(parsed.lastCheckInAt)
         }
+        if (Array.isArray(parsed.claimedMilestones)) setClaimedMilestones(parsed.claimedMilestones)
+        if (Array.isArray(parsed.claimedOrderIds)) setClaimedOrderIds(parsed.claimedOrderIds)
+        if (Array.isArray(parsed.claimedCampaignIds)) setClaimedCampaignIds(parsed.claimedCampaignIds)
       } catch {
         // ignore malformed cross-tab payloads
       }
@@ -219,6 +255,43 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
     setPointsState(Number.isFinite(value) ? Math.max(0, value) : 0)
   }, [])
 
+  const addOrderPoints = useCallback(
+    (order: Order): number => {
+      if (claimedOrderIds.includes(order.id)) return 0
+      const awarded = pointsForOrder(order)
+      if (!awarded) return 0
+      setPointsState((prev) => prev + awarded)
+      setClaimedOrderIds((prev) => [...prev, order.id])
+      return awarded
+    },
+    [claimedOrderIds],
+  )
+
+  const claimMilestone = useCallback(
+    (key: Exclude<MilestoneKey, 'fiveOrdersCompleted'>): number => {
+      const alreadyClaimed = claimedMilestones.includes(key)
+      const awarded = pointsForMilestone(key, alreadyClaimed)
+      if (awarded <= 0) return 0
+      setPointsState((prev) => prev + awarded)
+      setClaimedMilestones((prev) => [...prev, key])
+      return awarded
+    },
+    [claimedMilestones],
+  )
+
+  const claimFiveOrdersMilestoneIfReached = useCallback(
+    (eligibleOrderCount: number): number => {
+      const key: MilestoneKey = 'fiveOrdersCompleted'
+      const alreadyClaimed = claimedMilestones.includes(key)
+      if (alreadyClaimed || !hasReachedFiveOrdersMilestone(eligibleOrderCount)) return 0
+      const awarded = pointsForMilestone(key, false)
+      setPointsState((prev) => prev + awarded)
+      setClaimedMilestones((prev) => [...prev, key])
+      return awarded
+    },
+    [claimedMilestones],
+  )
+
   const canCheckInToday = useMemo(() => {
     if (lastCheckInAt === null) return true
     return !isSameCalendarDay(lastCheckInAt, Date.now())
@@ -234,10 +307,23 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
     return true
   }, [lastCheckInAt])
 
+  const grantBroadcastPoints = useCallback(
+    (campaignId: string, campaignPoints: number): number => {
+      if (!canGrantCampaign(campaignId, claimedCampaignIds)) return 0
+      setPointsState((prev) => prev + campaignPoints)
+      setClaimedCampaignIds((prev) => [...prev, campaignId])
+      return campaignPoints
+    },
+    [claimedCampaignIds],
+  )
+
   const resetLoyalty = useCallback(() => {
     setUsernameState(DEFAULT_STATE.username)
     setPointsState(DEFAULT_STATE.points)
     setLastCheckInAt(DEFAULT_STATE.lastCheckInAt)
+    setClaimedMilestones(DEFAULT_STATE.claimedMilestones)
+    setClaimedOrderIds(DEFAULT_STATE.claimedOrderIds)
+    setClaimedCampaignIds(DEFAULT_STATE.claimedCampaignIds)
   }, [])
 
   const tier = useMemo(() => tierForPoints(points), [points])
@@ -257,7 +343,11 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       setUsername,
       addPoints,
       setPoints,
+      addOrderPoints,
+      claimMilestone,
+      claimFiveOrdersMilestoneIfReached,
       checkIn,
+      grantBroadcastPoints,
       resetLoyalty,
     }),
     [
@@ -272,7 +362,11 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       setUsername,
       addPoints,
       setPoints,
+      addOrderPoints,
+      claimMilestone,
+      claimFiveOrdersMilestoneIfReached,
       checkIn,
+      grantBroadcastPoints,
       resetLoyalty,
     ],
   )
