@@ -1,18 +1,10 @@
-// app/account/points/page.tsx
 'use client'
 
 import { useMemo, useState } from 'react'
 import { HelpCircle } from 'lucide-react'
+import { useLoyalty, type PointsTransactionKind } from '@/contexts/Loyaltycontext'
 
-type PointsFilter = 'all' | 'earned' | 'used' | 'expired'
-
-type PointsTransaction = {
-  id: string
-  filter: Exclude<PointsFilter, 'all'>
-  label: string
-  date: string
-  amount: number // positive for earned, negative for used/expired
-}
+type PointsFilter = 'all' | PointsTransactionKind
 
 const FILTERS: { key: PointsFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -21,8 +13,13 @@ const FILTERS: { key: PointsFilter; label: string }[] = [
   { key: 'expired', label: 'Expired' },
 ]
 
-// TODO: replace with real points data/context once available.
-const MOCK_TRANSACTIONS: PointsTransaction[] = []
+function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
 
 function EmptyState() {
   return (
@@ -47,19 +44,17 @@ function EmptyState() {
   )
 }
 
-function TransactionRow({ tx }: { tx: PointsTransaction }) {
-  const isPositive = tx.amount > 0
+function TransactionRow({ label, date, amount }: { label: string; date: string; amount: number }) {
+  const isPositive = amount > 0
   return (
     <div className="flex items-center justify-between border-b border-ink/10 py-4 last:border-0">
       <div>
-        <div className="font-body text-sm font-bold text-ink">{tx.label}</div>
-        <div className="mt-0.5 font-body text-xs text-ink/50">{tx.date}</div>
+        <div className="font-body text-sm font-bold text-ink">{label}</div>
+        <div className="mt-0.5 font-body text-xs text-ink/50">{date}</div>
       </div>
-      <div
-        className={`font-body text-sm font-bold ${isPositive ? 'text-teal-deep' : 'text-ink/60'}`}
-      >
+      <div className={`font-body text-sm font-bold ${isPositive ? 'text-teal-deep' : 'text-ink/60'}`}>
         {isPositive ? '+' : ''}
-        {tx.amount}
+        {amount}
       </div>
     </div>
   )
@@ -67,15 +62,18 @@ function TransactionRow({ tx }: { tx: PointsTransaction }) {
 
 export default function PointsPage() {
   const [activeFilter, setActiveFilter] = useState<PointsFilter>('all')
+  const { points, transactions } = useLoyalty()
 
-  // TODO: derive from real balances once wired to a data source.
-  const totalPoints = 0
+  // NOTE: LoyaltyContext doesn't track a points-expiry policy yet — there's
+  // no concept of "expiring soon" in the underlying data, so this stays at
+  // 0 until that's designed (e.g. transactions gaining an `expiresAt` field
+  // and this being derived from ones expiring within N days).
   const expiringSoon = 0
 
   const visibleTransactions = useMemo(() => {
-    if (activeFilter === 'all') return MOCK_TRANSACTIONS
-    return MOCK_TRANSACTIONS.filter((tx) => tx.filter === activeFilter)
-  }, [activeFilter])
+    if (activeFilter === 'all') return transactions
+    return transactions.filter((tx) => tx.kind === activeFilter)
+  }, [activeFilter, transactions])
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">
@@ -87,14 +85,14 @@ export default function PointsPage() {
           type="button"
           className="mt-2 inline-flex items-center gap-1 font-body text-sm text-ink/60 transition-colors hover:text-ink"
         >
-          Learn about SHEIN points
+          Learn about Wish points
           <HelpCircle className="h-3.5 w-3.5" />
         </button>
       </div>
 
       <div className="mt-8 grid grid-cols-2 divide-x divide-ink/10 rounded-xl bg-ink/[0.04] py-10">
         <div className="flex flex-col items-center gap-1">
-          <div className="font-display text-4xl font-bold text-rose-600">{totalPoints}</div>
+          <div className="font-display text-4xl font-bold text-rose-600">{points}</div>
           <div className="font-body text-sm text-ink/70">Total Points</div>
         </div>
         <div className="flex flex-col items-center gap-1">
@@ -136,7 +134,7 @@ export default function PointsPage() {
       ) : (
         <div className="mt-2">
           {visibleTransactions.map((tx) => (
-            <TransactionRow key={tx.id} tx={tx} />
+            <TransactionRow key={tx.id} label={tx.label} date={formatDate(tx.timestamp)} amount={tx.amount} />
           ))}
         </div>
       )}

@@ -1,8 +1,8 @@
-// app/account/wishdrop-vip/page.tsx
 'use client'
 
-import VipPage from './VipPage' 
+import VipPage from './VipPage'
 import { useLoyalty } from '@/contexts/Loyaltycontext'
+import { useAuth } from '@/contexts/AuthContext'
 
 function VipPageSkeleton() {
   return (
@@ -18,6 +18,7 @@ function VipPageSkeleton() {
 
 export default function WishdropVipPage() {
   const loyalty = useLoyalty()
+  const { user } = useAuth()
 
   if (!loyalty.hydrated) {
     return <VipPageSkeleton />
@@ -25,7 +26,7 @@ export default function WishdropVipPage() {
 
   return (
     <VipPage
-      username={loyalty.username}
+      username={user?.name}
       currentTier={loyalty.tier}
       points={loyalty.points}
       progressToNext={loyalty.progressToNext}
