@@ -1,0 +1,19 @@
+/* Boards page — component-only styles.
+   Pulled out of a component-level <style jsx> block so the blink
+   animation loads with the initial stylesheet instead of flashing
+   in late, matching the reasoning already used for .nav-scroll above. */
+ 
+@keyframes boards-cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+ 
+.boards-cursor {
+  animation: boards-cursor-blink 1s step-end infinite;
+}
+ 
