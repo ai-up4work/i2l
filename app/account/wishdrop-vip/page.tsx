@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 
 function VipPageSkeleton() {
   return (
-    <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 pb-8 lg:px-10">
       <div className="mt-6 h-56 animate-pulse rounded-2xl bg-ink/10" />
       <div className="mt-4 h-20 animate-pulse rounded-2xl bg-ink/5" />
       <div className="mt-4 h-64 animate-pulse rounded-2xl bg-ink/5" />

@@ -226,7 +226,7 @@ export default function VipPage({
   const accent = TIER_ACCENT[safeTier]
 
   return (
-    <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 pb-8 lg:px-10">
       {/* Membership card — the one bold move on this page. Everything
           else stays quiet by comparison. */}
       <div className="relative mt-6 overflow-hidden rounded-2xl bg-ink px-6 py-7 text-white">
