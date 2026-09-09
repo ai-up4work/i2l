@@ -232,7 +232,6 @@ export default function Header({
     `calc(100% - ${rightNotch + NOTCH_GAP}px) ${INNER_H}px, ${LEFT_NOTCH + NOTCH_GAP}px ${INNER_H}px, ${LEFT_NOTCH}px ${OUTER_H}px, 0 ${OUTER_H}px)`
 
   const isAccountMenuOpen = activeDesktopMenu === ACCOUNT_MENU_ID
-  const showAccountBack = isAccount && !!onBack && view !== undefined && view !== "home"
 
   const wishlistPreview = hasMounted
     ? wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt).slice(0, PREVIEW_ITEM_LIMIT)
@@ -358,12 +357,6 @@ export default function Header({
                   className={`${accountNavIconClass} lg:hidden`}
                 >
                   <Menu size={17} />
-                </button>
-              )}
-
-              {isAccount && showAccountBack && (
-                <button type="button" aria-label="Go back" onClick={onBack} className={`${accountNavIconClass} lg:hidden`}>
-                  <ChevronLeft size={17} />
                 </button>
               )}
 
