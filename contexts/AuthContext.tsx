@@ -6,12 +6,11 @@ interface AuthUser {
   name: string
   email: string
   imageUrl?: string
-  // Customer-facing chat handle (e.g. "@safnas"). Optional and
-  // editable — think account-settings field, same pattern as a
-  // Slack/Discord display name. Falls back to a derived handle in
-  // ChatContext if unset, so this can roll out before the settings UI
-  // that lets customers change it does.
   chatHandle?: string
+  /** Whether the user has verified their phone number. Drives things
+   *  like the account WelcomeBanner's "Verify your phone" CTA — once
+   *  true, that banner should stop showing regardless of dismiss state. */
+  phoneVerified?: boolean
 }
 
 interface AuthContextValue {
@@ -19,6 +18,9 @@ interface AuthContextValue {
   isAuthenticated: boolean
   login: () => void
   logout: () => void
+  /** Mock action for now — flips phoneVerified to true. Swap for a real
+   *  API call once phone verification is actually wired up. */
+  verifyPhone: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -29,6 +31,7 @@ const MOCK_USER: AuthUser = {
   email: "safnas@gmail.com",
   imageUrl: "/default-avatar.png",
   chatHandle: "@safnas",
+  phoneVerified: false,
 }
 
 interface AuthProviderProps {
@@ -47,6 +50,7 @@ export default function AuthProvider({ children, initiallySignedIn = true }: Aut
         isAuthenticated: !!user,
         login: () => setUser(MOCK_USER),
         logout: () => setUser(null),
+        verifyPhone: () => setUser((prev) => (prev ? { ...prev, phoneVerified: true } : prev)),
       }}
     >
       {children}

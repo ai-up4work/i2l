@@ -11,9 +11,11 @@ import WelcomeBanner from '@/components/dashboard/WelcomeBanner'
 import { pathForView, viewForPath } from '@/components/dashboard/routes'
 import type { View } from '@/components/dashboard/types'
 import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
+import { useAuth } from '@/contexts/AuthContext'
 import Header, { HEADER_BAR_HEIGHT_MOBILE, HEADER_BAR_HEIGHT_DESKTOP } from '@/components/shared/Header'
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import { useElementHeight } from '@/hooks/useElementHeight'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 const MOBILE_BOTTOM_NAV_H = 72
 
@@ -21,6 +23,10 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const view = viewForPath(pathname)
+  const isMobile = useIsMobile()
+
+  const { user } = useAuth()
+  const isPhoneVerified = !!user?.phoneVerified
 
   const {
     draft,
@@ -49,7 +55,14 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // a hydration flash.
   const { ref: bannerRef, height: bannerHeight } = useElementHeight<HTMLDivElement>()
 
-  const [bannerOpen, setBannerOpen] = useState(true)
+  // Banner visibility depends on verification status, not just a
+  // boolean toggle. `bannerDismissed` only matters if the user is still
+  // unverified — dismissing has no effect once verified. This is plain
+  // component state, so dismissing is session-only: reloading the page
+  // while still unverified will show it again.
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const bannerOpen = !isPhoneVerified && !bannerDismissed
+
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
   const [addRequestOpen, setAddRequestOpen] = useState(false)
@@ -60,6 +73,13 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   //    a fixed strip pinned to the very top of the viewport, above the
   //    modal (see bannerWrapperClass below).
   const overlayActive = modalOpen
+
+  // FIX: mobile-only auto-collapse. On mobile, once the banner has
+  // nothing to show (verified/dismissed, and no overlay), its wrapper
+  // shrinks to 0 so page content slides up to fill the gap. On desktop,
+  // the banner keeps its old behavior — reserved space, plain fade —
+  // since that's the intended look there.
+  const bannerCollapse = overlayActive || (isMobile && !bannerOpen)
 
   // Drive both <main>'s padding (via the Tailwind classes below) and
   // ItemInfoModal's top offset.
@@ -109,11 +129,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // overlay. Once the modal closes, it drops back to `relative` and
   // resumes its normal spot above the content column.
   //
-  // FIX: added `mb-4` to the relative (non-overlay) case so the banner
-  // isn't flush against the page content below it — previously nothing
-  // sat between the banner's wrapper div and `{children}`, so they
-  // touched with zero gap. Only applied when NOT in the overlay state,
-  // since the fixed/floating case shouldn't reserve extra layout space.
+  // `mb-4` in the relative case keeps the banner from sitting flush
+  // against the page content below it while it's actually showing.
   //
   // Once bannerOpen is false, this wrapper also gets `pointer-events-
   // none` directly (overlay case only), so a lingering collapsed-but-
@@ -121,7 +138,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // button.
   const bannerWrapperClass = overlayActive
     ? `fixed inset-x-0 top-0 z-50 ${bannerOpen ? '' : 'pointer-events-none'}`
-    : 'relative mb-4'
+    : `relative ${bannerOpen ? 'mb-4' : 'mt-8 lg:mt-0'}`
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
@@ -160,8 +177,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           <div ref={bannerRef} className={bannerWrapperClass}>
             <WelcomeBanner
               open={bannerOpen}
-              onDismiss={() => setBannerOpen(false)}
-              collapse={overlayActive}
+              onDismiss={() => setBannerDismissed(true)}
+              collapse={bannerCollapse}
             />
           </div>
 
