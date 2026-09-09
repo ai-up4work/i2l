@@ -34,6 +34,20 @@ export type CartProduct = {
    * page treats a missing source as 'link' since that's the harder case
    * to misattribute (a catalogue item always has a real `site`). */
   source?: 'catalogue' | 'link'
+  /**
+   * The variant selected at add-time, e.g. { Size: 'M', Color: 'Black' }.
+   * Undefined for products with no size/color options.
+   *
+   * Previously this only survived baked into `id`/`url` as a suffix
+   * (`:Size=M,Color=Black`) built by the snapshot builders in
+   * AddToBagButton/ProductActions. That was enough to dedupe lines
+   * correctly, but not enough to re-check a specific variant's live
+   * price/availability without parsing it back out of the id string.
+   * Kept here as structured data so a live-pricing/availability refresh
+   * (see hooks/useCartLivePricing.ts) can pass it straight to whatever
+   * fetch fetches current stock/price for that exact combination.
+   */
+  selectedOptions?: Record<string, string>
 }
 
 export type CartLineItem = {
