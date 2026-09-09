@@ -1,25 +1,13 @@
 // app/account/gift-card/page.tsx
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, ShieldCheck, Gift } from 'lucide-react'
+import { useLoyalty, type GiftCardProduct } from '@/contexts/Loyaltycontext'
 
-type GiftCardProduct = {
-  id: string
-  name: string
-  image: string
-  value: string
-  price: string
+function formatCurrency(value: number, currency: string): string {
+  return `${value.toFixed(2)}${currency}`
 }
-
-// TODO: replace with real catalog data once wired to a data source.
-const BEST_SELLERS: GiftCardProduct[] = [
-  { id: 'gc-1', name: 'SHEIN Classic', image: '', value: '100.00€', price: '93.00€' },
-  { id: 'gc-2', name: "You're Amazing", image: '', value: '100.00€', price: '93.00€' },
-  { id: 'gc-3', name: 'SHEIN Floral', image: '', value: '100.00€', price: '93.00€' },
-  { id: 'gc-4', name: 'Best Wishes', image: '', value: '100.00€', price: '93.00€' },
-  { id: 'gc-5', name: 'Thank You', image: '', value: '100.00€', price: '93.00€' },
-]
 
 function GiftCardTile({ product }: { product: GiftCardProduct }) {
   return (
@@ -30,35 +18,63 @@ function GiftCardTile({ product }: { product: GiftCardProduct }) {
           <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full items-center justify-center font-display text-lg font-bold text-ink/30">
-            SHEIN
+            {product.name.slice(0, 1)}
           </div>
         )}
       </div>
-      <div className="mt-3 font-body text-sm text-ink/80">Value: {product.value}</div>
-      <div className="font-body text-sm font-bold text-rose-600">Price: {product.price}</div>
+      <div className="mt-3 font-body text-sm text-ink/80">
+        Value: {formatCurrency(product.value, product.currency)}
+      </div>
+      <div className="font-body text-sm font-bold text-rose-600">
+        Price: {formatCurrency(product.price, product.currency)}
+      </div>
+    </div>
+  )
+}
+
+function GiftCardSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
+      <div className="h-56 animate-pulse rounded-2xl bg-ink/5" />
+      <div className="mt-8 h-64 animate-pulse rounded-2xl bg-ink/5" />
     </div>
   )
 }
 
 export default function GiftCardPage() {
+  const loyalty = useLoyalty()
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const [redeemOpen, setRedeemOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null)
 
   const scrollBy = (delta: number) => {
     scrollerRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
   }
 
-  // TODO: replace with real balance once wired to a data source.
-  const totalBalance = '0.00€'
+  const handleRedeem = () => {
+    const amount = loyalty.redeemGiftCard(code)
+    if (amount > 0) {
+      setFeedback({ ok: true, message: `€${amount.toFixed(2)} added to your wallet.` })
+      setCode('')
+    } else {
+      setFeedback({ ok: false, message: 'That code doesn\u2019t look right — check it and try again.' })
+    }
+  }
+
+  if (!loyalty.hydrated) {
+    return <GiftCardSkeleton />
+  }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
       {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-rose-600 to-orange-500 p-8 sm:p-10">
         <div
           className="pointer-events-none absolute inset-0 select-none font-display text-[10rem] font-black leading-none text-white/10"
           aria-hidden="true"
         >
-          SHEIN
+          GIFT
         </div>
 
         <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
@@ -82,31 +98,63 @@ export default function GiftCardPage() {
               <Info className="h-3.5 w-3.5 text-ink/40" />
             </div>
 
-            <button
-              type="button"
-              className="mt-2 flex items-center gap-2 font-display text-3xl font-bold text-ink transition-opacity hover:opacity-70"
-            >
-              {totalBalance}
-              <ChevronRight className="h-5 w-5 text-ink/40" />
-            </button>
+            <div className="mt-2 flex items-center gap-2 font-display text-3xl font-bold text-ink">
+              €{loyalty.credits.toFixed(2)}
+            </div>
 
             <div className="mt-6 flex items-center justify-between">
               <button
                 type="button"
+                onClick={() => setRedeemOpen((v) => !v)}
                 className="flex items-center gap-1 font-body text-sm text-ink/60 transition-colors hover:text-ink"
               >
-                Check Balance
-                <ChevronRight className="h-3.5 w-3.5" />
+                {redeemOpen ? 'Hide' : 'Check Balance'}
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${redeemOpen ? 'rotate-90' : ''}`} />
               </button>
 
               <button
                 type="button"
+                onClick={() => setRedeemOpen(true)}
                 className="flex items-center gap-1 rounded-full bg-rose-600 px-5 py-2.5 font-body text-sm font-bold text-white transition-colors hover:bg-rose-700"
               >
-                Link Card
+                Redeem Card
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
+
+            {redeemOpen && (
+              <div className="mt-4 border-t border-ink/10 pt-4">
+                <label htmlFor="gift-card-code" className="font-body text-xs font-semibold text-ink/60">
+                  Gift card code
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="gift-card-code"
+                    type="text"
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value)
+                      setFeedback(null)
+                    }}
+                    placeholder="e.g. WD7X9K2M"
+                    className="min-w-0 flex-1 rounded-lg border border-ink/15 bg-white px-3 py-2 font-body text-sm text-ink"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRedeem}
+                    disabled={code.trim().length === 0}
+                    className="flex-none rounded-lg bg-ink px-4 py-2 font-body text-sm font-bold text-parchment transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Redeem
+                  </button>
+                </div>
+                {feedback && (
+                  <p className={`mt-2 font-body text-xs ${feedback.ok ? 'text-teal-deep' : 'text-rose-600'}`}>
+                    {feedback.message}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -129,7 +177,7 @@ export default function GiftCardPage() {
             ref={scrollerRef}
             className="scrollbar-none flex gap-6 overflow-x-auto scroll-smooth pb-2"
           >
-            {BEST_SELLERS.map((product) => (
+            {loyalty.giftCardCatalog.map((product) => (
               <GiftCardTile key={product.id} product={product} />
             ))}
           </div>

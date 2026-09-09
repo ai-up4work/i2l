@@ -59,7 +59,7 @@ function orderNoFromLabel(label: string): string {
 
 function WalletSkeleton() {
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
       <div className="h-9 w-48 animate-pulse rounded bg-ink/10" />
       <div className="mt-8 h-6 w-40 animate-pulse rounded bg-ink/10" />
       <div className="mt-4 h-32 animate-pulse rounded-xl bg-ink/[0.04]" />
@@ -80,7 +80,7 @@ export default function WalletPage() {
   const history = loyalty.creditTransactions
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
       <h1 className="font-display text-3xl font-bold uppercase tracking-wide text-ink">
         My Wallet
       </h1>

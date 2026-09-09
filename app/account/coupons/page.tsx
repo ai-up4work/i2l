@@ -3,44 +3,18 @@
 
 import { useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
+import {
+  useLoyalty,
+  effectiveCouponStatus,
+  isCouponExpiringSoon,
+  isCouponNew,
+  type Coupon,
+  type CouponEffectiveStatus,
+} from '@/contexts/Loyaltycontext'
 
-type CouponTab = 'unused' | 'used' | 'expired'
 type CouponFilter = 'all' | 'expiringSoon' | 'new' | 'shipping' | 'discount'
 
-type Coupon = {
-  id: string
-  tabs: CouponTab[]
-  filters: CouponFilter[]
-  discountLabel: string // e.g. "10%" or "5€"
-  discountSuffix: string // "OFF"
-  thresholdLabel: string // "Orders 29€+"
-  title: string // "Product Coupon"
-  capLabel?: string // "Capped at 30€"
-  scopeLabel: string // "For selected products"
-  usageLabel: string // "one-time use only"
-  expiresLabel: string // "Expires in 09/29/2026 20:46"
-}
-
-// TODO: replace with real coupon data once the coupons API/context lands.
-// Shape mirrors sidebar-data/types.ts conventions (plain data + a thin
-// render layer) rather than wiring to DashboardContext yet.
-const MOCK_COUPONS: Coupon[] = [
-  {
-    id: 'coupon-1',
-    tabs: ['unused'],
-    filters: ['all', 'expiringSoon', 'discount'],
-    discountLabel: '10',
-    discountSuffix: '%OFF',
-    thresholdLabel: 'Orders 29€+',
-    title: 'Product Coupon',
-    capLabel: 'Capped at 30€',
-    scopeLabel: 'For selected products',
-    usageLabel: 'one-time use only',
-    expiresLabel: 'Expires in 09/29/2026 20:46',
-  },
-]
-
-const TABS: { key: CouponTab; label: string }[] = [
+const TABS: { key: CouponEffectiveStatus; label: string }[] = [
   { key: 'unused', label: 'Unused Coupons' },
   { key: 'used', label: 'Used' },
   { key: 'expired', label: 'Expired Coupons' },
@@ -54,33 +28,57 @@ const FILTERS: { key: CouponFilter; label: string }[] = [
   { key: 'discount', label: 'Discount' },
 ]
 
+function matchesFilter(coupon: Coupon, filter: CouponFilter): boolean {
+  switch (filter) {
+    case 'all':
+      return true
+    case 'expiringSoon':
+      return isCouponExpiringSoon(coupon)
+    case 'new':
+      return isCouponNew(coupon)
+    case 'shipping':
+      return coupon.category === 'shipping'
+    case 'discount':
+      return coupon.category === 'discount'
+    default:
+      return true
+  }
+}
+
 function CouponCard({ coupon }: { coupon: Coupon }) {
+  const discountMain = coupon.discountType === 'percent' ? String(coupon.discountValue) : `${coupon.discountValue}€`
+  const discountSuffix = coupon.discountType === 'percent' ? '%OFF' : ' OFF'
+  const thresholdLabel = `Orders ${coupon.minOrderValue}€+`
+  const scopeLabel = coupon.scope === 'all' ? 'For all products' : 'For selected products'
+  const usageLabel = coupon.usageLimit === 'one-time' ? 'one-time use only' : 'multi-use'
+  const expiresLabel = `Expires ${new Date(coupon.expiresAt).toLocaleString()}`
+
   return (
     <div className="flex overflow-hidden rounded-xl border border-rose-200 bg-rose-50/60">
       <div className="flex w-40 flex-none flex-col items-center justify-center gap-1 px-4 py-6 text-center">
         <div className="font-display text-3xl font-bold text-rose-600">
-          {coupon.discountLabel}
-          <span className="text-lg align-top">{coupon.discountSuffix}</span>
+          {discountMain}
+          <span className="text-lg align-top">{discountSuffix}</span>
         </div>
-        <div className="font-body text-xs font-semibold text-ink/70">{coupon.thresholdLabel}</div>
+        <div className="font-body text-xs font-semibold text-ink/70">{thresholdLabel}</div>
       </div>
 
       <div className="flex flex-1 items-start justify-between gap-4 border-l border-dashed border-rose-200 px-6 py-5">
         <div>
           <div className="font-body text-base font-bold text-ink">{coupon.title}</div>
-          {coupon.capLabel && (
+          {coupon.maxDiscount !== null && (
             <div className="mt-1 font-body text-sm text-ink/70">
-              Capped at <span className="font-semibold text-rose-600">{coupon.capLabel.replace('Capped at ', '')}</span>
+              Capped at <span className="font-semibold text-rose-600">{coupon.maxDiscount}€</span>
             </div>
           )}
-          <div className="font-body text-sm text-ink/60">{coupon.scopeLabel}</div>
-          <div className="font-body text-sm text-ink/60">{coupon.usageLabel}</div>
+          <div className="font-body text-sm text-ink/60">{scopeLabel}</div>
+          <div className="font-body text-sm text-ink/60">{usageLabel}</div>
 
           <button
             type="button"
             className="mt-3 flex items-center gap-1 font-body text-xs text-ink/50 transition-colors hover:text-ink/70"
           >
-            {coupon.expiresLabel}
+            {expiresLabel}
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -96,18 +94,33 @@ function CouponCard({ coupon }: { coupon: Coupon }) {
   )
 }
 
+function CouponsSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
+      <div className="h-9 w-48 animate-pulse rounded bg-ink/10" />
+      <div className="mt-8 h-10 animate-pulse rounded bg-ink/5" />
+      <div className="mt-6 h-40 animate-pulse rounded-xl bg-ink/5" />
+    </div>
+  )
+}
+
 export default function CouponsPage() {
-  const [activeTab, setActiveTab] = useState<CouponTab>('unused')
+  const loyalty = useLoyalty()
+  const [activeTab, setActiveTab] = useState<CouponEffectiveStatus>('unused')
   const [activeFilter, setActiveFilter] = useState<CouponFilter>('all')
 
   const visibleCoupons = useMemo(() => {
-    return MOCK_COUPONS.filter(
-      (c) => c.tabs.includes(activeTab) && (activeFilter === 'all' || c.filters.includes(activeFilter))
+    return loyalty.coupons.filter(
+      (c) => effectiveCouponStatus(c) === activeTab && matchesFilter(c, activeFilter),
     )
-  }, [activeTab, activeFilter])
+  }, [loyalty.coupons, activeTab, activeFilter])
+
+  if (!loyalty.hydrated) {
+    return <CouponsSkeleton />
+  }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
       <h1 className="font-display text-3xl font-bold uppercase tracking-wide text-ink">
         My Coupons
       </h1>

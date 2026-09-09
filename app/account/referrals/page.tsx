@@ -1,21 +1,15 @@
-// app/account/referrals/page.tsx
 'use client'
 
 import { useState } from 'react'
 import { Copy, Check, Share2 } from 'lucide-react'
-import type { ReferredFriend, ReferralStatus, RewardTier } from '@/components/dashboard/types'
+import { useLoyalty, type ReferralStatus as ContextReferralStatus } from '@/contexts/Loyaltycontext'
+import type { ReferralStatus } from '@/components/dashboard/types'
 
-// TODO: replace with real referral data once wired to a data source.
-const REFERRAL_CODE = 'WISH-4K2P9Q'
-const REFERRAL_LINK = `https://wishdrop.app/join?ref=${REFERRAL_CODE}`
-
-const REWARD_TIERS: RewardTier[] = [
-  { friends: '1 friend', reward: '€5 credit' },
-  { friends: '5 friends', reward: '€30 credit' },
-  { friends: '10 friends', reward: '€75 credit + free shipping voucher' },
-]
-
-const REFERRED_FRIENDS: ReferredFriend[] = []
+const STATUS_LABELS: Record<ContextReferralStatus, ReferralStatus> = {
+  invited: 'Invited',
+  joined: 'Joined',
+  rewarded: 'Rewarded',
+}
 
 const STATUS_STYLES: Record<ReferralStatus, string> = {
   Invited: 'bg-ink/10 text-ink/60',
@@ -23,12 +17,11 @@ const STATUS_STYLES: Record<ReferralStatus, string> = {
   Rewarded: 'bg-rose-500/15 text-rose-600',
 }
 
-function StatusPill({ status }: { status: ReferralStatus }) {
+function StatusPill({ status }: { status: ContextReferralStatus }) {
+  const label = STATUS_LABELS[status]
   return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-xs font-bold leading-none ${STATUS_STYLES[status]}`}
-    >
-      {status}
+    <span className={`rounded-full px-2.5 py-1 text-xs font-bold leading-none ${STATUS_STYLES[label]}`}>
+      {label}
     </span>
   )
 }
@@ -43,12 +36,23 @@ function EmptyState() {
   )
 }
 
+function ReferralsSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
+      <div className="h-48 animate-pulse rounded-2xl bg-ink/5" />
+      <div className="mt-8 h-32 animate-pulse rounded-2xl bg-ink/5" />
+      <div className="mt-8 h-56 animate-pulse rounded-2xl bg-ink/5" />
+    </div>
+  )
+}
+
 export default function ReferralsPage() {
+  const loyalty = useLoyalty()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(REFERRAL_LINK)
+      await navigator.clipboard.writeText(loyalty.referralLink)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
@@ -57,8 +61,12 @@ export default function ReferralsPage() {
     }
   }
 
+  if (!loyalty.hydrated) {
+    return <ReferralsSkeleton />
+  }
+
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
       {/* Hero — mirrors the Gift Card page's gradient banner treatment */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-teal-deep to-teal p-8 sm:p-10">
         <div
@@ -81,7 +89,7 @@ export default function ReferralsPage() {
 
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment px-3 py-2.5">
               <span className="flex-1 truncate font-body text-sm text-ink/80">
-                {REFERRAL_LINK}
+                {loyalty.referralLink}
               </span>
               <button
                 type="button"
@@ -109,10 +117,12 @@ export default function ReferralsPage() {
         <h2 className="font-body text-lg font-bold text-ink">Reward Tiers</h2>
 
         <div className="mt-4 grid grid-cols-1 divide-y divide-ink/10 rounded-xl bg-ink/[0.04] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          {REWARD_TIERS.map((tier) => (
-            <div key={tier.friends} className="flex flex-col items-center gap-1 px-6 py-8 text-center">
-              <div className="font-body text-sm text-ink/70">{tier.friends}</div>
-              <div className="font-display text-xl font-bold text-rose-600">{tier.reward}</div>
+          {loyalty.rewardTiers.map((tier) => (
+            <div key={tier.friendCount} className="flex flex-col items-center gap-1 px-6 py-8 text-center">
+              <div className="font-body text-sm text-ink/70">
+                {tier.friendCount} {tier.friendCount === 1 ? 'friend' : 'friends'}
+              </div>
+              <div className="font-display text-xl font-bold text-rose-600">{tier.label}</div>
             </div>
           ))}
         </div>
@@ -134,18 +144,22 @@ export default function ReferralsPage() {
             ))}
           </div>
 
-          {REFERRED_FRIENDS.length === 0 ? (
+          {loyalty.referredFriends.length === 0 ? (
             <EmptyState />
           ) : (
             <div>
-              {REFERRED_FRIENDS.map((friend) => (
-                <div key={friend.name + friend.date} className="grid grid-cols-4 items-center border-t border-ink/10">
+              {loyalty.referredFriends.map((friend) => (
+                <div key={friend.id} className="grid grid-cols-4 items-center border-t border-ink/10">
                   <div className="px-4 py-3 font-body text-sm text-ink/80">{friend.name}</div>
                   <div className="px-4 py-3">
                     <StatusPill status={friend.status} />
                   </div>
-                  <div className="px-4 py-3 font-body text-sm text-ink/80">{friend.reward}</div>
-                  <div className="px-4 py-3 font-body text-sm text-ink/60">{friend.date}</div>
+                  <div className="px-4 py-3 font-body text-sm text-ink/80">
+                    {friend.rewardLabel ?? '—'}
+                  </div>
+                  <div className="px-4 py-3 font-body text-sm text-ink/60">
+                    {new Date(friend.invitedAt).toLocaleDateString()}
+                  </div>
                 </div>
               ))}
             </div>
