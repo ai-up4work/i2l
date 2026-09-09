@@ -189,18 +189,10 @@ type VipPageProps = {
   progressToNext?: number
   nextTierRequirements?: string[]
   rewards?: Reward[]
-  faqs?: { question: string; answer: string }[]
   onViewRules?: () => void
   onViewRedemptionRecord?: () => void
   onViewAllStores?: () => void
 }
-
-const DEFAULT_FAQS = [
-  { question: 'How do I join?', answer: 'Every account is automatically enrolled at V0 — there\u2019s nothing separate to sign up for.' },
-  { question: 'What do I get if I level up?', answer: 'Each tier unlocks the rewards shown above, plus tier-exclusive pricing on select items.' },
-  { question: 'How can I find out my tier?', answer: 'Your current tier is shown at the top of this page, next to your name.' },
-  { question: 'How do I level up?', answer: 'Tiers are based on your order count and total spend over a rolling period — see the requirements above.' },
-]
 
 export default function VipPage({
   username,
@@ -209,7 +201,6 @@ export default function VipPage({
   progressToNext = 0,
   nextTierRequirements = [],
   rewards = DEFAULT_REWARDS,
-  faqs = DEFAULT_FAQS,
   onViewRules,
   onViewRedemptionRecord,
   onViewAllStores,
@@ -333,16 +324,6 @@ export default function VipPage({
           )}
         </div>
       )}
-
-      {/* FAQ */}
-      <div className="mt-4 rounded-2xl border border-ink/10 bg-card p-6">
-        <h2 className="font-display text-sm text-ink">FAQs</h2>
-        <div className="mt-2">
-          {faqs.map((faq) => (
-            <FaqItem key={faq.question} question={faq.question} answer={faq.answer} />
-          ))}
-        </div>
-      </div>
     </div>
   )
 }
