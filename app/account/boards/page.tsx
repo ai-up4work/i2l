@@ -17,9 +17,9 @@ function BoardsPageSkeleton() {
       <div className="mt-10 flex items-center justify-between">
         <div className="h-6 w-28 animate-pulse rounded bg-ink/[0.06]" />
       </div>
-      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+      <div className="mt-8 grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-[272px] w-[288px] animate-pulse rounded-2xl bg-ink/[0.04]" />
+          <div key={i} className="h-[272px] w-full max-w-[288px] animate-pulse rounded-2xl bg-ink/[0.04]" />
         ))}
       </div>
     </>
@@ -102,11 +102,16 @@ export default function BoardsPage() {
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+      {/* gap-y is intentionally larger than gap-x: BoardFolder cards let their
+          image stack peek up above the card edge on hover, so single-column
+          mobile layouts need extra vertical room between rows or the peeking
+          artwork visually collides with the card above it. */}
+      <div className="mt-8 grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 lg:grid-cols-3">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.3, delay: 0.05, ease: EASE_OUT_EXPO }}
+          className="flex justify-center sm:block"
         >
           <NewBoardSlot onClick={() => setCreateModalOpen(true)} />
         </motion.div>
@@ -122,6 +127,7 @@ export default function BoardsPage() {
               delay: Math.min(idx * 0.03, 0.3) + 0.05,
               ease: EASE_OUT_EXPO,
             }}
+            className="flex justify-center sm:block"
           >
             <BoardFolder
               name={board.name}
