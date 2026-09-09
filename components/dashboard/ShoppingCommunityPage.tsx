@@ -390,7 +390,7 @@ export default function ShoppingCommunityPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
+    <div className="mx-auto max-w-7xl px-6 lg:px-10">
       {/* Guarantees the fadeUp/scaleIn/heartPop keyframes exist even if
           missing from global CSS — mirrors HomePage's inline style block
           so cards and interactions animate consistently across pages. */}

@@ -156,7 +156,6 @@ function AccountShell({ children }: { children: React.ReactNode }) {
         style={{
           ['--account-header-h-mobile' as string]: `${effectiveHeaderHeightMobile}px`,
           ['--account-header-h-desktop' as string]: `${effectiveHeaderHeightDesktop}px`,
-          ['--account-bottom-nav-h' as string]: `${MOBILE_BOTTOM_NAV_H}px`,
         }}
       >
         <Sidebar
@@ -170,9 +169,14 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           onMobileClose={() => setSidebarOpen(false)}
         />
 
+        {/* FIX: bottom padding for the mobile bottom-nav bar (72px) is
+            now a Tailwind class instead of an inline `--account-bottom-
+            nav-h` var, and is zeroed at `lg:` — MobileBottomNav itself
+            unmounts/hides on desktop, so the reserved gap under the
+            content column was previously left dangling there with
+            nothing to fill it. */}
         <section
-          className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto"
-          style={{ paddingBottom: 'var(--account-bottom-nav-h)' }}
+          className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto pb-[72px] lg:pb-0"
         >
           <div ref={bannerRef} className={bannerWrapperClass}>
             <WelcomeBanner
@@ -218,8 +222,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 
         <button
           aria-label="Open support chat"
-          className="support-fab fixed right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
-          style={{ bottom: 'calc(var(--account-bottom-nav-h) + 1.5rem)' }}
+          className="support-fab fixed right-6 bottom-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
         >
           <CircleHelp />
         </button>
@@ -247,11 +250,6 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           }
           .content-scroll::-webkit-scrollbar-thumb:hover {
             background-color: rgba(14, 140, 156, 0.5);
-          }
-          @media (min-width: 1024px) {
-            .support-fab {
-              bottom: 1.5rem !important;
-            }
           }
         `}</style>
       </main>

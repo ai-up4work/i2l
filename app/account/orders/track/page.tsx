@@ -263,7 +263,7 @@ function TrackOrderContent() {
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
       <SquircleDefs />
-      <div className="mx-auto max-w-6xl px-6 py-8 pb-16">
+      <div className="mx-auto max-w-6xl px-6 py-8">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-xs text-ink/60">
           <button type="button" onClick={() => router.push('/account/orders')} className="hover:text-ink">
