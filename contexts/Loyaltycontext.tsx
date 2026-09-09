@@ -32,6 +32,7 @@ export type { Tier, MilestoneKey }
 export { TIER_ORDER, TIER_THRESHOLDS, CHECK_IN_POINTS, MILESTONE_POINTS }
 
 export type PointsTransactionKind = 'earned' | 'used' | 'expired'
+export type CreditTransactionKind = 'refund' | 'referral' | 'used' | 'adjustment'
 
 export type PointsTransaction = {
   id: string
@@ -43,13 +44,24 @@ export type PointsTransaction = {
   amount: number
 }
 
+export type CreditTransaction = {
+  id: string
+  kind: CreditTransactionKind
+  label: string
+  timestamp: number
+  /** Positive for refund/referral/adjustment-in, negative for spend. */
+  amount: number
+}
+
 type LoyaltyState = {
   points: number
+  credits: number
   lastCheckInAt: number | null
   claimedMilestones: MilestoneKey[]
   claimedOrderIds: string[]
   claimedCampaignIds: string[]
   transactions: PointsTransaction[]
+  creditTransactions: CreditTransaction[]
 }
 
 type LoyaltyContextValue = {
@@ -59,6 +71,16 @@ type LoyaltyContextValue = {
   lastCheckInAt: number | null
   transactions: PointsTransaction[]
 
+  /**
+   * Non-expiring wallet balance. Sourced from refunds, referrals, and
+   * manual adjustments — never from activity (check-ins, reviews, etc.),
+   * and never affects `tier`. There is deliberately no withdraw action:
+   * like Shein's real wallet, credits can only be spent on future
+   * purchases here, never sent back out to a bank/card.
+   */
+  credits: number
+  creditTransactions: CreditTransaction[]
+
   tier: Tier
   progressToNext: number
   nextTierRequirements: string[]
@@ -66,6 +88,11 @@ type LoyaltyContextValue = {
 
   addPoints: (delta: number, label?: string) => void
   setPoints: (value: number) => void
+
+  /** Refunds, referral bonuses, manual credit grants. Never touches tier. */
+  addCredits: (amount: number, label: string) => void
+  /** Spend credits at checkout. Returns false if balance is insufficient. */
+  useCredits: (amount: number, label: string) => boolean
 
   addOrderPoints: (order: Order) => number
   claimMilestone: (key: Exclude<MilestoneKey, 'fiveOrdersCompleted'>) => number
@@ -120,8 +147,8 @@ function isSameCalendarDay(a: number, b: number): boolean {
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate()
 }
 
-function makeTxId(): string {
-  return `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+function makeTxId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -132,17 +159,19 @@ const STORAGE_KEY = 'wishdrop:loyalty'
 
 /**
  * Genuinely empty starting state — NOT sample/demo data. A brand-new or
- * not-yet-loaded member has zero points and no history. If you render
- * this, the UI should already be behind the `hydrated` gate, so nobody
- * ever actually sees these zeros as "their" data.
+ * not-yet-loaded member has zero points, zero credits, and no history.
+ * If you render this, the UI should already be behind the `hydrated`
+ * gate, so nobody ever actually sees these zeros as "their" data.
  */
 const EMPTY_STATE: LoyaltyState = {
   points: 0,
+  credits: 0,
   lastCheckInAt: null,
   claimedMilestones: [],
   claimedOrderIds: [],
   claimedCampaignIds: [],
   transactions: [],
+  creditTransactions: [],
 }
 
 function parseStoredState(raw: string): LoyaltyState {
@@ -150,11 +179,13 @@ function parseStoredState(raw: string): LoyaltyState {
     const parsed = JSON.parse(raw)
     return {
       points: typeof parsed.points === 'number' && Number.isFinite(parsed.points) ? Math.max(0, parsed.points) : EMPTY_STATE.points,
+      credits: typeof parsed.credits === 'number' && Number.isFinite(parsed.credits) ? Math.max(0, parsed.credits) : EMPTY_STATE.credits,
       lastCheckInAt: typeof parsed.lastCheckInAt === 'number' ? parsed.lastCheckInAt : null,
       claimedMilestones: Array.isArray(parsed.claimedMilestones) ? parsed.claimedMilestones : [],
       claimedOrderIds: Array.isArray(parsed.claimedOrderIds) ? parsed.claimedOrderIds : [],
       claimedCampaignIds: Array.isArray(parsed.claimedCampaignIds) ? parsed.claimedCampaignIds : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+      creditTransactions: Array.isArray(parsed.creditTransactions) ? parsed.creditTransactions : [],
     }
   } catch {
     return EMPTY_STATE
@@ -191,11 +222,13 @@ async function fetchInitialState(): Promise<LoyaltyState> {
 
 export function LoyaltyProvider({ children }: { children: ReactNode }) {
   const [points, setPointsState] = useState(EMPTY_STATE.points)
+  const [credits, setCreditsState] = useState(EMPTY_STATE.credits)
   const [lastCheckInAt, setLastCheckInAt] = useState<number | null>(EMPTY_STATE.lastCheckInAt)
   const [claimedMilestones, setClaimedMilestones] = useState<MilestoneKey[]>(EMPTY_STATE.claimedMilestones)
   const [claimedOrderIds, setClaimedOrderIds] = useState<string[]>(EMPTY_STATE.claimedOrderIds)
   const [claimedCampaignIds, setClaimedCampaignIds] = useState<string[]>(EMPTY_STATE.claimedCampaignIds)
   const [transactions, setTransactions] = useState<PointsTransaction[]>(EMPTY_STATE.transactions)
+  const [creditTransactions, setCreditTransactions] = useState<CreditTransaction[]>(EMPTY_STATE.creditTransactions)
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
@@ -205,11 +238,13 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       .then((initial) => {
         if (cancelled) return
         setPointsState(initial.points)
+        setCreditsState(initial.credits)
         setLastCheckInAt(initial.lastCheckInAt)
         setClaimedMilestones(initial.claimedMilestones)
         setClaimedOrderIds(initial.claimedOrderIds)
         setClaimedCampaignIds(initial.claimedCampaignIds)
         setTransactions(initial.transactions)
+        setCreditTransactions(initial.creditTransactions)
       })
       .catch(() => {
         // Real data failed to load — stay on EMPTY_STATE rather than
@@ -229,18 +264,20 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
     try {
       const payload: LoyaltyState = {
         points,
+        credits,
         lastCheckInAt,
         claimedMilestones,
         claimedOrderIds,
         claimedCampaignIds,
         transactions,
+        creditTransactions,
       }
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch {
       // Storage can fail (quota, private mode) — losing persistence isn't
       // worth crashing the loyalty feature over.
     }
-  }, [points, lastCheckInAt, claimedMilestones, claimedOrderIds, claimedCampaignIds, transactions, hydrated])
+  }, [points, credits, lastCheckInAt, claimedMilestones, claimedOrderIds, claimedCampaignIds, transactions, creditTransactions, hydrated])
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
@@ -249,6 +286,7 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
         const parsed = e.newValue ? JSON.parse(e.newValue) : null
         if (!parsed) return
         if (typeof parsed.points === 'number') setPointsState(Math.max(0, parsed.points))
+        if (typeof parsed.credits === 'number') setCreditsState(Math.max(0, parsed.credits))
         if (typeof parsed.lastCheckInAt === 'number' || parsed.lastCheckInAt === null) {
           setLastCheckInAt(parsed.lastCheckInAt)
         }
@@ -256,6 +294,7 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
         if (Array.isArray(parsed.claimedOrderIds)) setClaimedOrderIds(parsed.claimedOrderIds)
         if (Array.isArray(parsed.claimedCampaignIds)) setClaimedCampaignIds(parsed.claimedCampaignIds)
         if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions)
+        if (Array.isArray(parsed.creditTransactions)) setCreditTransactions(parsed.creditTransactions)
       } catch {
         // ignore malformed cross-tab payloads
       }
@@ -265,7 +304,11 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logTransaction = useCallback((kind: PointsTransactionKind, label: string, amount: number) => {
-    setTransactions((prev) => [{ id: makeTxId(), kind, label, timestamp: Date.now(), amount }, ...prev])
+    setTransactions((prev) => [{ id: makeTxId('tx'), kind, label, timestamp: Date.now(), amount }, ...prev])
+  }, [])
+
+  const logCreditTransaction = useCallback((kind: CreditTransactionKind, label: string, amount: number) => {
+    setCreditTransactions((prev) => [{ id: makeTxId('ctx'), kind, label, timestamp: Date.now(), amount }, ...prev])
   }, [])
 
   const addPoints = useCallback(
@@ -280,6 +323,33 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
   const setPoints = useCallback((value: number) => {
     setPointsState(Number.isFinite(value) ? Math.max(0, value) : 0)
   }, [])
+
+  // Credits: refunds, referrals, manual grants. Deliberately never
+  // affects `points` or `tier` — see LoyaltyContextValue['credits'] doc.
+  const addCredits = useCallback(
+    (amount: number, label: string) => {
+      if (!Number.isFinite(amount) || amount <= 0) return
+      setCreditsState((prev) => prev + amount)
+      const kind: CreditTransactionKind = /referral/i.test(label)
+        ? 'referral'
+        : /refund/i.test(label)
+          ? 'refund'
+          : 'adjustment'
+      logCreditTransaction(kind, label, amount)
+    },
+    [logCreditTransaction],
+  )
+
+  const useCreditsFn = useCallback(
+    (amount: number, label: string): boolean => {
+      if (!Number.isFinite(amount) || amount <= 0) return false
+      if (credits < amount) return false
+      setCreditsState((prev) => Math.max(0, prev - amount))
+      logCreditTransaction('used', label, -amount)
+      return true
+    },
+    [credits, logCreditTransaction],
+  )
 
   const addOrderPoints = useCallback(
     (order: Order): number => {
@@ -361,13 +431,17 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
 
   const resetLoyalty = useCallback(() => {
     setPointsState(EMPTY_STATE.points)
+    setCreditsState(EMPTY_STATE.credits)
     setLastCheckInAt(EMPTY_STATE.lastCheckInAt)
     setClaimedMilestones(EMPTY_STATE.claimedMilestones)
     setClaimedOrderIds(EMPTY_STATE.claimedOrderIds)
     setClaimedCampaignIds(EMPTY_STATE.claimedCampaignIds)
     setTransactions(EMPTY_STATE.transactions)
+    setCreditTransactions(EMPTY_STATE.creditTransactions)
   }, [])
 
+  // Tier is derived from `points` only — `credits` never factors in, by
+  // design, so refunding an order can never be used to rank up.
   const tier = useMemo(() => tierForPoints(points), [points])
   const progressToNext = useMemo(() => progressForPoints(points, tier), [points, tier])
   const nextTierRequirements = useMemo(() => requirementsForPoints(points, tier), [points, tier])
@@ -378,12 +452,16 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       points,
       lastCheckInAt,
       transactions,
+      credits,
+      creditTransactions,
       tier,
       progressToNext,
       nextTierRequirements,
       canCheckInToday,
       addPoints,
       setPoints,
+      addCredits,
+      useCredits: useCreditsFn,
       addOrderPoints,
       claimMilestone,
       claimFiveOrdersMilestoneIfReached,
@@ -397,12 +475,16 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       points,
       lastCheckInAt,
       transactions,
+      credits,
+      creditTransactions,
       tier,
       progressToNext,
       nextTierRequirements,
       canCheckInToday,
       addPoints,
       setPoints,
+      addCredits,
+      useCreditsFn,
       addOrderPoints,
       claimMilestone,
       claimFiveOrdersMilestoneIfReached,

@@ -10,6 +10,9 @@ import {
   PackageCheck,
   Gift,
   RotateCcw,
+  Undo2,
+  Users,
+  Wallet,
 } from 'lucide-react'
 
 import { useLoyalty, CHECK_IN_POINTS, MILESTONE_POINTS } from '@/contexts/Loyaltycontext'
@@ -21,21 +24,39 @@ import { POINTS_PER_CURRENCY_UNIT } from '@/lib/loyaltyPoints'
 // click them repeatedly and watch the log show "already claimed" after the
 // first hit. That's the point (pun intended): there's no cap to configure,
 // because the claimed-flag itself is the cap.
+//
+// Credits are a deliberately separate track below — refunds and referrals,
+// repeatable, never touch points/tier, and (as in real Shein) there is no
+// withdraw trigger here on purpose: credits only ever get spent, never
+// cashed out.
 // ---------------------------------------------------------------------------
 
 const MOCK_ORDER_TOTAL = 48 // pretend delivered-order total
+const MOCK_REFUND_AMOUNT = 25 // pretend refunded-order credit
+const MOCK_REFERRAL_CREDIT = 10 // pretend referral bonus credit
 
-type LogEntry = { id: string; label: string; delta: number; at: number; blocked?: boolean }
+type LogEntry = { id: string; label: string; delta: number; at: number; blocked?: boolean; kind?: 'points' | 'credits' }
 
 export default function LoyaltyDemoPage() {
   const loyalty = useLoyalty()
   const [log, setLog] = useState<LogEntry[]>([])
   const [manualAmount, setManualAmount] = useState('100')
+  const [manualCreditAmount, setManualCreditAmount] = useState('20')
   const [deliveredOrderCount, setDeliveredOrderCount] = useState(0)
 
-  const pushLog = (label: string, delta: number, blocked?: boolean) => {
+  const pushLog = (label: string, delta: number, opts?: { blocked?: boolean; kind?: 'points' | 'credits' }) => {
     setLog((prev) =>
-      [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, label, delta, at: Date.now(), blocked }, ...prev].slice(0, 14),
+      [
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          label,
+          delta,
+          at: Date.now(),
+          blocked: opts?.blocked,
+          kind: opts?.kind ?? 'points',
+        },
+        ...prev,
+      ].slice(0, 14),
     )
   }
 
@@ -67,12 +88,12 @@ export default function LoyaltyDemoPage() {
 
   const runMobileVerified = () => {
     const awarded = loyalty.claimMilestone('mobileVerified')
-    pushLog('Mobile number verified', awarded, awarded === 0)
+    pushLog('Mobile number verified', awarded, { blocked: awarded === 0 })
   }
 
   const runFirstBoardShared = () => {
     const awarded = loyalty.claimMilestone('firstBoardShared')
-    pushLog('Shared first board', awarded, awarded === 0)
+    pushLog('Shared first board', awarded, { blocked: awarded === 0 })
   }
 
   const runCheckIn = () => {
@@ -82,7 +103,7 @@ export default function LoyaltyDemoPage() {
 
   const runFestivalGift = () => {
     const awarded = loyalty.grantBroadcastPoints('demo-festival-2026', 150)
-    pushLog('Festival gift (broadcast)', awarded, awarded === 0)
+    pushLog('Festival gift (broadcast)', awarded, { blocked: awarded === 0 })
   }
 
   const runManual = (sign: 1 | -1) => {
@@ -90,6 +111,45 @@ export default function LoyaltyDemoPage() {
     if (!Number.isFinite(amount) || amount === 0) return
     loyalty.addPoints(sign * amount)
     pushLog(sign === 1 ? `+${amount} manual` : `−${amount} manual`, sign * amount)
+  }
+
+  // --- Credits triggers -----------------------------------------------
+  // Repeatable on purpose: real refunds/referrals happen more than once
+  // per account, unlike the milestone claims above. Each call logs its
+  // own entry so it's visually distinct from the points log above.
+
+  const runRefund = () => {
+    loyalty.addCredits(MOCK_REFUND_AMOUNT, `Refund: order #WD-DEMO-${Date.now()}`)
+    pushLog(`Refund credited ($${MOCK_REFUND_AMOUNT})`, MOCK_REFUND_AMOUNT, { kind: 'credits' })
+  }
+
+  const runReferral = () => {
+    loyalty.addCredits(MOCK_REFERRAL_CREDIT, 'Referral bonus')
+    pushLog(`Referral bonus ($${MOCK_REFERRAL_CREDIT})`, MOCK_REFERRAL_CREDIT, { kind: 'credits' })
+  }
+
+  const runSpendCredits = () => {
+    const amount = 15
+    const succeeded = loyalty.useCredits(amount, 'Demo checkout spend')
+    pushLog(succeeded ? `Spent $${amount} credits at checkout` : `Spend failed — insufficient credits`, succeeded ? -amount : 0, {
+      kind: 'credits',
+      blocked: !succeeded,
+    })
+  }
+
+  const runManualCredits = (sign: 1 | -1) => {
+    const amount = Math.round(Number(manualCreditAmount))
+    if (!Number.isFinite(amount) || amount <= 0) return
+    if (sign === 1) {
+      loyalty.addCredits(amount, 'Manual credit adjustment')
+      pushLog(`+${amount} manual credits`, amount, { kind: 'credits' })
+    } else {
+      const succeeded = loyalty.useCredits(amount, 'Manual credit adjustment')
+      pushLog(succeeded ? `−${amount} manual credits` : `Subtract failed — insufficient credits`, succeeded ? -amount : 0, {
+        kind: 'credits',
+        blocked: !succeeded,
+      })
+    }
   }
 
   const runReset = () => {
@@ -113,11 +173,27 @@ export default function LoyaltyDemoPage() {
         <p className="mt-1 text-sm text-ink/60">
           Every trigger below maps to a real rule in <code className="rounded bg-ink/8 px-1 py-0.5 text-xs">lib/loyaltyPoints.ts</code>.
           The four milestone buttons only pay out once, ever — click again and the log shows &ldquo;already claimed.&rdquo; The festival
-          gift simulates a broadcast/admin grant: also once-only, but via a separate campaign id, not a personal earning cap.
+          gift simulates a broadcast/admin grant: also once-only, but via a separate campaign id, not a personal earning cap. Credits
+          (bottom section) are a separate, non-expiring balance — refunds and referrals land there instead of points, and never move
+          your tier.
         </p>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-ink/10 bg-card p-6">
+      {/* Live balances, so the points/credits split is visible while testing */}
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-ink/10 bg-card p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Points</p>
+          <p className="mt-1 font-display text-2xl tabular-nums text-ink">{loyalty.points.toLocaleString()}</p>
+          <p className="mt-0.5 text-xs text-ink/45">Tier: {loyalty.tier} · drives tier progress</p>
+        </div>
+        <div className="rounded-2xl border border-ink/10 bg-card p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Credits</p>
+          <p className="mt-1 font-display text-2xl tabular-nums text-ink">${loyalty.credits.toLocaleString()}</p>
+          <p className="mt-0.5 text-xs text-ink/45">Non-expiring · spend-only · no tier effect</p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-ink/10 bg-card p-6">
         <h2 className="font-display text-sm text-ink">Spend-linked (repeatable — costs real money each time)</h2>
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
@@ -220,7 +296,7 @@ export default function LoyaltyDemoPage() {
 
         {/* Manual adjuster, for testing arbitrary tier boundaries. */}
         <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-ink/10 pt-4">
-          <span className="text-xs font-semibold text-ink/50">Manual adjust</span>
+          <span className="text-xs font-semibold text-ink/50">Manual adjust (points)</span>
           <input
             type="number"
             value={manualAmount}
@@ -253,6 +329,93 @@ export default function LoyaltyDemoPage() {
         </div>
       </div>
 
+      {/* --- Credits section — separate card, separate track from points --- */}
+      <div className="mt-4 rounded-2xl border border-ink/10 bg-card p-6">
+        <div className="flex items-center gap-2">
+          <Wallet size={15} className="text-ink/40" />
+          <h2 className="font-display text-sm text-ink">Credits (refunds &amp; referrals)</h2>
+        </div>
+        <p className="mt-1 text-xs text-ink/45">
+          Repeatable, non-expiring, never affects tier. No withdraw trigger here on purpose — matches the real constraint that wallet
+          credit can only be spent on future orders, never cashed back out.
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={runRefund}
+            className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-teal/12 text-teal-deep">
+              <Undo2 size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Refund order (${MOCK_REFUND_AMOUNT})</span>
+              <span className="block truncate text-xs text-ink/45">Simulates a return refunded to wallet, not the bank</span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-teal-deep">+${MOCK_REFUND_AMOUNT}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={runReferral}
+            className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-indigo-deep/12 text-indigo-deep">
+              <Users size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Referral bonus (${MOCK_REFERRAL_CREDIT})</span>
+              <span className="block truncate text-xs text-ink/45">Paid when a referred friend places their first order</span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-indigo-deep">+${MOCK_REFERRAL_CREDIT}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={runSpendCredits}
+            disabled={loyalty.credits < 15}
+            className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-left transition-colors hover:border-teal/30 hover:bg-teal/5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-ink/10 disabled:hover:bg-white sm:col-span-2"
+          >
+            <span className="grid size-9 flex-none place-items-center rounded-lg bg-gold/15 text-gold-deep">
+              <Sparkles size={16} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">Spend $15 credits at checkout</span>
+              <span className="block truncate text-xs text-ink/45">
+                {loyalty.credits < 15 ? 'Insufficient credits — add some above first' : 'Deducts from the wallet balance'}
+              </span>
+            </span>
+            <span className="flex-none text-sm font-bold tabular-nums text-red-600">−$15</span>
+          </button>
+        </div>
+
+        {/* Manual credit adjuster */}
+        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-ink/10 pt-4">
+          <span className="text-xs font-semibold text-ink/50">Manual adjust (credits)</span>
+          <input
+            type="number"
+            value={manualCreditAmount}
+            onChange={(e) => setManualCreditAmount(e.target.value)}
+            className="w-24 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-sm text-ink"
+          />
+          <button
+            type="button"
+            onClick={() => runManualCredits(1)}
+            className="rounded-lg bg-ink px-3 py-1.5 text-xs font-bold tracking-wide text-white transition-opacity hover:opacity-90"
+          >
+            ADD
+          </button>
+          <button
+            type="button"
+            onClick={() => runManualCredits(-1)}
+            className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-bold tracking-wide text-ink transition-colors hover:bg-ink/5"
+          >
+            SUBTRACT
+          </button>
+        </div>
+      </div>
+
       {log.length > 0 && (
         <div className="mt-4 rounded-2xl border border-ink/10 bg-card p-6">
           <h2 className="font-display text-sm text-ink">Recent simulated events</h2>
@@ -261,13 +424,17 @@ export default function LoyaltyDemoPage() {
               <li key={entry.id} className="flex items-center justify-between text-sm">
                 <span className="text-ink/70">
                   {entry.label}
+                  {entry.kind === 'credits' && (
+                    <span className="ml-2 rounded-full bg-teal/10 px-2 py-0.5 text-[10px] font-semibold text-teal-deep">credits</span>
+                  )}
                   {entry.blocked && (
                     <span className="ml-2 rounded-full bg-ink/8 px-2 py-0.5 text-[10px] font-semibold text-ink/50">
-                      already claimed
+                      {entry.kind === 'credits' ? 'insufficient / already claimed' : 'already claimed'}
                     </span>
                   )}
                 </span>
                 <span className={`font-semibold tabular-nums ${entry.delta >= 0 ? 'text-teal-deep' : 'text-red-600'}`}>
+                  {entry.kind === 'credits' ? '$' : ''}
                   {entry.delta >= 0 ? '+' : ''}
                   {entry.delta}
                 </span>

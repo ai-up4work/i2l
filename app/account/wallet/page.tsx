@@ -2,24 +2,7 @@
 'use client'
 
 import { CreditCard, FileText, Menu, ChevronRight, HelpCircle } from 'lucide-react'
-
-type WalletHistoryRow = {
-  id: string
-  date: string
-  type: string
-  orderNo: string
-  amount: string
-  status: string
-}
-
-// TODO: replace with real wallet balances/history once wired to a data source.
-const WALLET_TOTALS = {
-  total: '0.00',
-  unavailable: '0.00',
-  availableWithdraw: '0.00',
-}
-
-const WALLET_HISTORY: WalletHistoryRow[] = []
+import { useLoyalty, type CreditTransaction } from '@/contexts/Loyaltycontext'
 
 const HISTORY_COLUMNS = ['Date', 'Type', 'Order No.', 'Amount', 'Status']
 
@@ -46,7 +29,56 @@ function StatCell({
   )
 }
 
+function formatAmount(amount: number): string {
+  const sign = amount >= 0 ? '+' : '−'
+  return `${sign}$${Math.abs(amount).toFixed(2)}`
+}
+
+function typeLabel(kind: CreditTransaction['kind']): string {
+  switch (kind) {
+    case 'refund':
+      return 'Refund'
+    case 'referral':
+      return 'Referral bonus'
+    case 'used':
+      return 'Order payment'
+    case 'adjustment':
+      return 'Adjustment'
+    default:
+      return 'Credit'
+  }
+}
+
+// Pulls an order number out of labels like "Refund: order #WD-1234" —
+// falls back to a dash when the label doesn't reference one (referral
+// bonuses, manual adjustments).
+function orderNoFromLabel(label: string): string {
+  const match = label.match(/#(\S+)/)
+  return match ? match[1] : '—'
+}
+
+function WalletSkeleton() {
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
+      <div className="h-9 w-48 animate-pulse rounded bg-ink/10" />
+      <div className="mt-8 h-6 w-40 animate-pulse rounded bg-ink/10" />
+      <div className="mt-4 h-32 animate-pulse rounded-xl bg-ink/[0.04]" />
+      <div className="mt-10 h-6 w-40 animate-pulse rounded bg-ink/10" />
+      <div className="mt-4 h-48 animate-pulse rounded-xl bg-ink/[0.04]" />
+    </div>
+  )
+}
+
 export default function WalletPage() {
+  const loyalty = useLoyalty()
+
+  if (!loyalty.hydrated) {
+    return <WalletSkeleton />
+  }
+
+  const total = loyalty.credits
+  const history = loyalty.creditTransactions
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
       <h1 className="font-display text-3xl font-bold uppercase tracking-wide text-ink">
@@ -63,14 +95,19 @@ export default function WalletPage() {
       </div>
 
       <div className="mt-4 grid grid-cols-1 divide-y divide-ink/10 rounded-xl bg-ink/[0.04] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        <StatCell label="Total" value={WALLET_TOTALS.total} />
+        <StatCell label="Total" value={`$${total.toFixed(2)}`} />
         <StatCell
-          label="Unavailable SHEIN Credit"
-          value={WALLET_TOTALS.unavailable}
-          helper="Only Applicable for SHEIN Purchases"
+          label="Wallet Credit"
+          value={`$${total.toFixed(2)}`}
+          helper="Only applicable for future purchases"
           hint
         />
-        <StatCell label="Available Withdraw SHEIN Credit" value={WALLET_TOTALS.availableWithdraw} hint />
+        <StatCell
+          label="Available Withdraw"
+          value="$0.00"
+          helper="Wallet credit can't be withdrawn to a bank"
+          hint
+        />
       </div>
 
       {/* Wallet History */}
@@ -94,19 +131,27 @@ export default function WalletPage() {
           ))}
         </div>
 
-        {WALLET_HISTORY.length === 0 ? (
+        {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16">
             <p className="font-body text-sm text-ink/40">- No transactions yet -</p>
           </div>
         ) : (
           <div>
-            {WALLET_HISTORY.map((row) => (
+            {history.map((row) => (
               <div key={row.id} className="grid grid-cols-5 border-t border-ink/10">
-                <div className="px-4 py-3 font-body text-sm text-ink/80">{row.date}</div>
-                <div className="px-4 py-3 font-body text-sm text-ink/80">{row.type}</div>
-                <div className="px-4 py-3 font-body text-sm text-ink/80">{row.orderNo}</div>
-                <div className="px-4 py-3 font-body text-sm text-ink/80">{row.amount}</div>
-                <div className="px-4 py-3 font-body text-sm text-ink/80">{row.status}</div>
+                <div className="px-4 py-3 font-body text-sm text-ink/80">
+                  {new Date(row.timestamp).toLocaleDateString()}
+                </div>
+                <div className="px-4 py-3 font-body text-sm text-ink/80">{typeLabel(row.kind)}</div>
+                <div className="px-4 py-3 font-body text-sm text-ink/80">{orderNoFromLabel(row.label)}</div>
+                <div
+                  className={`px-4 py-3 font-body text-sm tabular-nums ${
+                    row.amount >= 0 ? 'text-teal-deep' : 'text-ink/80'
+                  }`}
+                >
+                  {formatAmount(row.amount)}
+                </div>
+                <div className="px-4 py-3 font-body text-sm text-ink/80">Completed</div>
               </div>
             ))}
           </div>
