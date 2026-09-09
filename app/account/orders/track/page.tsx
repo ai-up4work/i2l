@@ -32,6 +32,20 @@ import {
   type TimelineIconKey,
 } from '@/contexts/Ordercontexts'
 
+// DESIGN PASS: same status → accent mapping used on the My Orders list
+// page, reused here for the order-picker and recent-orders rows so a
+// customer scanning either page gets the same color cue for the same
+// status. Falls back to a quiet neutral for anything unmapped.
+const STATUS_ACCENT: Partial<Record<Order['status'] | 'Unpaid', string>> = {
+  Unpaid: 'border-l-gold',
+  Processing: 'border-l-teal',
+  'Quality Check': 'border-l-teal',
+  Shipped: 'border-l-teal',
+  Delivered: 'border-l-indigo',
+  Cancelled: 'border-l-ink/20',
+}
+const DEFAULT_STATUS_ACCENT = 'border-l-ink/15'
+
 // ---------------------------------------------------------------------------
 // Squircle clip-path + item thumbnail. Shows one image for single-item
 // orders. For multi-item orders, the front photo stays full-size and
@@ -292,13 +306,13 @@ function TrackOrderContent() {
                 if (e.key === 'Enter') handleTrack()
               }}
               placeholder="e.g. WD-10482"
-              className="w-full rounded-full border border-ink/15 bg-card py-3 pl-11 pr-4 text-sm outline-none placeholder:text-ink/40 focus:border-teal"
+              className="w-full rounded-full border border-ink/15 bg-card py-3 pl-11 pr-4 text-sm outline-none placeholder:text-ink/40 transition-colors focus:border-teal focus:ring-2 focus:ring-teal/15"
             />
           </div>
           <button
             type="button"
             onClick={handleTrack}
-            className="flex flex-none items-center gap-2 rounded-full bg-teal-deep px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
+            className="flex flex-none items-center gap-2 rounded-full bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
           >
             <Search className="h-4 w-4" />
             Track
@@ -338,7 +352,7 @@ function OrderPicker({ orders, onSelect }: { orders: Order[]; onSelect: (id: str
   return (
     <div className="mt-8">
       <h2 className="text-sm font-semibold text-ink/60">Which order would you like to track?</h2>
-      <div className="mt-3 divide-y divide-ink/8 rounded-2xl border border-ink/10 bg-card">
+      <div className="mt-3 divide-y divide-ink/8 overflow-hidden rounded-2xl border border-ink/10 bg-card">
         {orders.map((order) => {
           const primary = order.items[0]
           return (
@@ -346,7 +360,9 @@ function OrderPicker({ orders, onSelect }: { orders: Order[]; onSelect: (id: str
               key={order.id}
               type="button"
               onClick={() => onSelect(order.id)}
-              className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink/[0.03]"
+              className={`flex w-full items-center gap-4 border-l-4 p-4 text-left transition-colors hover:bg-ink/[0.03] ${
+                STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
+              }`}
             >
               <OrderThumbnail items={order.items} size={56} />
               <div className="min-w-0 flex-1">
@@ -380,7 +396,7 @@ function NoOrdersEmptyState({ onBrowse }: { onBrowse: () => void }) {
       <button
         type="button"
         onClick={onBrowse}
-        className="mt-1 rounded-full bg-teal-deep px-5 py-2.5 text-xs font-semibold text-white hover:opacity-90"
+        className="mt-1 rounded-full bg-teal-deep px-5 py-2.5 text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
       >
         Start shopping
       </button>
@@ -412,8 +428,13 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
 
   return (
     <div className="mt-8">
-      {/* Order summary card */}
-      <div className="flex flex-col gap-5 rounded-3xl border border-ink/10 bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+      {/* Order summary card — DESIGN PASS: picked up the same thin gold
+          top edge used on "My Orders" and the account-dashboard summary
+          elsewhere in the app, so this reads as the same "ticket" object
+          the customer has already seen, rather than a one-off layout
+          unique to this page. */}
+      <div className="relative flex flex-col gap-5 overflow-hidden rounded-3xl border border-ink/10 bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="absolute inset-x-0 top-0 h-[3px] bg-gold" aria-hidden="true" />
         <div className="flex items-center gap-5">
           <OrderThumbnail items={order.items} size={80} />
           <div>
@@ -542,7 +563,7 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
                           <button
                             type="button"
                             onClick={copyTrackingNumber}
-                            className="rounded-full p-1 text-ink/40 hover:bg-ink/5 hover:text-ink"
+                            className="rounded-full p-1 text-ink/40 transition-colors hover:bg-ink/5 hover:text-ink"
                           >
                             <Copy className="h-3.5 w-3.5" />
                           </button>
@@ -553,7 +574,7 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
                   {order.trackingNumber && (
                     <button
                       type="button"
-                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 py-2.5 text-xs font-semibold text-ink hover:border-teal/50"
+                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 py-2.5 text-xs font-semibold text-ink transition-all hover:border-teal/50 active:scale-[0.98]"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                       Track on carrier site
@@ -658,20 +679,20 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
               <div className="flex flex-col gap-2.5 sm:flex-row">
                 <button
                   type="button"
-                  className="flex-1 rounded-full border border-ink/15 py-2.5 text-sm font-semibold text-ink hover:border-teal/50"
+                  className="flex-1 rounded-full border border-ink/15 py-2.5 text-sm font-semibold text-ink transition-all hover:border-teal/50 active:scale-[0.98]"
                 >
                   View invoice
                 </button>
                 <button
                   type="button"
-                  className="flex-1 rounded-full border border-ink/15 py-2.5 text-sm font-semibold text-ink hover:border-teal/50"
+                  className="flex-1 rounded-full border border-ink/15 py-2.5 text-sm font-semibold text-ink transition-all hover:border-teal/50 active:scale-[0.98]"
                 >
                   Contact support
                 </button>
                 {order.status === 'Delivered' && (
                   <button
                     type="button"
-                    className="flex-1 rounded-full bg-teal-deep py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                    className="flex-1 rounded-full bg-teal-deep py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
                   >
                     Return or exchange
                   </button>
@@ -733,7 +754,7 @@ function RecentOrders({ orders, onSelect }: { orders: Order[]; onSelect: (id: st
   return (
     <div className="mt-10">
       <h2 className="text-sm font-semibold text-ink/60">Or track a different order</h2>
-      <div className="mt-3 divide-y divide-ink/8 rounded-2xl border border-ink/10 bg-card">
+      <div className="mt-3 divide-y divide-ink/8 overflow-hidden rounded-2xl border border-ink/10 bg-card">
         {orders.slice(0, 4).map((order) => {
           const primary = order.items[0]
           return (
@@ -741,7 +762,9 @@ function RecentOrders({ orders, onSelect }: { orders: Order[]; onSelect: (id: st
               key={order.id}
               type="button"
               onClick={() => onSelect(order.id)}
-              className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-ink/[0.03]"
+              className={`flex w-full items-center gap-4 border-l-4 p-4 text-left transition-colors hover:bg-ink/[0.03] ${
+                STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
+              }`}
             >
               <OrderThumbnail items={order.items} size={44} />
               <div className="min-w-0 flex-1">

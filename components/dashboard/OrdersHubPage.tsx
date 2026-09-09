@@ -18,7 +18,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, CheckCircle2, PackageSearch } from 'lucide-react'
 import {
   OrdersProvider,
   useOrders,
@@ -32,6 +32,24 @@ import {
 import { ItemImageStack } from '@/components/dashboard/ItemImageStack'
 
 const PAGE_SIZE = 4
+
+// DESIGN PASS: a left-edge accent per status, on top of the existing
+// STATUS_BADGE pill. A repeated list of otherwise-identical cards is
+// exactly the kind of visual noise the rest of this app has been moving
+// away from — this gives the eye a color to scan down the list by
+// (an order that needs attention vs. one that's done) without adding
+// another badge or icon. Falls back to a quiet neutral for any status
+// not explicitly mapped, so a future status addition never renders
+// unstyled.
+const STATUS_ACCENT: Record<string, string> = {
+  Unpaid: 'border-l-gold',
+  Processing: 'border-l-teal',
+  'Quality Check': 'border-l-teal',
+  Shipped: 'border-l-teal',
+  Delivered: 'border-l-indigo',
+  Cancelled: 'border-l-ink/20',
+}
+const DEFAULT_STATUS_ACCENT = 'border-l-ink/15'
 
 export default function OrdersHubPage() {
   return (
@@ -73,7 +91,12 @@ function OrdersPageContent() {
         </nav>
 
         {/* Header */}
-        <h1 className="font-display text-3xl font-semibold text-indigo">My Orders</h1>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="font-display text-3xl font-semibold text-indigo">My Orders</h1>
+          <span className="rounded-full bg-ink/5 px-2.5 py-0.5 text-xs font-semibold text-ink/50">
+            {orders.length} total
+          </span>
+        </div>
         <p className="mt-1.5 text-sm text-ink/70">View your purchases, requests and order details.</p>
 
         {/* Search */}
@@ -86,7 +109,7 @@ function OrdersPageContent() {
               setPage(1)
             }}
             placeholder="Search by order number, product name..."
-            className="w-full rounded-full border border-ink/15 bg-card py-3 pl-11 pr-11 text-sm outline-none placeholder:text-ink/40 focus:border-teal"
+            className="w-full rounded-full border border-ink/15 bg-card py-3 pl-11 pr-11 text-sm outline-none placeholder:text-ink/40 transition-colors focus:border-teal focus:ring-2 focus:ring-teal/15"
           />
         </div>
 
@@ -116,8 +139,9 @@ function OrdersPageContent() {
         {/* Order list */}
         <div className="mt-6 space-y-4">
           {pageOrders.length === 0 && (
-            <div className="rounded-xl border border-dashed border-ink/20 bg-card p-8 text-center text-sm text-ink/60">
-              No orders match your search.
+            <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-12 text-center">
+              <PackageSearch size={36} strokeWidth={1.2} className="text-ink/25" />
+              <p className="text-sm text-ink/50">No orders match your search.</p>
             </div>
           )}
 
@@ -137,7 +161,7 @@ function OrdersPageContent() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-ink/60 disabled:opacity-30"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-ink/60 transition-colors hover:bg-ink/8 disabled:opacity-30 disabled:hover:bg-transparent"
                 aria-label="Previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -146,7 +170,7 @@ function OrdersPageContent() {
                 <button
                   key={n}
                   onClick={() => setPage(n)}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors ${
                     n === page ? 'bg-indigo text-white' : 'text-ink hover:bg-ink/8'
                   }`}
                 >
@@ -156,7 +180,7 @@ function OrdersPageContent() {
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-ink/60 disabled:opacity-30"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-ink/60 transition-colors hover:bg-ink/8 disabled:opacity-30 disabled:hover:bg-transparent"
                 aria-label="Next page"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -174,12 +198,13 @@ function OrderCard({ order }: { order: Order }) {
   const isMultiItem = order.items.length > 1
   const primary = order.items[0]
   const currentStepIndex = order.status === 'Shipped' ? 2 : order.status === 'Delivered' ? 3 : -1
+  const statusAccent = STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
 
   const goToTracking = () => router.push(`/account/orders/track?order=${order.id}`)
   const goToDetails = () => router.push(`/account/orders/track?order=${order.id}&tab=details`)
 
   return (
-    <div className="rounded-2xl border border-ink/10 bg-card">
+    <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${statusAccent}`}>
       {/* ---------------------------------------------------------------
           Mobile / tablet layout — image stack stays full-width above
           the qty/total row. fitActive is NOT passed here, so the stack
@@ -428,7 +453,7 @@ function PrimaryButton({
   return (
     <button
       onClick={onClick}
-      className="flex-1 rounded-lg bg-teal px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-deep"
+      className="flex-1 rounded-xl bg-teal px-4 py-2.5 text-sm font-medium text-white transition-all duration-150 hover:bg-teal-deep active:scale-[0.98]"
     >
       {children}
     </button>
@@ -445,7 +470,7 @@ function SecondaryButton({
   return (
     <button
       onClick={onClick}
-      className="flex-1 rounded-lg border border-ink/15 bg-card px-4 py-2.5 text-sm font-medium text-ink hover:border-teal/50"
+      className="flex-1 rounded-xl border border-ink/15 bg-card px-4 py-2.5 text-sm font-medium text-ink transition-all duration-150 hover:border-teal/50 active:scale-[0.98]"
     >
       {children}
     </button>
