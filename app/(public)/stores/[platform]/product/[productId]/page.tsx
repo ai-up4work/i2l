@@ -12,6 +12,7 @@ import ShareButton from '@/components/stores/ShareButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import ProductInfoTabs from '@/components/stores/ProductInfoTabs'
 import { DashboardProvider } from '@/contexts/DashboardContext'
+import ViewTracker from './ViewTracker'
 import type { StoreProduct } from '@/lib/store.types'
 
 // No generateStaticParams: live-feed stores (Shopify/WooCommerce) can add
@@ -101,6 +102,18 @@ import type { StoreProduct } from '@/lib/store.types'
 // availability-driven: a tab only renders if the product actually has
 // data backing it (no empty "we don't have this" placeholder tabs here),
 // and the whole block renders null if nothing qualifies.
+//
+// RECENTLY VIEWED: ViewTracker is a client-only leaf (renders null) that
+// calls useRecentlyViewed().markViewed() in an effect keyed on
+// platform+productId. It has to live in a separate 'use client' file
+// because this page itself is an async server component — server
+// components can't call hooks directly. It's mounted unconditionally
+// (marketplace and non-marketplace alike, in-stock and sold-out alike):
+// recently-viewed reflects browsing, not purchasability, and a shopper
+// landing on a marketplace/request-flow product has still "viewed" it in
+// the same sense a catalogue shopper has. It's placed after the
+// try/catch below returns early on a failed fetch, so a broken upstream
+// load never gets recorded as a view.
 
 /** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
 function RatingStars({ rating, count }: { rating: number; count?: number }) {
@@ -189,6 +202,14 @@ export default async function ProductDetailPage({
 
   return (
     <DashboardProvider>
+      <ViewTracker
+        platform={store.platform}
+        productId={productId}
+        product={product}
+        formattedPrice={dualPricing.economy.formattedPrice}
+        discountPercent={dualPricing.economy.discountPercent}
+      />
+
       {/* Sets --account-header-h the same way AccountLayout does for its
           own <Header>, but as a plain CSS breakpoint match instead of a
           live JS measurement — this page's sticky bar below is `hidden

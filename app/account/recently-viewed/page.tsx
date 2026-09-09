@@ -3,30 +3,20 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Clock, ShoppingBagIcon, Trash2 } from 'lucide-react'
+import { useRecentlyViewed } from '@/contexts/RecentlyViewedContext'
+import { useCart } from '@/contexts/Cartcontext'
 
 // ---------------------------------------------------------------------------
 // Stub — replace with a real thumbnail once product photos exist.
 // ---------------------------------------------------------------------------
 
-type RecentItem = {
-  id: string
-  label: string
-  price: string
-  discountPct?: number
-}
-
-function ProductThumb() {
+function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
+  if (image) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={image} alt={alt} className="aspect-[4/5] w-full rounded-xl object-cover" />
+  }
   return <div className="aspect-[4/5] w-full rounded-xl bg-gold/10" />
 }
-
-// ---------------------------------------------------------------------------
-// Mock data — wire this up to your real recently-viewed history.
-// ---------------------------------------------------------------------------
-
-const initialItems: RecentItem[] = [
-  { id: '1', label: "Manfinity KASUA Men's Striped Shorts", price: '$9.17', discountPct: 3 },
-  { id: '2', label: "Siren Gaze Women's Chic Wrap Top", price: '$9.73', discountPct: 4 },
-]
 
 // ---------------------------------------------------------------------------
 // Component
@@ -34,7 +24,9 @@ const initialItems: RecentItem[] = [
 
 export default function RecentlyViewedPage() {
   const router = useRouter()
-  const [items, setItems] = useState<RecentItem[]>(initialItems)
+  const { hydrated, items, removeItem, clearAll } = useRecentlyViewed()
+  const { addItem } = useCart()
+
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -53,13 +45,47 @@ export default function RecentlyViewedPage() {
   }
 
   const selectAll = () => {
-    setSelected(new Set(items.map((item) => item.id)))
+    setSelected(new Set(items.map((entry) => entry.product.id)))
   }
 
   const deleteSelected = () => {
-    setItems((prev) => prev.filter((item) => !selected.has(item.id)))
+    selected.forEach((id) => removeItem(id))
     setSelected(new Set())
     setSelectMode(false)
+  }
+
+  const handleAddToBag = (productId: string) => {
+    const entry = items.find((e) => e.product.id === productId)
+    if (!entry) return
+    addItem(
+      {
+        id: entry.product.id,
+        url: `/products/${entry.product.id}`,
+        title: entry.product.title,
+        image: entry.product.image,
+        currencyCode: entry.product.currencyCode,
+        estimatedPrice: entry.product.estimatedPrice,
+        source: 'catalogue',
+      },
+      1,
+    )
+  }
+
+  // Still loading from localStorage — don't flash the empty state.
+  if (!hydrated) {
+    return (
+      <div className="mx-auto max-w-7xl px-6 pb-24 pt-6 lg:px-10">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-4 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="animate-pulse">
+              <div className="aspect-[4/5] w-full rounded-xl bg-ink/5" />
+              <div className="mt-2 h-4 w-3/4 rounded bg-ink/5" />
+              <div className="mt-1 h-4 w-1/3 rounded bg-ink/5" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -95,15 +121,15 @@ export default function RecentlyViewedPage() {
         </div>
       ) : (
         <div className="mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-4 lg:grid-cols-5">
-          {items.map((item) => {
-            const isChecked = selected.has(item.id)
+          {items.map(({ product }) => {
+            const isChecked = selected.has(product.id)
             return (
-              <div key={item.id} className="relative">
+              <div key={product.id} className="relative">
                 {selectMode && (
                   <button
                     type="button"
                     aria-label={isChecked ? 'Deselect item' : 'Select item'}
-                    onClick={() => toggleItem(item.id)}
+                    onClick={() => toggleItem(product.id)}
                     className={`absolute right-2 top-2 z-10 grid h-6 w-6 place-items-center rounded-full border-2 transition-colors ${
                       isChecked
                         ? 'border-ink bg-ink text-white'
@@ -116,26 +142,32 @@ export default function RecentlyViewedPage() {
 
                 <button
                   type="button"
-                  onClick={() => (selectMode ? toggleItem(item.id) : undefined)}
+                  onClick={() => (selectMode ? toggleItem(product.id) : undefined)}
                   className="block w-full text-left"
                 >
                   <div className="relative">
-                    <ProductThumb />
-                    {!!item.discountPct && (
-                      <span className="absolute left-0 top-2 rounded-r-md bg-[#e64a19] px-1.5 py-0.5 text-[11px] font-bold text-white">
-                        -{item.discountPct}%
+                    <ProductThumb image={product.image} alt={product.title} />
+                    {!!product.discountPct && (
+                      <span className="absolute left-0 top-2 rounded-r-md bg-teal px-1.5 py-0.5 text-[11px] font-bold text-white">
+                        -{product.discountPct}%
                       </span>
                     )}
                   </div>
 
-                  <p className="mt-2 line-clamp-2 text-sm text-ink">{item.label}</p>
+                  <p className="mt-2 line-clamp-2 text-sm text-ink">{product.title}</p>
 
                   <div className="mt-1 flex items-center justify-between">
-                    <span className="text-base font-bold text-[#e64a19]">{item.price}</span>
+                    <span className="text-base font-bold text-indigo">
+                      {product.estimatedPrice ?? '—'}
+                    </span>
                     {!selectMode && (
                       <span
                         role="button"
-                        aria-label={`Add ${item.label} to bag`}
+                        aria-label={`Add ${product.title} to bag`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleAddToBag(product.id)
+                        }}
                         className="grid h-8 w-8 flex-none place-items-center rounded-full border border-ink/20 text-ink transition-colors hover:border-ink/40"
                       >
                         <ShoppingBagIcon size={14} />

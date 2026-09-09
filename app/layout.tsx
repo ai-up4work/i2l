@@ -7,6 +7,7 @@ import { WishlistProvider } from "@/contexts/Wishlistcontext";
 import { NotificationProvider } from "@/contexts/Notificationcontext";
 import { LoyaltyProvider } from "@/contexts/Loyaltycontext";
 import { ChatProvider } from "@/contexts/ChatContext";
+import { RecentlyViewedProvider } from "@/contexts/RecentlyViewedContext";
 
 const fraunces = Fraunces({
   variable: "--font-serif-display",
@@ -46,7 +47,9 @@ export default function RootLayout({
             <WishlistProvider>
               <LoyaltyProvider >
                 <ChatProvider>
-                  <NotificationProvider>{children}</NotificationProvider>
+                    <RecentlyViewedProvider>
+                      <NotificationProvider>{children}</NotificationProvider>
+                    </RecentlyViewedProvider>
                 </ChatProvider>
               </LoyaltyProvider>
             </WishlistProvider>
