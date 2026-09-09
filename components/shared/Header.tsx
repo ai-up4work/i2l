@@ -2,15 +2,41 @@
 
 import { useEffect, useState, useRef } from "react"
 import { usePathname } from "next/navigation"
-import { ArrowLeft, LogIn, LogOut, Heart, ShoppingBag, UserPlus, ChevronDown, User, Bell, Gift, ImageOff, Store, X } from "lucide-react"
+import {
+  ArrowLeft,
+  Bell,
+  ChevronDown,
+  ChevronLeft,
+  Gift,
+  Heart,
+  Info,
+  LogIn,
+  LogOut,
+  Menu,
+  Package,
+  Percent,
+  ShoppingBag,
+  Store,
+  User,
+  UserPlus,
+} from "lucide-react"
 
 import BrandMark from "@/components/shared/BrandMark"
 import AirmailStripe, { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
 import { useAuth } from "@/contexts/AuthContext"
 import { useCart } from "@/contexts/Cartcontext"
 import { useWishlist } from "@/contexts/Wishlistcontext"
+import { useNotifications, type NotificationCategory } from "@/contexts/Notificationcontext"
 import { ShopMegaMenuPanel } from "@/components/stores/ShopMegaMenu"
 import ShopBottomSheet from "@/components/stores/ShopBottomSheet"
+import {
+  focusRing,
+  checkoutButtonClass,
+  PREVIEW_ITEM_LIMIT,
+  CountBadge,
+  ProductThumb,
+  SlideOverPanel,
+} from "@/components/shared/HeaderPanels"
 
 interface NavItem { name: string; desc: string; href: string }
 interface NavLink {
@@ -34,10 +60,22 @@ const navLinks: NavLink[] = [
   ]},
 ]
 
+// Kept loose (string) rather than importing dashboard's `View` type, so
+// Header doesn't take a hard dependency on the account section's route
+// model — callers just need to pass "home" to suppress the back button.
+type AccountView = string
+
 interface HeaderProps {
   title?: string
   showBackButton?: boolean
   variant?: "public" | "account"
+  /** Account-only. Current in-page account view; back button hides on "home". */
+  view?: AccountView
+  /** Account-only. Called when the back chevron is tapped. */
+  onBack?: () => void
+  /** Account-only. Opens the account Sidebar drawer (settings, shipments,
+   *  etc.) — separate from this Header's own mobile nav overlay below. */
+  onMenuClick?: () => void
 }
 
 const OUTER_H = 68
@@ -45,19 +83,12 @@ const INNER_H = 54
 const MOBILE_ANIM_MS = 280
 const LEFT_NOTCH = 320
 const NOTCH_GAP = 40
-// Cap how many rows render in the Wishlist/Cart preview panels before
-// falling back to "View all" — keeps the panel from growing unbounded.
-const PREVIEW_ITEM_LIMIT = 4
 
-export const HEADER_BAR_HEIGHT = OUTER_H + AIRMAIL_STRIPE_HEIGHT
+export const HEADER_BAR_HEIGHT = INNER_H + AIRMAIL_STRIPE_HEIGHT
+export const HEADER_BAR_HEIGHT_MOBILE = OUTER_H + AIRMAIL_STRIPE_HEIGHT
+export const HEADER_BAR_HEIGHT_DESKTOP = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
 const MOBILE_BG = "bg-parchment"
-
-// Shared focus-visible treatment — applied to every interactive control
-// below so keyboard navigation is always legible against the parchment
-// background, regardless of which button/link style it's layered onto.
-const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 focus-visible:ring-offset-parchment"
 
 const pillButtonClass =
   `flex items-center gap-2 rounded-lg border border-ink/15 bg-ink/5 px-3 py-1.5 text-ink transition-colors duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
@@ -65,166 +96,44 @@ const pillButtonClass =
 const iconPillButtonClass =
   `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-lg border border-ink/15 bg-ink/5 text-ink transition-colors duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep motion-reduce:transition-none ${focusRing}`
 
-// Quiet variant for Wishlist/Cart/Account on mobile — no border or fill,
-// just the icon. Only the menu toggle keeps the boxed treatment now,
-// since it's the one control that actually expands something.
+// Quiet variant for Wishlist/Cart/Account/Notifications on mobile — no
+// border or fill, just the icon. Only the menu toggle keeps the boxed
+// treatment, since it's the one control that actually expands something.
 const mobileIconQuietClass =
   `flex h-9 w-9 items-center justify-center rounded-lg text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
 
-// CTA used at the bottom of the cart panel — same visual language as the
-// product page's own "CHECKOUT" button (ProductActions / ProductRequestButton),
-// so the header cart never introduces a third, different-looking commit button.
-const checkoutButtonClass =
-  `flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep ${focusRing}`
+// Boxed treatment for the two account-only nav controls (drawer trigger,
+// back button) — matches Topbar's old iconButtonClass so their look
+// carries over unchanged into Header's account variant.
+const accountNavIconClass =
+  `grid h-9 w-9 place-items-center rounded-lg border border-ink/15 text-ink/70 transition-colors duration-200 hover:border-teal/40 hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none lg:h-10 lg:w-10 lg:rounded-xl ${focusRing}`
 
-function CountBadge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-teal-deep px-1 text-[10px] font-bold leading-none text-white">
-      {count > 99 ? "99+" : count}
-    </span>
-  )
+const CATEGORY_ICON: Record<NotificationCategory, React.ElementType> = {
+  order: Package,
+  promo: Percent,
+  system: Info,
 }
 
-// Small thumbnail used in the cart/wishlist panel — falls back to a plain
-// icon tile when a product has no image, rather than a broken <img>.
-function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
-  if (!image) {
-    return (
-      <div className="grid h-14 w-14 flex-none place-items-center rounded-lg border border-ink/10 bg-card">
-        <ImageOff size={16} className="text-ink/25" />
-      </div>
-    )
-  }
-  return (
-    <div className="h-14 w-14 flex-none overflow-hidden rounded-lg border border-ink/10 bg-white">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={image} alt={alt} className="h-full w-full object-contain p-1" />
-    </div>
-  )
-}
-
-const PANEL_ANIM_MS = 280
-
-// Shared slide-over panel for Wishlist and Cart, used at every breakpoint —
-// same shape as the store catalog page's own MiniCart (full-height panel
-// pinned to the right edge, backdrop blur, rounded item rows) rather than
-// a hover dropdown on desktop and a bottom sheet on mobile. `footer` is
-// only ever passed for the cart (a Checkout CTA); the wishlist panel has
-// none, matching the fact that a wishlist has nothing to "complete".
-function SlideOverPanel({
-  open,
-  onClose,
+export default function Header({
   title,
-  icon,
-  isEmpty,
-  emptyLabel,
-  emptyHref,
-  emptyCta,
-  viewAllHref,
-  viewAllLabel,
-  children,
-  footer,
-}: {
-  open: boolean
-  onClose: () => void
-  title: string
-  icon: React.ReactNode
-  isEmpty: boolean
-  emptyLabel: string
-  emptyHref: string
-  emptyCta: string
-  viewAllHref: string
-  viewAllLabel: string
-  children: React.ReactNode
-  footer?: React.ReactNode
-}) {
-  const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>
-    if (open) {
-      setMounted(true)
-      const raf = requestAnimationFrame(() => setVisible(true))
-      return () => cancelAnimationFrame(raf)
-    }
-    setVisible(false)
-    timeout = setTimeout(() => setMounted(false), PANEL_ANIM_MS)
-    return () => clearTimeout(timeout)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    document.body.style.overflow = "hidden"
-    return () => { document.body.style.overflow = "" }
-  }, [open])
-
-  if (!mounted) return null
-
-  return (
-    <div className="fixed inset-0 z-[110] flex justify-end" role="dialog" aria-modal="true" aria-label={title}>
-      <div
-        className={`absolute inset-0 bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}
-        onClick={onClose}
-      />
-      <div
-        className={`relative flex h-full w-full max-w-sm flex-col bg-parchment shadow-2xl transition-transform duration-[280ms] ease-out motion-reduce:transition-none ${
-          visible ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <div className="flex items-center justify-between border-b border-ink/10 p-5">
-          <h3 className="flex items-center gap-2.5 text-sm font-bold font-display text-ink">
-            {icon}
-            {title}
-          </h3>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className={`flex h-8 w-8 items-center justify-center rounded-full text-ink transition-colors hover:bg-teal/10 ${focusRing}`}
-          >
-            <X size={14} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          {isEmpty ? (
-            <div className="py-16 text-center">
-              <p className="text-sm text-ink/60">{emptyLabel}</p>
-              <a
-                href={emptyHref}
-                onClick={onClose}
-                className={`mt-2 inline-block rounded text-sm font-semibold text-teal-deep hover:underline ${focusRing}`}
-              >
-                {emptyCta}
-              </a>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-col gap-2">{children}</div>
-              <a
-                href={viewAllHref}
-                onClick={onClose}
-                className={`mt-3 flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
-              >
-                {viewAllLabel}
-                <ArrowLeft size={14} className="rotate-180" />
-              </a>
-            </>
-          )}
-        </div>
-
-        {!isEmpty && footer && <div className="border-t border-ink/10 p-4">{footer}</div>}
-      </div>
-    </div>
-  )
-}
-
-export default function Header({ title, showBackButton = false, variant = "public" }: HeaderProps) {
+  showBackButton = false,
+  variant = "public",
+  view,
+  onBack,
+  onMenuClick,
+}: HeaderProps) {
   const { isAuthenticated, login, logout } = useAuth()
   const cart = useCart()
   const wishlist = useWishlist()
+  const isAccount = variant === "account"
+
+  // Notifications only matter in the account variant — the hook is still
+  // safe to call unconditionally (hooks can't be conditional), it's just
+  // that its output is only rendered when isAccount is true.
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const [notifOpen, setNotifOpen] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
+
   const [activeDesktopMenu, setActiveDesktopMenu] = useState<string | null>(null)
   const [navOpen, setNavOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -234,18 +143,12 @@ export default function Header({ title, showBackButton = false, variant = "publi
   const [wishlistPanelOpen, setWishlistPanelOpen] = useState(false)
   const [cartPanelOpen, setCartPanelOpen] = useState(false)
 
-  // Wishlist/cart counts are populated client-side (e.g. from localStorage),
-  // so the server always renders 0/empty. Gate on `hasMounted` so the very
-  // first client render still matches SSR — the real counts appear right
-  // after hydration instead of causing a mismatch.
   const [hasMounted, setHasMounted] = useState(false)
   useEffect(() => { setHasMounted(true) }, [])
   const wishlistCount = hasMounted ? wishlist.count : 0
   const cartCount = hasMounted ? cart.itemCount : 0
 
-  const visibleNavLinks = variant === "account" ? navLinks.filter((l) => l.megaMenu) : navLinks
-  // Shop is rendered as its own row above this list (opens the bottom sheet
-  // directly) instead of as a collapsible section, so exclude it here.
+  const visibleNavLinks = isAccount ? navLinks.filter((l) => l.megaMenu) : navLinks
   const mobileNavLinks = visibleNavLinks.filter((link) => !link.megaMenu)
 
   const pathname = usePathname()
@@ -266,16 +169,21 @@ export default function Header({ title, showBackButton = false, variant = "publi
   }, [isAuthenticated, variant])
 
   useEffect(() => {
-    if (!activeDesktopMenu) return
+    if (!activeDesktopMenu && !notifOpen) return
     function handlePointerDown(e: MouseEvent) {
       const target = e.target as Node
       const insideNav = navRef.current?.contains(target)
       const insideActions = actionsRef.current?.contains(target)
       const insideShopPanel = document.getElementById(SHOP_PANEL_ID)?.contains(target)
-      if (!insideNav && !insideActions && !insideShopPanel) setActiveDesktopMenu(null)
+      const insideNotif = notifRef.current?.contains(target)
+      if (activeDesktopMenu && !insideNav && !insideActions && !insideShopPanel) setActiveDesktopMenu(null)
+      if (notifOpen && !insideNotif) setNotifOpen(false)
     }
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setActiveDesktopMenu(null)
+      if (e.key === "Escape") {
+        setActiveDesktopMenu(null)
+        setNotifOpen(false)
+      }
     }
     document.addEventListener("mousedown", handlePointerDown)
     document.addEventListener("keydown", handleKeyDown)
@@ -283,7 +191,7 @@ export default function Header({ title, showBackButton = false, variant = "publi
       document.removeEventListener("mousedown", handlePointerDown)
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [activeDesktopMenu])
+  }, [activeDesktopMenu, notifOpen])
 
   useEffect(() => {
     setActiveDesktopMenu(null)
@@ -324,24 +232,94 @@ export default function Header({ title, showBackButton = false, variant = "publi
     `calc(100% - ${rightNotch + NOTCH_GAP}px) ${INNER_H}px, ${LEFT_NOTCH + NOTCH_GAP}px ${INNER_H}px, ${LEFT_NOTCH}px ${OUTER_H}px, 0 ${OUTER_H}px)`
 
   const isAccountMenuOpen = activeDesktopMenu === ACCOUNT_MENU_ID
+  const showAccountBack = isAccount && !!onBack && view !== undefined && view !== "home"
 
-  // Same reasoning as wishlistCount/cartCount above: wishlist.items and
-  // cart.items are sourced client-side, so the server always sees an
-  // empty array here. Forcing an empty array until hasMounted keeps the
-  // first client render identical to SSR; the real preview swaps in on
-  // the next tick as an ordinary post-hydration update.
   const wishlistPreview = hasMounted
-    ? wishlist.items
-        .slice()
-        .sort((a, b) => b.addedAt - a.addedAt)
-        .slice(0, PREVIEW_ITEM_LIMIT)
+    ? wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt).slice(0, PREVIEW_ITEM_LIMIT)
     : []
   const cartPreview = hasMounted
-    ? cart.items
-        .slice()
-        .sort((a, b) => b.addedAt - a.addedAt)
-        .slice(0, PREVIEW_ITEM_LIMIT)
+    ? cart.items.slice().sort((a, b) => b.addedAt - a.addedAt).slice(0, PREVIEW_ITEM_LIMIT)
     : []
+
+  // Shared notification bell + dropdown — rendered once and reused in both
+  // the mobile and desktop action rows below, so markup/behavior can't
+  // drift between the two. Ported over from the old Topbar unchanged.
+  const notificationBell = (
+    <div ref={notifRef} className="relative">
+      <button
+        type="button"
+        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+        aria-expanded={notifOpen}
+        onClick={() => setNotifOpen((v) => !v)}
+        className={`relative ${accountNavIconClass}`}
+      >
+        <Bell size={17} className="lg:hidden" />
+        <Bell size={18} className="hidden lg:block" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-teal-deep px-1 text-[10px] font-bold leading-none text-white">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      <div
+        className={`absolute right-0 top-full z-50 w-80 max-w-[calc(100vw-3rem)] pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${
+          notifOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"
+        }`}
+      >
+        <div className="rounded-2xl border border-teal/20 bg-parchment shadow-xl shadow-ink/10">
+          <div className="flex items-center justify-between border-b border-ink/10 px-4 py-3">
+            <span className="text-sm font-semibold text-ink">Notifications</span>
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                onClick={markAllAsRead}
+                className={`rounded text-xs font-semibold text-teal-deep hover:underline ${focusRing}`}
+              >
+                Mark all as read
+              </button>
+            )}
+          </div>
+
+          {notifications.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-ink/55">You&apos;re all caught up.</div>
+          ) : (
+            <div className="max-h-96 overflow-y-auto p-2">
+              {notifications.map((n) => {
+                const Icon = CATEGORY_ICON[n.category]
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => markAsRead(n.id)}
+                    className={`flex w-full items-start gap-3 rounded-xl px-2 py-2.5 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                  >
+                    <span
+                      className={`mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full ${
+                        n.read ? "bg-ink/5 text-ink/40" : "bg-teal/15 text-teal-deep"
+                      }`}
+                    >
+                      <Icon size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`truncate text-sm ${n.read ? "font-medium text-ink/70" : "font-semibold text-ink"}`}>
+                          {n.title}
+                        </span>
+                        {!n.read && <span className="h-1.5 w-1.5 flex-none rounded-full bg-teal-deep" />}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-ink/55">{n.message}</span>
+                      <span className="mt-1 block text-[11px] text-ink/40">{n.timeLabel}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 
   return (
     <>
@@ -366,7 +344,29 @@ export default function Header({ title, showBackButton = false, variant = "publi
           <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(14,140,156,0.3),0_6px_18px_-10px_rgba(13,29,65,0.5)]`} />
 
           <div className="relative z-10 container mx-auto px-4 flex items-center justify-between w-full max-w-[1600px] h-full">
-            <div className="flex items-center gap-3 flex-shrink-0 z-20 pr-3 h-full">
+            <div className="flex items-center gap-2 flex-shrink-0 z-20 pr-3 h-full">
+              {/* Account-only: drawer trigger (opens account Sidebar) and
+                  back button, ported from the old Topbar. Both mobile-only
+                  (lg:hidden) since on desktop the account Sidebar is
+                  presumably always visible and there's no "back" concept
+                  in a persistently-visible nested nav. */}
+              {isAccount && onMenuClick && (
+                <button
+                  type="button"
+                  aria-label="Open account menu"
+                  onClick={onMenuClick}
+                  className={`${accountNavIconClass} lg:hidden`}
+                >
+                  <Menu size={17} />
+                </button>
+              )}
+
+              {isAccount && showAccountBack && (
+                <button type="button" aria-label="Go back" onClick={onBack} className={`${accountNavIconClass} lg:hidden`}>
+                  <ChevronLeft size={17} />
+                </button>
+              )}
+
               {showBackButton ? (
                 <button type="button" aria-label="Go back" className={pillButtonClass}>
                   <ArrowLeft className="w-4 h-4 lg:w-5 lg:h-5" />
@@ -425,7 +425,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
 
             {/* Mobile actions — Wishlist/Cart/Account are quiet icon-only
                 controls. Heart and Bag open the shared SlideOverPanel
-                (same one desktop uses) instead of navigating away. */}
+                (same one desktop uses) instead of navigating away.
+                Notification bell is inserted here, account-variant only. */}
             <div className="flex lg:hidden flex-1 items-center justify-end gap-0.5 h-full">
               <button
                 type="button"
@@ -446,6 +447,8 @@ export default function Header({ title, showBackButton = false, variant = "publi
                 <ShoppingBag className="w-[17px] h-[17px]" />
                 <CountBadge count={cartCount} />
               </button>
+
+              {isAccount && notificationBell}
 
               <button
                 type="button"
@@ -471,10 +474,11 @@ export default function Header({ title, showBackButton = false, variant = "publi
               </button>
             </div>
 
-            {/* Right — desktop only. Wishlist/Cart now open the same
-                SlideOverPanel as mobile instead of a hover dropdown, so
-                behavior and visuals match across breakpoints. */}
+            {/* Desktop actions — Notification bell inserted before
+                Wishlist/Cart, account-variant only. */}
             <div ref={actionsRef} className="hidden lg:flex items-center justify-end gap-2.5 flex-shrink-0 z-20 pl-2 h-full">
+              {isAccount && notificationBell}
+
               <button
                 type="button"
                 aria-label="Wishlist"
@@ -572,9 +576,6 @@ export default function Header({ title, showBackButton = false, variant = "publi
           </div>
 
           <nav className="min-h-0 flex-1 overflow-y-auto nav-scroll" aria-label="Mobile navigation">
-            {/* Shop — moved here from the top bar. Same visual weight as the
-                other top-level rows below, but has no expandable sub-items:
-                it just opens the Shop bottom sheet directly. */}
             <div className={`border-b border-teal/15 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
               style={{ transitionDelay: visible ? "60ms" : "0ms" }}>
               <button
@@ -681,10 +682,6 @@ export default function Header({ title, showBackButton = false, variant = "publi
         viewAllHref="/account/cart"
         viewAllLabel={`View cart (${cartCount})`}
         footer={
-          // Same CTA the product page uses (ProductActions / ProductRequestButton's
-          // "CHECKOUT" button) instead of the store catalog page's WhatsApp
-          // button — the header cart spans stores, so it hands off to
-          // /account/cart to actually complete the order.
           <a href="/account/cart" onClick={() => setCartPanelOpen(false)} className={checkoutButtonClass}>
             CHECKOUT
           </a>
