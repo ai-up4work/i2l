@@ -3,7 +3,6 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { CircleHelp } from 'lucide-react'
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 import Sidebar from '@/components/dashboard/Sidebar'
 import Topbar from '@/components/dashboard/Topbar'
@@ -13,8 +12,9 @@ import WelcomeBanner from '@/components/dashboard/WelcomeBanner'
 import { pathForView, viewForPath } from '@/components/dashboard/routes'
 import type { View } from '@/components/dashboard/types'
 import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
-import { useChat } from '@/contexts/ChatContext'
+import { ChatProvider } from '@/contexts/ChatContext'
 import Header from '@/components/shared/Header'
+import ChatButton from '@/components/shared/ChatButton'
 import ChatPanel from '@/components/shared/ChatPanel'
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import { useElementHeight } from '@/hooks/useElementHeight'
@@ -50,10 +50,10 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // field names from DashboardContext are wired in above.
   const safeLink = link ?? ''
 
-  // Drives the support FAB below: toggles the same ChatPanel used
-  // elsewhere in the app (ChatProvider is mounted in the root layout,
-  // so it's reachable here regardless of this layout's own nesting).
-  const { isOpen: chatOpen, toggleChat, unreadCount } = useChat()
+  // ChatButton and ChatPanel both call useChat() internally now (same
+  // as PublicLayout), so this component no longer needs its own
+  // isOpen/toggleChat/unreadCount — that was only required for the old
+  // hand-rolled CircleHelp button, which is gone.
 
   // Desktop <Header> now lives here (moved down from the outer
   // AccountLayout component) so it can react to modalOpen — useDashboard
@@ -87,6 +87,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   //    fixed strip pinned to the very top of the viewport, above the
   //    modal (see bannerWrapperClass below) — it's meant to keep
   //    floating above the overlay, not disappear behind/under it.
+  //  - ChatButton is hidden outright too (via its own `hidden` prop)
+  //    since it would otherwise float on top of the modal's content.
   const overlayActive = modalOpen
 
   // --account-header-h drives ItemInfoModal's top offset via CSS var
@@ -269,20 +271,18 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           />
         )}
 
-        <button
-          type="button"
-          onClick={toggleChat}
-          aria-label={chatOpen ? 'Close support chat' : 'Open support chat'}
-          className="support-fab fixed right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
-          style={{ bottom: 'calc(var(--account-bottom-nav-h) + 1.5rem)' }}
-        >
-          <CircleHelp />
-          {!chatOpen && unreadCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-[20px] place-items-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </button>
+        {/* Real ChatButton component now, same as PublicLayout — it's
+            already `fixed` internally and takes positionClassName
+            (not className/style, which don't exist on its props type).
+            Includes right-6 here since positionClassName replaces
+            ChatButton's own default ('bottom-6 right-6') entirely
+            rather than merging with it — so right-6 has to be repeated.
+            hidden mirrors overlayActive so it disappears while
+            ItemInfoModal covers the screen, same as Header/Topbar do. */}
+        <ChatButton
+          positionClassName={`right-6 bottom-[calc(var(--account-bottom-nav-h)+1.5rem)] lg:bottom-6`}
+          hidden={overlayActive}
+        />
 
         {/* Panel is positioned to open just above the FAB, mirroring the
             FAB's own bottom offset (mobile bottom nav height + gap on
@@ -314,11 +314,6 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           .content-scroll::-webkit-scrollbar-thumb:hover {
             background-color: rgba(14, 140, 156, 0.5);
           }
-          @media (min-width: 1024px) {
-            .support-fab {
-              bottom: 1.5rem !important;
-            }
-          }
         `}</style>
       </main>
     </div>
@@ -327,8 +322,13 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
-    <DashboardProvider>
-      <AccountShell>{children}</AccountShell>
-    </DashboardProvider>
+    // ChatProvider wraps here, same as PublicLayout, so ChatButton and
+    // ChatPanel below always have a provider ancestor — regardless of
+    // whether the root app/layout.tsx also happens to wrap in one.
+    <ChatProvider>
+      <DashboardProvider>
+        <AccountShell>{children}</AccountShell>
+      </DashboardProvider>
+    </ChatProvider>
   )
 }
