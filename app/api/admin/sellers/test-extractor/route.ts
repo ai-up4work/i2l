@@ -13,6 +13,13 @@
 // If you want to verify this yourself: open the Network tab while running
 // a simulation, inspect the POST body/response here directly, or click
 // "Show raw sample data" in the UI, which dumps this exact payload.
+//
+// Detecting WHICH provider a store runs (Shopify vs WooCommerce vs
+// neither) is a separate concern, handled by
+// app/api/admin/sellers/detect-store/route.ts — that route owns the
+// detectStoreProvider import from lib/store-detection. This file only
+// ever tests a provider type the admin (or that other route) has already
+// settled on.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchJsonApiProduct, fetchJsonApiProducts, fetchJsonApiCategories } from '@/lib/store-providers/jsonapi';
@@ -25,6 +32,7 @@ import type {
   WooCommerceProviderConfig,
   JsonApiProviderConfig,
 } from '@/lib/store-config';
+
 
 // Real HTTP calls, so keep the sample small — this is a diagnostics probe,
 // not a full catalog sync. Large enough to give the checklist (especially
