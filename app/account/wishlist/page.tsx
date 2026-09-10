@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Heart, ImageOff, LayoutGrid, Plus, ShoppingBagIcon } from 'lucide-react'
+import { Heart, ImageOff, LayoutGrid, Plus, ShoppingBagIcon, X } from 'lucide-react'
 
 import { useWishlist, type WishlistEntry } from '@/contexts/Wishlistcontext'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
@@ -68,6 +68,8 @@ export default function WishlistPage() {
   const wishlist = useWishlist()
   const cart = useCart()
 
+  const [showCreateModal, setShowCreateModal] = useState(false)
+
   // Newest first — same ordering used in Header's preview dropdown/sheet.
   const items = wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt)
 
@@ -84,15 +86,11 @@ export default function WishlistPage() {
     cart.addItem(product, 1)
   }
 
-  // DESIGN PASS: "New board" no longer opens a name-it-first modal. A
-  // board is a low-stakes, instantly-renamable object — asking for a name
-  // before you can even see it just adds a step. This creates an empty,
-  // auto-named board immediately and drops you straight into it; naming
-  // and adding items both happen from inside the board itself (rename
-  // inline there, add items via the existing "Add items" action on that
-  // page), the same way Notion/Trello handle "new."
-  const handleQuickCreateBoard = () => {
-    const board = wishlist.createBoard('', [])
+  // "New board" opens a modal: pick a name, optionally check off which
+  // wishlist items to seed it with, then create + navigate straight in.
+  const handleCreateBoard = (name: string, selectedIds: string[]) => {
+    const board = wishlist.createBoard(name, selectedIds)
+    setShowCreateModal(false)
     router.push(`/account/boards/${board.id}`)
   }
 
@@ -120,7 +118,7 @@ export default function WishlistPage() {
           </button>
           <button
             type="button"
-            onClick={handleQuickCreateBoard}
+            onClick={() => setShowCreateModal(true)}
             disabled={items.length === 0}
             className="group flex items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-teal active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:active:scale-100"
           >
@@ -186,6 +184,14 @@ export default function WishlistPage() {
           ))}
         </div>
       )}
+
+      {showCreateModal && (
+        <CreateBoardModal
+          items={items}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={handleCreateBoard}
+        />
+      )}
     </div>
   )
 }
@@ -197,7 +203,7 @@ export default function WishlistPage() {
 //  2. The heart in the corner is clickable and toggles, using the
 //     `heartPop` keyframe already defined in boards.css (previously unused
 //     anywhere) — so it demonstrates the exact save gesture.
-//  3. NEW: the product photo itself starts desaturated (grayscale, slightly
+//  3. The product photo itself starts desaturated (grayscale, slightly
 //     dimmed) — "not yet saved" — and blooms into full color the moment you
 //     tap the heart, so liking something visibly brings it to life instead
 //     of just toggling an icon next to an unaffected photo. Clicking again
@@ -298,11 +304,122 @@ function WishlistCard({
 }
 
 // ---------------------------------------------------------------------------
-// Create board modal — REMOVED from this page. "New board" now creates an
-// empty, auto-named board immediately (see handleQuickCreateBoard above)
-// and navigates straight into it; naming and adding items both happen from
-// inside the board itself. The Boards page still has its own version of
-// this modal for the case where you explicitly want to name/seed a board
-// before creating it from that page's "+" tile — kept there deliberately,
-// not duplicated here.
+// Create board modal
 // ---------------------------------------------------------------------------
+// Lets you name the board up front and optionally check off which wishlist
+// items to seed it with. Confirming creates the board with that name +
+// items, then navigates straight into it. Naming/adding-items can still be
+// edited later from inside the board — this just avoids landing on a blank,
+// unnamed board every time.
+
+function CreateBoardModal({
+  items,
+  onClose,
+  onCreate,
+}: {
+  items: WishlistEntry[]
+  onClose: () => void
+  onCreate: (name: string, selectedIds: string[]) => void
+}) {
+  const [name, setName] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+
+  const toggleItem = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const handleCreate = () => {
+    const finalName = name.trim() || 'New board'
+    onCreate(finalName, selectedIds)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-card p-5 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl text-ink">New board</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="grid h-7 w-7 place-items-center rounded-full text-ink/50 hover:bg-ink/5"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Board name"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCreate()
+          }}
+          className="mt-4 w-full flex-none rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50"
+        />
+
+        <p className="mt-4 flex-none text-xs font-semibold uppercase tracking-wide text-ink/50">
+          Add items (optional) {selectedIds.length > 0 && `· ${selectedIds.length} selected`}
+        </p>
+
+        <div className="mt-2 grid flex-1 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
+          {items.map((item) => {
+            const selected = selectedIds.includes(item.id)
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => toggleItem(item.id)}
+                aria-pressed={selected}
+                aria-label={`${selected ? 'Remove' : 'Add'} ${item.title}`}
+                className={`relative aspect-square overflow-hidden rounded-lg border transition-all ${
+                  selected ? 'border-teal-deep ring-2 ring-teal-deep' : 'border-ink/10'
+                }`}
+              >
+                {item.image ? (
+                  <Image
+                    src={item.image}
+                    alt={item.title}
+                    className="h-full w-full object-contain p-1"
+                    width={100}
+                    height={100}
+                  />
+                ) : (
+                  <div className="grid h-full w-full place-items-center bg-gold/10">
+                    <ImageOff className="h-5 w-5 text-teal-deep/40" />
+                  </div>
+                )}
+                {selected && (
+                  <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-teal-deep text-white">
+                    <Heart size={9} fill="currentColor" />
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-5 flex flex-none justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-ink/15 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleCreate}
+            className="rounded-xl bg-teal-deep px-4 py-2 text-sm font-semibold text-white hover:bg-teal"
+          >
+            Create board
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

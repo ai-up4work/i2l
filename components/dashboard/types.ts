@@ -97,6 +97,7 @@ export type View =
   | 'trackingOrders'
   | 'myFollowing'
   | 'cart'
+  | 'boards'
 
 export type NavItem = {
   label: string

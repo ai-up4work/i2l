@@ -162,7 +162,7 @@ export default function BoardDetailPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.push('/wishlist')}
+            onClick={() => router.push('/account/wishlist')}
             className="mt-6 rounded-none bg-ink px-6 py-3 text-sm font-bold tracking-wide text-white transition-opacity hover:opacity-90"
           >
             GO TO WISHLIST TO ADD ITEMS
