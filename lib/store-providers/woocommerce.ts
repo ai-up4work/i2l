@@ -511,3 +511,83 @@ export async function fetchWooCommerceProduct(
 
   return product;
 }
+
+
+// ── Real category taxonomy (for building categoryMap from live data) ────────
+
+export interface WooCategorySummary {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+}
+
+/**
+ * Fetches the store's REAL product categories — not guessed, not typed by
+ * hand. Uses the public store_v1 endpoint (no credentials needed) by
+ * default, matching the same unauthenticated pattern as
+ * fetchWooCommerceProducts' store_v1 branch; falls back to wc_v3 only if
+ * credentials are configured AND apiMode explicitly forces it, since the
+ * public endpoint already returns everything needed (id/name/slug/count)
+ * without requiring secrets.
+ *
+ * Use this output to build categoryMap in store-config.ts and `categories`
+ * in data/stores/data.ts from real data, instead of hand-typing labels
+ * that can silently drift from what the store actually has — the same
+ * class of bug fixed for Shopify via fetchShopifyCollections.
+ *
+ * Returns [] on any failure rather than throwing, so callers can treat an
+ * empty result as "couldn't confirm real categories" and fall back
+ * gracefully.
+ */
+export async function fetchWooCommerceCategories(
+  config: WooCommerceProviderConfig
+): Promise<WooCategorySummary[]> {
+  const mode = resolveApiMode(config);
+  const categories: WooCategorySummary[] = [];
+  const perPage = 100;
+  let page = 1;
+
+  try {
+    if (mode === 'wc_v3' && hasCredentials(config)) {
+      const key = process.env[config.consumerKeyEnv!]!;
+      const secret = process.env[config.consumerSecretEnv!]!;
+      const auth = Buffer.from(`${key}:${secret}`).toString('base64');
+
+      while (true) {
+        const qs = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+        const res = await fetch(`${config.baseUrl}/wp-json/wc/v3/products/categories?${qs}`, {
+          headers: { Authorization: `Basic ${auth}`, Accept: 'application/json', ...config.headers },
+          next: { revalidate: CACHE_SECONDS },
+        });
+        if (!res.ok) break;
+        const batch = (await res.json()) as { id: number; name: string; slug: string; count: number }[];
+        categories.push(...batch.map((c) => ({ id: c.id, name: c.name, slug: c.slug, count: c.count })));
+        if (batch.length < perPage) break;
+        page += 1;
+        if (page > 20) break; // safety cap
+      }
+    } else {
+      // Public store_v1 endpoint — no auth required, works on any
+      // WooCommerce site with the Store API enabled (same requirement
+      // fetchWooCommerceProducts' store_v1 branch already depends on).
+      while (true) {
+        const qs = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+        const res = await fetch(`${config.baseUrl}/wp-json/wc/store/v1/products/categories?${qs}`, {
+          headers: { Accept: 'application/json', ...config.headers },
+          next: { revalidate: CACHE_SECONDS },
+        });
+        if (!res.ok) break;
+        const batch = (await res.json()) as { id: number; name: string; slug: string; count: number }[];
+        categories.push(...batch.map((c) => ({ id: c.id, name: c.name, slug: c.slug, count: c.count })));
+        if (batch.length < perPage) break;
+        page += 1;
+        if (page > 20) break;
+      }
+    }
+  } catch {
+    return categories; // return whatever we already collected on network failure
+  }
+
+  return categories;
+}

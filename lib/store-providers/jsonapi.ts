@@ -382,3 +382,58 @@ export async function fetchJsonApiProduct(
   const match = rawList.find((raw) => readString(raw, config.idField) === handle);
   return match ? normaliseJsonApiProduct(match, platform, storeName, config) : null;
 }
+
+// ── Real category values (derived from live product data) ───────────────────
+
+export interface JsonApiCategorySummary {
+  value: string;
+  count: number;
+}
+
+/**
+ * Unlike WooCommerce/Shopify, small custom backends have no generic
+ * "categories" taxonomy endpoint to call — categoryField is just
+ * whatever free-text field the merchant's own data happens to use (see
+ * skyt-boutique's `type` field, documented in store-config.ts as messy
+ * fabric/type text, not a real taxonomy). The only honest source of truth
+ * here is the store's OWN product data: fetch the full list (these
+ * backends are small/unpaginated, same assumption fetchJsonApiProduct's
+ * list-fallback already makes) and report the distinct categoryField
+ * values that actually occur, with how many products carry each one.
+ *
+ * Use this instead of hand-typing a `categories` array in
+ * data/stores/data.ts — it can never list a category the store doesn't
+ * actually have, and it can never miss one that's actually there.
+ *
+ * Returns [] if config.categoryField is unset (nothing to derive) or the
+ * fetch fails, rather than throwing.
+ */
+export async function fetchJsonApiCategories(
+  config: JsonApiProviderConfig
+): Promise<JsonApiCategorySummary[]> {
+  if (!config.categoryField) return [];
+
+  try {
+    const res = await fetch(`${config.baseUrl}${config.listEndpoint}`, {
+      headers: { ...HEADERS, ...config.headers },
+      next: { revalidate: CACHE_SECONDS },
+    });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as unknown;
+    const rawList: RawRecord[] = Array.isArray(data) ? (data as RawRecord[]) : [];
+
+    const counts = new Map<string, number>();
+    for (const raw of rawList) {
+      const value = readString(raw, config.categoryField).replace(/\s+/g, ' ').trim();
+      if (!value) continue;
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+
+    return Array.from(counts.entries())
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count); // most common first — likely the more useful nav order
+  } catch {
+    return [];
+  }
+}
