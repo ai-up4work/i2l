@@ -967,7 +967,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
           </div>
 
           {/* ── Debug / verification strip ── */}
-          <DebugInfoBar
+          {/* <DebugInfoBar
             totalItems={totalItems}
             totalIsExact={totalIsExact}
             totalPages={totalPages}
@@ -976,7 +976,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             categories={effectiveCategories}
             categoriesSource={categoriesSource}
             platform={platform}
-          />
+          /> */}
 
           {/* ── Toolbar ── */}
           <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
