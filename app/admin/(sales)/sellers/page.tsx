@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search } from 'lucide-react'
+import { Inbox, Plus, Search, SearchX } from 'lucide-react'
 
 import { ADMIN_SELLERS, STATUS_LABEL, STATUS_STYLE, type AdminSeller, type SellerStatus } from '@/data/sellers/data'
 import { useSequentialLiveProductCounts, type LiveCountEntry } from '@/hooks/useSequentialLiveProductCounts'
@@ -51,12 +51,19 @@ export default function SellersListPage() {
     })
   }, [search, statusFilter])
 
+  const hasAnyFilter = search.trim().length > 0 || statusFilter !== 'all'
+  const clearFilters = () => {
+    setSearch('')
+    setStatusFilter('all')
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 pb-20 pt-8 lg:px-10">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="font-display text-3xl text-ink">Sellers</h1>
-          <p className="mt-2 max-w-lg text-sm text-ink/60">
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-ink/60">
             Affiliated stores feeding the catalogue. Add a new one manually, or open an existing
             seller to edit their details or extractor config.
           </p>
@@ -65,22 +72,25 @@ export default function SellersListPage() {
         <button
           type="button"
           onClick={() => router.push('/admin/sellers/new')}
-          className="flex flex-none items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-teal active:scale-[0.98]"
+          className="flex flex-none items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-teal active:scale-[0.98]"
         >
           <Plus size={15} />
           Add seller
         </button>
       </div>
 
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* ── Filters ── */}
+      <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-1.5">
           {(['all', 'active', 'pending_review', 'inactive'] as StatusFilter[]).map((f) => (
             <button
               key={f}
               type="button"
               onClick={() => setStatusFilter(f)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                statusFilter === f ? 'bg-ink text-white' : 'bg-ink/5 text-ink/60 hover:bg-ink/10'
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
+                statusFilter === f
+                  ? 'bg-ink text-white'
+                  : 'bg-ink/5 text-ink/60 hover:bg-ink/10 hover:text-ink/80'
               }`}
             >
               {f === 'all' ? 'All' : STATUS_LABEL[f]}
@@ -95,13 +105,21 @@ export default function SellersListPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search store or feed type"
-            className="w-full rounded-lg border border-ink/15 bg-white py-1.5 pl-8 pr-3 text-sm text-ink outline-none focus:border-teal/50"
+            className="w-full rounded-lg border border-ink/15 bg-white py-2 pl-8 pr-3 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
           />
         </div>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-ink/10 bg-card">
-        <div className="hidden grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.8fr_1fr] gap-2 border-b border-ink/10 px-4 py-2.5 text-xs font-semibold text-ink/45 sm:grid">
+      {/* ── Result count ── */}
+      <p className="mt-3 text-xs text-ink/40">
+        {filtered.length === ADMIN_SELLERS.length
+          ? `${ADMIN_SELLERS.length} seller${ADMIN_SELLERS.length === 1 ? '' : 's'}`
+          : `${filtered.length} of ${ADMIN_SELLERS.length} sellers`}
+      </p>
+
+      {/* ── Table ── */}
+      <div className="mt-3 overflow-hidden rounded-xl border border-ink/10 bg-card">
+        <div className="sticky top-0 z-10 hidden grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.8fr_1fr] gap-2 border-b border-ink/10 bg-card px-4 py-2.5 text-xs font-semibold text-ink/45 sm:grid">
           <span>Store</span>
           <span>Feed type</span>
           <span className="text-right">Products</span>
@@ -110,20 +128,75 @@ export default function SellersListPage() {
           <span>Joined</span>
         </div>
 
-        {filtered.length === 0 && (
-          <p className="px-4 py-8 text-center text-sm text-ink/45">No sellers match this filter.</p>
+        {filtered.length === 0 ? (
+          <EmptyState hasAnyFilter={hasAnyFilter} onClearFilters={clearFilters} />
+        ) : (
+          filtered.map((s) => (
+            <SellerRow
+              key={s.platform}
+              seller={s}
+              live={liveCounts[s.platform]}
+              onRefreshLive={() => refreshLiveCount(s.platform)}
+              onOpen={() => router.push(`/admin/sellers/${s.platform}`)}
+            />
+          ))
         )}
-
-        {filtered.map((s) => (
-          <SellerRow
-            key={s.platform}
-            seller={s}
-            live={liveCounts[s.platform]}
-            onRefreshLive={() => refreshLiveCount(s.platform)}
-            onOpen={() => router.push(`/admin/sellers/${s.platform}`)}
-          />
-        ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Distinguishes "nothing matches your search/filter" (recoverable, offer
+ * to clear) from "there are no sellers yet" (an onboarding moment, offer
+ * to add one) — the two have different causes and different fixes, so
+ * they get different copy and a different action.
+ */
+function EmptyState({
+  hasAnyFilter,
+  onClearFilters,
+}: {
+  hasAnyFilter: boolean
+  onClearFilters: () => void
+}) {
+  const router = useRouter()
+
+  if (hasAnyFilter) {
+    return (
+      <div className="flex flex-col items-center gap-3 px-4 py-14 text-center">
+        <SearchX size={22} className="text-ink/25" />
+        <div>
+          <p className="text-sm font-semibold text-ink/70">No sellers match this filter</p>
+          <p className="mt-1 text-xs text-ink/45">Try a different search term or status.</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClearFilters}
+          className="mt-1 text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-2 hover:text-teal"
+        >
+          Clear filters
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-14 text-center">
+      <Inbox size={22} className="text-ink/25" />
+      <div>
+        <p className="text-sm font-semibold text-ink/70">No sellers yet</p>
+        <p className="mt-1 max-w-xs text-xs text-ink/45">
+          Add your first affiliated store to start feeding the catalogue.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => router.push('/admin/sellers/new')}
+        className="mt-1 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-ink/85"
+      >
+        <Plus size={13} />
+        Add seller
+      </button>
     </div>
   )
 }
@@ -147,7 +220,7 @@ function SellerRow({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onOpen()
       }}
-      className="grid w-full cursor-pointer grid-cols-2 items-center gap-2 border-b border-ink/10 px-4 py-3 text-left last:border-b-0 hover:bg-ink/[0.02] sm:grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.8fr_1fr]"
+      className="grid w-full cursor-pointer grid-cols-2 items-center gap-2 border-b border-ink/10 px-4 py-3.5 text-left outline-none transition-colors last:border-b-0 hover:bg-ink/[0.025] focus-visible:bg-teal/[0.05] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1.6fr_1fr_0.9fr_0.8fr_0.8fr_1fr]"
     >
       <span className="col-span-2 truncate text-sm font-semibold text-ink sm:col-span-1">{seller.store.name}</span>
 
@@ -188,10 +261,10 @@ function SellerRow({
 
 /**
  * Mock sellers just show the cached count, no feed to check.
- * Real-feed sellers show the cached count dimmed (with a small pulsing
- * dot) while their turn in the sequential queue hasn't come up yet or is
- * in flight, then swap to the confirmed live count once settled. On
- * error, falls back to the cached number with a retry affordance.
+ * Real-feed sellers show a compact loading skeleton while their turn in
+ * the sequential queue hasn't come up yet or is in flight, then swap to
+ * the confirmed live count once settled. On error, falls back to the
+ * cached number with a retry affordance.
  */
 function ProductsCell({
   seller,
@@ -215,11 +288,10 @@ function ProductsCell({
   if (status === 'pending' || status === 'loading') {
     return (
       <span
-        className="inline-flex items-center gap-1.5 text-sm text-ink/40"
+        className="inline-flex items-center gap-1.5"
         title={status === 'loading' ? "Fetching this seller's live count\u2026" : 'Queued \u2014 checking live counts one at a time'}
       >
-        <span className="animate-pulse">{cached ?? '\u2014'}</span>
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink/25" />
+        <span className="h-3 w-7 animate-pulse rounded bg-ink/10" />
       </span>
     )
   }
@@ -233,7 +305,7 @@ function ProductsCell({
           onRefresh()
         }}
         title={live?.error ?? 'Failed to fetch live count'}
-        className="text-sm text-red-600/70 underline decoration-dotted"
+        className="text-sm text-red-600/70 underline decoration-dotted underline-offset-2 hover:text-red-600"
       >
         {cached ?? '\u2014'} (retry)
       </button>
@@ -252,7 +324,7 @@ function ProductsCell({
           ? 'Feed has more pages than this check could see \u2014 showing a lower bound, click to refresh'
           : 'Live count \u2014 click to refresh'
       }
-      className="text-sm font-semibold text-teal-deep"
+      className="text-sm font-semibold text-teal-deep underline decoration-transparent underline-offset-2 transition-colors hover:decoration-teal-deep/40"
     >
       {live?.count}
       {live?.atLeast && '+'}
