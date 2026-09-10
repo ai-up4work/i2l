@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Check, Settings2 } from 'lucide-react'
+import { Check, ChevronRight, Settings2 } from 'lucide-react'
 import { ArrowLeft } from 'lucide-react'
 
 import { getSeller, STATUS_LABEL, STATUS_STYLE, type SellerStatus } from '@/data/sellers/data'
@@ -29,10 +29,102 @@ import { useLiveProductCount } from '@/hooks/useLiveProductCount'
 // the same route the storefront calls — rather than the hand-entered
 // `itemCount` on the AffiliatedStore record. Falls back to that saved
 // number if the live feed request fails.
+//
+// Feed overview (below the quick stats): total pages and live categories,
+// straight from the same two endpoints the storefront's category dropdown
+// and pagination use — app/api/stores/[platform] for pagination meta, and
+// app/api/stores/[platform]?collections=1 for the real category/collection
+// list. This is diagnostic, not editable: it's here so an admin can sanity-
+// check "does this feed's pagination and category data look right" without
+// leaving this page. Gracefully degrades per feed type: mock stores have
+// neither (no live feed to ask), some providers have no category taxonomy
+// to report (jsonapi without a categories endpoint, a WooCommerce store
+// with zero populated categories, etc) — each of those states gets its own
+// short, honest label rather than a spinner that never resolves.
 // ---------------------------------------------------------------------------
 
 const inputClass =
   'w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50'
+
+interface StoreApiMeta {
+  total: number
+  totalPages: number
+  totalIsExact?: boolean
+}
+
+interface LiveCollection {
+  handle: string
+  title: string
+}
+
+interface LiveCollectionsResponse {
+  collections: LiveCollection[]
+}
+
+type FeedOverviewStatus = 'idle' | 'loading' | 'ready' | 'error'
+type CategoriesStatus = 'idle' | 'loading' | 'live' | 'unavailable'
+
+/**
+ * Fetches pagination meta (total items/pages) and the live category list
+ * for a seller's feed, in parallel. Local to this page rather than a
+ * shared hook — nothing else currently needs both of these together.
+ */
+function useLiveFeedOverview(platform: string, enabled: boolean) {
+  const [status, setStatus] = useState<FeedOverviewStatus>('idle')
+  const [meta, setMeta] = useState<StoreApiMeta | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const [categoriesStatus, setCategoriesStatus] = useState<CategoriesStatus>('idle')
+  const [categories, setCategories] = useState<LiveCollection[]>([])
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+
+    setStatus('loading')
+    setError(null)
+    // per_page=1 — this call only wants the pagination meta (total /
+    // totalPages / totalIsExact), not a real page of products.
+    fetch(`/api/stores/${platform}?per_page=1`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = (await res.json()) as StoreApiMeta
+        if (cancelled) return
+        setMeta({ total: data.total, totalPages: data.totalPages, totalIsExact: data.totalIsExact })
+        setStatus('ready')
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : 'Failed to load')
+        setStatus('error')
+      })
+
+    setCategoriesStatus('loading')
+    fetch(`/api/stores/${platform}?collections=1`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = (await res.json()) as LiveCollectionsResponse
+        if (cancelled) return
+        setCategories(data.collections ?? [])
+        setCategoriesStatus('live')
+      })
+      .catch(() => {
+        // A 400/network failure here just means "this feed type has no
+        // live category taxonomy to report" — not a real error worth
+        // alarming an admin over, unlike the product-count/meta fetch
+        // above which does surface its error.
+        if (cancelled) return
+        setCategories([])
+        setCategoriesStatus('unavailable')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [platform, enabled])
+
+  return { status, meta, error, categoriesStatus, categories }
+}
 
 export default function SellerDetailPage() {
   const router = useRouter()
@@ -58,6 +150,7 @@ export default function SellerDetailPage() {
 
   const isLiveFeed = seller.providerConfig.type !== 'mock'
   const live = useLiveProductCount(seller.platform, isLiveFeed)
+  const overview = useLiveFeedOverview(seller.platform, isLiveFeed)
 
   const [form, setForm] = useState({
     storeName: seller.store.name,
@@ -160,6 +253,81 @@ export default function SellerDetailPage() {
           </p>
         )}
 
+      {/* Feed overview — pagination meta + live categories, read-only */}
+      {isLiveFeed && (
+        <div className="mt-6 rounded-xl border border-ink/10 bg-card p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Feed overview</p>
+
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <MiniStat
+              label="Total products"
+              value={
+                overview.status === 'loading'
+                  ? '\u2026'
+                  : overview.status === 'error'
+                  ? '\u2014'
+                  : `${overview.meta?.total ?? '\u2014'}${overview.meta?.totalIsExact === false ? '+' : ''}`
+              }
+              hint={
+                overview.status === 'ready' && overview.meta?.totalIsExact === false
+                  ? 'Lower bound — feed has more pages than could be confirmed'
+                  : overview.status === 'ready' && overview.meta?.totalIsExact
+                  ? 'Exact count from the live feed'
+                  : undefined
+              }
+            />
+            <MiniStat
+              label="Total pages"
+              value={overview.status === 'loading' ? '\u2026' : overview.status === 'error' ? '\u2014' : overview.meta?.totalPages ?? '\u2014'}
+            />
+            <MiniStat
+              label="Categories"
+              value={
+                overview.categoriesStatus === 'loading'
+                  ? '\u2026'
+                  : overview.categoriesStatus === 'unavailable'
+                  ? '\u2014'
+                  : overview.categories.length
+              }
+              hint={overview.categoriesStatus === 'unavailable' ? 'Not available for this feed type' : undefined}
+            />
+          </div>
+
+          {overview.status === 'error' && (
+            <p className="mt-3 text-xs text-red-600/70">Couldn&rsquo;t load feed pagination ({overview.error}).</p>
+          )}
+
+          {overview.categoriesStatus === 'live' && overview.categories.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-ink/45">Live categories</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {overview.categories.map((c) => (
+                  <span
+                    key={c.handle}
+                    className="rounded-full border border-ink/10 bg-ink/[0.03] px-2.5 py-1 text-xs text-ink/65"
+                  >
+                    {c.title}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {overview.categoriesStatus === 'live' && overview.categories.length === 0 && (
+            <p className="mt-4 text-xs text-ink/40">This feed reported no populated categories.</p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => router.push(`/stores/${seller.platform}`)}
+            className="mt-4 flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
+          >
+            View storefront
+            <ChevronRight size={12} />
+          </button>
+        </div>
+      )}
+
       <div className="mt-6 flex flex-col gap-5 rounded-xl border border-ink/10 bg-card p-5">
         <Field label="Store name">
           <input type="text" value={form.storeName} onChange={set('storeName')} className={inputClass} />
@@ -248,6 +416,18 @@ function Stat({ label, value }: { label: string; value: number | string }) {
     <div className="rounded-xl border border-ink/10 bg-card px-4 py-3 text-center">
       <p className="text-xl font-semibold text-ink">{value}</p>
       <p className="mt-0.5 text-xs text-ink/50">{label}</p>
+    </div>
+  )
+}
+
+/** Smaller, left-aligned stat used inside the Feed overview panel — the
+ * panel already has its own card/border, so these stay flush rather than
+ * repeating the bordered-box treatment of the top-level Stat cards. */
+function MiniStat({ label, value, hint }: { label: string; value: number | string; hint?: string }) {
+  return (
+    <div title={hint}>
+      <p className="text-lg font-semibold text-ink">{value}</p>
+      <p className="text-xs text-ink/45">{label}</p>
     </div>
   )
 }
