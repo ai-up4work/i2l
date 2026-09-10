@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
@@ -14,6 +14,8 @@ import Image from 'next/image';
 import { formatPrice } from '@/lib/currency';
 import { getProductPricing, getCartLineTotalLKR, getCartSubtotalLKR, formatCartLinesForWhatsApp, formatLKR } from '@/lib/pricing';
 import Flag from '@/components/ui/Flag';
+import AddToBagButton from '@/components/stores/AddToBagButton';
+import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext';
 
 type SortKey = 'newest' | 'price-asc' | 'price-desc' | 'sale';
 
@@ -47,6 +49,27 @@ function writeCart(platform: string, items: CartItem[]) {
   window.dispatchEvent(new Event('store_cart_updated'));
 }
 
+/**
+ * Builds the exact same serializable wishlist snapshot ProductActions
+ * builds on the product detail page (components/stores/ProductActions.tsx)
+ * — product.url (falling back to a platform-scoped id) is the identity
+ * key, so hearting a listing from this grid and hearting the same listing
+ * from its own PDP dedupe to one wishlist entry instead of two.
+ */
+function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistProduct {
+  const url = product.url || '';
+  const id = url || `${platform}:${product.id}`;
+  return {
+    id,
+    url: url || id,
+    site: platform,
+    title: product.name,
+    image: product.images?.[0] ?? product.image ?? null,
+    currencyCode: product.currency ?? null,
+    price: product.price != null ? String(product.price) : null,
+  };
+}
+
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function ProductSkeleton() {
@@ -71,7 +94,12 @@ function ProductCard({
   platform: string;
   onAdd: (p: StoreProduct) => void;
 }) {
-  const [wishlisted, setWishlisted] = useState(false);
+  // Real wishlist context — the same one ProductActions uses on the PDP —
+  // so hearting an item here and hearting it from its own product page
+  // reflect one persisted state instead of two independent toggles.
+  const wishlist = useWishlist();
+  const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform]);
+  const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id);
 
   // All display pricing (price, "was" price, discount %) comes from the
   // shared lib/pricing.ts helper — same one the PDP uses — so this card
@@ -114,27 +142,51 @@ function ProductCard({
           </span>
         </div>
 
+        {/* Real wishlist toggle — same context + snapshot shape
+            ProductActions uses on the PDP (toWishlistSnapshot above
+            mirrors it exactly), so this is the actual persisted wishlist,
+            not a per-card visual toggle that forgets itself on remount. */}
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); setWishlisted((v) => !v); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); wishlist.toggleItem(wishlistSnapshot); }}
+          aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+          aria-pressed={wishlisted}
           className="absolute bottom-3 right-3 w-8 h-8 rounded-full bg-card/85 backdrop-blur-sm
             flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200
             hover:bg-card z-10"
         >
-          <Heart size={14} className={wishlisted ? 'fill-gold-deep text-gold-deep' : 'text-ink'} />
+          <Heart size={14} className={wishlisted ? 'fill-red-500 text-red-500' : 'text-ink'} />
         </button>
 
-        <button
-          type="button"
-          onClick={(e) => { e.preventDefault(); onAdd(product); }}
-          disabled={!product.inStock}
-          className="absolute bottom-3 left-3 right-12 py-2 bg-card/90
-            backdrop-blur-sm text-ink text-xs font-bold rounded-xl text-center
-            translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200
-            hover:bg-teal hover:text-white disabled:opacity-40 disabled:pointer-events-none"
+        {/* Real add-to-bag button — the same AddToBagButton component
+            ProductActions renders on the PDP, so a quick-add here writes
+            into the same cart /account/cart reads, instead of only this
+            page's own local mini-cart. The grid has no size/color picker,
+            so this adds the base product at quantity 1 with no
+            selectedOptions — the same thing that happens on the PDP for a
+            product with no variants to choose.
+            The wrapping div's onClick (bubble phase, so it fires after
+            AddToBagButton's own click handler has already run) stops the
+            click from also triggering the parent Link's navigation, and
+            onClickCapture (capture phase, before AddToBagButton's handler)
+            mirrors the add into this page's own per-store sessionStorage
+            cart (onAdd) that drives the WhatsApp "Bag" drawer below —
+            AddToBagButton has no reason to know that flow exists, so this
+            keeps both in sync from one click. */}
+        <div
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onClickCapture={() => { if (product.inStock) onAdd(product); }}
+          className="absolute bottom-3 left-3 right-12
+            translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200"
         >
-          {product.inStock ? 'Add to bag' : 'Sold out'}
-        </button>
+          <AddToBagButton
+            product={product}
+            platform={platform}
+            quantity={1}
+            compact
+            disabled={!product.inStock}
+          />
+        </div>
       </Link>
 
       <Link href={`/stores/${platform}/product/${product.handle}`} className="flex flex-col flex-1 hover:opacity-75 transition-opacity">
@@ -512,6 +564,68 @@ function MobileCategorySheet({
   );
 }
 
+// ─── Debug / verification strip ────────────────────────────────────────────
+// Small, plain strip surfacing the raw numbers the API returned (total
+// pages, total product count including whether it's exact or a lower
+// bound, and the full category list this store was configured with) so
+// counting/filtering issues can be sanity-checked directly on the page
+// instead of digging through network tab responses. Intentionally muted/
+// monospace so it doesn't compete visually with the real toolbar above it.
+// Safe to delete this component + its call site once you're done verifying.
+function DebugInfoBar({
+  totalItems,
+  totalIsExact,
+  totalPages,
+  page,
+  shownCount,
+  categories,
+}: {
+  totalItems: number | null;
+  totalIsExact: boolean | null;
+  totalPages: number;
+  page: number;
+  shownCount: number;
+  categories: string[];
+}) {
+  return (
+    <div className="mb-6 rounded-xl border border-dashed border-ink/20 bg-ink/[0.03] px-4 py-3 text-[11px] font-mono text-ink/60 space-y-1.5">
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <span>
+          <span className="text-ink/40">total products:</span>{' '}
+          <span className="font-bold text-ink/80">
+            {totalItems == null ? '—' : totalItems}
+            {totalIsExact === false ? '+' : ''}
+          </span>
+        </span>
+        <span>
+          <span className="text-ink/40">total pages:</span>{' '}
+          <span className="font-bold text-ink/80">{totalPages}</span>
+        </span>
+        <span>
+          <span className="text-ink/40">current page:</span>{' '}
+          <span className="font-bold text-ink/80">{page} / {totalPages}</span>
+        </span>
+        <span>
+          <span className="text-ink/40">shown on this page:</span>{' '}
+          <span className="font-bold text-ink/80">{shownCount}</span>
+        </span>
+        <span>
+          <span className="text-ink/40">count is:</span>{' '}
+          <span className="font-bold text-ink/80">
+            {totalIsExact == null ? '—' : totalIsExact ? 'exact' : 'lower bound'}
+          </span>
+        </span>
+      </div>
+      <div>
+        <span className="text-ink/40">categories ({categories.length}):</span>{' '}
+        <span className="text-ink/70">
+          {categories.length ? categories.map((c) => c || '(all)').join(', ') : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main client component ─────────────────────────────────────────────────────
 
 export default function StoreCatalogClient({ store }: { store: AffiliatedStore }) {
@@ -525,6 +639,8 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
 
   const [products,    setProducts]    = useState<StoreProduct[]>([]);
   const [totalPages,  setTotalPages]  = useState(1);
+  const [totalItems,  setTotalItems]  = useState<number | null>(null);
+  const [totalIsExact, setTotalIsExact] = useState<boolean | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
 
@@ -545,6 +661,10 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
 
   const clearCart = () => { writeCart(platform, []); setCart([]); };
 
+  // Feeds this page's own per-store WhatsApp mini-cart (sessionStorage).
+  // Called alongside the real AddToBagButton (see ProductCard) rather than
+  // instead of it, so both the real cart (/account/cart) and this page's
+  // WhatsApp "Bag" drawer stay in sync from the same click.
   const addToCart = (product: StoreProduct) => {
     const current = readCart(platform);
     const idx = current.findIndex((i) => i.id === product.id);
@@ -588,6 +708,8 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
 
         setProducts(data.products);
         setTotalPages(data.totalPages);
+        setTotalItems(data.total);
+        setTotalIsExact(data.totalIsExact ?? null);
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         if (requestIdRef.current !== requestId) return;
@@ -742,6 +864,16 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             </div>
           </div>
 
+          {/* ── Debug / verification strip ── */}
+          <DebugInfoBar
+            totalItems={totalItems}
+            totalIsExact={totalIsExact}
+            totalPages={totalPages}
+            page={page}
+            shownCount={products.length}
+            categories={store.categories}
+          />
+
           {/* ── Toolbar ── */}
           <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -776,7 +908,11 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <p className="font-body text-sm text-ink/50 hidden sm:block">
-                <span className="text-ink font-semibold">{products.length}</span> items
+                <span className="text-ink font-semibold">
+                  {totalItems == null ? products.length : totalItems}
+                  {totalIsExact === false ? '+' : ''}
+                </span>{' '}
+                items
               </p>
               <div className="relative">
                 <button

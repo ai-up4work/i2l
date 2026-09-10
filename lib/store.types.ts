@@ -103,6 +103,7 @@ export interface StoreApiResponse {
   page: number;
   category: string | null;
   fetchedAt: string;
+  totalIsExact?: boolean;
 }
 
 export interface StoreApiError {
