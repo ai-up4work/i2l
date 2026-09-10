@@ -571,10 +571,24 @@ export async function fetchShopifyProducts(
     exactTotal = await countShopifyProductsExact(config.baseUrl, mergedHeaders, collectionHandle);
   }
 
+  // totalPages must be derived from the exact total when we have one —
+  // previously this fell back to `page + 1` any time `hasMore` was true,
+  // even after countShopifyProductsExact had already resolved the real
+  // total (e.g. total=159, perPage=24 -> should be 7 pages, but page 2
+  // reported totalPages=3, since it was just `params.page + 1`). Only
+  // fall back to the honest "at least one more page" guess when the
+  // exact count genuinely couldn't be resolved.
+  const totalPages =
+    exactTotal != null
+      ? Math.max(1, Math.ceil(exactTotal / params.perPage))
+      : hasMore
+        ? params.page + 1
+        : params.page;
+
   return {
     products: sliced,
     total: exactTotal ?? sliced.length,
-    totalPages: hasMore ? params.page + 1 : params.page,
+    totalPages,
     totalIsExact: !hasMore || exactTotal != null,
   };
 }

@@ -332,10 +332,22 @@ function Pagination({
 }) {
   if (totalPages <= 1) return null;
 
-  const hasMore = page < totalPages;
-  const buttons: number[] = [];
-  for (let i = Math.max(1, page - 2); i <= page; i++) buttons.push(i);
-  if (hasMore) buttons.push(page + 1);
+  // Build the set of page numbers to show: first 3, last 2, and the
+  // current page plus its immediate neighbors (so jumping around the
+  // middle still shows context). Gaps between consecutive shown pages
+  // become a single "…".
+  const shown = new Set<number>();
+  for (let i = 1; i <= Math.min(3, totalPages); i++) shown.add(i);
+  for (let i = Math.max(1, totalPages - 1); i <= totalPages; i++) shown.add(i);
+  for (let i = Math.max(1, page - 1); i <= Math.min(totalPages, page + 1); i++) shown.add(i);
+
+  const pages = Array.from(shown).sort((a, b) => a - b);
+
+  const items: (number | 'ellipsis')[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    if (i > 0 && pages[i] - pages[i - 1] > 1) items.push('ellipsis');
+    items.push(pages[i]);
+  }
 
   return (
     <div className="flex items-center justify-center gap-2 mt-12">
@@ -349,37 +361,30 @@ function Pagination({
       </button>
 
       <div className="flex items-center gap-1">
-        {page > 3 && (
-          <>
+        {items.map((item, idx) =>
+          item === 'ellipsis' ? (
+            <span key={`ellipsis-${idx}`} className="text-ink/40 text-sm px-1">
+              &hellip;
+            </span>
+          ) : (
             <button
+              key={item}
               type="button"
-              onClick={() => onGoto(1)}
-              className="w-9 h-9 rounded-xl text-sm font-medium text-ink/50 hover:bg-teal/10 transition-all font-body"
+              onClick={() => onGoto(item)}
+              className={
+                'w-9 h-9 rounded-xl text-sm font-medium transition-all font-body ' +
+                (page === item ? 'bg-teal-deep text-white' : 'hover:bg-teal/10 text-ink/60')
+              }
             >
-              1
+              {item}
             </button>
-            <span className="text-ink/40 text-sm px-1">&hellip;</span>
-          </>
+          )
         )}
-        {buttons.map((pg) => (
-          <button
-            key={pg}
-            type="button"
-            onClick={() => onGoto(pg)}
-            className={
-              'w-9 h-9 rounded-xl text-sm font-medium transition-all font-body ' +
-              (page === pg ? 'bg-teal-deep text-white' : 'hover:bg-teal/10 text-ink/60')
-            }
-          >
-            {pg}
-          </button>
-        ))}
-        {hasMore && <span className="text-ink/40 text-sm px-1">&hellip;</span>}
       </div>
 
       <button
         type="button"
-        disabled={!hasMore}
+        disabled={page >= totalPages}
         onClick={onNext}
         className="p-2 rounded-xl border border-ink/10 hover:bg-teal/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
@@ -559,68 +564,6 @@ function MobileCategorySheet({
             </>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Debug / verification strip ────────────────────────────────────────────
-// Small, plain strip surfacing the raw numbers the API returned (total
-// pages, total product count including whether it's exact or a lower
-// bound, and the full category list this store was configured with) so
-// counting/filtering issues can be sanity-checked directly on the page
-// instead of digging through network tab responses. Intentionally muted/
-// monospace so it doesn't compete visually with the real toolbar above it.
-// Safe to delete this component + its call site once you're done verifying.
-function DebugInfoBar({
-  totalItems,
-  totalIsExact,
-  totalPages,
-  page,
-  shownCount,
-  categories,
-}: {
-  totalItems: number | null;
-  totalIsExact: boolean | null;
-  totalPages: number;
-  page: number;
-  shownCount: number;
-  categories: string[];
-}) {
-  return (
-    <div className="mb-6 rounded-xl border border-dashed border-ink/20 bg-ink/[0.03] px-4 py-3 text-[11px] font-mono text-ink/60 space-y-1.5">
-      <div className="flex flex-wrap gap-x-5 gap-y-1">
-        <span>
-          <span className="text-ink/40">total products:</span>{' '}
-          <span className="font-bold text-ink/80">
-            {totalItems == null ? '—' : totalItems}
-            {totalIsExact === false ? '+' : ''}
-          </span>
-        </span>
-        <span>
-          <span className="text-ink/40">total pages:</span>{' '}
-          <span className="font-bold text-ink/80">{totalPages}</span>
-        </span>
-        <span>
-          <span className="text-ink/40">current page:</span>{' '}
-          <span className="font-bold text-ink/80">{page} / {totalPages}</span>
-        </span>
-        <span>
-          <span className="text-ink/40">shown on this page:</span>{' '}
-          <span className="font-bold text-ink/80">{shownCount}</span>
-        </span>
-        <span>
-          <span className="text-ink/40">count is:</span>{' '}
-          <span className="font-bold text-ink/80">
-            {totalIsExact == null ? '—' : totalIsExact ? 'exact' : 'lower bound'}
-          </span>
-        </span>
-      </div>
-      <div>
-        <span className="text-ink/40">categories ({categories.length}):</span>{' '}
-        <span className="text-ink/70">
-          {categories.length ? categories.map((c) => c || '(all)').join(', ') : '—'}
-        </span>
       </div>
     </div>
   );
@@ -864,16 +807,6 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             </div>
           </div>
 
-          {/* ── Debug / verification strip ── */}
-          <DebugInfoBar
-            totalItems={totalItems}
-            totalIsExact={totalIsExact}
-            totalPages={totalPages}
-            page={page}
-            shownCount={products.length}
-            categories={store.categories}
-          />
-
           {/* ── Toolbar ── */}
           <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -908,6 +841,8 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <p className="font-body text-sm text-ink/50 hidden sm:block">
+                <span className="text-ink font-semibold">{products.length}</span><span>{' '}</span>
+                <span className="text-ink/40">/</span><span>{' '}</span>
                 <span className="text-ink font-semibold">
                   {totalItems == null ? products.length : totalItems}
                   {totalIsExact === false ? '+' : ''}
