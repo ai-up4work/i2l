@@ -192,8 +192,6 @@ function ProductCard({
             AddToBagButton has no reason to know that flow exists, so this
             keeps both in sync from one click. */}
         <div
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onClickCapture={() => { if (product.inStock) onAdd(product); }}
           className="absolute bottom-3 left-3 right-12
             translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200"
         >
