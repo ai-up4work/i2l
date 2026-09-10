@@ -211,6 +211,114 @@ async function fetchShopifyShopCurrency(
   }
 }
 
+/**
+ * Fetches just the product COUNT on a given page of Shopify's public
+ * /products.json (or the collection-scoped variant), at the max page size.
+ * Returns null on any failure so the search below can bail out cleanly
+ * rather than throw mid-search.
+ */
+async function fetchShopifyPageCount(
+  baseUrl: string,
+  headers: Record<string, string>,
+  collectionHandle: string | undefined,
+  page: number,
+  pageSize: number
+): Promise<number | null> {
+  const endpoint = collectionHandle
+    ? `${baseUrl}/collections/${encodeURIComponent(collectionHandle)}/products.json`
+    : `${baseUrl}/products.json`;
+  const qs = new URLSearchParams({ limit: String(pageSize), page: String(page) });
+
+  try {
+    const res = await fetch(`${endpoint}?${qs}`, {
+      headers,
+      next: { revalidate: CACHE_SECONDS },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as ShopifyProductsResponse;
+    return data.products?.length ?? 0;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finds the EXACT product total on a Shopify store (or one collection)
+ * using only the public, unauthenticated /products.json endpoint — which
+ * has no total-count field or header of its own.
+ *
+ * Rather than walking every page one by one (O(pages) requests), this
+ * does an exponential search for the "boundary" page — the first page
+ * that comes back with fewer than a full page of products — then a
+ * binary search to pin down exactly where that boundary is. That's
+ * O(log pages) requests: a 5,000-product store (20 pages at 250/page)
+ * takes about 5–6 requests instead of 20.
+ *
+ * Once the boundary page is found, total = (confirmed full pages * pageSize)
+ * + (product count on the boundary page).
+ *
+ * Returns null if the search can't complete within maxDoublings — treated
+ * by the caller as "give up, show the honest lower-bound '+' instead of
+ * guessing" rather than ever reporting a wrong exact number.
+ */
+async function countShopifyProductsExact(
+  baseUrl: string,
+  headers: Record<string, string>,
+  collectionHandle: string | undefined,
+  maxDoublings = 16 // covers up to ~2^16 * 250 products before giving up — far beyond any real store
+): Promise<number | null> {
+  const pageSize = 250; // Shopify's max per page on this endpoint
+
+  // Page 1 check: if it's already not full, that's the whole catalog.
+  const firstPageCount = await fetchShopifyPageCount(baseUrl, headers, collectionHandle, 1, pageSize);
+  if (firstPageCount == null) return null;
+  if (firstPageCount < pageSize) return firstPageCount;
+
+  // Exponential search: double the page number until we find one that's
+  // not full (or empty) — that's our upper boundary.
+  let lastFullPage = 1;
+  let boundaryPage: number | null = null;
+  let boundaryCount = 0;
+  let probe = 2;
+
+  for (let i = 0; i < maxDoublings; i++) {
+    const count = await fetchShopifyPageCount(baseUrl, headers, collectionHandle, probe, pageSize);
+    if (count == null) return null;
+
+    if (count < pageSize) {
+      boundaryPage = probe;
+      boundaryCount = count;
+      break;
+    }
+    lastFullPage = probe;
+    probe *= 2;
+  }
+
+  if (boundaryPage == null) return null; // catalog too large to bound — give up cleanly
+
+  // Binary search between lastFullPage (confirmed full) and boundaryPage
+  // (confirmed not full) to find the exact last page with any products.
+  let lo = lastFullPage;
+  let hi = boundaryPage;
+  let hiCount = boundaryCount;
+
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    const count = await fetchShopifyPageCount(baseUrl, headers, collectionHandle, mid, pageSize);
+    if (count == null) return null;
+
+    if (count < pageSize) {
+      hi = mid;
+      hiCount = count;
+    } else {
+      lo = mid;
+    }
+  }
+
+  // `lo` is the last confirmed-full page, `hi` is the boundary page.
+  return lo * pageSize + hiCount;
+}
+
 export function normaliseShopifyProduct(
   p: ShopifyProduct,
   platform: string,
@@ -377,8 +485,14 @@ function normaliseShopifyJsProduct(
  *
  * Limitations, by design of the public endpoint:
  * - No server-side search → we over-fetch (up to 250) and filter client-side.
- * - No total-count header → "has more pages" is detected by requesting
- *   perPage + 1 items and checking whether the extra one came back.
+ * - No total-count header or dedicated count endpoint anywhere on this
+ *   API → "has more pages" is detected by requesting perPage + 1 items on
+ *   the current page. When that happens, we run countShopifyProductsExact
+ *   (an exponential + binary search over page numbers, see above) to find
+ *   the real exact total in O(log pages) extra requests instead of just
+ *   reporting "48+". If that search can't complete (huge or misbehaving
+ *   catalog) it returns null and we fall back to the honest lower-bound
+ *   behavior exactly as before.
  *
  * Currency here still comes from config.currency (a configured/guessed
  * value), NOT fetchShopifyShopCurrency — that lookup is only wired into
@@ -397,6 +511,7 @@ export async function fetchShopifyProducts(
 ): Promise<ProviderFetchResult> {
   const currency = config.currency ?? 'USD';
   const collectionHandle = params.category ? config.collectionMap?.[params.category] : undefined;
+  const mergedHeaders = { ...HEADERS, ...config.headers };
 
   const isSearching = !!params.search;
   const shopifyLimit = isSearching ? 250 : params.perPage + 1; // +1 to detect next page
@@ -409,7 +524,7 @@ export async function fetchShopifyProducts(
   const qs = new URLSearchParams({ limit: String(shopifyLimit), page: String(shopifyPage) });
 
   const res = await fetch(`${endpoint}?${qs}`, {
-    headers: { ...HEADERS, ...config.headers },
+    headers: mergedHeaders,
     next: { revalidate: CACHE_SECONDS },
   });
   if (!res.ok) throw new Error(`Shopify feed for ${platform} returned ${res.status}`);
@@ -445,14 +560,22 @@ export async function fetchShopifyProducts(
 
   const hasMore = products.length > params.perPage;
   const sliced = hasMore ? products.slice(0, params.perPage) : products;
+
+  // Only worth the extra search when we don't already know the exact
+  // total (i.e. this wasn't the last page) and there's no product_type-only
+  // category filter — countShopifyProductsExact counts everything in the
+  // store/collection, which can't replicate a client-side product_type
+  // filter, so that combination stays an honest "+".
+  let exactTotal: number | null = null;
+  if (hasMore && !(params.category && !collectionHandle)) {
+    exactTotal = await countShopifyProductsExact(config.baseUrl, mergedHeaders, collectionHandle);
+  }
+
   return {
     products: sliced,
-    total: sliced.length, // Shopify's public feed doesn't expose a real total
+    total: exactTotal ?? sliced.length,
     totalPages: hasMore ? params.page + 1 : params.page,
-    // Exact only when this page turned out to be the last one — otherwise
-    // there's no way to know the real total without walking every page
-    // (see the module comment above on this endpoint's limitations).
-    totalIsExact: !hasMore,
+    totalIsExact: !hasMore || exactTotal != null,
   };
 }
 
