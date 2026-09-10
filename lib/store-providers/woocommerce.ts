@@ -591,3 +591,35 @@ export async function fetchWooCommerceCategories(
 
   return categories;
 }
+
+/**
+ * Ground truth for a WooCommerce store's currency, via the public Store
+ * API's cart endpoint. Mirrors fetchShopifyShopCurrency's approach:
+ * neither store_v1's product list nor wc/v3's product objects carry a
+ * currency field on their own (store_v1 does put currency_code inside
+ * each product's `prices` block, but wc/v3 has nothing at all — see
+ * normaliseV3, which takes currency purely from config). /cart.js has no
+ * WooCommerce equivalent, but /wp-json/wc/store/v1/cart is the same idea:
+ * unauthenticated, present on any site with the Store API enabled, and
+ * always reflects the shop's real configured currency.
+ *
+ * Returns null on any failure so callers can fall back to a configured/
+ * typed value rather than this becoming a hard failure.
+ */
+export async function fetchWooCommerceCurrency(
+  baseUrl: string,
+  headers: Record<string, string> = {}
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${baseUrl}/wp-json/wc/store/v1/cart`, {
+      headers: { Accept: 'application/json', ...headers },
+      next: { revalidate: CACHE_SECONDS },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { totals?: { currency_code?: string } };
+    const code = data.totals?.currency_code;
+    return typeof code === 'string' && code.trim() ? code.trim() : null;
+  } catch {
+    return null;
+  }
+}

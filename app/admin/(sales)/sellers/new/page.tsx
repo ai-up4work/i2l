@@ -142,6 +142,7 @@ interface TestExtractorResult {
   categories?: TestExtractorCategory[]
   categoriesNote?: string
   sampleProducts?: StoreProduct[]
+  currencyDetected?: boolean
 }
 
 interface TestExtractorProductResult {
@@ -517,7 +518,7 @@ export default function NewSellerPage() {
     }
     const elapsedMs = Date.now() - start
     setTestResult(result)
-    if (result.ok && !currency && result.sampleProducts?.[0]?.currency) {
+    if (result.ok && !currency && result.currencyDetected && result.sampleProducts?.[0]?.currency) {
       setCurrency(result.sampleProducts[0].currency)
     }
 

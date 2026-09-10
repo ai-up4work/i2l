@@ -10,6 +10,18 @@
 // the client evaluates the literal response this route returns — nothing
 // is faked except the staggered reveal timing, which lives client-side.
 //
+// Currency: neither Shopify's /products.json nor WooCommerce's product
+// objects (wc/v3 has none at all; store_v1's is per-product, fine, but
+// wc/v3 is the more common configured mode) can be fully trusted as a
+// currency source up front, and the admin's typed Currency field starts
+// out empty. This route resolves REAL shop currency off each platform's
+// live cart endpoint — fetchShopifyShopCurrency (/cart.js) and
+// fetchWooCommerceCurrency (/wp-json/wc/store/v1/cart) — before building
+// the provider config, rather than silently defaulting to 'USD' and
+// having the client mistake that default for a confirmed value. See
+// `currencyDetected` on the response — the client must only auto-fill the
+// Currency field when this is true.
+//
 // If you want to verify this yourself: open the Network tab while running
 // a simulation, inspect the POST body/response here directly, or click
 // "Show raw sample data" in the UI, which dumps this exact payload.
@@ -23,8 +35,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchJsonApiProduct, fetchJsonApiProducts, fetchJsonApiCategories } from '@/lib/store-providers/jsonapi';
-import { fetchShopifyProduct, fetchShopifyProducts, fetchShopifyCollections } from '@/lib/store-providers/shopify';
-import { fetchWooCommerceProduct, fetchWooCommerceProducts, fetchWooCommerceCategories } from '@/lib/store-providers/woocommerce';
+import {
+  fetchShopifyProduct,
+  fetchShopifyProducts,
+  fetchShopifyCollections,
+  fetchShopifyShopCurrency,
+} from '@/lib/store-providers/shopify';
+import {
+  fetchWooCommerceProduct,
+  fetchWooCommerceProducts,
+  fetchWooCommerceCategories,
+  fetchWooCommerceCurrency,
+} from '@/lib/store-providers/woocommerce';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreProduct } from '@/lib/store.types';
 import type {
@@ -99,6 +121,11 @@ interface TestExtractorResult {
   categories?: TestExtractorCategory[];
   categoriesNote?: string;
   sampleProducts?: unknown[];
+  /** True only when currency was read from the live feed itself (Shopify's
+   * /cart.js or WooCommerce's /wp-json/wc/store/v1/cart). False/omitted
+   * whenever the value shown is just whatever the admin typed in (or a
+   * bare 'USD' fallback) — the client must not treat that as confirmed. */
+  currencyDetected?: boolean;
 }
 
 /** Result shape for mode: 'single' — one specific product fetched by URL/
@@ -229,7 +256,11 @@ export async function POST(req: NextRequest) {
 
   const { providerType, jsonFields } = body;
   const baseUrl = body.baseUrl ? stripTrailingSlash(body.baseUrl.trim()) : '';
-  const currency = body.currency?.trim() || 'USD';
+  // This is only ever the ADMIN-TYPED (or unset) currency. It's used as a
+  // fallback when live detection fails — never assumed correct on its
+  // own. Whether the currency actually returned was confirmed against the
+  // live feed is reported separately via `currencyDetected` below.
+  const typedCurrency = body.currency?.trim() || '';
 
   if (providerType !== 'shopify' && providerType !== 'woocommerce' && providerType !== 'jsonapi') {
     // mock/html-scrape are intentionally not testable here — the UI
@@ -257,7 +288,12 @@ export async function POST(req: NextRequest) {
 
     try {
       if (providerType === 'shopify') {
-        const config: ShopifyProviderConfig = { type: 'shopify', baseUrl, currency };
+        // fetchShopifyProduct already does its own internal currency
+        // detection via fetchShopifyShopCurrency (/cart.js) and prefers
+        // it over config.currency — the config value below is only ever
+        // used as its fallback if that live lookup fails. Nothing extra
+        // needed here.
+        const config: ShopifyProviderConfig = { type: 'shopify', baseUrl, currency: typedCurrency || 'USD' };
         const product = await fetchShopifyProduct('__test__', config, 'Test store', handle);
         if (!product) {
           return NextResponse.json<TestExtractorProductResult>({
@@ -269,7 +305,12 @@ export async function POST(req: NextRequest) {
       }
 
       if (providerType === 'woocommerce') {
-        const config: WooCommerceProviderConfig = { type: 'woocommerce', baseUrl, currency };
+        const detectedCurrency = await fetchWooCommerceCurrency(baseUrl);
+        const config: WooCommerceProviderConfig = {
+          type: 'woocommerce',
+          baseUrl,
+          currency: detectedCurrency ?? (typedCurrency || 'USD'),
+        };
         const product = await fetchWooCommerceProduct('__test__', config, handle);
         if (!product) {
           return NextResponse.json<TestExtractorProductResult>({
@@ -290,7 +331,7 @@ export async function POST(req: NextRequest) {
       const config: JsonApiProviderConfig = {
         type: 'jsonapi',
         baseUrl,
-        currency,
+        currency: typedCurrency || 'USD',
         listEndpoint: jsonFields.listEndpoint || '/products/',
         idField: jsonFields.idField,
         nameField: jsonFields.nameField,
@@ -317,10 +358,19 @@ export async function POST(req: NextRequest) {
   // ── mode: 'list' (default) — the full onboarding checklist ─────────────
   try {
     if (providerType === 'shopify') {
+      // Shopify's /products.json (and the variant objects within it)
+      // carries no currency field at all — prices are bare decimal
+      // strings with no unit. /cart.js is a standard endpoint present on
+      // every Shopify storefront regardless of theme, so it's used here
+      // as ground truth rather than trusting whatever the admin typed in
+      // (or leaving it to silently default to 'USD').
+      const detectedCurrency = await fetchShopifyShopCurrency(baseUrl);
+      const resolvedCurrency = detectedCurrency ?? (typedCurrency || 'USD');
+
       const config: ShopifyProviderConfig = {
         type: 'shopify',
         baseUrl,
-        currency,
+        currency: resolvedCurrency,
       };
 
       const result = await fetchShopifyProducts('__test__', config, 'Test store', DEFAULT_PARAMS);
@@ -336,18 +386,25 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json<TestExtractorResult>({
         ok: true,
-        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact, totalPages: result.totalPages },
-        categories,
+        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },        categories,
         categoriesNote,
         sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
+        currencyDetected: detectedCurrency !== null,
       });
     }
 
     if (providerType === 'woocommerce') {
+      // Same reasoning as Shopify above: resolve real currency off the
+      // live Store API cart endpoint before building the config, rather
+      // than trusting whatever the admin typed in (or defaulting to
+      // 'USD') and having that masquerade as a detected value downstream.
+      const detectedCurrency = await fetchWooCommerceCurrency(baseUrl);
+      const resolvedCurrency = detectedCurrency ?? (typedCurrency || 'USD');
+
       const config: WooCommerceProviderConfig = {
         type: 'woocommerce',
         baseUrl,
-        currency,
+        currency: resolvedCurrency,
         // No credential fields exist in the onboarding Method column yet,
         // so this always exercises the public store_v1 API — the same
         // path resolveApiMode() falls back to automatically when no
@@ -373,10 +430,11 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json<TestExtractorResult>({
         ok: true,
-        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact, totalPages: result.totalPages },
+        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },
         categories,
         categoriesNote,
         sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
+        currencyDetected: detectedCurrency !== null,
       });
     }
 
@@ -388,7 +446,10 @@ export async function POST(req: NextRequest) {
     const config: JsonApiProviderConfig = {
       type: 'jsonapi',
       baseUrl,
-      currency,
+      // jsonapi backends are ad-hoc (see store-config.ts) — there's no
+      // generic endpoint to read currency from, so this always relies on
+      // whatever the admin typed in.
+      currency: typedCurrency || 'USD',
       listEndpoint: jsonFields.listEndpoint || '/products/',
       idField: jsonFields.idField,
       nameField: jsonFields.nameField,
@@ -446,6 +507,7 @@ export async function POST(req: NextRequest) {
       categories,
       categoriesNote,
       sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
+      currencyDetected: false,
     });
   } catch (err) {
     // A thrown error here means the feed itself failed (bad URL, non-2xx

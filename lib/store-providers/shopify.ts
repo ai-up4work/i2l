@@ -194,9 +194,9 @@ function normaliseTags(tags: string[] | string): string[] {
  * fetch — a slow or blocked /cart.js shouldn't take down the entire
  * page render over something that has a reasonable fallback.
  */
-async function fetchShopifyShopCurrency(
+export async function fetchShopifyShopCurrency(
   origin: string,
-  headers: Record<string, string>
+  headers: Record<string, string> = HEADERS
 ): Promise<string | null> {
   try {
     const res = await fetch(`${origin}/cart.js`, {

@@ -131,6 +131,7 @@ interface TestExtractorResult {
   categories?: TestExtractorCategory[]
   categoriesNote?: string
   sampleProducts?: StoreProduct[]
+  currencyDetected?: boolean
 }
 
 /** Result of testing one specific product by URL/handle, rather than a

@@ -13,6 +13,10 @@
 //                    or wc/store/v1's raw product object (array, first match),
 //                    depending on which mode resolveApiMode() would pick
 //   - mock         → the raw entry from mockProducts, untouched
+//   - jsonapi / html-scrape → not supported (see the explicit check below):
+//                    jsonapi backends are ad-hoc per store (no fixed raw
+//                    shape to fetch generically) and html-scrape has no
+//                    JSON endpoint at all.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { affiliatedStores } from '@/components/dashboard/data';
@@ -77,6 +81,20 @@ export async function GET(
       }
       const raw = await res.json();
       return NextResponse.json(raw);
+    }
+
+    // jsonapi/html-scrape sellers have no "raw upstream product" shape this
+    // route knows how to fetch — jsonapi backends are ad-hoc per store (see
+    // store-config.ts) and html-scrape has no JSON endpoint at all. Bail out
+    // clearly instead of falling through into WooCommerce-shaped requests
+    // that don't apply to these provider types. This also narrows `config`
+    // to WooCommerceProviderConfig for everything below, since TypeScript
+    // has no other way to rule out jsonapi/html-scrape at this point.
+    if (config.type !== 'woocommerce') {
+      return NextResponse.json(
+        { error: `Raw product inspection isn't supported for provider type "${config.type}".` } satisfies StoreApiError,
+        { status: 400 }
+      );
     }
 
     // ── woocommerce: raw wc/v3 or wc/store/v1 body, untouched ──────────────
