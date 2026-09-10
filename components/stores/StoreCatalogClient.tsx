@@ -202,6 +202,7 @@ function ProductCard({
             platform={platform}
             quantity={1}
             compact
+            height="h-8"
             disabled={!product.inStock}
           />
         </div>
