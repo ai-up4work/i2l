@@ -283,6 +283,9 @@ export async function fetchWooCommerceProducts(
       products: data.map((p) => normaliseV3(p, platform, currency, config.baseUrl)),
       total: total || data.length,
       totalPages,
+      // X-WP-Total is WooCommerce's real, exact product count — it's not
+      // a per-page estimate, so this is trustworthy even when totalPages > 1.
+      totalIsExact: true,
     };
   }
 
@@ -315,7 +318,13 @@ export async function fetchWooCommerceProducts(
     products = [...products].sort((a, b) => Number(!!b.onSale) - Number(!!a.onSale));
   }
 
-  return { products, total: total || products.length, totalPages };
+  return {
+    products,
+    total: total || products.length,
+    totalPages,
+    // Same as the wc/v3 branch above — X-WP-Total is exact.
+    totalIsExact: true,
+  };
 }
 
 // ── Per-variation detail (single-product page only) ─────────────────────────
@@ -348,21 +357,18 @@ interface WooStoreApiVariationDetail {
  * normaliseStoreApi already does for the Store API path below. Previously this was left out and the
  * caller hardcoded `options: []` on every variant, which made buildStoreVariantDimensions (parsers.ts)
  * unable to match ANY variant to ANY size/color label — every tile silently rendered as out of stock. */
+interface WooV3VariationDetailEntry {
+  price: number;
+  compareAtPrice?: number;
+  available: boolean;
+  title: string;
+  attributes: { name: string; option: string }[];
+}
+
 async function fetchWooV3VariationDetails(
   config: WooCommerceProviderConfig,
   parentId: number
-): Promise<
-  Map<
-    string,
-    {
-      price: number
-      compareAtPrice?: number
-      available: boolean
-      title: string
-      attributes: { name: string; option: string }[]
-    }
-  >
-> {
+): Promise<Map<string, WooV3VariationDetailEntry>> {
   const key = process.env[config.consumerKeyEnv!]!;
   const secret = process.env[config.consumerSecretEnv!]!;
   const auth = Buffer.from(`${key}:${secret}`).toString('base64');
@@ -374,16 +380,7 @@ async function fetchWooV3VariationDetails(
   if (!res.ok) return new Map();
 
   const data = (await res.json()) as WooV3VariationDetail[];
-  const map = new Map<
-    string,
-    {
-      price: number
-      compareAtPrice?: number
-      available: boolean
-      title: string
-      attributes: { name: string; option: string }[]
-    }
-  >();
+  const map = new Map<string, WooV3VariationDetailEntry>();
   for (const v of data) {
     const price = parseFloat(v.price || v.regular_price || '0');
     const compareAtPrice = v.sale_price && v.price !== v.regular_price ? parseFloat(v.regular_price) : undefined;

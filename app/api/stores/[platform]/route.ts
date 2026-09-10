@@ -49,6 +49,10 @@ export async function GET(
         products: result.products,
         total: result.total,
         totalPages: result.totalPages,
+        // Optional/additive: undefined for providers that haven't set it
+        // (jsonapi, mock) — the hooks treat that the same as "exact",
+        // matching their existing single-shot-fetch behavior.
+        totalIsExact: result.totalIsExact,
         page: fetchParams.page,
         category: fetchParams.category || null,
         fetchedAt: new Date().toISOString(),

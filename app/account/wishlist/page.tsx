@@ -89,7 +89,8 @@ export default function WishlistPage() {
   // "New board" opens a modal: pick a name, optionally check off which
   // wishlist items to seed it with, then create + navigate straight in.
   const handleCreateBoard = (name: string, selectedIds: string[]) => {
-    const board = wishlist.createBoard(name, selectedIds)
+    const selectedItems = items.filter((item) => selectedIds.includes(item.id))
+    const board = wishlist.createBoard(name, selectedItems)
     setShowCreateModal(false)
     router.push(`/account/boards/${board.id}`)
   }

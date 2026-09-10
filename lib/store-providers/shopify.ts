@@ -438,7 +438,9 @@ export async function fetchShopifyProducts(
     const total = products.length;
     const totalPages = Math.max(1, Math.ceil(total / params.perPage));
     const sliced = products.slice((params.page - 1) * params.perPage, params.page * params.perPage);
-    return { products: sliced, total, totalPages };
+    // Search filters the full fetched batch (up to 250) in memory, so
+    // `total` here is a real count of matches, not a per-page guess.
+    return { products: sliced, total, totalPages, totalIsExact: true };
   }
 
   const hasMore = products.length > params.perPage;
@@ -447,6 +449,10 @@ export async function fetchShopifyProducts(
     products: sliced,
     total: sliced.length, // Shopify's public feed doesn't expose a real total
     totalPages: hasMore ? params.page + 1 : params.page,
+    // Exact only when this page turned out to be the last one — otherwise
+    // there's no way to know the real total without walking every page
+    // (see the module comment above on this endpoint's limitations).
+    totalIsExact: !hasMore,
   };
 }
 

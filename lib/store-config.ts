@@ -2,7 +2,7 @@
 
 import { userAgent } from "next/server";
 
-export type StoreProviderType = 'mock' | 'shopify' | 'woocommerce' | 'jsonapi';
+export type StoreProviderType = 'mock' | 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape';
 
 interface BaseProviderConfig {
   type: StoreProviderType;
@@ -223,7 +223,8 @@ export type StoreProviderConfig =
   | MockProviderConfig
   | ShopifyProviderConfig
   | WooCommerceProviderConfig
-  | JsonApiProviderConfig;
+  | JsonApiProviderConfig
+  | HtmlScrapeProviderConfig;
 
 export const STORE_PROVIDERS: Record<string, StoreProviderConfig> = {
   ebay: { type: 'mock' },
@@ -625,5 +626,39 @@ export function getJsonApiFieldMapping(platform: string): {
       inStock: String(config.defaultInStock ?? true),
       condition: config.conditionField ? '(from conditionField, not a fixed default)' : 'New',
     },
+  };
+}
+
+/**
+ * For sellers with no JSON backend at all — the only way to get their
+ * catalogue is scraping rendered HTML with CSS selectors. Distinct from
+ * JsonApiProviderConfig: that type maps *field names* on a real JSON
+ * response; this type maps *CSS selectors* against rendered markup, and
+ * is meant to reuse the same scraping engine as the single-link scraper
+ * (lib/scrape/parsers, behind app/api/scrape/route.ts) rather than a
+ * plain fetch+JSON.parse. Slower and more fragile than jsonapi (markup
+ * changes silently break selectors) — prefer jsonapi whenever a real
+ * JSON endpoint can be found via the site's own Network tab. This is the
+ * fallback for sites with genuinely neither.
+ */
+export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
+  type: 'html-scrape';
+  baseUrl: string;
+  /**
+   * Page listing many products at once (a category/shop page), scraped
+   * to build the catalogue grid — distinct from a single product's own
+   * detail page, which selectors.link points to.
+   */
+  listingUrl: string;
+  selectors: {
+    /** Selector for each repeating product-card container on listingUrl. */
+    productCard: string;
+    title: string;
+    price: string;
+    image: string;
+    /** href on the card, linking to the product's own detail page. */
+    link: string;
+    /** Optional — only if variant info is visible on the listing page itself. */
+    variants?: string;
   };
 }

@@ -14,6 +14,18 @@ export interface ProviderFetchResult {
   products: StoreProduct[];
   total: number;
   totalPages: number;
+  /**
+   * True when `total` is a confirmed exact count (e.g. WooCommerce's
+   * X-WP-Total header, or any provider that fetched its whole catalog
+   * in one shot). False when `total` is only a lower bound because the
+   * feed had no independent total-count signal (Shopify's public
+   * /products.json in particular — see fetchShopifyProducts).
+   *
+   * Optional and additive: providers that don't set it (jsonapi, mock,
+   * or any provider not yet updated) are treated as exact by the route/
+   * hook, matching their existing single-shot-fetch behavior.
+   */
+  totalIsExact?: boolean;
 }
 
 /** Strips HTML tags from a rich-text field (Shopify body_html, Woo short_description, etc). */
