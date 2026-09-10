@@ -514,7 +514,15 @@ export async function fetchShopifyProducts(
   const mergedHeaders = { ...HEADERS, ...config.headers };
 
   const isSearching = !!params.search;
-  const shopifyLimit = isSearching ? 250 : params.perPage + 1; // +1 to detect next page
+  // IMPORTANT: limit must equal params.perPage (not perPage + 1) for
+  // non-search requests. Shopify's /products.json computes the page
+  // offset as (page - 1) * limit using THIS request's limit — so if
+  // limit ever drifts from the app's fixed page size, consecutive page
+  // fetches stop lining up and silently skip one product per page
+  // transition (was happening here: limit=25 vs UI page size 24 meant
+  // every page boundary dropped exactly 1 item — 159 counted vs 153
+  // actually shown across 7 pages).
+  const shopifyLimit = isSearching ? 250 : params.perPage;
   const shopifyPage = isSearching ? 1 : params.page;
 
   const endpoint = collectionHandle
@@ -553,43 +561,38 @@ export async function fetchShopifyProducts(
     const total = products.length;
     const totalPages = Math.max(1, Math.ceil(total / params.perPage));
     const sliced = products.slice((params.page - 1) * params.perPage, params.page * params.perPage);
-    // Search filters the full fetched batch (up to 250) in memory, so
-    // `total` here is a real count of matches, not a per-page guess.
     return { products: sliced, total, totalPages, totalIsExact: true };
   }
 
-  const hasMore = products.length > params.perPage;
-  const sliced = hasMore ? products.slice(0, params.perPage) : products;
+  // No more over-fetch-by-1 trick: this request already returned exactly
+  // one page's worth (or fewer, on the real last page). A full page
+  // (length === perPage) means there COULD be more, but doesn't prove it
+  // — so that's just the trigger to check the exact count.
+  const sliced = products;
+  const mightHaveMore = sliced.length === params.perPage;
 
-  // Only worth the extra search when we don't already know the exact
-  // total (i.e. this wasn't the last page) and there's no product_type-only
-  // category filter — countShopifyProductsExact counts everything in the
-  // store/collection, which can't replicate a client-side product_type
-  // filter, so that combination stays an honest "+".
   let exactTotal: number | null = null;
-  if (hasMore && !(params.category && !collectionHandle)) {
+  if (mightHaveMore && !(params.category && !collectionHandle)) {
     exactTotal = await countShopifyProductsExact(config.baseUrl, mergedHeaders, collectionHandle);
   }
 
-  // totalPages must be derived from the exact total when we have one —
-  // previously this fell back to `page + 1` any time `hasMore` was true,
-  // even after countShopifyProductsExact had already resolved the real
-  // total (e.g. total=159, perPage=24 -> should be 7 pages, but page 2
-  // reported totalPages=3, since it was just `params.page + 1`). Only
-  // fall back to the honest "at least one more page" guess when the
-  // exact count genuinely couldn't be resolved.
   const totalPages =
     exactTotal != null
       ? Math.max(1, Math.ceil(exactTotal / params.perPage))
-      : hasMore
+      : mightHaveMore
         ? params.page + 1
         : params.page;
 
+  // When we don't have an exact total, best lower-bound estimate of how
+  // many items exist so far is (all full pages before this one) + what
+  // this page actually returned.
+  const fallbackTotal = (params.page - 1) * params.perPage + sliced.length;
+
   return {
     products: sliced,
-    total: exactTotal ?? sliced.length,
+    total: exactTotal ?? fallbackTotal,
     totalPages,
-    totalIsExact: !hasMore || exactTotal != null,
+    totalIsExact: !mightHaveMore || exactTotal != null,
   };
 }
 
@@ -642,4 +645,44 @@ export async function fetchShopifyProduct(
   const currency = realCurrency ?? config.currency ?? 'USD';
 
   return normaliseShopifyJsProduct(product, platform, currency, storeName, config);
+}
+
+export interface ShopifyCollectionSummary {
+  handle: string;
+  title: string;
+}
+
+export async function fetchShopifyCollections(
+  baseUrl: string,
+  headers: Record<string, string> = HEADERS
+): Promise<ShopifyCollectionSummary[]> {
+  const collections: ShopifyCollectionSummary[] = [];
+  const pageSize = 250;
+  let page = 1;
+
+  while (true) {
+    const qs = new URLSearchParams({ limit: String(pageSize), page: String(page) });
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/collections.json?${qs}`, {
+        headers,
+        next: { revalidate: CACHE_SECONDS },
+      });
+    } catch {
+      return collections;
+    }
+    if (!res.ok) break;
+
+    const data = (await res.json()) as { collections?: { handle: string; title: string }[] };
+    const batch = data.collections ?? [];
+    for (const c of batch) {
+      if (c.handle && c.title) collections.push({ handle: c.handle, title: c.title });
+    }
+
+    if (batch.length < pageSize) break;
+    page += 1;
+    if (page > 20) break;
+  }
+
+  return collections;
 }

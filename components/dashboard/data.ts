@@ -51,6 +51,9 @@ export const initialRequests: ItemRequest[] = [
     unitPrice: 275,
     image: random(productImage),
     status: 'Awaiting payment',
+    statusHistory: [],
+    customerId: 'CUST-48219',
+    customerName: 'Safnas Kaldeen',
   },
 ]
 

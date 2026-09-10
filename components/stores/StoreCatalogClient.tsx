@@ -33,6 +33,24 @@ const PER_PAGE = 24;
 // never show Next's broken-image icon in a fixed-size box.
 const FALLBACK_IMAGE = '/placeholder-product.png';
 
+// ─── Live collections ───────────────────────────────────────────────────────
+// Shape returned by GET /api/stores/[platform]?collections=1 (Shopify
+// stores only — see the ?collections=1 branch in the API route and
+// fetchShopifyCollections in lib/store-providers/shopify.ts). Fetched
+// fresh on mount so the category buttons always reflect the store's
+// REAL, currently-published Shopify collections instead of a hand-typed
+// `categories` array in data/stores/data.ts that can silently drift out
+// of sync with the actual storefront (this is exactly what happened with
+// santhiya-fashions and old-money — the static categories didn't match
+// any real collection, so every click fell back to an unreliable
+// product_type string match).
+interface LiveCollectionsResponse {
+  platform: string;
+  baseUrl: string;
+  count: number;
+  collections: { handle: string; title: string }[];
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 type CartItem = StoreProduct & { qty: number };
@@ -569,6 +587,93 @@ function MobileCategorySheet({
   );
 }
 
+// ─── Debug / verification strip ────────────────────────────────────────────
+// Small, plain strip surfacing the raw numbers the API returned (total
+// pages, total product count including whether it's exact or a lower
+// bound, and the category list ACTUALLY in use — either the live-fetched
+// Shopify collections or the static fallback) so counting/filtering
+// issues can be sanity-checked directly on the page instead of digging
+// through network tab responses. Intentionally muted/monospace so it
+// doesn't compete visually with the real toolbar above it. Safe to delete
+// this component + its call site once you're done verifying.
+function DebugInfoBar({
+  totalItems,
+  totalIsExact,
+  totalPages,
+  page,
+  shownCount,
+  categories,
+  categoriesSource,
+  platform,
+}: {
+  totalItems: number | null;
+  totalIsExact: boolean | null;
+  totalPages: number;
+  page: number;
+  shownCount: number;
+  categories: string[];
+  categoriesSource: 'live' | 'static' | 'loading';
+  platform: string;
+}) {
+  return (
+    <div className="mb-6 rounded-xl border border-dashed border-ink/20 bg-ink/[0.03] px-4 py-3 text-[11px] font-mono text-ink/60 space-y-1.5">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 items-center">
+        <span>
+          <span className="text-ink/40">total products:</span>{' '}
+          <span className="font-bold text-ink/80">
+            {totalItems == null ? '—' : totalItems}
+            {totalIsExact === false ? '+' : ''}
+          </span>
+        </span>
+        <span>
+          <span className="text-ink/40">total pages:</span>{' '}
+          <span className="font-bold text-ink/80">{totalPages}</span>
+        </span>
+        <span>
+          <span className="text-ink/40">current page:</span>{' '}
+          <span className="font-bold text-ink/80">{page} / {totalPages}</span>
+        </span>
+        <span>
+          <span className="text-ink/40">shown on this page:</span>{' '}
+          <span className="font-bold text-ink/80">{shownCount}</span>
+        </span>
+        <span>
+          <span className="text-ink/40">count is:</span>{' '}
+          <span className="font-bold text-ink/80">
+            {totalIsExact == null ? '—' : totalIsExact ? 'exact' : 'lower bound'}
+          </span>
+        </span>
+        <span>
+          <span className="text-ink/40">categories from:</span>{' '}
+          <span className={
+            'font-bold ' +
+            (categoriesSource === 'live' ? 'text-teal-deep' : categoriesSource === 'loading' ? 'text-ink/40' : 'text-gold-deep')
+          }>
+            {categoriesSource === 'live' ? 'live Shopify collections' : categoriesSource === 'loading' ? 'loading…' : 'static fallback (data.ts)'}
+          </span>
+        </span>
+        {/* Raw JSON check — same endpoint the categoriesSource state
+            above pulls from, opened directly for inspection. 400s in the
+            new tab for non-Shopify stores, which is expected/harmless. */}
+        <a
+          href={`/api/stores/${platform}?collections=1`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-teal-deep underline hover:no-underline font-semibold"
+        >
+          view raw collections →
+        </a>
+      </div>
+      <div>
+        <span className="text-ink/40">categories ({categories.length}):</span>{' '}
+        <span className="text-ink/70">
+          {categories.length ? categories.map((c) => c || '(all)').join(', ') : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main client component ─────────────────────────────────────────────────────
 
 export default function StoreCatalogClient({ store }: { store: AffiliatedStore }) {
@@ -587,6 +692,18 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
 
+  // Live-fetched category list — populated from the store's actual
+  // Shopify collections (via /api/stores/[platform]?collections=1) so the
+  // buttons the shopper clicks always exist as real collections, instead
+  // of trusting `store.categories` in data/stores/data.ts, which is
+  // hand-typed and can drift out of sync with the live storefront (the
+  // exact bug behind santhiya-fashions/old-money). null while
+  // loading/not-yet-attempted; [] after a confirmed empty/failed fetch
+  // (non-Shopify store, or the store genuinely has no published
+  // collections) — either null or [] falls back to store.categories.
+  const [liveCategories, setLiveCategories] = useState<string[] | null>(null);
+  const [categoriesSource, setCategoriesSource] = useState<'live' | 'static' | 'loading'>('loading');
+
   const [cart,        setCart]        = useState<CartItem[]>([]);
   const [cartOpen,    setCartOpen]    = useState(false);
   const [showSort,    setShowSort]    = useState(false);
@@ -600,6 +717,40 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
     const sync = () => setCart(readCart(platform));
     window.addEventListener('store_cart_updated', sync);
     return () => window.removeEventListener('store_cart_updated', sync);
+  }, [platform]);
+
+  // Fetch the store's real collections once on mount (and whenever the
+  // platform changes, in case this component is ever reused across store
+  // navigations without a full remount). Failure — 400 for non-Shopify
+  // stores, network error, whatever — just falls back to the static
+  // `store.categories` list rather than breaking the page; this is a
+  // pure enhancement, never a hard dependency.
+  useEffect(() => {
+    let cancelled = false;
+    setCategoriesSource('loading');
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/stores/${platform}?collections=1`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as LiveCollectionsResponse;
+        if (cancelled) return;
+
+        if (data.collections?.length) {
+          setLiveCategories(data.collections.map((c) => c.title));
+          setCategoriesSource('live');
+        } else {
+          setLiveCategories(null);
+          setCategoriesSource('static');
+        }
+      } catch {
+        if (cancelled) return;
+        setLiveCategories(null);
+        setCategoriesSource('static');
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [platform]);
 
   const clearCart = () => { writeCart(platform, []); setCart([]); };
@@ -674,7 +825,12 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
 
   const cartQty = cart.reduce((s, i) => s + i.qty, 0);
 
-  const categoryFilters = ['', ...store.categories];
+  // Prefer the live-fetched collection titles; fall back to the static
+  // `store.categories` from data/stores/data.ts only when the live fetch
+  // hasn't returned anything usable (non-Shopify store, network failure,
+  // or a Shopify store with genuinely zero published collections).
+  const effectiveCategories = liveCategories ?? store.categories;
+  const categoryFilters = ['', ...effectiveCategories];
 
   return (
     <div className="min-h-screen bg-parchment">
@@ -745,7 +901,10 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
                   (just the chevron) and opens a full bottom-sheet overlay
                   (MobileCategorySheet, below) instead of the small dropdown
                   — same click handler drives both, CSS breakpoints decide
-                  which one is actually visible/interactive. */}
+                  which one is actually visible/interactive. Uses
+                  categoryFilters (live-first, see effectiveCategories
+                  above) — same array both the desktop dropdown and the
+                  mobile sheet render from, so they can never disagree. */}
               <div className="relative shrink-0">
                 <button
                   type="button"
@@ -807,6 +966,18 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             </div>
           </div>
 
+          {/* ── Debug / verification strip ── */}
+          <DebugInfoBar
+            totalItems={totalItems}
+            totalIsExact={totalIsExact}
+            totalPages={totalPages}
+            page={page}
+            shownCount={products.length}
+            categories={effectiveCategories}
+            categoriesSource={categoriesSource}
+            platform={platform}
+          />
+
           {/* ── Toolbar ── */}
           <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -841,8 +1012,8 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <p className="font-body text-sm text-ink/50 hidden sm:block">
-                <span className="text-ink font-semibold">{products.length}</span><span>{' '}</span>
-                <span className="text-ink/40">/</span><span>{' '}</span>
+                <span className="text-ink font-semibold">{products.length}</span>
+                <span className="text-ink/40"> / </span>
                 <span className="text-ink font-semibold">
                   {totalItems == null ? products.length : totalItems}
                   {totalIsExact === false ? '+' : ''}
