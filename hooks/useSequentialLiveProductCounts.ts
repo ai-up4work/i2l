@@ -6,6 +6,14 @@ import { useEffect, useRef, useState } from 'react'
 // requesting more than the route will actually honor.
 const MAX_PER_PAGE = 48
 
+// How many sellers' real counts are fetched at once. Was strictly 1 (see
+// the original module comment about not wanting N simultaneous requests
+// on page load) — bumped to a small capped pool on request, so several
+// rows settle to their real count together instead of queueing behind
+// each other one at a time. Still bounded, not unbounded: a sellers list
+// with 40 real feeds fires at most this many requests concurrently, not 40.
+const DEFAULT_CONCURRENCY = 4
+
 export type LiveCountStatus = 'pending' | 'loading' | 'done' | 'error'
 
 export interface LiveCountEntry {
@@ -26,28 +34,27 @@ interface FetchResult {
 const EMPTY_ENTRY: LiveCountEntry = { status: 'pending', count: null, atLeast: false, error: null }
 
 /**
- * Fetches REAL product counts for a list of seller platforms one request
- * at a time, in order, instead of firing one request per row in parallel.
- * Opening /admin/sellers with (say) 40 real feeds should not mean 40
- * simultaneous requests to 40 different third-party stores — this walks
- * the queue sequentially so only one external fetch is ever in flight.
+ * Fetches REAL product counts for a list of seller platforms using a small
+ * worker pool (see DEFAULT_CONCURRENCY) instead of either "all at once" or
+ * strictly "one at a time". Several rows resolve together, but a large
+ * sellers list still can't fire dozens of simultaneous external requests.
  *
- * Each platform starts 'pending', flips to 'loading' when its turn comes
- * up, then settles to 'done' or 'error'. Callers should keep showing the
- * seller's cached/mock count for 'pending' and 'loading' states (that's
- * the point — the row never goes blank, it just gets confirmed or
- * corrected once its turn arrives).
+ * Each platform starts 'pending', flips to 'loading' when a worker picks
+ * it up, then settles to 'done' or 'error'. Callers should keep showing
+ * the seller's cached/mock count for 'pending' and 'loading' states — the
+ * row never goes blank, it just gets confirmed or corrected once it's
+ * been checked.
  *
- * `refresh(platform)` re-queues just one platform without disturbing the
- * rest of the in-progress queue.
+ * `refresh(platform)` re-queues just one platform without disturbing
+ * whatever else is in flight.
  */
-export function useSequentialLiveProductCounts(platforms: string[]) {
+export function useSequentialLiveProductCounts(platforms: string[], concurrency = DEFAULT_CONCURRENCY) {
   const [entries, setEntries] = useState<Record<string, LiveCountEntry>>(() =>
     Object.fromEntries(platforms.map((p) => [p, EMPTY_ENTRY]))
   )
 
   const queueRef = useRef<string[]>([...platforms])
-  const runningRef = useRef(false)
+  const activeWorkersRef = useRef(0)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -66,7 +73,7 @@ export function useSequentialLiveProductCounts(platforms: string[]) {
       return next
     })
 
-    void processQueue()
+    processQueue()
 
     return () => {
       mountedRef.current = false
@@ -74,55 +81,61 @@ export function useSequentialLiveProductCounts(platforms: string[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platforms.join(',')])
 
-  async function processQueue() {
-    if (runningRef.current) return
-    runningRef.current = true
+  async function runOne(platform: string) {
+    setEntries((prev) => ({
+      ...prev,
+      [platform]: { ...(prev[platform] ?? EMPTY_ENTRY), status: 'loading', error: null },
+    }))
 
-    while (queueRef.current.length > 0) {
-      const platform = queueRef.current.shift()!
-      if (!mountedRef.current) break
+    try {
+      const res = await fetch(`/api/stores/${platform}?per_page=${MAX_PER_PAGE}`)
+      if (!res.ok) throw new Error(`Store feed returned ${res.status}`)
+      const data: FetchResult = await res.json()
+      if (typeof data.total !== 'number') throw new Error(data.error ?? 'Feed response had no total')
 
+      if (!mountedRef.current) return
       setEntries((prev) => ({
         ...prev,
-        [platform]: { ...(prev[platform] ?? EMPTY_ENTRY), status: 'loading', error: null },
+        [platform]: {
+          status: 'done',
+          count: data.total!,
+          atLeast: data.totalIsExact === false,
+          error: null,
+        },
       }))
+    } catch (err) {
+      if (!mountedRef.current) return
+      setEntries((prev) => ({
+        ...prev,
+        [platform]: { status: 'error', count: null, atLeast: false, error: (err as Error).message },
+      }))
+    }
+  }
 
-      try {
-        const res = await fetch(`/api/stores/${platform}?per_page=${MAX_PER_PAGE}`)
-        if (!res.ok) throw new Error(`Store feed returned ${res.status}`)
-        const data: FetchResult = await res.json()
-        if (typeof data.total !== 'number') throw new Error(data.error ?? 'Feed response had no total')
+  function processQueue() {
+    const slotsToFill = Math.max(0, concurrency - activeWorkersRef.current)
+    for (let i = 0; i < slotsToFill; i++) {
+      spawnWorker()
+    }
+  }
 
-        if (!mountedRef.current) break
-        setEntries((prev) => ({
-          ...prev,
-          [platform]: {
-            status: 'done',
-            count: data.total!,
-            // Explicit false is the only thing that marks this a lower
-            // bound now — providers that don't send the field (or send
-            // true) are trusted as exact, matching their existing
-            // single-shot-fetch behavior.
-            atLeast: data.totalIsExact === false,
-            error: null,
-          },
-        }))
-      } catch (err) {
-        if (!mountedRef.current) break
-        setEntries((prev) => ({
-          ...prev,
-          [platform]: { status: 'error', count: null, atLeast: false, error: (err as Error).message },
-        }))
-      }
+  async function spawnWorker() {
+    if (queueRef.current.length === 0) return
+    activeWorkersRef.current += 1
+
+    while (queueRef.current.length > 0) {
+      if (!mountedRef.current) break
+      const platform = queueRef.current.shift()!
+      await runOne(platform)
     }
 
-    runningRef.current = false
+    activeWorkersRef.current -= 1
   }
 
   function refresh(platform: string) {
     if (!queueRef.current.includes(platform)) queueRef.current.push(platform)
     setEntries((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? EMPTY_ENTRY), status: 'pending', error: null } }))
-    void processQueue()
+    processQueue()
   }
 
   return { entries, refresh }
