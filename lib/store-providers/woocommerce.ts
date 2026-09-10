@@ -6,6 +6,23 @@ import { extractColors, extractSizes, stripHtml } from './types';
 
 const CACHE_SECONDS = 60 * 10;
 
+// Default headers merged into every request to a WooCommerce store, same
+// pattern as shopify.ts's HEADERS constant. This is a genuine, full modern
+// browser UA — deliberately NOT the "Mozilla/5.0 (compatible; X/1.0)"
+// shape used previously. That "(compatible; X/1.0)" construction is
+// exactly how real crawlers self-identify (Googlebot, bingbot, etc.), so
+// hosting-level WAFs (Imunify360/CloudLinux being especially common)
+// treat it as a bot signature and 403 it outright — confirmed against a
+// real store where that exact string got blocked while curl's own default
+// UA (and a real browser) both succeeded. config.headers is still spread
+// on top of this in every call below, so a specific seller can override it
+// if that store needs something even more particular.
+const HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'application/json',
+};
+
 // ── wc/v3 (authenticated) response shape ────────────────────────────────────
 interface WooV3Attribute {
   name: string;
@@ -267,8 +284,8 @@ export async function fetchWooCommerceProducts(
 
     const res = await fetch(`${config.baseUrl}/wp-json/wc/v3/products?${qs}`, {
       headers: {
+        ...HEADERS,
         Authorization: `Basic ${auth}`,
-        Accept: 'application/json',
         ...config.headers,
       },
       next: { revalidate: CACHE_SECONDS },
@@ -302,7 +319,7 @@ export async function fetchWooCommerceProducts(
 
   const res = await fetch(`${config.baseUrl}/wp-json/wc/store/v1/products?${qs}`, {
     headers: {
-      Accept: 'application/json',
+      ...HEADERS,
       ...config.headers,
     },
     next: { revalidate: CACHE_SECONDS },
@@ -374,7 +391,7 @@ async function fetchWooV3VariationDetails(
   const auth = Buffer.from(`${key}:${secret}`).toString('base64');
 
   const res = await fetch(`${config.baseUrl}/wp-json/wc/v3/products/${parentId}/variations?per_page=100`, {
-    headers: { Authorization: `Basic ${auth}`, Accept: 'application/json', ...config.headers },
+    headers: { ...HEADERS, Authorization: `Basic ${auth}`, ...config.headers },
     next: { revalidate: CACHE_SECONDS },
   });
   if (!res.ok) return new Map();
@@ -397,7 +414,7 @@ async function fetchStoreApiVariationDetails(
 ): Promise<Map<string, { price: number; compareAtPrice?: number; available: boolean }>> {
   const qs = new URLSearchParams({ type: 'variation', parent: String(parentId), per_page: '100' });
   const res = await fetch(`${config.baseUrl}/wp-json/wc/store/v1/products?${qs}`, {
-    headers: { Accept: 'application/json', ...config.headers },
+    headers: { ...HEADERS, ...config.headers },
     next: { revalidate: CACHE_SECONDS },
   });
   if (!res.ok) return new Map();
@@ -437,8 +454,8 @@ export async function fetchWooCommerceProduct(
     const qs = new URLSearchParams({ slug: handle });
     const res = await fetch(`${config.baseUrl}/wp-json/wc/v3/products?${qs}`, {
       headers: {
+        ...HEADERS,
         Authorization: `Basic ${auth}`,
-        Accept: 'application/json',
         ...config.headers,
       },
       next: { revalidate: CACHE_SECONDS },
@@ -484,7 +501,7 @@ export async function fetchWooCommerceProduct(
   const qs = new URLSearchParams({ slug: handle });
   const res = await fetch(`${config.baseUrl}/wp-json/wc/store/v1/products?${qs}`, {
     headers: {
-      Accept: 'application/json',
+      ...HEADERS,
       ...config.headers,
     },
     next: { revalidate: CACHE_SECONDS },
@@ -557,7 +574,7 @@ export async function fetchWooCommerceCategories(
       while (true) {
         const qs = new URLSearchParams({ page: String(page), per_page: String(perPage) });
         const res = await fetch(`${config.baseUrl}/wp-json/wc/v3/products/categories?${qs}`, {
-          headers: { Authorization: `Basic ${auth}`, Accept: 'application/json', ...config.headers },
+          headers: { ...HEADERS, Authorization: `Basic ${auth}`, ...config.headers },
           next: { revalidate: CACHE_SECONDS },
         });
         if (!res.ok) break;
@@ -574,7 +591,7 @@ export async function fetchWooCommerceCategories(
       while (true) {
         const qs = new URLSearchParams({ page: String(page), per_page: String(perPage) });
         const res = await fetch(`${config.baseUrl}/wp-json/wc/store/v1/products/categories?${qs}`, {
-          headers: { Accept: 'application/json', ...config.headers },
+          headers: { ...HEADERS, ...config.headers },
           next: { revalidate: CACHE_SECONDS },
         });
         if (!res.ok) break;
@@ -612,7 +629,7 @@ export async function fetchWooCommerceCurrency(
 ): Promise<string | null> {
   try {
     const res = await fetch(`${baseUrl}/wp-json/wc/store/v1/cart`, {
-      headers: { Accept: 'application/json', ...headers },
+      headers: { ...HEADERS, ...headers },
       next: { revalidate: CACHE_SECONDS },
     });
     if (!res.ok) return null;
