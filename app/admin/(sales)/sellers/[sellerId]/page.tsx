@@ -1,3 +1,4 @@
+// app/admin/%28sales%29/sellers/%5BsellerId%5D/page.tsx
 'use client'
 
 import { useState } from 'react'
