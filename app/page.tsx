@@ -316,12 +316,12 @@ function Testimonials() {
           })}
         </div>
 
-        <a
+        {/* <a
           href="#"
           className="mt-10 inline-flex items-center gap-2 font-body font-semibold text-gold transition-colors hover:text-gold-deep"
         >
           <Star size={15} /> View more on Trustpilot
-        </a>
+        </a> */}
       </div>
     </section>
   )
