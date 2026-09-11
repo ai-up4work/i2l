@@ -20,7 +20,7 @@ import { affiliatedStores } from '@/data/stores/data'
 // stores over time instead of always showing the same fixed set.
 const localStores = affiliatedStores.filter((store) => store.storeType === 'local')
 
-const VISIBLE_COUNT = 6
+const VISIBLE_COUNT = 10
 const ROTATE_MS = 6000
 
 // Advances through `localStores` VISIBLE_COUNT at a time, wrapping
@@ -170,34 +170,54 @@ export default function Hero() {
               Avatar count is still responsive: 4 on mobile (index 0–3
               always visible), all 6 from the lg breakpoint up — the
               5th–6th avatars carry `hidden lg:block` so they simply don't
-              render below that width rather than shrinking to fit. */}
-          <button
-            type="button"
-            onClick={handleBrowseStores}
-            className="group mt-16 flex w-full max-w-xl items-center justify-between gap-3 rounded-full bg-parchment/85 px-5 py-3 text-left shadow-sm backdrop-blur-sm transition-colors duration-200 hover:bg-parchment"
-          >
-            <span className="flex -space-x-2.5">
-              {visibleStores.map((store, i) => (
-                <span
-                  key={`${store.platform}-${i}`}
-                  className={`avatarPop relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-parchment bg-card shadow-sm ${
-                    i >= 4 ? 'hidden lg:block' : ''
-                  }`}
-                  style={{ animationDelay: `${i * 60}ms` }}
-                >
-                  <Image src={store.logo} alt={store.name} fill className="object-contain" />
-                </span>
-              ))}
-            </span>
+              render below that width rather than shrinking to fit.
 
-            <span className="flex flex-1 items-center justify-end gap-2">
-              <span className="font-body text-sm font-semibold text-teal-deep">Browse top stores</span>
-              <ArrowRight
-                size={14}
-                className="shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-0.5"
-              />
-            </span>
-          </button>
+              Visual redesign: smaller avatars on a white ground with a
+              thin ring (instead of oversized circles with a thick
+              parchment border), a "+N" counter avatar closing the stack,
+              and an eyebrow label above the pill so the row reads as an
+              intentional trust signal rather than a loose row of logos. */}
+          <div className="mt-16 w-full max-w-xl">
+            <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/40">
+              Trusted by {affiliatedStores.length}+ stores worldwide
+            </p>
+
+            <button
+              type="button"
+              onClick={handleBrowseStores}
+              className="group flex w-full items-center justify-between gap-4 rounded-full border border-black/5 bg-card/90 py-2.5 pl-3 pr-5 shadow-lift backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/20 hover:shadow-xl hover:shadow-teal/10"
+            >
+              <span className="flex items-center">
+                <span className="flex -space-x-3">
+                  {visibleStores.map((store, i) => (
+                    <span
+                      key={`${store.platform}-${i}`}
+                      className={`avatarPop relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/20 shadow-sm ${
+                        i >= 6 ? 'hidden lg:block' : ''
+                      }`}
+                      style={{ animationDelay: `${i * 60}ms`, zIndex: 10 - i }}
+                    >
+                      <Image src={store.logo} alt={store.name} fill className="object-cover" />
+                    </span>
+                  ))}
+                </span>
+
+                {affiliatedStores.length > VISIBLE_COUNT && (
+                  <span className="relative ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-2 ring-card bg-indigo/8 font-body text-[11px] font-bold text-indigo-deep">
+                    +{affiliatedStores.length - VISIBLE_COUNT}
+                  </span>
+                )}
+              </span>
+
+              <span className="flex shrink-0 items-center gap-1.5">
+                <span className="font-body text-sm font-semibold text-teal-deep">Browse top stores</span>
+                <ArrowRight
+                  size={14}
+                  className="shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-1"
+                />
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </section>
