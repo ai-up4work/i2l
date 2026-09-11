@@ -14,17 +14,17 @@ export default function Community() {
 
           <div className="mt-7 flex flex-wrap gap-3">
             <a
-              href="/account"
+              href="/account/community"
               className="rounded-full bg-ink px-6 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-teal-deep"
             >
               View posts
             </a>
-            <a
+            {/* <a
               href="#"
               className="rounded-full border-2 border-ink px-6 py-3 font-body text-sm font-semibold text-ink transition-colors hover:bg-ink hover:text-parchment"
             >
               Learn more
-            </a>
+            </a> */}
           </div>
 
           <ul className="mt-8 flex flex-col gap-3 font-body text-sm text-ink/70">

@@ -51,14 +51,14 @@ export default function Footer() {
 
             <p className="mt-2 font-body text-[11px] text-ink/40">Scan to download the app</p>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            {/* <div className="mt-4 flex flex-wrap gap-2">
               <span className="flex items-center gap-1.5 rounded-lg border border-ink/15 px-3 py-2 font-body text-xs font-semibold text-ink/80">
                 <Smartphone size={15} /> App Store
               </span>
               <span className="flex items-center gap-1.5 rounded-lg border border-ink/15 px-3 py-2 font-body text-xs font-semibold text-ink/80">
                 <Smartphone size={15} /> Google Play
               </span>
-            </div>
+            </div> */}
           </div>
 
           <div className="grid flex-1 grid-cols-2 gap-8 sm:grid-cols-3">
