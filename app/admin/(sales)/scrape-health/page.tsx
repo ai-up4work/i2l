@@ -223,7 +223,7 @@ export default function ScrapeHealthPage() {
   const maxVolume = Math.max(...topDomains.map((d) => d.requests30d), 1)
 
   return (
-    <div className="mx-auto max-w-5xl px-6 pb-20 pt-8 lg:px-10">
+    <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
       <header className="max-w-xl">
         <h1 className="font-display text-3xl text-ink">Scrape health</h1>
         <p className="mt-2 text-sm leading-relaxed text-ink/60">

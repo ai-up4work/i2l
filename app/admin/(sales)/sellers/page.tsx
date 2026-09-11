@@ -15,7 +15,7 @@ import Image from 'next/image'
 
 import { ADMIN_SELLERS, STATUS_LABEL, type AdminSeller, type SellerStatus } from '@/data/sellers/data'
 import { useSequentialLiveProductCounts, type LiveCountEntry } from '@/hooks/useSequentialLiveProductCounts'
-import { panelClass } from '@/components/admin/shared'
+import { panelClass } from '@/components/admin/seller/shared'
 
 const storeIcon = {
   shopify: '/shopify.png',

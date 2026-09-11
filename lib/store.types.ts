@@ -32,6 +32,7 @@ export interface StoreProduct {
   id: string;
   handle: string; // used to build /stores/[platform]/product/[handle]
   storeSlug: string;
+  stockCount: number | null; // null = unknown, not zero
   name: string;
   image: string;
   images: string[];

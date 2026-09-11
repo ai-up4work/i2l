@@ -31,6 +31,7 @@ WishDrop is a concierge shopping and cross-border delivery platform helping cust
 **Key existing files:**
 - `app/account/cart/page.tsx` — real in-platform checkout (shipping form, terms, delivery method, order confirm → creates order via `dashboard.confirmCartOrder()`)
 - `components/shared/Header.tsx` — public header
+- `components/admin/admin-sidebar.tsx` — admin nav shell (collapsible rail, tooltip-on-collapse, grouped sections)
 - `contexts/Cartcontext.tsx`, `contexts/DashboardContext.tsx`
 - `lib/pricing.ts`, `lib/quote.ts` — single source of truth for all displayed pricing (catalog grid, PDP, mini-cart, cart page all call the same helpers)
 - `app/api/scrape/route.ts` — product-link lookup endpoint
@@ -93,7 +94,7 @@ For links with no extractor (e.g. Instagram product posts, small boutique sites)
   - Rolling **30-day display window** in the UI; full history retained in the database indefinitely (or per data-retention policy) — never hard-deleted at 30 days, since disputes/support may need older context.
   - **WhatsApp side, one-way only, manual-send (agreed as the near-term approach):**
     - Platform → WhatsApp: when ops replies in-platform, a "Send via WhatsApp" button opens a prefilled `wa.me` link (same pattern as the existing mini-cart WhatsApp button); **ops manually clicks send** — this is what keeps it $0 cost, since a human is the one actually sending, not an automated backend push.
-    - WhatsApp → platform: **not synced.** If the customer replies on WhatsApp directly, that reply does not need to appear in-platform (per explicit decision).
+    - WhatsApp → platform: **not synced.** If the customer replies on WhatsApp directly, that reply does not need to appear in-platform (per explicit decision). **Follow-up risk flagged:** since the in-platform thread is framed as the "source of truth" but a customer may not know that, the WhatsApp deep-link message copy should explicitly tell the customer to reply in the app, so a WhatsApp-only reply doesn't silently go unseen by ops.
   - **Pricing decision on submission:** none shown at submission time — goes to manual WhatsApp/chat review by a dedicated ops person first. This is intentionally different from Channels 1–2, since there's no structured product data to run through `lib/pricing.ts` yet.
   - **After ops prices it:** stays a separate request with its own confirm/pay step (does not merge into the structured-data cart, since it never went through the same pricing math as catalog/scraped items).
   - **Scaling signal:** log the domain on every fallback submission; when one domain crosses a manual-request volume threshold, that's the trigger to either build a proper extractor for it or pursue an affiliate deal with that store — turning ops pain into a prioritized backlog automatically instead of relying on someone noticing anecdotally.
@@ -110,7 +111,23 @@ For links with no extractor (e.g. Instagram product posts, small boutique sites)
 
 ---
 
-## 6. Open items / decisions still needed
+## 6. Admin nav structure — Sellers vs. Catalogues vs. Collections vs. Discounts (decided)
+
+The admin sidebar (`components/admin/admin-sidebar.tsx`) has separate top-level items for Sellers, Catalogues, Collections, and Discounts. These sound redundant ("isn't it all just products?") but each maps to a genuinely different job:
+
+- **Sellers** — the vendor accounts. Two distinct seller types live under this one list:
+  - **Feed-integrated sellers**: have a real Shopify/WooCommerce connection. Their product data is pulled automatically; nothing is authored by hand.
+  - **Manual-mode sellers**: have no external store at all — WishDrop *is* their storefront. Someone (ops or the seller, if given a login) has to create every product record by hand: title, price, images, variants, stock.
+  - **Decision:** both seller types are listed together under **Sellers**, tagged by type. Clicking a feed-integrated seller opens a read-only synced product list; clicking a manual-mode seller opens their **Catalogue** — a full product CRUD screen (forms, image upload, variant builder). This keeps "which sellers do I check where" from becoming a memorization problem — a seller is a seller at the list level, and the detail view branches based on type.
+  - **Open question, not yet resolved:** is a Catalogue always 1:1 with exactly one manual-mode seller, or can a catalogue be decoupled from any single seller (e.g. products authored before being assigned, or one catalogue feeding multiple manual sellers)? If 1:1, Catalogues should probably live as a nested route under a seller rather than fully top-level. If decoupled, top-level is correct as currently built. **Needs a decision before the nav is finalized** — for now, Catalogues stays top-level since the manual-authoring workflow is confirmed real and currently built that way.
+- **Collections** — curated, cross-seller merchandising groupings ("Diwali Picks," "New This Week," a homepage shelf). Independent of sourcing; can mix products from any seller (feed-integrated or manual) into one shelf. Kept as its own top-level page since it's a real, currently-used feature.
+- **Discounts** — pricing/promo rules, independent of both sourcing and merchandising grouping. Kept as its own top-level page on the same basis (real, currently-used feature — cut it from the nav if that stops being true, since a nav entry with no working screen behind it is worse than no entry).
+
+**Pages built as of this discussion:** Collections list, create, and detail/edit pages (`app/admin/collections/`), using mock data pending a real API — see accompanying files.
+
+---
+
+## 7. Open items / decisions still needed
 
 - [ ] Confirm whether the affiliated-store catalog page's per-platform `sessionStorage` cart has been reconciled with the real `Cartcontext`, or if it needs to be migrated/removed.
 - [ ] Add try/catch + user-facing error state around `confirmCartOrder()` in `app/account/cart/page.tsx`.
@@ -120,3 +137,5 @@ For links with no extractor (e.g. Instagram product posts, small boutique sites)
 - [ ] Build Channel 3 fallback request form + request record + in-platform chat thread (30-day display window, permanent storage) + ops "Send via WhatsApp" manual-send button.
 - [ ] Set an internal SLA (e.g. "reply within X hours") for Channel 3 requests and surface it in the fallback form's confirmation copy.
 - [ ] Add per-domain logging on failed scrape attempts to build the "which store should we build an extractor/affiliate for next" backlog.
+- [ ] Resolve whether a Catalogue is strictly 1:1 with a manual-mode seller, or can be decoupled — determines whether Catalogues stays top-level nav or becomes a nested seller route.
+- [ ] Wire Collections pages to a real API (currently mock data) — needs a `Collection` + `CollectionItem` table (collection_id, product_id, seller_id, position) once the schema is settled.

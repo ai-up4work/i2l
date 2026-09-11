@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
+// app/admin/(warehouse)/layout.tsx
 
-// TODO: role/auth guard for Warehouse
-export default function Layout({ children }: { children: ReactNode }) {
+export default function WarehouseLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }

@@ -34,7 +34,7 @@ export const sidebarGroups: SidebarGroup[] = [
     label: 'My Account',
     defaultOpen: true,
     items: [
-      { type: 'view', label: 'WishDrop VIP', view: 'wishdropVip' },
+      // { type: 'view', label: 'WishDrop VIP', view: 'wishdropVip' },
       { type: 'view', label: 'My Profile', view: 'profile', badge: 'POINTS' },
       { type: 'view', label: 'Address Book', view: 'AddressBook' },
       // { type: 'view', label: 'My Payment Options', view: 'paymentOptions' },
@@ -45,11 +45,11 @@ export const sidebarGroups: SidebarGroup[] = [
     key: 'myAssets',
     label: 'My Assets',
     items: [
-      { type: 'view', label: 'Coupons', view: 'coupons' },
-      { type: 'view', label: 'Points', view: 'points' },
-      { type: 'view', label: 'Wallet', view: 'wallet' },
+      // { type: 'view', label: 'Coupons', view: 'coupons' },
+      // { type: 'view', label: 'Points', view: 'points' },
+      // { type: 'view', label: 'Wallet', view: 'wallet' },
       { type: 'view', label: 'Referrals', view: 'referrals' },
-      { type: 'view', label: 'Gift Card', view: 'giftCard' },
+      // { type: 'view', label: 'Gift Card', view: 'giftCard' },
     ],
   },
   {
@@ -70,7 +70,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { type: 'view', label: 'My Boards', view: 'boards' },
       { type: 'view', label: 'My Cart', view: 'cart' },
       { type: 'view', label: 'Recently Viewed', view: 'recentlyViewed' },
-      { type: 'view', label: 'My Following', view: 'myFollowing' },
+      { type: 'view', label: 'My Favourite Stores', view: 'myFollowing' },
     ],
   },
   {
@@ -78,7 +78,7 @@ export const sidebarGroups: SidebarGroup[] = [
     label: 'Customer Service',
     items: [
       { type: 'view', label: 'My Messages', view: 'messages' },
-      { type: 'view', label: 'Service Records', view: 'serviceRecords' },
+      // { type: 'view', label: 'Service Records', view: 'serviceRecords' },
     ],
   },
   {
@@ -88,7 +88,7 @@ export const sidebarGroups: SidebarGroup[] = [
     items: [
       { type: 'view', label: 'Shopping Community', view: 'shoppingCommunity' },
       { type: 'view', label: 'Affiliated Stores', view: 'affiliatedStores' },
-      { type: 'link', label: 'Contact Preferences', href: '/account/contact-preferences' },
+      // { type: 'link', label: 'Contact Preferences', href: '/account/contact-preferences' },
     ],
   },
   {
@@ -102,12 +102,12 @@ export const sidebarGroups: SidebarGroup[] = [
       { type: 'link', label: 'Terms & Conditions', href: '/policy/terms' },
     ],
   },
-  {
-    key: 'accessibility',
-    label: 'Accessibility',
-    defaultOpen: true,
-    items: [
-      { type: 'link', label: 'Pop-up & Message Control', href: '/account/settings/notifications' },
-    ],
-  },
+  // {
+  //   key: 'accessibility',
+  //   label: 'Accessibility',
+  //   defaultOpen: true,
+  //   items: [
+  //     { type: 'link', label: 'Pop-up & Message Control', href: '/account/settings/notifications' },
+  //   ],
+  // },
 ]

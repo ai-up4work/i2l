@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
+// app/admin/(manager)/layout.tsx
 
-// TODO: role/auth guard for Manager
-export default function Layout({ children }: { children: ReactNode }) {
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
