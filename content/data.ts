@@ -99,7 +99,7 @@ export const destinations: Destination[] = [
   { code: 'US', name: 'United States', img: '/images/destinations/usa.png' },
   { code: 'AU', name: 'Australia', img: '/images/destinations/australia.png' },
   { code: 'LK', name: 'Sri Lanka', img: '/images/destinations/sri-lanka.png' },
-  // { code: 'DB', name: 'Dubai', img: '/images/destinations/dubai.png' },
+  { code: 'DB', name: 'Dubai', img: '/images/destinations/dubai.png' },
 ]
 
 export type Step = { title: string; text: string }

@@ -171,42 +171,71 @@ function Destinations() {
             <div className="mb-4 hidden justify-end lg:flex">
               <DestinationNavArrows onPrev={showPrevious} onNext={showNext} />
             </div>
-
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-              {visible.map((destination) => (
-                <a
-                  key={destination.code + destination.name}
-                  href={`/destinations/${destination.code.toLowerCase()}`}
-                  className="group w-full overflow-hidden rounded-lg shadow-lg shadow-indigo-deep/30 transition-transform duration-300 hover:-translate-y-1"
-                >
-                  <div className="relative aspect-[4/3.6] overflow-hidden rounded-t-full bg-indigo-deep">
-                    <img
-                      src={destination.img}
-                      alt={destination.name}
-                      className="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
-                    />
-                    <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-parchment/40 bg-indigo-deep/40 backdrop-blur">
-                      <Flag code={destination.code} />
-                    </span>
-                  </div>
+              {visible.map((destination, i) => {
+                const isLive = destination.code.toUpperCase() === 'IN'
+                const Wrapper = isLive ? 'a' : 'div'
 
-                  <div className="relative bg-card px-5 py-4">
-                    <span className="absolute inset-y-0 left-0 w-1 bg-gold" />
-                    <div className="flex items-center justify-between gap-3 pl-2">
-                      <p className="font-display text-base font-semibold uppercase tracking-wide text-ink">
-                        {destination.name}
-                      </p>
-                      <span className="flex shrink-0 items-center gap-1 font-body text-xs font-semibold uppercase tracking-wide text-teal transition-colors group-hover:text-teal-deep">
-                        Shop
-                        <ArrowUpRight
-                          size={13}
-                          className="transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                        />
+                return (
+                  <Wrapper
+                    key={destination.code + destination.name}
+                    // {...(isLive
+                    //   ? { href: `/destinations/${destination.code.toLowerCase()}` }
+                    //   : { 'aria-disabled': true })}
+                    className={`group w-full overflow-hidden rounded-lg shadow-lg shadow-indigo-deep/30 transition-transform duration-300 ${
+                      isLive ? 'hover:-translate-y-1' : 'cursor-default'
+                    } ${i === 0 ? '' : 'hidden sm:block'}`}
+                  >
+                    <div className="relative aspect-[4/3.6] overflow-hidden rounded-t-full bg-indigo-deep">
+                      <img
+                        src={destination.img}
+                        alt={destination.name}
+                        className={`h-full w-full object-cover object-top transition-transform duration-500 ${
+                          isLive ? 'group-hover:scale-105' : ''
+                        }`}
+                      />
+
+                      <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-parchment/40 bg-indigo-deep/40 backdrop-blur">
+                        <Flag code={destination.code} />
                       </span>
+
+                      {!isLive && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-indigo-deep/55 backdrop-blur-[1px]">
+                          <span className="rounded-full border border-parchment/30 bg-indigo-deep/70 px-4 py-1.5 font-body text-xs font-semibold uppercase tracking-[0.15em] text-parchment">
+                            Coming Soon
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </a>
-              ))}
+
+                    <div className="relative bg-card px-5 py-4">
+                      <span className={`absolute inset-y-0 left-0 w-1 ${isLive ? 'bg-gold' : 'bg-ink/15'}`} />
+                      <div className="flex items-center justify-between gap-3 pl-2">
+                        <p
+                          className={`font-display text-base font-semibold uppercase tracking-wide ${
+                            isLive ? 'text-ink' : 'text-ink/50'
+                          }`}
+                        >
+                          {destination.name}
+                        </p>
+                        {isLive ? (
+                          <span className="flex shrink-0 items-center gap-1 font-body text-xs font-semibold uppercase tracking-wide text-teal transition-colors group-hover:text-teal-deep">
+                            Shop
+                            <ArrowUpRight
+                              size={13}
+                              className="transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                            />
+                          </span>
+                        ) : (
+                          <span className="flex shrink-0 items-center font-body text-xs font-semibold uppercase tracking-wide text-ink/35">
+                            Coming Soon
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Wrapper>
+                )
+              })}
             </div>
           </div>
         </div>

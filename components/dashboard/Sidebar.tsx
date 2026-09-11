@@ -119,7 +119,7 @@ export default function Sidebar({
             under the shared marketing Header rendered above this aside
             (see account/layout.tsx), which sits directly on top of it on
             desktop since the mobile logo row above is hidden here. */}
-        <div className="relative z-10 hidden flex-none px-6 pb-2 pt-10 lg:block">
+        <div className="relative z-10 hidden flex-none px-6 pb-2 pt-8 lg:block">
           <button
             type="button"
             onClick={() => handleNavigate('home')}
