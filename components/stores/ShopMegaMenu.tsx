@@ -67,23 +67,18 @@ function Spark({ className = "" }: { className?: string }) {
 }
 
 function StoreRow({ store }: { store: AffiliatedStore }) {
-  // Local sellers already carry their own brand color as `bannerStyle`
-  // (used on their store banner) — reuse it here so each logo sits on its
-  // real brand ground instead of one flat tile color for every store.
-  //
-  // Local `/store-icon/*.png` files are square badges, often with
-  // whitespace baked into the file — a fixed square tile with
-  // `object-cover` fills edge-to-edge and is safe to crop since they're
-  // square-on-square.
-  //
-  // Marketplace `/logos/*.png` files are circular badges per the brand
-  // reference (white circle, logo centered with a little breathing room,
-  // regardless of the logo's own aspect ratio) — fixed circle,
-  // `object-contain` with padding so nothing gets cropped or stretched.
   const isLocal = store.storeType === "local"
+  // Marketplaces (Amazon, Flipkart, etc.) carry their real site in `url` —
+  // send clicks there instead of the internal /stores/[platform] catalog
+  // page. Local sellers have no external site, so they keep the internal
+  // route.
+  const href = store.url ?? `/stores/${store.platform}`
+  const isExternal = Boolean(store.url)
+
   return (
     <a
-      href={`/stores/${store.platform}`}
+      href={href}
+      {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       className="flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 transition-colors duration-150 hover:bg-teal/10"
     >
       <span
