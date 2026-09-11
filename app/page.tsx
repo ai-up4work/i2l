@@ -220,11 +220,11 @@ function Destinations() {
                         </p>
                         {isLive ? (
                           <span className="flex shrink-0 items-center gap-1 font-body text-xs font-semibold uppercase tracking-wide text-teal transition-colors group-hover:text-teal-deep">
-                            Shop
+                            {/* Shop
                             <ArrowUpRight
                               size={13}
                               className="transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                            />
+                            /> */}
                           </span>
                         ) : (
                           <span className="flex shrink-0 items-center font-body text-xs font-semibold uppercase tracking-wide text-ink/35">
