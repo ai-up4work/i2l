@@ -196,7 +196,7 @@ export default function Hero() {
                     <span
                       key={`${store.platform}-${i}`}
                       className={`avatarPop relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/20 shadow-sm ${
-                        i >= 6 ? 'hidden lg:block' : ''
+                        i >= 4 ? 'hidden lg:block' : ''
                       }`}
                       style={{ animationDelay: `${i * 60}ms`, zIndex: 10 - i }}
                     >
