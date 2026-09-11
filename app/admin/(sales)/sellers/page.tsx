@@ -3,13 +3,10 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowUpDown,
   Calendar,
   ChevronRight,
-  Code2,
   Inbox,
   Plus,
-  Repeat2,
   Search,
   SearchX,
   ShoppingBag,
@@ -18,9 +15,15 @@ import Image from 'next/image'
 
 import { ADMIN_SELLERS, STATUS_LABEL, type AdminSeller, type SellerStatus } from '@/data/sellers/data'
 import { useSequentialLiveProductCounts, type LiveCountEntry } from '@/hooks/useSequentialLiveProductCounts'
+import { panelClass } from '@/components/admin/shared'
 
-
-const storeIcon = { 'shopify': "/shopify.png", 'woocommerce': "/woo.png", 'jsonapi': "/json.png", 'html-scrape': "/custom.png", 'mock': "/mock.png" } as const
+const storeIcon = {
+  shopify: '/shopify.png',
+  woocommerce: '/woo.png',
+  jsonapi: '/json.png',
+  'html-scrape': '/custom.png',
+  mock: '/mock.png',
+} as const
 
 // ---------------------------------------------------------------------------
 // /admin/sellers — Sales & Purchase Executive
@@ -34,15 +37,16 @@ const storeIcon = { 'shopify': "/shopify.png", 'woocommerce': "/woo.png", 'jsona
 // against app/api/stores/[platform] ONE AT A TIME in list order (see
 // useSequentialLiveProductCounts) — each row keeps its cached number,
 // dimmed, until its turn comes up and it's replaced with the real total.
-// Deliberately sequential rather than one fetch per row in parallel: that
-// would mean N simultaneous requests to N different third-party stores
-// just from opening this list.
 //
-// Visual design: parchment base with glassy, frosted card surfaces —
-// teal is the working accent (CTAs, live counts, active status, links);
-// gold is reserved for the one thing that needs a second look (pending
-// review) and never used as a background fill; indigo sits in the
-// avatar rotation for a touch of the "weight & trust" dark tone.
+// Visual design: solid parchment/white surfaces, one soft shadow on the
+// table panel — no glass, no blur, since there's nothing behind these
+// panels worth frosting. Teal is the working accent (CTAs, live counts,
+// active status, links); gold is reserved for the one thing that needs a
+// second look (pending review) and never used as a background fill;
+// indigo sits in the avatar rotation for a touch of the "weight & trust"
+// dark tone. Each row carries a thin left-edge bar in its status colour,
+// echoed by the sidebar's active-link accent, so the same visual grammar
+// means "this one" everywhere in the admin.
 // ---------------------------------------------------------------------------
 
 type StatusFilter = 'all' | SellerStatus
@@ -56,6 +60,11 @@ const STATUS_PILL: Record<SellerStatus, string> = {
   active: 'bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25',
   pending_review: 'bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30',
   inactive: 'bg-ink/[0.05] text-ink/50 ring-1 ring-inset ring-ink/10',
+}
+const STATUS_EDGE: Record<SellerStatus, string> = {
+  active: 'before:bg-teal-deep/70',
+  pending_review: 'before:bg-gold-deep',
+  inactive: 'before:bg-transparent',
 }
 
 // Avatar fill rotates through the trust/weight and accent tones only —
@@ -78,36 +87,7 @@ function initials(name: string) {
   return parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[1][0]
 }
 
-function FeedIcon({ type }: { type: string }) {
-  if (type === 'shopify') {
-    return (
-      <span className="grid h-6 w-6 place-items-center rounded-md bg-teal-deep text-parchment">
-        <ShoppingBag size={13} strokeWidth={2.5} />
-      </span>
-    )
-  }
-  if (type === 'woocommerce') {
-    return (
-      <span className="grid h-6 w-6 place-items-center rounded-md bg-indigo text-parchment">
-        <Repeat2 size={13} strokeWidth={2.5} />
-      </span>
-    )
-  }
-  return (
-    <span className="grid h-6 w-6 place-items-center rounded-md bg-ink text-parchment">
-      <Code2 size={13} strokeWidth={2.5} />
-    </span>
-  )
-}
-
-const COLUMNS = [
-  { label: 'Store', span: '' },
-  { label: 'Feed type', span: '' },
-  { label: 'Products', span: 'justify-end text-right' },
-  { label: 'Pending orders', span: 'justify-end text-right' },
-  { label: 'Status', span: '' },
-  { label: 'Joined', span: '' },
-]
+const COLUMNS = ['Store', 'Feed type', 'Products', 'Pending orders', 'Status', 'Joined']
 
 export default function SellersListPage() {
   const router = useRouter()
@@ -141,12 +121,12 @@ export default function SellersListPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-parchment font-body text-ink">
-      <div className="relative mx-auto max-w-6xl px-6 pb-20 pt-10 lg:px-10">
+    <div className="min-h-screen bg-parchment font-body text-ink">
+      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
         {/* ── Header ── */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-white/60 bg-white/40 text-teal-deep shadow-[0_8px_30px_-12px_rgba(14,140,156,0.35)] backdrop-blur-xl">
+            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
               <ShoppingBag size={22} strokeWidth={1.75} />
             </div>
             <div>
@@ -170,16 +150,16 @@ export default function SellersListPage() {
 
         {/* ── Filters ── */}
         <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-1 rounded-full border border-ink/10 bg-card p-1">
             {(['all', 'active', 'pending_review', 'inactive'] as StatusFilter[]).map((f) => (
               <button
                 key={f}
                 type="button"
                 onClick={() => setStatusFilter(f)}
-                className={`rounded-full border px-4 py-1.5 text-xs font-semibold backdrop-blur-xl transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
                   statusFilter === f
-                    ? 'border-teal/40 bg-teal/15 text-teal-deep shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]'
-                    : 'border-white/50 bg-white/30 text-ink/55 hover:bg-white/50 hover:text-ink/80'
+                    ? 'bg-teal-deep text-parchment shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]'
+                    : 'text-ink/55 hover:text-ink/80'
                 }`}
               >
                 {f === 'all' ? 'All' : STATUS_LABEL[f]}
@@ -194,7 +174,7 @@ export default function SellersListPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search store or feed type..."
-              className="w-full rounded-full border border-white/60 bg-white/40 py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none backdrop-blur-xl transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+              className="w-full rounded-full border border-ink/10 bg-card py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
             />
           </div>
         </div>
@@ -207,12 +187,11 @@ export default function SellersListPage() {
         </p>
 
         {/* ── Table ── */}
-        <div className="mt-3 overflow-hidden rounded-2xl border border-white/60 bg-white/35 shadow-[0_20px_60px_-30px_rgba(32,36,43,0.35)] backdrop-blur-2xl">
-          <div className="sticky top-0 z-10 hidden grid-cols-[1.6fr_1fr_0.9fr_1fr_0.9fr_1fr] gap-2 border-b border-ink/[0.06] bg-white/30 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 backdrop-blur-xl sm:grid">
-            {COLUMNS.map((c) => (
-              <span key={c.label} className={`flex items-center gap-1 ${c.span}`}>
-                {c.label}
-                <ArrowUpDown size={11} className="text-ink/25" />
+        <div className={`mt-3 overflow-hidden ${panelClass}`}>
+          <div className="sticky top-0 z-10 hidden grid-cols-[1.6fr_1fr_0.9fr_1fr_0.9fr_1fr] gap-2 border-b border-ink/10 bg-parchment/70 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
+            {COLUMNS.map((label, i) => (
+              <span key={label} className={i >= 2 && i <= 3 ? 'text-right' : ''}>
+                {label}
               </span>
             ))}
           </div>
@@ -310,12 +289,14 @@ function SellerRow({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onOpen()
       }}
-      className="group grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 text-left outline-none transition-colors last:border-b-0 hover:bg-white/40 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1.6fr_1fr_0.9fr_1fr_0.9fr_1fr_auto]"
+      className={`group relative grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 pl-6 text-left outline-none transition-colors before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[''] last:border-b-0 hover:bg-parchment/50 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1.6fr_1fr_0.9fr_1fr_0.9fr_1fr_auto] ${STATUS_EDGE[seller.admin.status]}`}
     >
       {/* Store — avatar + name */}
       <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
         <span
-          className={`grid h-10 w-10 flex-none place-items-center rounded-full text-[11px] font-bold uppercase`} 
+          className={`grid h-10 w-10 flex-none place-items-center overflow-hidden rounded-full text-[11px] font-bold uppercase ${
+            seller.store.logo ? '' : avatarColor(seller.store.name)
+          }`}
         >
           {seller.store.logo ? (
             <Image src={seller.store.logo} alt="" className="h-10 w-10 rounded-full object-cover" width={40} height={40} />
@@ -327,8 +308,7 @@ function SellerRow({
       </span>
 
       <span className="hidden items-center gap-2 sm:flex">
-        {/* <FeedIcon type={seller.providerConfig.type} /> */}
-        <Image src={storeIcon[seller.providerConfig.type]} alt="" width={24} height={24} />
+        <Image src={storeIcon[seller.providerConfig.type]} alt="" width={20} height={20} className="flex-none rounded" />
         <span className="truncate text-sm text-ink/55">
           {seller.providerConfig.type === 'html-scrape'
             ? 'Custom (HTML)'
