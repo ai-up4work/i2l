@@ -178,8 +178,11 @@ export default function Hero() {
               and an eyebrow label above the pill so the row reads as an
               intentional trust signal rather than a loose row of logos. */}
           <div className="mt-16 w-full max-w-xl">
-            <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/40">
-              Trusted by {affiliatedStores.length}+ stores worldwide
+            {/* <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/40">
+              Handling {affiliatedStores.length}+ platforms worldwide
+            </p> */}
+            <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink">
+              Trusted by 1000+ customers, partnered with the best
             </p>
 
             <button

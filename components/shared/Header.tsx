@@ -48,16 +48,16 @@ interface NavLink {
 
 const navLinks: NavLink[] = [
   { href: "#shop", label: "Shop", megaMenu: true },
-  { href: "#help", label: "Support", items: [
-    { name: "How it works", desc: "Paste a link or pick a product — we buy, QC & ship it", href: "/how-it-works/" },
-    { name: "Service notices", desc: "Warehouses updates & service alerts", href: "/blog/categories/notices/" },
-    { name: "Help centres", desc: "Frequently asked questions by users", href: "https://help.buyandship.com.my/hc/en-my" },
-  ]},
-  { href: "#destinations", label: "Discovery", items: [
-    { name: "Trending products", desc: "Based on what other users are buying", href: "/community/discover/recommended/" },
-    { name: "Shopping guides", desc: "Step-by-step guides for buying from top brands", href: "/shopping-guides/" },
-    { name: "Coupons", desc: "Save on service fees with promo codes", href: "/coupons/" },
-  ]},
+  // { href: "#help", label: "Support", items: [
+  //   { name: "How it works", desc: "Paste a link or pick a product — we buy, QC & ship it", href: "/how-it-works/" },
+  //   { name: "Service notices", desc: "Warehouses updates & service alerts", href: "/blog/categories/notices/" },
+  //   { name: "Help centres", desc: "Frequently asked questions by users", href: "https://help.buyandship.com.my/hc/en-my" },
+  // ]},
+  // { href: "#destinations", label: "Discovery", items: [
+  //   { name: "Trending products", desc: "Based on what other users are buying", href: "/community/discover/recommended/" },
+  //   { name: "Shopping guides", desc: "Step-by-step guides for buying from top brands", href: "/shopping-guides/" },
+  //   { name: "Coupons", desc: "Save on service fees with promo codes", href: "/coupons/" },
+  // ]},
 ]
 
 // Kept loose (string) rather than importing dashboard's `View` type, so

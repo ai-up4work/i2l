@@ -32,7 +32,7 @@ function Partners() {
       `}</style>
 
       <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-gold">
-        Trusted by thousands <span className="text-ink/30">•</span> Partnered with the best
+        Handling the products you love from the best platforms
       </p>
 
       <div
