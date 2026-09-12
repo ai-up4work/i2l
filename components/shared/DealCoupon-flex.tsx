@@ -35,6 +35,12 @@ export interface Deal {
 /* on real deal sites) so they read as "textile pattern" rather than       */
 /* "sparse icon repeated". Every tile is still a pure function of a single */
 /* hex color, so palette swaps stay free.                                  */
+/*                                                                          */
+/* The tiles below `topography`, `circuit`, `hexagons`, and everything     */
+/* after them are redrawn in the spirit of the Hero Patterns library       */
+/* (heropatterns.com, MIT-licensed, by Steve Schoger) — same "single-color */
+/* geometric tile" idea, hand-rebuilt here as our own path data so they    */
+/* plug straight into the existing `svg(color) -> data-uri` contract.      */
 /* ---------------------------------------------------------------------- */
 
 export type PatternType =
@@ -54,6 +60,16 @@ export type PatternType =
   | 'topography'
   | 'circuit'
   | 'hexagons'
+  | 'bubbles'
+  | 'zigzag'
+  | 'plusSigns'
+  | 'moroccan'
+  | 'overlappingCircles'
+  | 'jigsaw'
+  | 'wiggle'
+  | 'confetti'
+  | 'heroPolkaDots'
+  | 'heroGraphPaper'
 
 const PATTERN_TILE: Record<Exclude<PatternType, 'none' | 'external'>, { svg: (c: string) => string; size: string }> = {
   dots: {
@@ -194,10 +210,151 @@ const PATTERN_TILE: Record<Exclude<PatternType, 'none' | 'external'>, { svg: (c:
       </svg>`,
     size: '50px 44px',
   },
+
+  /* "Bubbles" — a Hero Patterns staple: rings of varying radius, loosely
+     scattered across a wide tile so the repeat isn't obvious. */
+  bubbles: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'>
+        <g fill='none' stroke='${c}' stroke-opacity='0.18' stroke-width='1.6'>
+          <circle cx='14' cy='16' r='6'/>
+          <circle cx='46' cy='10' r='3.5'/>
+          <circle cx='64' cy='34' r='8'/>
+          <circle cx='24' cy='52' r='4.5'/>
+          <circle cx='58' cy='64' r='5.5'/>
+          <circle cx='8' cy='70' r='3'/>
+        </g>
+      </svg>`,
+    size: '80px 80px',
+  },
+
+  /* "Zigzag" — sharp chevron rows, good for a sportier/energetic card. */
+  zigzag: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'>
+        <path d='M0 20L10 0L20 20L30 0L40 20' fill='none' stroke='${c}' stroke-opacity='0.18' stroke-width='2'/>
+      </svg>`,
+    size: '40px 20px',
+  },
+
+  /* "Plus signs" — a light grid of crosses, classic Hero Patterns tile,
+     reads as understated texture behind small text. */
+  plusSigns: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'>
+        <g stroke='${c}' stroke-opacity='0.2' stroke-width='2' stroke-linecap='round'>
+          <path d='M12 6v12M6 12h12'/>
+        </g>
+      </svg>`,
+    size: '24px 24px',
+  },
+
+  /* "Moroccan" — quatrefoil-style lattice, more ornate/premium feel,
+     pairs well with gift-card or luxury-brand tiles. */
+  moroccan: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='70' height='70'>
+        <g fill='none' stroke='${c}' stroke-opacity='0.18' stroke-width='1.6'>
+          <path d='M35 5c10 0 15 10 15 20s-5 20-15 20-15-10-15-20 5-20 15-20z'/>
+          <path d='M5 35c0-10 10-15 20-15s20 5 20 15-10 15-20 15-20-5-20-15z' opacity='0'/>
+          <circle cx='0' cy='0' r='16'/>
+          <circle cx='70' cy='0' r='16'/>
+          <circle cx='0' cy='70' r='16'/>
+          <circle cx='70' cy='70' r='16'/>
+        </g>
+      </svg>`,
+    size: '70px 70px',
+  },
+
+  /* "Overlapping circles" — two rows of large, thin rings that intersect;
+     good for a spacious hero-banner-style card. */
+  overlappingCircles: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='60' height='60'>
+        <g fill='none' stroke='${c}' stroke-opacity='0.14' stroke-width='1.6'>
+          <circle cx='15' cy='15' r='18'/>
+          <circle cx='45' cy='45' r='18'/>
+        </g>
+      </svg>`,
+    size: '60px 60px',
+  },
+
+  /* "Jigsaw" — interlocking puzzle-piece outlines, playful/gamified feel
+     for referral or "unlock a reward" style cards. */
+  jigsaw: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'>
+        <path d='M0 16h12c0-6 8-6 8 0h12v12c-6 0-6 8 0 8v12H20c0-6-8-6-8 0H0V36c6 0 6-8 0-8z'
+          fill='none' stroke='${c}' stroke-opacity='0.16' stroke-width='1.6'/>
+      </svg>`,
+    size: '48px 48px',
+  },
+
+  /* "Wiggle" — a soft sine squiggle row, friendlier/rounder than `waves`,
+     reads more like a hand-drawn accent line. */
+  wiggle: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='40' height='16'>
+        <path d='M0 8q5-8 10 0t10 0 10 0 10 0' fill='none' stroke='${c}' stroke-opacity='0.2' stroke-width='2' stroke-linecap='round'/>
+      </svg>`,
+    size: '40px 16px',
+  },
+
+  /* "Confetti" — mixed small shapes (dot, dash, tiny square) scattered
+     across a tile; good for a celebratory / limited-time-offer card. */
+  confetti: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='60' height='60'>
+        <g fill='${c}' fill-opacity='0.2'>
+          <circle cx='8' cy='10' r='2.2'/>
+          <rect x='30' y='6' width='6' height='2.4' transform='rotate(30 33 7)'/>
+          <rect x='46' y='24' width='4' height='4' transform='rotate(15 48 26)'/>
+          <circle cx='20' cy='38' r='1.8'/>
+          <rect x='6' y='46' width='6' height='2.4' transform='rotate(-20 9 47)'/>
+          <circle cx='50' cy='50' r='2.4'/>
+        </g>
+      </svg>`,
+    size: '60px 60px',
+  },
+
+  /* --- Genuine Hero Patterns tiles (heropatterns.com, MIT, Steve Schoger) -
+     these two are copied faithfully from the actual generated output (not
+     hand-approximated like the tiles above) — verified against the site's
+     own CSS export. Everything above this line is our own path data drawn
+     in a similar spirit; everything below is the real thing. */
+
+  /* "Polka Dots" — the exact heropatterns.com tile: two 3px-radius circles
+     on a 20x20 grid, offset so the repeat reads as an even dot field. */
+  heroPolkaDots: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'>
+        <g fill='${c}' fill-opacity='0.35' fill-rule='evenodd'>
+          <circle cx='3' cy='3' r='3'/>
+          <circle cx='13' cy='13' r='3'/>
+        </g>
+      </svg>`,
+    size: '20px 20px',
+  },
+
+  /* "Graph Paper" — the exact heropatterns.com tile: a fine grid of small
+     tick-mark squares plus a bold corner-crossing border line, reproduced
+     verbatim from the site's generated CSS. */
+  heroGraphPaper: {
+    svg: (c: string) => `
+      <svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'>
+        <g fill-rule='evenodd'>
+          <g fill='${c}' fill-opacity='0.35'>
+            <path opacity='.5' d='M96 95h4v1h-4v4h-1v-4h-9v4h-1v-4h-9v4h-1v-4h-9v4h-1v-4h-9v4h-1v-4h-9v4h-1v-4h-9v4h-1v-4h-9v4h-1v-4H0v-1h15v-9H0v-1h15v-9H0v-1h15v-9H0v-1h15v-9H0v-1h15v-9H0v-1h15v-9H0v-1h15v-9H0v-1h15V0h1v15h9V0h1v15h9V0h1v15h9V0h1v15h9V0h1v15h9V0h1v15h9V0h1v15h9V0h1v15h9V0h1v15h4v1h-4v9h4v1h-4v9h4v1h-4v9h4v1h-4v9h4v1h-4v9h4v1h-4v9h4v1h-4v9h4v1h-4v9zm-1 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-9-10h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm9-10v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-9-10h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm9-10v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-9-10h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm9-10v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-10 0v-9h-9v9h9zm-9-10h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9zm10 0h9v-9h-9v9z'/>
+            <path d='M6 5V0H5v5H0v1h5v94h1V6h94V5H6z'/>
+          </g>
+        </g>
+      </svg>`,
+    size: '100px 100px',
+  },
 }
 
 function patternStyle(type: PatternType | undefined, hex: string): React.CSSProperties {
-  if (!type || type === 'none') return {}
+  if (!type || type === 'none' || type === 'external') return {}
   const encoded = hex.replace('#', '%23')
   const tile = PATTERN_TILE[type]
   const svg = tile.svg(encoded).replace(/\s+/g, ' ').trim()

@@ -1,44 +1,26 @@
-// app/demo/discount-customizer/page.tsx
-'use client'
+"use client"
 
 import { useMemo, useState } from 'react'
-import DealCoupon, {
-  type CouponDisplay,
-  type PatternType,
-  type ProductIconType,
-} from '@/components/shared/DealCoupon-flex'
 import { Copy, Check, Shuffle, Upload, X } from 'lucide-react'
+import DealCoupon, { type CouponDisplay, type PatternType, type ProductIconType } from '@/components/shared/DealCoupon-flex'
 
-/* ---------------------------------------------------------------------- */
-/* Preset options                                                          */
-/* ---------------------------------------------------------------------- */
-
-const BG_PRESETS = [
-  { label: 'Indigo', bg: '#EAE8FB', accent: 'text-[#5B57F0]', pattern: '#5B57F0' },
-  { label: 'Amber', bg: '#FBEEDC', accent: 'text-[#E0A429]', pattern: '#E0A429' },
-  { label: 'Green', bg: '#E4F3EA', accent: 'text-[#2FA36B]', pattern: '#2FA36B' },
-  { label: 'Red', bg: '#FBE9E9', accent: 'text-[#E24C5A]', pattern: '#E24C5A' },
+const PALETTES = [
+  { label: 'Indigo', bg: '#EAE8FB', accent: '#5B57F0' },
+  { label: 'Amber', bg: '#FBEEDC', accent: '#B9791F' },
+  { label: 'Green', bg: '#E4F3EA', accent: '#2FA36B' },
+  { label: 'Red', bg: '#FBE9E9', accent: '#D6414F' },
 ]
 
-const PATTERN_OPTIONS: { label: string; value: PatternType }[] = [
-  { label: 'None', value: 'none' },
-  { label: 'Damask', value: 'damask' },
-  { label: 'Vine', value: 'vine' },
-  { label: 'Fine dot grid', value: 'fineDotGrid' },
-  { label: 'Herringbone', value: 'herringbone' },
-  { label: 'Houndstooth', value: 'houndstooth' },
-  { label: 'Argyle', value: 'argyle' },
-  { label: 'Leaves', value: 'leaves' },
-  { label: 'Dots', value: 'dots' },
-  { label: 'Diagonal', value: 'diagonal' },
-  { label: 'Grid', value: 'grid' },
-  { label: 'Waves', value: 'waves' },
-  { label: 'Topography', value: 'topography' },
-  { label: 'Circuit', value: 'circuit' },
-  { label: 'Hexagons', value: 'hexagons' },
+// Must match the PatternType union exported by DealCoupon-flex.tsx.
+const PATTERNS: PatternType[] = [
+  'none', 'damask', 'vine', 'fineDotGrid', 'herringbone', 'houndstooth',
+  'argyle', 'leaves', 'dots', 'diagonal', 'grid', 'waves', 'topography',
+  'circuit', 'hexagons', 'bubbles', 'zigzag', 'plusSigns', 'moroccan',
+  'overlappingCircles', 'jigsaw', 'wiggle', 'confetti', 'heroPolkaDots',
+  'heroGraphPaper',
 ]
 
-const PRODUCT_ICON_OPTIONS: { label: string; value: ProductIconType }[] = [
+const ICONS: { label: string; value: ProductIconType }[] = [
   { label: 'None', value: 'none' },
   { label: 'Percent', value: 'percent' },
   { label: 'Coin', value: 'coin' },
@@ -46,483 +28,391 @@ const PRODUCT_ICON_OPTIONS: { label: string; value: ProductIconType }[] = [
   { label: 'Tag', value: 'tag' },
 ]
 
-const BADGE_PRESETS: { label: string; className: string }[] = [
-  { label: 'Active', className: 'bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25' },
-  { label: 'Scheduled', className: 'bg-indigo/12 text-indigo-deep ring-1 ring-inset ring-indigo/25' },
-  { label: 'Draft', className: 'bg-ink/[0.05] text-ink/50 ring-1 ring-inset ring-ink/10' },
-  { label: 'Expired', className: 'bg-ink/[0.05] text-ink/40 ring-1 ring-inset ring-ink/10' },
-  { label: 'Disabled', className: 'bg-ink/[0.05] text-ink/40 ring-1 ring-inset ring-ink/10' },
+// tone -> Tailwind arbitrary-value classes, matching the STATUS_STYLE shape
+// that DealCoupon's `badge.className` expects.
+const BADGES = [
+  { label: 'Active', className: 'bg-[#E1F5EE] text-[#085041]' },
+  { label: 'Scheduled', className: 'bg-[#EAE8FB] text-[#3C3489]' },
+  { label: 'Draft', className: 'bg-[rgba(33,29,26,0.06)] text-[rgba(33,29,26,0.55)]' },
+  { label: 'Expired', className: 'bg-[rgba(33,29,26,0.06)] text-[rgba(33,29,26,0.55)]' },
+  { label: 'Disabled', className: 'bg-[rgba(33,29,26,0.06)] text-[rgba(33,29,26,0.55)]' },
 ]
 
-const DEFAULT_COUPON: CouponDisplay = {
-  key: 'preview',
+const DEFAULT_STATE = {
   headline: '15% off',
   eyebrow: 'Percentage off',
   detail: 'Storewide',
-  badge: BADGE_PRESETS[0],
-  bgColor: BG_PRESETS[0].bg,
-  accent: BG_PRESETS[0].accent,
-  patternType: 'damask',
-  patternColor: BG_PRESETS[0].pattern,
-  productIcon: 'percent',
+  badgeLabel: 'Active',
+  bgColor: PALETTES[0].bg,
+  accentColor: PALETTES[0].accent,
+  patternType: 'damask' as PatternType,
+  productIcon: 'percent' as ProductIconType,
   footerInitials: 'DS',
-  footerText: 'Diwali Storewide 15%',
-  href: '#',
+  footerText: 'Diwali storewide 15%',
   dimmed: false,
+  productImage: '',
+  footerLogo: '',
 }
 
-/* ---------------------------------------------------------------------- */
-/* Small field wrappers                                                    */
-/* ---------------------------------------------------------------------- */
+type CustomizerState = typeof DEFAULT_STATE
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+
+/* ------------------------------------------------------------------ */
+/* State -> the shape DealCoupon actually consumes                     */
+/* ------------------------------------------------------------------ */
+
+function toCouponDisplay(state: CustomizerState): CouponDisplay {
+  const badge = BADGES.find((b) => b.label === state.badgeLabel)
+
+  return {
+    key: 'preview',
+    headline: state.headline,
+    eyebrow: state.eyebrow,
+    detail: state.detail,
+    badge: badge ? { label: badge.label, className: badge.className } : undefined,
+    bgColor: state.bgColor,
+    accent: `text-[${state.accentColor}]`,
+    patternType: state.patternType,
+    patternColor: state.accentColor,
+    productIcon: state.productIcon,
+    productImage: state.productImage || undefined,
+    footerLogo: state.footerLogo || undefined,
+    footerInitials: state.footerLogo ? undefined : state.footerInitials,
+    footerText: state.footerText,
+    href: '#',
+    dimmed: state.dimmed,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Small field wrappers                                                */
+/* ------------------------------------------------------------------ */
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}) {
   return (
     <label className="block">
-      <span className="mb-1.5 block font-body text-xs font-semibold uppercase tracking-wide text-ink/50">
+      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-black/50">
         {label}
       </span>
+      {hint && <p className="-mt-0.5 mb-1.5 text-xs text-black/50">{hint}</p>}
       {children}
     </label>
   )
 }
 
 const inputClass =
-  'w-full rounded-lg border border-ink/10 bg-card px-3 py-2 font-body text-sm text-ink outline-none focus:border-teal focus:ring-1 focus:ring-teal'
+  'w-full rounded-lg border border-black/10 bg-white px-2.5 py-2 text-sm text-[#211D1A] outline-none'
 
-const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 // 2MB — data URLs bloat fast, keep the demo snappy
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3.5 rounded-2xl border border-black/10 bg-white p-[18px]">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-black/70">{title}</h2>
+      {children}
+    </section>
+  )
+}
 
-/* ---------------------------------------------------------------------- */
-/* Upload field — reads a local image as a data URL. In production this   */
-/* should instead upload to real storage (S3/Supabase/etc.) and store the */
-/* resulting URL, not the base64 blob — see note near the export panel.   */
-/* ---------------------------------------------------------------------- */
-
-function ImageUploadField({
+function ImageUpload({
   label,
-  hint,
   value,
-  previewClassName,
-  compact = false,
   onChange,
   onClear,
 }: {
   label: string
-  hint?: string
-  value?: string
-  previewClassName: string
-  compact?: boolean
-  onChange: (dataUrl: string) => void
+  value: string
+  onChange: (value: string) => void
   onClear: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same filename later
+    e.target.value = ''
     if (!file) return
-
-    if (!file.type.startsWith('image/')) {
-      setError('Please choose an image file.')
-      return
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setError('Image is too large — try one under 2MB.')
-      return
-    }
-
+    if (!file.type.startsWith('image/')) return setError('Choose an image file.')
+    if (file.size > MAX_UPLOAD_BYTES) return setError('Image is too large — try one under 2MB.')
     setError(null)
     const reader = new FileReader()
-    reader.onload = () => onChange(reader.result as string)
+    reader.onload = () => {
+      if (typeof reader.result === 'string') onChange(reader.result)
+    }
     reader.onerror = () => setError('Could not read that file.')
     reader.readAsDataURL(file)
   }
 
   return (
     <Field label={label}>
-      {hint && <p className="mb-1.5 -mt-1 font-body text-xs text-ink/50">{hint}</p>}
-      <div className={`flex items-center ${compact ? 'flex-col gap-2' : 'gap-3'}`}>
-        <div
-          className={`grid shrink-0 place-items-center overflow-hidden rounded-lg bg-ink/5 ring-1 ring-inset ring-ink/10 ${
-            compact ? 'self-start' : ''
-          } ${previewClassName}`}
-        >
+      <div className="flex flex-col gap-2">
+        <div className="flex h-11 items-center justify-center overflow-hidden rounded-lg border border-black/10 bg-black/5">
           {value ? (
             <img src={value} alt="" className="h-full w-full object-contain p-1" />
           ) : (
-            <Upload size={14} className="text-ink/30" />
+            <Upload size={14} className="text-black/30" />
           )}
         </div>
-
-        <label className={`cursor-pointer ${compact ? 'w-full' : 'flex-1'}`}>
-          <span
-            className={`flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink/20 font-body font-semibold text-ink/60 transition-colors hover:border-teal hover:text-teal-deep ${
-              compact ? 'px-2 py-1.5 text-[11px]' : 'px-3 py-2 text-xs'
-            }`}
-          >
-            <Upload size={compact ? 11 : 13} />
-            {value ? 'Replace' : 'Upload'}
-          </span>
-          <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
-        </label>
-
-        {value && (
-          <button
-            type="button"
-            onClick={onClear}
-            aria-label={`Remove ${label.toLowerCase()}`}
-            className={`shrink-0 rounded-full text-ink/40 transition-colors hover:bg-ink/5 hover:text-ink/70 ${
-              compact ? 'p-1' : 'p-1.5'
-            }`}
-          >
-            <X size={compact ? 12 : 14} />
-          </button>
-        )}
+        <div className="flex gap-1.5">
+          <label className="flex-1 cursor-pointer">
+            <span className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-black/20 px-2.5 py-1.5 text-[11px] font-semibold text-black/60">
+              <Upload size={11} /> {value ? 'Replace' : 'Upload'}
+            </span>
+            <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
+          </label>
+          {value && (
+            <button
+              type="button"
+              onClick={onClear}
+              aria-label={`Remove ${label.toLowerCase()}`}
+              className="rounded-lg bg-black/5 px-2 text-black/50"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
-      {error && <p className="mt-1.5 font-body text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-1.5 text-[11px] text-[#D6414F]">{error}</p>}
     </Field>
   )
 }
 
-/* ---------------------------------------------------------------------- */
-/* Page                                                                    */
-/* ---------------------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Page                                                                 */
+/* ------------------------------------------------------------------ */
 
-export default function DiscountCustomizerPage() {
-  const [coupon, setCoupon] = useState<CouponDisplay>(DEFAULT_COUPON)
+export default function DiscountCustomizer() {
+  const [state, setState] = useState<CustomizerState>(DEFAULT_STATE)
   const [copied, setCopied] = useState(false)
 
-  function update<K extends keyof CouponDisplay>(key: K, value: CouponDisplay[K]) {
-    setCoupon((prev: any) => ({ ...prev, [key]: value }))
+  function update<K extends keyof CustomizerState>(key: K, value: CustomizerState[K]) {
+    setState((prev) => ({ ...prev, [key]: value }))
   }
 
-  function applyPalette(preset: (typeof BG_PRESETS)[number]) {
-    setCoupon((prev: any) => ({ ...prev, bgColor: preset.bg, accent: preset.accent, patternColor: preset.pattern }))
+  function applyPalette(p: (typeof PALETTES)[number]) {
+    setState((prev) => ({ ...prev, bgColor: p.bg, accentColor: p.accent }))
   }
 
   function randomize() {
-    const palette = BG_PRESETS[Math.floor(Math.random() * BG_PRESETS.length)]
-    const pattern = PATTERN_OPTIONS[Math.floor(Math.random() * PATTERN_OPTIONS.length)]
-    const icon = PRODUCT_ICON_OPTIONS[Math.floor(Math.random() * PRODUCT_ICON_OPTIONS.length)]
-    const badge = BADGE_PRESETS[Math.floor(Math.random() * BADGE_PRESETS.length)]
-    setCoupon((prev) => ({
+    const p = PALETTES[Math.floor(Math.random() * PALETTES.length)]
+    const pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)]
+    const icon = ICONS[Math.floor(Math.random() * ICONS.length)]
+    const badge = BADGES[Math.floor(Math.random() * BADGES.length)]
+    setState((prev) => ({
       ...prev,
-      bgColor: palette.bg,
-      accent: palette.accent,
-      patternType: pattern.value,
-      patternColor: palette.pattern,
+      bgColor: p.bg,
+      accentColor: p.accent,
+      patternType: pattern,
       productIcon: icon.value,
-      badge,
+      badgeLabel: badge.label,
       dimmed: badge.label === 'Expired' || badge.label === 'Disabled',
     }))
   }
 
-  // Uploaded images make the export blob huge and unreadable, so the
-  // copy-as-code panel swaps them for a short placeholder comment instead
-  // of dumping raw base64 into the snippet.
+  const coupon = useMemo(() => toCouponDisplay(state), [state])
+
   const exportCode = useMemo(() => {
-    const entries = Object.entries(coupon).filter(([, v]) => v !== undefined && v !== '')
-    const body = entries
-      .map(([k, v]) => {
-        if (k === 'badge' && v) {
-          const badge = v as { label: string; className: string }
-          return `  badge: { label: ${JSON.stringify(badge.label)}, className: ${JSON.stringify(badge.className)} },`
-        }
-        if ((k === 'footerLogo' || k === 'productImage') && typeof v === 'string' && v.startsWith('data:')) {
-          return `  ${k}: '/* uploaded image — replace with a hosted URL after saving */',`
-        }
-        return `  ${k}: ${JSON.stringify(v)},`
-      })
-      .join('\n')
-    return `const coupon: CouponDisplay = {\n${body}\n}`
-  }, [coupon])
+    const lines = Object.entries(state).map(([k, v]) => {
+      if ((k === 'productImage' || k === 'footerLogo') && typeof v === 'string' && v.startsWith('data:')) {
+        return `  ${k}: '/* uploaded image — replace with a hosted URL after saving */',`
+      }
+      return `  ${k}: ${JSON.stringify(v)},`
+    })
+    return `const coupon = {\n${lines.join('\n')}\n}`
+  }, [state])
 
   async function copyExport() {
-    await navigator.clipboard.writeText(exportCode)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
+    try {
+      await navigator.clipboard.writeText(exportCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard access can fail silently in sandboxed contexts — no-op
+    }
   }
 
+  const hasUpload = state.productImage?.startsWith('data:') || state.footerLogo?.startsWith('data:')
+
   return (
-    <main className="min-h-screen bg-parchment px-6 py-10 lg:px-10">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex items-center justify-between">
+    <div className="min-h-full bg-[#F6F1E7] px-6 py-8 font-sans">
+      <div className="mx-auto max-w-[1100px]">
+        <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Component demo</p>
-            <h1 className="mt-1 font-display text-2xl font-semibold text-indigo sm:text-3xl">
-              Coupon card customizer
-            </h1>
-            <p className="mt-1 font-body text-sm text-ink/60">
-              Tune every token the shared <code className="rounded bg-ink/5 px-1.5 py-0.5">DealCoupon</code> component
-              accepts, live. Pattern and product are independent layers — no raster assets required unless you
-              upload one.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B9791F]">
+              Component demo
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold text-[#3C3489]">Coupon card customizer</h1>
+            <p className="mt-1.5 max-w-[520px] text-[13px] text-black/60">
+              Tune every token the real <code>DealCoupon</code> component accepts, live — the preview below renders that exact shared component, not a lookalike.
             </p>
           </div>
           <button
             onClick={randomize}
-            className="flex items-center gap-2 rounded-full border border-gold/60 px-4 py-2 font-body text-sm font-semibold text-ink transition-colors hover:bg-gold/10"
+            className="flex items-center gap-2 rounded-full border border-[#B9791F]/50 bg-transparent px-4 py-2.5 text-sm font-semibold text-[#211D1A]"
           >
             <Shuffle size={14} /> Randomize
           </button>
         </div>
 
-        {/* Top row: live preview on the left, Copy-as-code on the right,
-            same height. items-stretch so the preview grows to match. */}
-        <div className="mb-8 grid gap-8 lg:grid-cols-2 lg:items-stretch">
-          <div className="flex w-full flex-col rounded-2xl border border-ink/10 bg-card p-3">
-            <p className="mb-2 px-1 font-body text-xs font-semibold uppercase tracking-wide text-ink/40">
-              Live preview
+        <div className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6">
+          <div className="flex flex-col rounded-2xl border border-black/10 bg-white p-4">
+            <p className="mb-2.5 ml-1 text-[11px] font-semibold uppercase tracking-wide text-black/40">
+              Live preview — actual DealCoupon component
             </p>
-            {/* Centered in the remaining height so the card fills the
-                column instead of leaving dead space below it. */}
             <div className="flex flex-1 items-center justify-center p-4">
-              <div className="w-full max-w-md">
+              <div className="w-full max-w-[420px]">
                 <DealCoupon coupon={coupon} />
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col rounded-2xl border border-ink/10 bg-indigo-deep p-5">
+          <div className="flex flex-col rounded-2xl border border-black/10 bg-[#221B5B] p-5">
             <div className="mb-3 flex items-center justify-between">
-              <p className="font-body text-xs font-semibold uppercase tracking-wide text-parchment/50">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#F6F1E7]/50">
                 Copy as code
               </p>
               <button
                 onClick={copyExport}
-                className="flex items-center gap-1.5 rounded-full bg-parchment/10 px-3 py-1.5 font-body text-xs font-semibold text-parchment transition-colors hover:bg-parchment/20"
+                className="flex items-center gap-1.5 rounded-full bg-[#F6F1E7]/10 px-3 py-1.5 text-[11px] font-semibold text-[#F6F1E7]"
               >
                 {copied ? <Check size={13} /> : <Copy size={13} />}
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <pre className="flex-1 overflow-auto rounded-lg bg-ink/40 p-4 font-mono text-xs leading-relaxed text-parchment/90">
+            <pre className="flex-1 overflow-auto rounded-lg bg-black/25 p-3.5 font-mono text-[11.5px] leading-relaxed text-[#F6F1E7]/90">
               {exportCode}
             </pre>
-            {(coupon.footerLogo?.startsWith('data:') || coupon.productImage?.startsWith('data:')) && (
-              <p className="mt-3 font-body text-xs text-parchment/60">
-                Uploaded images are shown live in the preview but aren't inlined in the snippet above — upload the
-                file to real storage (S3, Supabase, etc.) and paste the resulting URL into{' '}
-                <code className="rounded bg-parchment/10 px-1 py-0.5">footerLogo</code> /{' '}
-                <code className="rounded bg-parchment/10 px-1 py-0.5">productImage</code> instead.
+            {hasUpload && (
+              <p className="mt-2.5 text-[11px] text-[#F6F1E7]/60">
+                Uploaded images show live in the preview but aren't inlined in the snippet — upload to real storage and paste the resulting URL in instead.
               </p>
             )}
           </div>
         </div>
 
-        {/* Bottom row: main controls on the left, Palette + Badge on the
-            right — moved down here now that Copy-as-code sits up top. */}
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
-          {/* CONTROLS */}
-          <div className="space-y-6">
-            <section className="space-y-4 rounded-2xl border border-ink/10 bg-card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-ink/70">Content</h2>
-
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-6">
+          <div className="flex flex-col gap-5">
+            <Section title="Content">
               <Field label="Headline">
-                <input
-                  className={inputClass}
-                  value={coupon.headline}
-                  onChange={(e) => update('headline', e.target.value)}
-                />
+                <input className={inputClass} value={state.headline} onChange={(e) => update('headline', e.target.value)} />
               </Field>
               <Field label="Eyebrow">
-                <input
-                  className={inputClass}
-                  value={coupon.eyebrow ?? ''}
-                  onChange={(e) => update('eyebrow', e.target.value)}
-                />
+                <input className={inputClass} value={state.eyebrow} onChange={(e) => update('eyebrow', e.target.value)} />
               </Field>
               <Field label="Detail">
-                <input
-                  className={inputClass}
-                  value={coupon.detail ?? ''}
-                  onChange={(e) => update('detail', e.target.value)}
-                />
+                <input className={inputClass} value={state.detail} onChange={(e) => update('detail', e.target.value)} />
               </Field>
               <Field label="Footer text">
-                <input
-                  className={inputClass}
-                  value={coupon.footerText}
-                  onChange={(e) => update('footerText', e.target.value)}
-                />
+                <input className={inputClass} value={state.footerText} onChange={(e) => update('footerText', e.target.value)} />
               </Field>
               <Field label="Footer initials (used when no logo)">
-                <input
-                  className={inputClass}
-                  maxLength={2}
-                  value={coupon.footerInitials ?? ''}
-                  onChange={(e) => update('footerInitials', e.target.value.toUpperCase())}
-                />
+                <input className={inputClass} maxLength={2} value={state.footerInitials} onChange={(e) => update('footerInitials', e.target.value.toUpperCase())} />
               </Field>
-            </section>
+            </Section>
 
-            <section className="space-y-4 rounded-2xl border border-ink/10 bg-card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-ink/70">Pattern</h2>
-              <p className="font-body text-xs text-ink/50">
-                Programmatic texture layer — independent of the product visual below. Damask / vine / argyle read
-                as an ornate repeating textile; fine dot grid and herringbone are subtler.
-              </p>
-
-              <Field label="Pattern type">
-                <select
-                  className={inputClass}
-                  value={coupon.patternType ?? 'none'}
-                  onChange={(e) => update('patternType', e.target.value as PatternType)}
-                >
-                  {PATTERN_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
+            <Section title="Pattern">
+              <Field label="Pattern type" hint="Programmatic texture layer baked into DealCoupon, independent of the product visual below.">
+                <select className={inputClass} value={state.patternType} onChange={(e) => update('patternType', e.target.value as PatternType)}>
+                  {PATTERNS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
               </Field>
+            </Section>
 
-              <Field label="Pattern color">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={coupon.patternColor ?? '#08274F'}
-                    onChange={(e) => update('patternColor', e.target.value)}
-                    className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-ink/10 bg-transparent p-1"
-                  />
-                  <input
-                    className={inputClass}
-                    value={coupon.patternColor ?? ''}
-                    onChange={(e) => update('patternColor', e.target.value)}
-                  />
-                </div>
-              </Field>
-            </section>
-
-            <section className="space-y-4 rounded-2xl border border-ink/10 bg-card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-ink/70">Product</h2>
-              <p className="font-body text-xs text-ink/50">
-                Pick a generated icon, tinted from the pattern color — or upload a real cutout in the Images card on
-                the right, which always takes priority over the generated icon.
-              </p>
-
-              <Field label="Product icon (used when no image is uploaded)">
-                <select
-                  className={inputClass}
-                  value={coupon.productIcon ?? 'none'}
-                  onChange={(e) => update('productIcon', e.target.value as ProductIconType)}
-                >
-                  {PRODUCT_ICON_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
+            <Section title="Product">
+              <Field label="Product icon (used when no image is uploaded)" hint="Tinted from the accent color, or upload a real cutout on the right — it always takes priority.">
+                <select className={inputClass} value={state.productIcon} onChange={(e) => update('productIcon', e.target.value as ProductIconType)}>
+                  {ICONS.map((i) => (
+                    <option key={i.value} value={i.value}>{i.label}</option>
                   ))}
                 </select>
               </Field>
-            </section>
+            </Section>
           </div>
 
-          {/* PALETTE + BADGE — sticky so they stay in view while the
-              controls column scrolls, instead of ending early. */}
-          <div className="space-y-6 lg:sticky lg:top-8 lg:self-start">
-            <section className="space-y-4 rounded-2xl border border-ink/10 bg-card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-ink/70">Palette</h2>
+          <div className="flex flex-col gap-5">
+            <Section title="Palette">
               <div className="grid grid-cols-4 gap-2">
-                {BG_PRESETS.map((preset) => (
+                {PALETTES.map((p) => (
                   <button
-                    key={preset.label}
-                    onClick={() => applyPalette(preset)}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-colors ${
-                      coupon.bgColor === preset.bg ? 'border-teal ring-1 ring-teal' : 'border-ink/10 hover:border-ink/25'
+                    key={p.label}
+                    onClick={() => applyPalette(p)}
+                    className={`flex flex-col items-center gap-1.5 rounded-[10px] border bg-transparent p-2 ${
+                      state.bgColor === p.bg ? 'border-[#0F8B8D]' : 'border-black/10'
                     }`}
                   >
                     <span
-                      className="h-8 w-8 rounded-full border border-black/5"
-                      style={{ backgroundColor: preset.bg }}
+                      className="h-7 w-7 rounded-full border border-black/10"
+                      style={{ background: p.bg }}
                     />
-                    <span className="font-body text-[10px] font-medium text-ink/60">{preset.label}</span>
+                    <span className="text-[10px] font-medium text-black/60">{p.label}</span>
                   </button>
                 ))}
               </div>
 
               <Field label="Custom background color">
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2">
                   <input
                     type="color"
-                    value={coupon.bgColor ?? '#F0EFEC'}
+                    value={state.bgColor}
                     onChange={(e) => update('bgColor', e.target.value)}
-                    className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-ink/10 bg-transparent p-1"
+                    className="h-9 w-9 cursor-pointer rounded-lg border border-black/10 p-0.5"
                   />
-                  <input
-                    className={inputClass}
-                    value={coupon.bgColor ?? ''}
-                    onChange={(e) => update('bgColor', e.target.value)}
-                  />
+                  <input className={inputClass} value={state.bgColor} onChange={(e) => update('bgColor', e.target.value)} />
                 </div>
               </Field>
 
-              <Field label="Accent text class (Tailwind)">
-                <input
-                  className={inputClass}
-                  value={coupon.accent ?? ''}
-                  onChange={(e) => update('accent', e.target.value)}
-                  placeholder="text-[#5B57F0]"
-                />
+              <Field label="Accent color">
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={state.accentColor}
+                    onChange={(e) => update('accentColor', e.target.value)}
+                    className="h-9 w-9 cursor-pointer rounded-lg border border-black/10 p-0.5"
+                  />
+                  <input className={inputClass} value={state.accentColor} onChange={(e) => update('accentColor', e.target.value)} />
+                </div>
               </Field>
-            </section>
+            </Section>
 
-            <section className="space-y-4 rounded-2xl border border-ink/10 bg-card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-ink/70">Badge</h2>
-
+            <Section title="Badge">
               <Field label="Status badge">
                 <select
                   className={inputClass}
-                  value={coupon.badge?.label ?? ''}
+                  value={state.badgeLabel}
                   onChange={(e) => {
-                    const preset = BADGE_PRESETS.find((b) => b.label === e.target.value)
-                    update('badge', preset)
-                    update('dimmed', preset?.label === 'Expired' || preset?.label === 'Disabled')
+                    update('badgeLabel', e.target.value)
+                    update('dimmed', e.target.value === 'Expired' || e.target.value === 'Disabled')
                   }}
                 >
                   <option value="">None</option>
-                  {BADGE_PRESETS.map((b) => (
-                    <option key={b.label} value={b.label}>
-                      {b.label}
-                    </option>
+                  {BADGES.map((b) => (
+                    <option key={b.label} value={b.label}>{b.label}</option>
                   ))}
                 </select>
               </Field>
-
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={coupon.dimmed ?? false}
-                  onChange={(e) => update('dimmed', e.target.checked)}
-                />
-                <span className="font-body text-sm text-ink/70">Dimmed (expired/disabled look)</span>
+              <label className="flex items-center gap-2 text-sm text-black/70">
+                <input type="checkbox" checked={state.dimmed} onChange={(e) => update('dimmed', e.target.checked)} />
+                Dimmed (expired / disabled look)
               </label>
-            </section>
+            </Section>
 
-            {/* IMAGES — compact, both uploads side by side. Moved here (out
-                of Product/Store above) so this column's total height lands
-                closer to the controls column instead of finishing short. */}
-            <section className="space-y-3 rounded-2xl border border-ink/10 bg-card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-ink/70">Images</h2>
+            <Section title="Images">
               <div className="grid grid-cols-2 gap-3">
-                <ImageUploadField
-                  label="Product image"
-                  value={coupon.productImage}
-                  previewClassName="h-9 w-9"
-                  compact
-                  onChange={(dataUrl) => update('productImage', dataUrl)}
-                  onClear={() => update('productImage', undefined)}
-                />
-                <ImageUploadField
-                  label="Store logo"
-                  value={coupon.footerLogo}
-                  previewClassName="h-9 w-9"
-                  compact
-                  onChange={(dataUrl) => update('footerLogo', dataUrl)}
-                  onClear={() => update('footerLogo', undefined)}
-                />
+                <ImageUpload label="Product image" value={state.productImage} onChange={(v) => update('productImage', v)} onClear={() => update('productImage', '')} />
+                <ImageUpload label="Store logo" value={state.footerLogo} onChange={(v) => update('footerLogo', v)} onClear={() => update('footerLogo', '')} />
               </div>
-            </section>
+            </Section>
           </div>
         </div>
       </div>
-    </main>
+    </div>
   )
 }
