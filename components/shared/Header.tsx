@@ -28,7 +28,6 @@ import { useNotifications, type NotificationCategory } from "@/contexts/Notifica
 import { ShopMegaMenuPanel } from "@/components/stores/ShopMegaMenu"
 import ShopBottomSheet from "@/components/stores/ShopBottomSheet"
 import {
-  focusRing,
   checkoutButtonClass,
   PREVIEW_ITEM_LIMIT,
   CountBadge,
@@ -46,33 +45,16 @@ interface NavLink {
 
 const navLinks: NavLink[] = [
   { href: "#shop", label: "Shop", megaMenu: true },
-  // { href: "#help", label: "Support", items: [
-  //   { name: "How it works", desc: "Paste a link or pick a product — we buy, QC & ship it", href: "/how-it-works/" },
-  //   { name: "Service notices", desc: "Warehouses updates & service alerts", href: "/blog/categories/notices/" },
-  //   { name: "Help centres", desc: "Frequently asked questions by users", href: "https://help.buyandship.com.my/hc/en-my" },
-  // ]},
-  // { href: "#destinations", label: "Discovery", items: [
-  //   { name: "Trending products", desc: "Based on what other users are buying", href: "/community/discover/recommended/" },
-  //   { name: "Shopping guides", desc: "Step-by-step guides for buying from top brands", href: "/shopping-guides/" },
-  //   { name: "Coupons", desc: "Save on service fees with promo codes", href: "/coupons/" },
-  // ]},
 ]
 
-// Kept loose (string) rather than importing dashboard's `View` type, so
-// Header doesn't take a hard dependency on the account section's route
-// model — callers just need to pass "home" to suppress the back button.
 type AccountView = string
 
 interface HeaderProps {
   title?: string
   showBackButton?: boolean
   variant?: "public" | "account"
-  /** Account-only. Current in-page account view; back button hides on "home". */
   view?: AccountView
-  /** Account-only. Called when the back chevron is tapped. */
   onBack?: () => void
-  /** Account-only. Opens the account Sidebar drawer (settings, shipments,
-   *  etc.) — separate from this Header's own mobile nav overlay below. */
   onMenuClick?: () => void
 }
 
@@ -85,38 +67,30 @@ export const HEADER_BAR_HEIGHT = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_MOBILE = OUTER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_DESKTOP = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
+
+// Header surface stays parchment (light). Text/icon colors below are all
+// dark-on-light now instead of the old white-on-dark set.
 const MOBILE_BG = "bg-parchment"
 
-// DESIGN: unified radius scale across the header — rounded-xl for every
-// interactive chip/button, rounded-2xl reserved for the dropdown/panel
-// surfaces below. Previously these mixed rounded-lg and a one-off
-// lg:rounded-xl bump, which reads as unintentional at a glance.
+// FIX: ring-offset-black assumed a dark header surface. On parchment the
+// focus ring's offset needs to match the light background instead.
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep/60 focus-visible:ring-offset-2 focus-visible:ring-offset-parchment"
+
 const pillButtonClass =
-  `flex items-center gap-2 rounded-xl px-3 py-1.5 text-ink/80 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
+  `flex items-center gap-2 rounded-xl px-3 py-1.5 text-ink/70 transition-colors duration-200 hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
 
 const iconPillButtonClass =
-  `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-xl text-ink/70 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none ${focusRing}`
+  `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-xl text-ink/60 transition-colors duration-200 hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none ${focusRing}`
 
-// Quiet variant for Wishlist/Cart/Account/Notifications on mobile — no
-// border or fill, just the icon. Only the menu toggle keeps the boxed
-// treatment, since it's the one control that actually expands something.
 const mobileIconQuietClass =
-  `flex h-9 w-9 items-center justify-center rounded-xl text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
+  `flex h-9 w-9 items-center justify-center rounded-xl text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep motion-reduce:transition-none ${focusRing}`
 
-// Boxed treatment for the two account-only nav controls (drawer trigger,
-// back button) — matches Topbar's old iconButtonClass so their look
-// carries over unchanged into Header's account variant.
 const accountNavIconClass =
-  `grid h-9 w-9 place-items-center rounded-xl text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
+  `grid h-9 w-9 place-items-center rounded-xl text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep motion-reduce:transition-none ${focusRing}`
 
-// DESIGN: the bell used to borrow accountNavIconClass everywhere, which
-// left it "boxed" on desktop next to two "boxed" siblings (fine) but also
-// boxed on mobile next to three *quiet* siblings (Heart/Bag/Account) —
-// the one visibly different control in an otherwise matched row. This
-// single responsive class quiets it on mobile and boxes it on desktop,
-// so it matches its neighbors at every breakpoint instead of just one.
 const notificationIconClass =
-  `relative flex h-9 w-9 items-center justify-center rounded-xl text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none lg:h-10 lg:w-10 ${focusRing}`
+  `relative flex h-9 w-9 items-center justify-center rounded-xl text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none lg:h-10 lg:w-10 ${focusRing}`
 
 const CATEGORY_ICON: Record<NotificationCategory, React.ElementType> = {
   order: Package,
@@ -138,9 +112,6 @@ export default function Header({
   const isAccount = variant === "account"
   const router = useRouter()
 
-  // Notifications only matter in the account variant — the hook is still
-  // safe to call unconditionally (hooks can't be conditional), it's just
-  // that its output is only rendered when isAccount is true.
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
@@ -229,12 +200,6 @@ export default function Header({
     ? cart.items.slice().sort((a, b) => b.addedAt - a.addedAt).slice(0, PREVIEW_ITEM_LIMIT)
     : []
 
-  // FIX: was `window.location.href = "/account/"` — a full page reload
-  // every time an already-authenticated user tapped the account icon.
-  // The mobile bottom nav's Account tab reaches the same destination via
-  // onNavigate (an SPA transition), so this hard-nav path was the odd one
-  // out for an identical destination. router.push keeps it a soft nav,
-  // consistent with every other way into the account area.
   function goToAccountHome() {
     if (isAuthenticated) {
       router.push("/account/")
@@ -243,21 +208,13 @@ export default function Header({
     }
   }
 
-  // FIX: the desktop account dropdown's three links (My Profile,
-  // Notifications, Invite & Earn) were plain `<a href>` tags — hard
-  // navigations — even though Sidebar's equivalent items (rendered
-  // simultaneously on account pages) use onNavigate/router-based soft
-  // nav. Routing all of these through router.push closes that gap.
   function goToAccountRoute(path: string) {
     setActiveDesktopMenu(null)
     router.push(path)
   }
 
-  // Shared notification bell + dropdown — rendered once and reused in both
-  // the mobile and desktop action rows below, so markup/behavior can't
-  // drift between the two. Ported over from the old Topbar, restyled with
-  // notificationIconClass (see comment above) so it matches its siblings
-  // at every breakpoint instead of just one.
+  // Notification bell + dropdown. Badge ring switched from ring-black to
+  // ring-parchment so it matches the light header surface it sits on.
   const notificationBell = (
     <div ref={notifRef} className="relative">
       <button
@@ -270,7 +227,7 @@ export default function Header({
         <Bell size={17} className="lg:hidden" />
         <Bell size={18} className="hidden lg:block" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-teal-deep px-1 text-[10px] font-bold leading-none text-white ring-2 ring-parchment">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-gold-deep px-1 text-[10px] font-bold leading-none text-white ring-2 ring-parchment">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -281,14 +238,14 @@ export default function Header({
           notifOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"
         }`}
       >
-        <div className="rounded-2xl border border-teal/20 bg-parchment shadow-xl shadow-ink/10">
+        <div className="rounded-2xl border border-gold/30 bg-parchment shadow-xl shadow-black/10">
           <div className="flex items-center justify-between border-b border-ink/10 px-4 py-3">
             <span className="text-sm font-semibold text-ink">Notifications</span>
             {unreadCount > 0 && (
               <button
                 type="button"
                 onClick={markAllAsRead}
-                className={`rounded text-xs font-semibold text-teal-deep hover:underline ${focusRing}`}
+                className={`rounded text-xs font-semibold text-gold-deep hover:underline ${focusRing}`}
               >
                 Mark all as read
               </button>
@@ -296,7 +253,7 @@ export default function Header({
           </div>
 
           {notifications.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-ink/55">You&apos;re all caught up.</div>
+            <div className="px-4 py-6 text-center text-sm text-ink/50">You&apos;re all caught up.</div>
           ) : (
             <div className="max-h-96 overflow-y-auto p-2">
               {notifications.map((n) => {
@@ -306,24 +263,24 @@ export default function Header({
                     key={n.id}
                     type="button"
                     onClick={() => markAsRead(n.id)}
-                    className={`flex w-full items-start gap-3 rounded-xl px-2 py-2.5 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                    className={`flex w-full items-start gap-3 rounded-xl px-2 py-2.5 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
                   >
                     <span
                       className={`mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full ${
-                        n.read ? "bg-ink/5 text-ink/40" : "bg-teal/15 text-teal-deep"
+                        n.read ? "bg-ink/5 text-ink/35" : "bg-gold/15 text-gold-deep"
                       }`}
                     >
                       <Icon size={15} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className={`truncate text-sm ${n.read ? "font-medium text-ink/70" : "font-semibold text-ink"}`}>
+                        <span className={`truncate text-sm ${n.read ? "font-medium text-ink/60" : "font-semibold text-ink"}`}>
                           {n.title}
                         </span>
-                        {!n.read && <span className="h-1.5 w-1.5 flex-none rounded-full bg-teal-deep" />}
+                        {!n.read && <span className="h-1.5 w-1.5 flex-none rounded-full bg-gold-deep" />}
                       </span>
-                      <span className="mt-0.5 block text-xs text-ink/55">{n.message}</span>
-                      <span className="mt-1 block text-[11px] text-ink/40">{n.timeLabel}</span>
+                      <span className="mt-0.5 block text-xs text-ink/50">{n.message}</span>
+                      <span className="mt-1 block text-[11px] text-ink/35">{n.timeLabel}</span>
                     </span>
                   </button>
                 )
@@ -341,22 +298,14 @@ export default function Header({
         <AirmailStripe />
 
         <div className="relative w-full" style={{ height: OUTER_H }}>
-          {/* DESIGN: shadow softened (was a harder, darker drop-shadow) so
-              the header reads as gently elevated rather than boxed-in. */}
-          <div className="hidden lg:block absolute inset-0 pointer-events-none drop-shadow-[0_4px_18px_rgba(13,29,65,0.14)]">
+          <div className="hidden lg:block absolute inset-0 pointer-events-none drop-shadow-[0_4px_18px_rgba(0,0,0,0.12)]">
             <div className="w-full h-full bg-parchment border-b border-teal/30" style={{ clipPath: desktopClipPath }} />
-            {/* DESIGN: the notch seam is now a dashed "perforation" rather
-                than a solid line — a small, deliberate nod to the
-                stamp/postal motif already used in the hero and airmail
-                stripe, instead of reading as an arbitrary cut line. */}
             <div className="absolute left-0 top-0 w-1/2 h-full overflow-hidden pointer-events-none z-10">
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d={`M 0 ${OUTER_H} L ${LEFT_NOTCH} ${OUTER_H} L ${LEFT_NOTCH + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`}
-                  stroke="rgba(14, 140, 156, 0.45)"
+                  stroke="rgba(14, 140, 156, 0.5)"
                   strokeWidth="1.5"
-                  strokeDasharray="1 5"
-                  strokeLinecap="round"
                   fill="none"
                 />
               </svg>
@@ -365,27 +314,20 @@ export default function Header({
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d={`M 0 ${OUTER_H} L ${rightNotch} ${OUTER_H} L ${rightNotch + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`}
-                  stroke="rgba(14, 140, 156, 0.45)"
+                  stroke="rgba(201, 138, 42, 0.5)"
                   strokeWidth="1.5"
-                  strokeDasharray="1 5"
-                  strokeLinecap="round"
                   fill="none"
                 />
               </svg>
             </div>
           </div>
 
-          {/* DESIGN: same treatment on mobile — hairline kept crisp, the
-              drop shadow beneath it softened a touch so it feels lighter. */}
-          <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(14,140,156,0.3),0_6px_16px_-8px_rgba(13,29,65,0.35)]`} />
+          {/* Shadow lightened — a heavy dark drop-shadow read fine under a
+              black header but looks like a dirty smudge under parchment. */}
+          <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(201,138,42,0.35),0_6px_16px_-8px_rgba(0,0,0,0.15)]`} />
 
           <div className="relative z-10 container mx-auto px-4 flex items-center justify-between w-full max-w-[1600px] h-full">
             <div className="flex items-center gap-2 flex-shrink-0 z-20 pr-3 h-full">
-              {/* Account-only: drawer trigger (opens account Sidebar) and
-                  back button, ported from the old Topbar. Both mobile-only
-                  (lg:hidden) since on desktop the account Sidebar is
-                  presumably always visible and there's no "back" concept
-                  in a persistently-visible nested nav. */}
               {isAccount && onMenuClick && (
                 <button
                   type="button"
@@ -398,8 +340,6 @@ export default function Header({
               )}
 
               {showBackButton ? (
-                // FIX: this button previously had no onClick at all — tapping
-                // it did nothing. It now calls the caller-supplied onBack.
                 <button
                   type="button"
                   aria-label="Go back"
@@ -426,7 +366,7 @@ export default function Header({
                       <a
                         href={link.href}
                         aria-expanded={hasDropdown ? isActive : undefined}
-                        className={`group relative flex items-center gap-1 rounded text-sm font-semibold font-body tracking-wide text-ink/85 transition-colors duration-200 hover:text-teal-deep ${focusRing}`}
+                        className={`group relative flex items-center gap-1 rounded text-sm font-semibold font-body tracking-wide text-ink/80 transition-colors duration-200 hover:text-gold-deep ${focusRing}`}
                         onClick={(e) => {
                           if (!hasDropdown) return
                           e.preventDefault()
@@ -435,18 +375,20 @@ export default function Header({
                       >
                         {link.label}
                         {hasDropdown && (
-                          <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none group-hover:text-teal-deep ${isActive ? "-rotate-180" : ""}`} />
+                          <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none group-hover:text-gold-deep ${isActive ? "-rotate-180" : ""}`} />
                         )}
-                        <span className={`absolute -bottom-1.5 left-0 h-[1.5px] w-full origin-center scale-x-0 bg-teal transition-transform duration-200 ease-out motion-reduce:transition-none ${isActive ? "scale-x-100" : "group-hover:scale-x-100"}`} />
-                      </a>
+                        <span
+                          className={`teal-shimmer absolute -bottom-1.5 left-0 h-[1.5px] w-full origin-center scale-x-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${isActive ? "scale-x-100" : "group-hover:scale-x-100"}`}
+                        />                      
+                        </a>
 
                       {link.megaMenu && <ShopMegaMenuPanel isActive={isActive} />}
 
                       {link.items && (
                         <div className={`absolute left-1/2 top-full z-50 w-80 -translate-x-1/2 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isActive ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
-                          <div className="rounded-2xl border border-teal/20 bg-parchment p-2 shadow-xl shadow-ink/10">
+                          <div className="rounded-2xl border border-gold/20 bg-parchment p-2 shadow-xl shadow-black/10">
                             {link.items.map((item, i) => (
-                              <a key={item.name} href={item.href} className={`block rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`} style={{ transitionDelay: isActive ? `${i * 25}ms` : "0ms" }}>
+                              <a key={item.name} href={item.href} className={`block rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`} style={{ transitionDelay: isActive ? `${i * 25}ms` : "0ms" }}>
                                 <div className="text-sm font-semibold font-body text-ink">{item.name}</div>
                                 <div className="mt-0.5 text-xs text-ink/55 font-body">{item.desc}</div>
                               </a>
@@ -460,10 +402,6 @@ export default function Header({
               </nav>
             </div>
 
-            {/* Mobile actions — Wishlist/Cart/Account are quiet icon-only
-                controls; the bell now matches them via notificationIconClass.
-                gap bumped from 0.5 to 1 so four adjacent icons don't read
-                as a single smudged cluster on narrow screens. */}
             <div className="flex lg:hidden flex-1 items-center justify-end gap-1 h-full">
               <button
                 type="button"
@@ -487,11 +425,6 @@ export default function Header({
 
               {isAccount && notificationBell}
 
-              {/* DESIGN: the burger only ever opened Shop (already on the
-                  bottom nav) plus Sign in/Register/Logout — so it's gone.
-                  Signed-in users still get the quiet Account icon; signed-out
-                  users get a labeled "Sign in" pill in the reclaimed space,
-                  since it's now the sole mobile entry point into auth. */}
               {isAuthenticated ? (
                 <button
                   type="button"
@@ -507,7 +440,7 @@ export default function Header({
                   type="button"
                   aria-label="Sign in"
                   onClick={login}
-                  className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`}
+                  className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
                 >
                   <User className="w-[17px] h-[17px]" />
                   <span className="text-xs font-semibold">Sign in</span>
@@ -515,8 +448,6 @@ export default function Header({
               )}
             </div>
 
-            {/* Desktop actions — Notification bell inserted before
-                Wishlist/Cart, account-variant only. */}
             <div ref={actionsRef} className="hidden lg:flex items-center justify-end gap-2.5 flex-shrink-0 z-20 pl-2 h-full">
               {isAccount && notificationBell}
 
@@ -556,42 +487,38 @@ export default function Header({
                   </button>
 
                   <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
-                    <div className="rounded-2xl border border-teal/20 bg-parchment p-2 shadow-xl shadow-ink/10">
-                      {/* FIX: these three were plain <a href> hard navs —
-                          now soft-navigated via router.push, same as
-                          Sidebar's equivalent items rendered alongside
-                          them on account pages. */}
+                    <div className="rounded-2xl border border-gold/20 bg-parchment p-2 shadow-xl shadow-black/10">
                       <button
                         type="button"
                         onClick={() => goToAccountRoute("/account/")}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
                       >
-                        <User size={16} className="text-teal-deep" />
+                        <User size={16} className="text-gold-deep" />
                         <span className="text-sm font-semibold text-ink">My Profile</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => goToAccountRoute("/account/notifications")}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
                       >
-                        <Bell size={16} className="text-teal-deep" />
+                        <Bell size={16} className="text-gold-deep" />
                         <span className="text-sm font-semibold text-ink">Notifications</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => goToAccountRoute("/account/referrals")}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
                       >
-                        <Gift size={16} className="text-teal-deep" />
+                        <Gift size={16} className="text-gold-deep" />
                         <span className="text-sm font-semibold text-ink">Invite &amp; Earn</span>
                       </button>
                       <div className="my-1 border-t border-ink/10" />
                       <button
                         type="button"
                         onClick={logout}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
                       >
-                        <LogOut size={16} className="text-ink/60" />
+                        <LogOut size={16} className="text-ink/50" />
                         <span className="text-sm font-semibold text-ink">Sign out</span>
                       </button>
                     </div>
@@ -603,15 +530,11 @@ export default function Header({
                     <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
                     <span className="hidden sm:inline text-[13px] font-semibold">Sign in</span>
                   </button>
-                  {/* DESIGN: the only remaining "boxed" control in the header
-                      — a solid, subtly-shadowed CTA on purpose, so it still
-                      reads as the primary action next to the now-ghost
-                      Sign in pill beside it. */}
                   <button
                     type="button"
                     aria-label="Get started"
                     onClick={() => router.push("/signup")}
-                    className={`rounded-xl bg-teal-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-teal-deep/20 transition-all duration-200 hover:bg-indigo-deep hover:shadow-md hover:shadow-indigo-deep/25 ${focusRing}`}
+                    className={`rounded-xl bg-gold-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-gold-deep/20 transition-all duration-200 hover:bg-gold hover:shadow-md hover:shadow-gold/25 ${focusRing}`}
                   >
                     Get started
                   </button>
@@ -628,7 +551,7 @@ export default function Header({
         open={wishlistPanelOpen}
         onClose={() => setWishlistPanelOpen(false)}
         title="Wishlist"
-        icon={<Heart size={18} className="text-teal-deep" />}
+        icon={<Heart size={18} className="text-gold-deep" />}
         isEmpty={wishlistPreview.length === 0}
         emptyLabel="Your wishlist is empty."
         emptyHref="/account/wishlist"
@@ -641,7 +564,7 @@ export default function Header({
             key={entry.id}
             href={entry.url || "/account/wishlist"}
             onClick={() => setWishlistPanelOpen(false)}
-            className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-card p-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+            className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-ink/[0.03] p-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
           >
             <ProductThumb image={entry.image} alt={entry.title} />
             <div className="min-w-0 flex-1">
@@ -660,7 +583,7 @@ export default function Header({
         open={cartPanelOpen}
         onClose={() => setCartPanelOpen(false)}
         title="Cart"
-        icon={<ShoppingBag size={18} className="text-teal-deep" />}
+        icon={<ShoppingBag size={18} className="text-gold-deep" />}
         isEmpty={cartPreview.length === 0}
         emptyLabel="Your cart is empty."
         emptyHref="/account/cart"
@@ -678,7 +601,7 @@ export default function Header({
             key={line.product.id}
             href={line.product.url || "/account/cart"}
             onClick={() => setCartPanelOpen(false)}
-            className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-card p-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+            className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-ink/[0.03] p-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
           >
             <ProductThumb image={line.product.image} alt={line.product.title} />
             <div className="min-w-0 flex-1">
