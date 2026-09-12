@@ -14,6 +14,8 @@ import {
 } from "lucide-react"
 import { affiliatedStores, type AffiliatedStore } from "@/data/stores/data"
 import Flag from "@/components/ui/Flag"
+import { INNER_H } from "@/components/shared/headerMetrics"
+import { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
 
 // Category chips link into /stores?category=<name>, filtering the same
 // `categories[]` field on AffiliatedStore that the /stores browse page
@@ -42,11 +44,17 @@ const featuredLocalStores = affiliatedStores
   .filter((s) => s.storeType === "local")
   .slice(0, 24)
 
-// Matches Header.tsx's OUTER_H — the panel's hinge sits at the bottom edge
-// of the header bar. Kept as a local constant rather than imported so this
-// file has no dependency on Header.tsx; update both if the header height
-// ever changes.
-const HEADER_H = 40
+// The panel's hinge sits at the bottom edge of the NARROW middle strip
+// of the header (INNER_H) — that's the seam the "Shop" trigger actually
+// sits against, and the seam the notch's diagonal lines converge into.
+// It is NOT OUTER_H (the thick side wings): anchoring to OUTER_H put the
+// hinge below the visible notch line, so the panel looked like it was
+// dropping from empty space instead of unfolding out of the header
+// itself. We also add AIRMAIL_STRIPE_HEIGHT because the header bar is
+// pushed down by that stripe — it isn't sitting at viewport y=0 — so the
+// real on-screen y-position of the notch's bottom edge is the stripe's
+// height plus INNER_H, not INNER_H alone.
+const PANEL_TOP = AIRMAIL_STRIPE_HEIGHT + INNER_H
 
 // Must match the `lg` breakpoint used everywhere else in the header
 // (Tailwind's default lg = 1024px). The mega menu is a desktop-only
@@ -140,8 +148,9 @@ function useIsDesktopNav() {
  * - z-40, one below the header's z-50, so the header bar visually sits
  *   ON TOP of the panel rather than the panel sliding down over it — the
  *   flap reads as tucked behind the header at rest.
- * - The hinge is the panel's own top edge, pinned to HEADER_H (the
- *   header's bottom edge) via `top`, NOT via a `translateY` inside the
+ * - The hinge is the panel's own top edge, pinned to PANEL_TOP (the
+ *   bottom edge of the header's narrow/INNER_H strip, offset by the
+ *   airmail stripe) via `top`, NOT via a `translateY` inside the
  *   transform — keeping the positional offset out of the transform
  *   composition means `rotateX` pivots cleanly around that hinge line
  *   instead of interacting unpredictably with a translate in the same
@@ -201,7 +210,7 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
     <div
       id="shop-mega-menu-panel"
       className="pointer-events-none fixed inset-x-0 z-40 hidden [perspective:2200px] lg:block"
-      style={{ top: HEADER_H }}
+      style={{ top: PANEL_TOP }}
     >
       <div
         className={`origin-top border-b border-teal/20 bg-parchment shadow-2xl shadow-ink/25 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -213,7 +222,7 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
         <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[minmax(0,240px)_1px_minmax(0,1fr)] px-4">
           {/* Categories */}
           <div className="p-4">
-            <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
+            <div className="px-3 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
               Shop by category
             </div>
             <div className="flex flex-col">

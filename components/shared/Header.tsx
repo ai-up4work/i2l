@@ -34,6 +34,11 @@ import {
   ProductThumb,
   SlideOverPanel,
 } from "@/components/shared/HeaderPanels"
+// Shared with ShopMegaMenu.tsx so the panel's hinge point can never drift
+// out of sync with the notch shape drawn below — both files import the
+// same OUTER_H/INNER_H/LEFT_NOTCH/NOTCH_GAP instead of each declaring
+// their own copies.
+import { OUTER_H, INNER_H, LEFT_NOTCH, NOTCH_GAP } from "@/components/shared/headerMetrics"
 
 interface NavItem { name: string; desc: string; href: string }
 interface NavLink {
@@ -57,11 +62,6 @@ interface HeaderProps {
   onBack?: () => void
   onMenuClick?: () => void
 }
-
-const OUTER_H = 68
-const INNER_H = 54
-const LEFT_NOTCH = 320
-const NOTCH_GAP = 40
 
 export const HEADER_BAR_HEIGHT = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_MOBILE = OUTER_H + AIRMAIL_STRIPE_HEIGHT
@@ -407,21 +407,14 @@ export default function Header({
             )}
 
             {/*
-              DESKTOP Shop trigger — THE FIX.
-              Previously this wrapper was centered with `left-1/2
-              -translate-x-1/2` and no explicit width, so it shrank to
-              fit its own content (just the "Shop" label + chevron). The
-              hoverable/clickable area ended up matching only the text's
-              bounding box, not the physical narrow strip visible on the
-              page between the two notch wings.
-
-              Now it's positioned with explicit `left`/`right` pixel
-              offsets computed from the SAME geometry that draws the
-              clip-path notch (LEFT_NOTCH + NOTCH_GAP on the left,
-              rightNotch + NOTCH_GAP on the right) — so this div's
-              boundaries are pixel-identical to the visible flat strip
-              in the header. Hover or click ANYWHERE inside that strip
-              (not just over the word "Shop") now opens the panel.
+              DESKTOP Shop trigger.
+              Positioned with explicit `left`/`right` pixel offsets
+              computed from the SAME geometry that draws the clip-path
+              notch (LEFT_NOTCH + NOTCH_GAP on the left, rightNotch +
+              NOTCH_GAP on the right) — so this div's boundaries are
+              pixel-identical to the visible flat strip in the header.
+              Hover or click ANYWHERE inside that strip (not just over
+              the word "Shop") opens the panel.
             */}
             <div
               className="hidden lg:flex items-center justify-center absolute top-0 z-20 cursor-pointer transition-colors duration-150 hover:bg-gold/5"
