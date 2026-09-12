@@ -26,7 +26,7 @@ export const viewRoutes: Record<View, string> = {
   paymentOptions: '/account/payment-options',
   giftCard: '/account/gift-card',
   messages: '/account/messages',
-  serviceRecords: '/account/service-records',
+  serviceRecords: '/account/messages/serviceRecords',
   wishlist: '/account/wishlist',
   following: '/account/following',
   wishdropVip: '/account/wishdrop-vip',

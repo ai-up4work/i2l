@@ -52,10 +52,10 @@ function AccountHomePageInner() {
       onViewWallet={() => router.push(pathForView('wallet'))}
       onViewGiftCard={() => router.push(pathForView('giftCard'))}
       onViewMessages={() => router.push(pathForView('messages'))}
-      onViewServiceRecords={() => router.push(pathForView('serviceRecords'))}
-      onViewWishlist={() => router.push(pathForView('wishlist'))}
-      onViewFollowing={() => router.push(pathForView('following'))}
-      onViewRecentlyViewed={() => router.push(pathForView('recentlyViewed'))}
+      onViewServiceRecords={() => router.push(pathForView('/messages/serviceRecords'))}
+      onViewWishlist={() => router.push(pathForView('/account/wishlist'))}
+      onViewFollowing={() => router.push(pathForView('/account/my-following'))}
+      onViewRecentlyViewed={() => router.push(pathForView('/account/recently-viewed'))}
     />
   )
 }

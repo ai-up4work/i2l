@@ -98,6 +98,10 @@ export type View =
   | 'myFollowing'
   | 'cart'
   | 'boards'
+  | '/messages/serviceRecords'
+  | '/account/my-following'
+  | '/account/recently-viewed'
+  | '/account/wishlist'
 
 export type NavItem = {
   label: string
