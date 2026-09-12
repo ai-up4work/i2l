@@ -379,7 +379,16 @@ export default function Header({
                   <span className="hidden sm:inline text-sm font-semibold font-body">Back</span>
                 </button>
               ) : (
-                <div className="flex items-center cursor-pointer group min-w-0">
+                <div
+                  className={`items-center cursor-pointer group min-w-0 ${
+                    // On mobile account pages, the sidebar (opened via the hamburger
+                    // button above) already shows this same logo — repeating it here
+                    // in the header bar is redundant. Hidden below `lg` only when
+                    // isAccount; still shown on desktop account pages (no sidebar
+                    // duplication there) and on mobile for public/landing pages.
+                    isAccount ? "hidden lg:flex" : "flex"
+                  }`}
+                >
                   <BrandMark className="h-8 w-32 lg:h-9 lg:w-36" />
                 </div>
               )}
