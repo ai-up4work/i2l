@@ -213,7 +213,7 @@ export default function Hero() {
               </span>
 
               <span className="flex shrink-0 items-center gap-1.5">
-                <span className="font-body text-sm font-semibold text-teal-deep">Browse top stores</span>
+                <span className="font-body text-sm font-semibold text-teal-deep">Our top stores</span>
                 <ArrowRight
                   size={14}
                   className="shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-1"
