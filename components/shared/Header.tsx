@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   ArrowLeft,
   Bell,
@@ -16,9 +16,7 @@ import {
   Package,
   Percent,
   ShoppingBag,
-  Store,
   User,
-  UserPlus,
 } from "lucide-react"
 
 import BrandMark from "@/components/shared/BrandMark"
@@ -80,7 +78,6 @@ interface HeaderProps {
 
 const OUTER_H = 68
 const INNER_H = 54
-const MOBILE_ANIM_MS = 280
 const LEFT_NOTCH = 320
 const NOTCH_GAP = 40
 
@@ -90,23 +87,36 @@ export const HEADER_BAR_HEIGHT_DESKTOP = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
 const MOBILE_BG = "bg-parchment"
 
+// DESIGN: unified radius scale across the header — rounded-xl for every
+// interactive chip/button, rounded-2xl reserved for the dropdown/panel
+// surfaces below. Previously these mixed rounded-lg and a one-off
+// lg:rounded-xl bump, which reads as unintentional at a glance.
 const pillButtonClass =
-  `flex items-center gap-2 rounded-lg border border-ink/15 bg-ink/5 px-3 py-1.5 text-ink transition-colors duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
+  `flex items-center gap-2 rounded-xl px-3 py-1.5 text-ink/80 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
 
 const iconPillButtonClass =
-  `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-lg border border-ink/15 bg-ink/5 text-ink transition-colors duration-200 hover:bg-teal/10 hover:border-teal/40 hover:text-teal-deep motion-reduce:transition-none ${focusRing}`
+  `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-xl text-ink/70 transition-colors duration-200 hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none ${focusRing}`
 
 // Quiet variant for Wishlist/Cart/Account/Notifications on mobile — no
 // border or fill, just the icon. Only the menu toggle keeps the boxed
 // treatment, since it's the one control that actually expands something.
 const mobileIconQuietClass =
-  `flex h-9 w-9 items-center justify-center rounded-lg text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
+  `flex h-9 w-9 items-center justify-center rounded-xl text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
 
 // Boxed treatment for the two account-only nav controls (drawer trigger,
 // back button) — matches Topbar's old iconButtonClass so their look
 // carries over unchanged into Header's account variant.
 const accountNavIconClass =
-  `grid h-9 w-9 place-items-center rounded-lg border border-ink/15 text-ink/70 transition-colors duration-200 hover:border-teal/40 hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none lg:h-10 lg:w-10 lg:rounded-xl ${focusRing}`
+  `grid h-9 w-9 place-items-center rounded-xl text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`
+
+// DESIGN: the bell used to borrow accountNavIconClass everywhere, which
+// left it "boxed" on desktop next to two "boxed" siblings (fine) but also
+// boxed on mobile next to three *quiet* siblings (Heart/Bag/Account) —
+// the one visibly different control in an otherwise matched row. This
+// single responsive class quiets it on mobile and boxes it on desktop,
+// so it matches its neighbors at every breakpoint instead of just one.
+const notificationIconClass =
+  `relative flex h-9 w-9 items-center justify-center rounded-xl text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep hover:bg-teal/10 hover:text-teal-deep motion-reduce:transition-none lg:h-10 lg:w-10 ${focusRing}`
 
 const CATEGORY_ICON: Record<NotificationCategory, React.ElementType> = {
   order: Package,
@@ -126,6 +136,7 @@ export default function Header({
   const cart = useCart()
   const wishlist = useWishlist()
   const isAccount = variant === "account"
+  const router = useRouter()
 
   // Notifications only matter in the account variant — the hook is still
   // safe to call unconditionally (hooks can't be conditional), it's just
@@ -135,10 +146,6 @@ export default function Header({
   const notifRef = useRef<HTMLDivElement>(null)
 
   const [activeDesktopMenu, setActiveDesktopMenu] = useState<string | null>(null)
-  const [navOpen, setNavOpen] = useState(false)
-  const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(false)
-  const [activeMobileMenu, setActiveMobileMenu] = useState<string | null>(null)
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
   const [wishlistPanelOpen, setWishlistPanelOpen] = useState(false)
   const [cartPanelOpen, setCartPanelOpen] = useState(false)
@@ -149,7 +156,6 @@ export default function Header({
   const cartCount = hasMounted ? cart.itemCount : 0
 
   const visibleNavLinks = isAccount ? navLinks.filter((l) => l.megaMenu) : navLinks
-  const mobileNavLinks = visibleNavLinks.filter((link) => !link.megaMenu)
 
   const pathname = usePathname()
   const navRef = useRef<HTMLElement>(null)
@@ -210,23 +216,6 @@ export default function Header({
     return () => window.removeEventListener(OPEN_SHOP_EVENT, handleOpenShop)
   }, [])
 
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>
-    if (navOpen) {
-      setMounted(true)
-      const raf = requestAnimationFrame(() => setVisible(true))
-      return () => cancelAnimationFrame(raf)
-    }
-    setVisible(false)
-    timeout = setTimeout(() => { setMounted(false); setActiveMobileMenu(null) }, MOBILE_ANIM_MS)
-    return () => clearTimeout(timeout)
-  }, [navOpen])
-
-  useEffect(() => {
-    document.body.style.overflow = navOpen ? "hidden" : ""
-    return () => { document.body.style.overflow = "" }
-  }, [navOpen])
-
   const desktopClipPath =
     `polygon(0 0, 100% 0, 100% ${OUTER_H}px, calc(100% - ${rightNotch}px) ${OUTER_H}px, ` +
     `calc(100% - ${rightNotch + NOTCH_GAP}px) ${INNER_H}px, ${LEFT_NOTCH + NOTCH_GAP}px ${INNER_H}px, ${LEFT_NOTCH}px ${OUTER_H}px, 0 ${OUTER_H}px)`
@@ -240,9 +229,35 @@ export default function Header({
     ? cart.items.slice().sort((a, b) => b.addedAt - a.addedAt).slice(0, PREVIEW_ITEM_LIMIT)
     : []
 
+  // FIX: was `window.location.href = "/account/"` — a full page reload
+  // every time an already-authenticated user tapped the account icon.
+  // The mobile bottom nav's Account tab reaches the same destination via
+  // onNavigate (an SPA transition), so this hard-nav path was the odd one
+  // out for an identical destination. router.push keeps it a soft nav,
+  // consistent with every other way into the account area.
+  function goToAccountHome() {
+    if (isAuthenticated) {
+      router.push("/account/")
+    } else {
+      login()
+    }
+  }
+
+  // FIX: the desktop account dropdown's three links (My Profile,
+  // Notifications, Invite & Earn) were plain `<a href>` tags — hard
+  // navigations — even though Sidebar's equivalent items (rendered
+  // simultaneously on account pages) use onNavigate/router-based soft
+  // nav. Routing all of these through router.push closes that gap.
+  function goToAccountRoute(path: string) {
+    setActiveDesktopMenu(null)
+    router.push(path)
+  }
+
   // Shared notification bell + dropdown — rendered once and reused in both
   // the mobile and desktop action rows below, so markup/behavior can't
-  // drift between the two. Ported over from the old Topbar unchanged.
+  // drift between the two. Ported over from the old Topbar, restyled with
+  // notificationIconClass (see comment above) so it matches its siblings
+  // at every breakpoint instead of just one.
   const notificationBell = (
     <div ref={notifRef} className="relative">
       <button
@@ -250,12 +265,12 @@ export default function Header({
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
         aria-expanded={notifOpen}
         onClick={() => setNotifOpen((v) => !v)}
-        className={`relative ${accountNavIconClass}`}
+        className={notificationIconClass}
       >
         <Bell size={17} className="lg:hidden" />
         <Bell size={18} className="hidden lg:block" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-teal-deep px-1 text-[10px] font-bold leading-none text-white">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-teal-deep px-1 text-[10px] font-bold leading-none text-white ring-2 ring-parchment">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -326,21 +341,43 @@ export default function Header({
         <AirmailStripe />
 
         <div className="relative w-full" style={{ height: OUTER_H }}>
-          <div className="hidden lg:block absolute inset-0 pointer-events-none drop-shadow-[0_6px_14px_rgba(13,29,65,0.25)]">
+          {/* DESIGN: shadow softened (was a harder, darker drop-shadow) so
+              the header reads as gently elevated rather than boxed-in. */}
+          <div className="hidden lg:block absolute inset-0 pointer-events-none drop-shadow-[0_4px_18px_rgba(13,29,65,0.14)]">
             <div className="w-full h-full bg-parchment border-b border-teal/30" style={{ clipPath: desktopClipPath }} />
+            {/* DESIGN: the notch seam is now a dashed "perforation" rather
+                than a solid line — a small, deliberate nod to the
+                stamp/postal motif already used in the hero and airmail
+                stripe, instead of reading as an arbitrary cut line. */}
             <div className="absolute left-0 top-0 w-1/2 h-full overflow-hidden pointer-events-none z-10">
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
-                <path d={`M 0 ${OUTER_H} L ${LEFT_NOTCH} ${OUTER_H} L ${LEFT_NOTCH + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`} stroke="rgba(14, 140, 156, 0.5)" strokeWidth="1.5" fill="none" />
+                <path
+                  d={`M 0 ${OUTER_H} L ${LEFT_NOTCH} ${OUTER_H} L ${LEFT_NOTCH + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`}
+                  stroke="rgba(14, 140, 156, 0.45)"
+                  strokeWidth="1.5"
+                  strokeDasharray="1 5"
+                  strokeLinecap="round"
+                  fill="none"
+                />
               </svg>
             </div>
             <div className="absolute right-0 top-0 w-1/2 h-full overflow-hidden pointer-events-none z-10" style={{ transform: "scaleX(-1)" }}>
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
-                <path d={`M 0 ${OUTER_H} L ${rightNotch} ${OUTER_H} L ${rightNotch + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`} stroke="rgba(14, 140, 156, 0.5)" strokeWidth="1.5" fill="none" />
+                <path
+                  d={`M 0 ${OUTER_H} L ${rightNotch} ${OUTER_H} L ${rightNotch + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`}
+                  stroke="rgba(14, 140, 156, 0.45)"
+                  strokeWidth="1.5"
+                  strokeDasharray="1 5"
+                  strokeLinecap="round"
+                  fill="none"
+                />
               </svg>
             </div>
           </div>
 
-          <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(14,140,156,0.3),0_6px_18px_-10px_rgba(13,29,65,0.5)]`} />
+          {/* DESIGN: same treatment on mobile — hairline kept crisp, the
+              drop shadow beneath it softened a touch so it feels lighter. */}
+          <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(14,140,156,0.3),0_6px_16px_-8px_rgba(13,29,65,0.35)]`} />
 
           <div className="relative z-10 container mx-auto px-4 flex items-center justify-between w-full max-w-[1600px] h-full">
             <div className="flex items-center gap-2 flex-shrink-0 z-20 pr-3 h-full">
@@ -361,7 +398,14 @@ export default function Header({
               )}
 
               {showBackButton ? (
-                <button type="button" aria-label="Go back" className={pillButtonClass}>
+                // FIX: this button previously had no onClick at all — tapping
+                // it did nothing. It now calls the caller-supplied onBack.
+                <button
+                  type="button"
+                  aria-label="Go back"
+                  onClick={onBack}
+                  className={pillButtonClass}
+                >
                   <ArrowLeft className="w-4 h-4 lg:w-5 lg:h-5" />
                   <span className="hidden sm:inline text-sm font-semibold font-body">Back</span>
                 </button>
@@ -417,10 +461,10 @@ export default function Header({
             </div>
 
             {/* Mobile actions — Wishlist/Cart/Account are quiet icon-only
-                controls. Heart and Bag open the shared SlideOverPanel
-                (same one desktop uses) instead of navigating away.
-                Notification bell is inserted here, account-variant only. */}
-            <div className="flex lg:hidden flex-1 items-center justify-end gap-0.5 h-full">
+                controls; the bell now matches them via notificationIconClass.
+                gap bumped from 0.5 to 1 so four adjacent icons don't read
+                as a single smudged cluster on narrow screens. */}
+            <div className="flex lg:hidden flex-1 items-center justify-end gap-1 h-full">
               <button
                 type="button"
                 aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
@@ -443,28 +487,32 @@ export default function Header({
 
               {isAccount && notificationBell}
 
-              <button
-                type="button"
-                aria-label={isAuthenticated ? "Account" : "Sign in"}
-                onClick={() => { if (isAuthenticated) { window.location.href = "/account/" } else { login() } }}
-                className={`relative ${mobileIconQuietClass}`}
-              >
-                <User className="w-[17px] h-[17px]" />
-                {isAuthenticated && (
+              {/* DESIGN: the burger only ever opened Shop (already on the
+                  bottom nav) plus Sign in/Register/Logout — so it's gone.
+                  Signed-in users still get the quiet Account icon; signed-out
+                  users get a labeled "Sign in" pill in the reclaimed space,
+                  since it's now the sole mobile entry point into auth. */}
+              {isAuthenticated ? (
+                <button
+                  type="button"
+                  aria-label="Account"
+                  onClick={goToAccountHome}
+                  className={`relative ${mobileIconQuietClass}`}
+                >
+                  <User className="w-[17px] h-[17px]" />
                   <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-gold-deep ring-2 ring-parchment" />
-                )}
-              </button>
-
-              <button type="button" aria-label={navOpen ? "Close menu" : "Open menu"} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}
-                className={`group ml-1 flex items-center justify-center h-9 w-9 rounded-lg border transition-all duration-300 active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ${focusRing} ${
-                  navOpen ? "bg-teal/10 border-teal/50 text-teal-deep" : "bg-ink/5 border-ink/15 text-ink active:bg-teal/10 active:border-teal/40 active:text-teal-deep"
-                }`}>
-                <span className="relative flex h-4 w-5 items-center justify-center">
-                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out motion-reduce:transition-none ${navOpen ? "rotate-45" : "-translate-y-[5px]"}`} />
-                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-200 ease-out motion-reduce:transition-none ${navOpen ? "scale-x-0 opacity-0" : "scale-x-100 opacity-100"}`} />
-                  <span className={`absolute h-[1.5px] w-5 rounded-full bg-current transition-all duration-300 ease-out motion-reduce:transition-none ${navOpen ? "-rotate-45" : "translate-y-[5px]"}`} />
-                </span>
-              </button>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Sign in"
+                  onClick={login}
+                  className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-ink/70 transition-colors duration-200 active:bg-teal/10 active:text-teal-deep motion-reduce:transition-none ${focusRing}`}
+                >
+                  <User className="w-[17px] h-[17px]" />
+                  <span className="text-xs font-semibold">Sign in</span>
+                </button>
+              )}
             </div>
 
             {/* Desktop actions — Notification bell inserted before
@@ -509,18 +557,34 @@ export default function Header({
 
                   <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
                     <div className="rounded-2xl border border-teal/20 bg-parchment p-2 shadow-xl shadow-ink/10">
-                      <a href="/account/" className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
+                      {/* FIX: these three were plain <a href> hard navs —
+                          now soft-navigated via router.push, same as
+                          Sidebar's equivalent items rendered alongside
+                          them on account pages. */}
+                      <button
+                        type="button"
+                        onClick={() => goToAccountRoute("/account/")}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                      >
                         <User size={16} className="text-teal-deep" />
                         <span className="text-sm font-semibold text-ink">My Profile</span>
-                      </a>
-                      <a href="/account/notifications" className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goToAccountRoute("/account/notifications")}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                      >
                         <Bell size={16} className="text-teal-deep" />
                         <span className="text-sm font-semibold text-ink">Notifications</span>
-                      </a>
-                      <a href="/account/referrals" className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goToAccountRoute("/account/referrals")}
+                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-teal/10 ${focusRing}`}
+                      >
                         <Gift size={16} className="text-teal-deep" />
                         <span className="text-sm font-semibold text-ink">Invite &amp; Earn</span>
-                      </a>
+                      </button>
                       <div className="my-1 border-t border-ink/10" />
                       <button
                         type="button"
@@ -539,11 +603,15 @@ export default function Header({
                     <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
                     <span className="hidden sm:inline text-[13px] font-semibold">Sign in</span>
                   </button>
+                  {/* DESIGN: the only remaining "boxed" control in the header
+                      — a solid, subtly-shadowed CTA on purpose, so it still
+                      reads as the primary action next to the now-ghost
+                      Sign in pill beside it. */}
                   <button
                     type="button"
                     aria-label="Get started"
-                    onClick={() => { window.location.href = "/signup" }}
-                    className={`rounded-lg bg-teal-deep px-4 py-2 text-[13px] font-semibold text-white transition-colors duration-200 hover:bg-indigo-deep ${focusRing}`}
+                    onClick={() => router.push("/signup")}
+                    className={`rounded-xl bg-teal-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-teal-deep/20 transition-all duration-200 hover:bg-indigo-deep hover:shadow-md hover:shadow-indigo-deep/25 ${focusRing}`}
                   >
                     Get started
                   </button>
@@ -553,81 +621,6 @@ export default function Header({
           </div>
         </div>
       </header>
-
-      {mounted && (
-        <div className={`fixed inset-0 z-[100] flex h-dvh flex-col ${MOBILE_BG} transition-opacity duration-[280ms] ease-out motion-reduce:transition-none lg:hidden ${visible ? "opacity-100" : "opacity-0"}`}>
-          <AirmailStripe />
-
-          <div className={`flex items-center justify-between px-6 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"}`} style={{ height: OUTER_H }}>
-            <BrandMark className="h-8 w-32" />
-            <button type="button" aria-label="Close menu" onClick={() => setNavOpen(false)} className={`flex items-center justify-center w-9 h-9 rounded-lg text-ink hover:bg-teal/10 transition-colors duration-200 ${focusRing}`}>
-              <span className="relative block h-4 w-5">
-                <span className="absolute left-0 top-1/2 h-0.5 w-5 -translate-y-1/2 rotate-45 rounded-full bg-ink" />
-                <span className="absolute left-0 top-1/2 h-0.5 w-5 -translate-y-1/2 -rotate-45 rounded-full bg-ink" />
-              </span>
-            </button>
-          </div>
-
-          <nav className="min-h-0 flex-1 overflow-y-auto nav-scroll" aria-label="Mobile navigation">
-            <div className={`border-b border-teal/15 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
-              style={{ transitionDelay: visible ? "60ms" : "0ms" }}>
-              <button
-                type="button"
-                onClick={() => { setNavOpen(false); setShopSheetOpen(true) }}
-                className={`flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide ${focusRing}`}
-              >
-                <span className="flex items-center gap-2.5">
-                  <Store size={18} className="text-teal-deep" />
-                  Shop
-                </span>
-              </button>
-            </div>
-
-            {mobileNavLinks.map((link, index) => {
-              const isExpanded = activeMobileMenu === link.href
-              return (
-                <div key={link.href} className={`border-b border-teal/15 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"}`}
-                  style={{ transitionDelay: visible ? `${100 + index * 40}ms` : "0ms" }}>
-                  <button type="button" onClick={() => setActiveMobileMenu(isExpanded ? null : link.href)} aria-expanded={isExpanded}
-                    className={`flex w-full items-center justify-between px-6 py-5 text-left text-base font-display font-semibold text-ink tracking-wide ${focusRing}`}>
-                    {link.label}
-                    {!!link.items && (
-                      <ChevronDown size={18} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${isExpanded ? "rotate-180" : ""}`} />
-                    )}
-                  </button>
-                  <div className={`grid overflow-hidden bg-teal/[0.06] transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-                    <div className="min-h-0 overflow-hidden pb-2">
-                      {link.items?.map((item) => (
-                        <a key={item.name} href={item.href} onClick={() => setNavOpen(false)} className={`block px-6 py-3 font-body ${focusRing}`}>
-                          <div className="text-sm font-semibold text-ink">{item.name}</div>
-                          <div className="mt-0.5 text-xs text-ink/60">{item.desc}</div>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </nav>
-
-          <div className={`flex-none space-y-3 px-6 pb-8 pt-4 transition-all duration-300 ease-out motion-reduce:transition-none ${visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}>
-            {!isAuthenticated && (
-              <button type="button" onClick={() => { window.location.href = "/signup"; setNavOpen(false) }} className={`flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal-deep py-3 text-sm font-semibold text-white hover:bg-indigo-deep transition-colors duration-200 ${focusRing}`}>
-                <UserPlus className="w-4 h-4" /> Register
-              </button>
-            )}
-            {isAuthenticated ? (
-              <button type="button" onClick={() => { logout(); setNavOpen(false) }} className={`flex w-full items-center justify-center gap-2.5 rounded-lg bg-ink/5 py-3 text-sm font-semibold text-ink hover:bg-teal/10 transition-colors duration-200 ${focusRing}`}>
-                <LogOut className="w-4 h-4" /> Logout
-              </button>
-            ) : (
-              <button type="button" onClick={() => { login(); setNavOpen(false) }} className={`flex w-full items-center justify-center gap-2.5 rounded-lg bg-teal/10 py-3 text-sm font-semibold text-teal-deep hover:bg-teal/20 transition-colors duration-200 ${focusRing}`}>
-                <LogIn className="w-4 h-4" /> Sign in
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} />
 

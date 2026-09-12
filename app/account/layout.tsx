@@ -99,6 +99,15 @@ function AccountShell({ children }: { children: React.ReactNode }) {
       : 0
     : HEADER_BAR_HEIGHT_DESKTOP
 
+  // FIX: previously never passed to Header, so its (also previously
+  // unwired) back button never rendered at all — there was no way to
+  // reach handleBack from the UI. Shown whenever the current view isn't
+  // the account home, mirroring handleBack's own logic below (which
+  // special-cases 'preview' and otherwise falls back to 'home' — i.e.
+  // there's always somewhere meaningful to go back to except from home
+  // itself).
+  const showBackButton = view !== 'home'
+
   function handleNavigate(nextView: View) {
     if (nextView === 'addRequest') resetDraft()
     router.push(pathForView(nextView))
@@ -146,6 +155,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
         <Header
           variant="account"
           view={view}
+          showBackButton={showBackButton}
           onBack={handleBack}
           onMenuClick={() => setSidebarOpen(true)}
         />
@@ -220,9 +230,16 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           />
         )}
 
+        {/* FIX: was `bottom-6` (24px from viewport bottom) on every
+            breakpoint. MobileBottomNav is `fixed inset-x-0 bottom-0` and
+            ~72–76px tall at the same z-layer range, so on mobile this FAB
+            sat directly on top of the nav's right-side tabs instead of
+            floating above them. bottom-24 (96px) clears the nav bar with
+            headroom; lg:bottom-6 restores the original desktop position,
+            where there's no bottom nav to collide with. */}
         <button
           aria-label="Open support chat"
-          className="support-fab fixed right-6 bottom-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
+          className="support-fab fixed right-6 bottom-24 lg:bottom-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
         >
           <CircleHelp />
         </button>

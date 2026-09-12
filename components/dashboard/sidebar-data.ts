@@ -28,6 +28,14 @@ export type SidebarGroup = {
 // - "Address Book" -> warehouseAddresses (closest existing equivalent)
 // - "My Payment Options" -> new paymentOptions view (just added to routes.ts)
 // - Policy / Accessibility items are treated as static links, not View state
+//
+// FIX: defaultOpen moved from "Other Services" to "My Orders". On desktop
+// the Sidebar is the *only* persistent nav (no bottom nav there), and
+// order tracking is the thing a returning customer is most likely to be
+// checking on (maps to success criterion #5 — "track order without
+// contacting support"). Discovery/marketing surfaces (Shopping Community,
+// Affiliated Stores) are lower-frequency for a returning user, so they no
+// longer default open.
 export const sidebarGroups: SidebarGroup[] = [
   {
     key: 'myAccount',
@@ -55,6 +63,7 @@ export const sidebarGroups: SidebarGroup[] = [
   {
     key: 'myOrders',
     label: 'My Orders',
+    defaultOpen: true,
     items: [
       { type: 'view', label: 'All Orders', view: 'ordersHub' },
       { type: 'view', label: 'Tracking My Orders', view: 'trackingOrders' },
@@ -84,7 +93,6 @@ export const sidebarGroups: SidebarGroup[] = [
   {
     key: 'otherServices',
     label: 'Other Services',
-    defaultOpen: true,
     items: [
       { type: 'view', label: 'Shopping Community', view: 'shoppingCommunity' },
       { type: 'view', label: 'Affiliated Stores', view: 'affiliatedStores' },

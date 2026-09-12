@@ -104,7 +104,7 @@ export default function Hero() {
         />
       </div>
 
-      <div className="relative z-10 mx-auto flex h-full mt-12 max-w-7xl flex-col justify-center px-6 lg:px-10">
+      <div className="relative z-10 mx-auto flex h-full mt-12 max-w-8xl ml-8 flex-col justify-center px-6 lg:px-10">
         <div className="max-w-xl">
           <p className="font-body text-xs font-extrabold uppercase tracking-[0.2em] text-gold">
             Shop global. We deliver.
