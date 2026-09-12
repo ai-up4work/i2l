@@ -34,10 +34,6 @@ import {
   ProductThumb,
   SlideOverPanel,
 } from "@/components/shared/HeaderPanels"
-// Shared with ShopMegaMenu.tsx so the panel's hinge point can never drift
-// out of sync with the notch shape drawn below — both files import the
-// same OUTER_H/INNER_H/LEFT_NOTCH/NOTCH_GAP instead of each declaring
-// their own copies.
 import { OUTER_H, INNER_H, LEFT_NOTCH, NOTCH_GAP } from "@/components/shared/headerMetrics"
 
 interface NavItem { name: string; desc: string; href: string }
@@ -290,7 +286,7 @@ export default function Header({
           {notifications.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-ink/50">You&apos;re all caught up.</div>
           ) : (
-            <div className="max-h-96 overflow-y-auto p-2">
+            <div className="max-h-96 overflow-y-auto nav-scroll p-2">
               {notifications.map((n) => {
                 const Icon = CATEGORY_ICON[n.category]
                 return (
@@ -389,33 +385,23 @@ export default function Header({
               )}
             </div>
 
-            {shopLink && (
-              <button
-                type="button"
-                aria-label="Shop"
-                aria-haspopup="true"
-                aria-expanded={shopSheetOpen}
-                onClick={() => setShopSheetOpen(true)}
-                className={`flex lg:hidden flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
-              >
-                <span className="text-sm font-semibold font-body truncate">{shopLink.label}</span>
-                <ChevronDown
-                  size={13}
-                  className={`shrink-0 text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${shopSheetOpen ? "-rotate-180" : ""}`}
-                />
-              </button>
-            )}
+           {shopLink && (
+            <button
+              type="button"
+              aria-label="Shop"
+              aria-haspopup="true"
+              aria-expanded={shopSheetOpen}
+              onClick={() => setShopSheetOpen(true)}
+              className={`hidden flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
+            >
+              <span className="text-sm font-semibold font-body truncate">{shopLink.label}</span>
+              <ChevronDown
+                size={13}
+                className={`shrink-0 text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${shopSheetOpen ? "-rotate-180" : ""}`}
+              />
+            </button>
+          )}
 
-            {/*
-              DESKTOP Shop trigger.
-              Positioned with explicit `left`/`right` pixel offsets
-              computed from the SAME geometry that draws the clip-path
-              notch (LEFT_NOTCH + NOTCH_GAP on the left, rightNotch +
-              NOTCH_GAP on the right) — so this div's boundaries are
-              pixel-identical to the visible flat strip in the header.
-              Hover or click ANYWHERE inside that strip (not just over
-              the word "Shop") opens the panel.
-            */}
             <div
               className="hidden lg:flex items-center justify-center absolute top-0 z-20 cursor-pointer transition-colors duration-150 hover:bg-gold/5"
               style={{
@@ -470,7 +456,12 @@ export default function Header({
               </nav>
             </div>
 
+            {/* MOBILE action icons — notification bell now shown on every
+                page, not just isAccount, so it's pulled out from behind
+                that gate here as well. */}
             <div className="flex lg:hidden items-center gap-1 h-full">
+              {notificationBell}
+
               <button
                 type="button"
                 aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
@@ -490,8 +481,6 @@ export default function Header({
                 <ShoppingBag className="w-[17px] h-[17px]" />
                 <CountBadge count={cartCount} />
               </button>
-
-              {isAccount && notificationBell}
 
               {isAuthenticated ? (
                 <button
@@ -516,8 +505,10 @@ export default function Header({
               )}
             </div>
 
+            {/* DESKTOP action icons — same change: notification bell no
+                longer gated behind isAccount, always rendered. */}
             <div ref={actionsRef} className="hidden lg:flex items-center justify-end gap-2.5 flex-shrink-0 z-20 pl-2 h-full">
-              {isAccount && notificationBell}
+              {notificationBell}
 
               <button
                 type="button"
@@ -554,6 +545,11 @@ export default function Header({
                     <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-gold-deep ring-2 ring-parchment" />
                   </button>
 
+                  {/* Account dropdown — "Notifications" row removed:
+                      the bell (now visible on every page, including here
+                      in the account menu bar) already covers that job,
+                      so this was a duplicate entry point to the same
+                      thing. */}
                   <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
                     <div className="rounded-2xl border border-gold/20 bg-parchment p-2 shadow-xl shadow-black/10">
                       <button
@@ -563,14 +559,6 @@ export default function Header({
                       >
                         <User size={16} className="text-gold-deep" />
                         <span className="text-sm font-semibold text-ink">My Profile</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => goToAccountRoute("/account/notifications")}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
-                      >
-                        <Bell size={16} className="text-gold-deep" />
-                        <span className="text-sm font-semibold text-ink">Notifications</span>
                       </button>
                       <button
                         type="button"
