@@ -39,6 +39,7 @@ export interface Deal {
 
 export type PatternType =
   | 'none'
+  | 'external'
   | 'dots'
   | 'leaves'
   | 'diagonal'
@@ -54,7 +55,7 @@ export type PatternType =
   | 'circuit'
   | 'hexagons'
 
-const PATTERN_TILE: Record<Exclude<PatternType, 'none'>, { svg: (c: string) => string; size: string }> = {
+const PATTERN_TILE: Record<Exclude<PatternType, 'none' | 'external'>, { svg: (c: string) => string; size: string }> = {
   dots: {
     svg: (c: string) =>
       `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28'><circle cx='4' cy='4' r='2.4' fill='${c}' fill-opacity='0.18'/></svg>`,
@@ -404,7 +405,7 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
             src={coupon.productImage}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 right-0 z-[1] h-[60%] pb-2 pr-4 w-auto object-contain opacity-90 transition-transform duration-500 group-hover:scale-105"
+            className="pointer-events-none absolute bottom-0 right-0 z-[1] h-[60%] w-auto object-contain pb-2 pr-4 opacity-90 transition-transform duration-500 group-hover:scale-105"
           />
         ) : coupon.productIcon ? (
           <ProductIcon type={coupon.productIcon} color={patternHex} />
