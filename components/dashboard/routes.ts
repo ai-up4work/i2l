@@ -35,7 +35,11 @@ export const viewRoutes: Record<View, string> = {
   recentlyViewed: '/account/recently-viewed',
   myFollowing: '/account/my-following',
   cart: '/account/cart',
-  boards: '/account/boards'
+  boards: '/account/boards',
+  '/messages/serviceRecords': '/account/messages/serviceRecords',
+  '/account/my-following': '/account/my-following',
+  '/account/recently-viewed': '/account/recently-viewed',
+  '/account/wishlist': '/account/wishlist'
 }
 
 export function pathForView(view: View): string {
