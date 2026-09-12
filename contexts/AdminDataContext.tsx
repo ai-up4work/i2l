@@ -135,10 +135,19 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
 // MOCK_USERS (the single logged-in account per role) — this is meant to
 // grow into the real /admin/staff roster later, so it deliberately
 // includes a second Sales account MOCK_USERS doesn't have.
+// Reference roster for the reassign-request dropdown AND the Reports
+// site-detail page's "staff assigned here" panel. Distinct from
+// MOCK_USERS (the single logged-in account per role). siteId is only
+// meaningful for warehouse entries — sales/manager aren't site-scoped,
+// same convention as CurrentUser.siteId.
 const STAFF_DIRECTORY: StaffMember[] = [
   { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
   { id: "u_sales_2", name: "Ruvindi Jayasekara", role: "sales" },
   { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
+  { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
+  { id: "u_wh_2", name: "Dimuthu Rajapaksha", role: "warehouse", siteId: "site_kandy" },
+  { id: "u_wh_3", name: "Harshani Weerasinghe", role: "warehouse", siteId: "site_galle" },
+  { id: "u_wh_4", name: "Pasan Gunathilaka", role: "warehouse", siteId: "site_colombo" },
 ]
 
 const ROLE_PERMISSIONS: Record<Role, Permissions> = {
@@ -764,6 +773,7 @@ interface AdminDataContextValue {
   receiveAtQc: (purchaseId: string) => void
   addQcPhoto: (purchaseId: string) => void
   submitQcResult: (purchaseId: string, status: Exclude<QCStatus, "pending">, note: string) => void
+  purchases: Purchase[]
   packLines: PackLine[]
   visiblePackLines: PackLine[]
   getPackLine: (orderId: string) => PackLine | undefined
@@ -1596,6 +1606,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     staffDirectory: STAFF_DIRECTORY,
     orders,
     visibleOrders,
+    purchases,               
     getOrder,
     advanceStage,
     rollbackStage,

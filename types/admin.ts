@@ -563,3 +563,11 @@ export interface RequestLine {
   /** Present once this request has been confirmed — the Channel 3 order it became */
   linkedOrderId?: string
 }
+
+export interface StaffMember {
+  id: string
+  name: string
+  role: Role
+  /** Only meaningful for Warehouse — mirrors CurrentUser.siteId */
+  siteId?: string
+}
