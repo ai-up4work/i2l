@@ -12,7 +12,7 @@ const loopedPartners = [...partners, ...partners]
 
 function Partners() {
   return (
-    <section className="mx-auto max-w-7xl px-6 py-16 text-center lg:px-10">
+    <section className="mx-auto max-w-8xl px-6 py-16 text-center lg:px-10">
       <style>{`
         @keyframes partners-scroll {
           from { transform: translateX(0); }
