@@ -16,8 +16,13 @@ import { affiliatedStores, type AffiliatedStore } from "@/data/stores/data"
 import Flag from "@/components/ui/Flag"
 import { INNER_H } from "@/components/shared/headerMetrics"
 import { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
-import { OPEN_SHOP_EVENT } from "@/components/shared/Header"
 
+// Category chips link into /stores?category=<name>, filtering the same
+// `categories[]` field on AffiliatedStore that the /stores browse page
+// already reads. These 8 are real strings pulled straight from
+// affiliatedStores — not an invented taxonomy — so a click always finds a
+// non-empty result set. Add an icon here if a new category should surface
+// in the header; anything else still lives on the /stores page itself.
 const categoryIcons: { name: string; icon: typeof Shirt }[] = [
   { name: "Clothing", icon: Shirt },
   { name: "Ethnic Wear", icon: Layers },
@@ -30,15 +35,34 @@ const categoryIcons: { name: string; icon: typeof Shirt }[] = [
 ]
 
 const marketplaceStores = affiliatedStores.filter((s) => s.storeType === "marketplace")
+// Preview of local stores in the mega menu — shows all local stores
+// (not filtered to `isNew` only), capped at 24 so the panel stays a
+// preview rather than a full duplicate of /stores. Raise this cap (or
+// drop it) if the full local catalog should always fit without needing
+// "Browse all".
 const featuredLocalStores = affiliatedStores
   .filter((s) => s.storeType === "local")
   .slice(0, 24)
 
+// The panel's hinge sits at the bottom edge of the NARROW middle strip
+// of the header (INNER_H) — that's the seam the "Shop" trigger actually
+// sits against, and the seam the notch's diagonal lines converge into.
+// It is NOT OUTER_H (the thick side wings): anchoring to OUTER_H put the
+// hinge below the visible notch line, so the panel looked like it was
+// dropping from empty space instead of unfolding out of the header
+// itself. We also add AIRMAIL_STRIPE_HEIGHT because the header bar is
+// pushed down by that stripe — it isn't sitting at viewport y=0 — so the
+// real on-screen y-position of the notch's bottom edge is the stripe's
+// height plus INNER_H, not INNER_H alone.
 const PANEL_TOP = AIRMAIL_STRIPE_HEIGHT + INNER_H
-const PEEK_HEIGHT = 8
 
+// Must match the `lg` breakpoint used everywhere else in the header
+// (Tailwind's default lg = 1024px). The mega menu is a desktop-only
+// portal — see the `useIsDesktopNav` note on ShopMegaMenuPanel below for
+// why this needs to be enforced in JS, not just via CSS classes.
 const DESKTOP_BREAKPOINT_QUERY = "(min-width: 1024px)"
 
+/** Small gold spark used only for delight moments — new-store callouts. */
 function Spark({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
@@ -52,6 +76,10 @@ function Spark({ className = "" }: { className?: string }) {
 
 function StoreRow({ store }: { store: AffiliatedStore }) {
   const isLocal = store.storeType === "local"
+  // Marketplaces (Amazon, Flipkart, etc.) carry their real site in `url` —
+  // send clicks there instead of the internal /stores/[platform] catalog
+  // page. Local sellers have no external site, so they keep the internal
+  // route.
   const href = store.url ?? `/stores/${store.platform}`
   const isExternal = Boolean(store.url)
 
@@ -88,6 +116,18 @@ function StoreRow({ store }: { store: AffiliatedStore }) {
   )
 }
 
+/**
+ * Tracks whether the viewport is currently at/above the `lg` breakpoint.
+ *
+ * Why this exists: `ShopMegaMenuPanel` is portaled to `document.body`
+ * (see the big comment on that component), which means the `hidden
+ * lg:flex` wrapper around it in Header.tsx has NO effect on it — that
+ * wrapper isn't an ancestor of the portaled DOM node anymore. Without
+ * this hook, the panel could still mount/show on mobile viewports
+ * whenever `isActive` is true, colliding with (and rendering on top of)
+ * the mobile ShopBottomSheet. This hook lets the panel bail out of
+ * rendering entirely below `lg`, regardless of `isActive`.
+ */
 function useIsDesktopNav() {
   const [isDesktop, setIsDesktop] = useState(false)
   useEffect(() => {
@@ -100,6 +140,66 @@ function useIsDesktopNav() {
   return isDesktop
 }
 
+/**
+ * Desktop dropdown panel — categories on the left, affiliated stores on
+ * the right. Spans the full viewport width and opens like an envelope
+ * flap unfolding out from behind the header:
+ *
+ * - z-40, one below the header's z-50, so the header bar visually sits
+ *   ON TOP of the panel rather than the panel sliding down over it — the
+ *   flap reads as tucked behind the header at rest.
+ * - The hinge is the panel's own top edge, pinned to PANEL_TOP (the
+ *   bottom edge of the header's narrow/INNER_H strip, offset by the
+ *   airmail stripe) via `top`, NOT via a `translateY` inside the
+ *   transform — keeping the positional offset out of the transform
+ *   composition means `rotateX` pivots cleanly around that hinge line
+ *   instead of interacting unpredictably with a translate in the same
+ *   transform string.
+ * - `perspective` on the outer wrapper + `rotateX` + `transform-origin:
+ *   top` on the inner panel gives the 3D "flap falling open" motion,
+ *   closed at -100deg (folded back, hidden behind the header) and open
+ *   at 0deg (lying flat).
+ *
+ * Rendered via a portal into document.body: Header.tsx's desktop nav
+ * wrapper has `-translate-x-1/2` on it to center the nav links, and any
+ * CSS `transform` on an ancestor becomes the containing block for
+ * descendant `fixed` elements — without the portal, this panel would get
+ * trapped inside that narrow, off-center nav wrapper instead of spanning
+ * the real viewport. Portaling to document.body escapes that ancestor
+ * entirely so `fixed` (and the hinge math above) behaves as intended.
+ *
+ * IMPORTANT (mobile guard): because the portal escapes to document.body,
+ * `hidden lg:flex` on the parent wrapper in Header.tsx does nothing to
+ * this component. Desktop-only visibility is enforced two ways instead:
+ * (1) `useIsDesktopNav()` bails out to `null` — no portal is even
+ * created — below the `lg` breakpoint, and (2) `hidden lg:block` is
+ * applied directly on the portaled node as a CSS backstop. Both must
+ * stay in place, or this panel can render on top of the mobile
+ * ShopBottomSheet.
+ *
+ * `id="shop-mega-menu-panel"` on the portaled root: Header.tsx opens/
+ * closes this panel on click now (not hover), and closes it again on any
+ * outside click. Because this node lives in document.body rather than
+ * inside Header's own <nav>, Header's click-outside listener can't rely
+ * on DOM containment within a ref — it instead looks up this element by
+ * id and treats clicks inside it as "inside", so clicking a category or
+ * store link doesn't get mistaken for an outside click. Keep this id in
+ * sync with `SHOP_PANEL_ID` in Header.tsx if either ever changes.
+ *
+ * POINTER-EVENTS: the outer portaled wrapper below is `pointer-events-
+ * none` unconditionally. A `rotateX` transform on the inner panel is a
+ * paint-time effect only — it does NOT remove the inner panel from
+ * normal layout flow, so even while folded shut (`rotateX(-100deg)`,
+ * `invisible`) the inner panel still occupies its full untransformed
+ * box (categories column + up to 480px of store grid). Without
+ * `pointer-events-none` on this outer wrapper, that full-width,
+ * full-height, fully transparent box sits `fixed` over the page at all
+ * times and silently swallows clicks on whatever real content is
+ * underneath it — the menu never has to be open for that to happen.
+ * The inner panel re-enables `pointer-events-auto` for itself only in
+ * the `isActive` branch, since `pointer-events` is inherited and would
+ * otherwise be `none` for the open panel's own contents too.
+ */
 export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
   const [mounted, setMounted] = useState(false)
   const isDesktop = useIsDesktopNav()
@@ -112,26 +212,6 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
       className="pointer-events-none fixed inset-x-0 z-40 hidden [perspective:2200px] lg:block"
       style={{ top: PANEL_TOP }}
     >
-      {/* Always-visible peek strip — the envelope-flap edge cue. Unlike
-          before, this is now a REAL click target: it opts itself back
-          into pointer-events (overriding the outer wrapper's
-          pointer-events-none) and dispatches the same OPEN_SHOP_EVENT
-          that Header.tsx already listens for elsewhere, so clicking the
-          visible sliver behaves exactly like clicking the Shop trigger
-          itself — no duplicated open/close state needed here.
-          `hidden` while the panel is open (isActive) so it doesn't sit
-          uselessly on top of the now-open panel intercepting clicks
-          meant for the categories/stores beneath it. */}
-      <button
-        type="button"
-        aria-label="Open shop menu"
-        onClick={() => window.dispatchEvent(new Event(OPEN_SHOP_EVENT))}
-        className={`absolute inset-x-0 top-0 block w-full cursor-pointer border-b border-teal/20 bg-parchment shadow-sm shadow-ink/10 transition-opacity duration-150 hover:bg-gold/5 pointer-events-auto ${
-          isActive ? "invisible" : "visible"
-        }`}
-        style={{ height: PEEK_HEIGHT }}
-      />
-
       <div
         className={`origin-top border-b border-teal/20 bg-parchment shadow-2xl shadow-ink/25 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isActive
@@ -142,12 +222,12 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
         <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[minmax(0,240px)_1px_minmax(0,1fr)] px-4">
           {/* Categories */}
           <div className="p-4">
-            <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
+            <div className="px-3 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
               Shop by category
             </div>
             <div className="flex flex-col">
               {categoryIcons.map(({ name, icon: Icon }) => (
-                <a 
+                <a
                   key={name}
                   href={`/stores?category=${encodeURIComponent(name)}`}
                   className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-teal/10"
@@ -164,7 +244,14 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
           {/* Divider */}
           <div className="bg-teal/15" />
 
-          {/* Affiliated stores */}
+          {/* Affiliated stores — fixed 4-column grid. Auto-fill was tried
+              here (packing by min tile width) but at this panel's full
+              width it fit 6 columns, which squeezed store names down to
+              truncated ellipses ("Santhiya Fas…"). A flat grid-cols-4
+              gives each tile enough width for full names, at the cost of
+              some empty space when a row isn't full (e.g. the last row
+              of Affiliated Stores) — an acceptable trade for readable
+              names. */}
           <div className="max-h-[480px] overflow-y-auto nav-scroll p-4 mt-8">
             <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
               Marketplaces
