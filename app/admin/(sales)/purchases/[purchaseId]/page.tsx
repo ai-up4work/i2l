@@ -7,44 +7,50 @@ import Link from "next/link"
 import Image from "next/image"
 import { ArrowLeft, ExternalLink, Store, ClipboardCopy, AlertTriangle } from "lucide-react"
 
-import {
-  getPurchaseLine,
-  STATUS_LABEL,
-  STATUS_TONE,
-  CHANNEL_LABEL,
-  type PurchaseStatus,
-} from "@/data/purchases/data"
+import { STATUS_LABEL, STATUS_TONE, CHANNEL_LABEL } from "@/data/purchases/data"
+import { useAdminData } from "@/contexts/AdminDataContext"
 import { StatusPill } from "@/components/admin/warehouse/status-pill"
 
 // Purchase detail — everything ops needs to go buy one line item and record
 // the outcome. Two terminal actions: mark purchased (records actual price
-// paid, since quoted vs. paid can drift — see pl_3 in the mock data) or
+// paid, since quoted vs. paid can drift — see WD-1002 in the seed data) or
 // flag unavailable (free-text reason; this is what should eventually notify
 // the Channel 3 request thread / trigger a customer follow-up, per the
 // chat design in the requirements doc — not wired up here since chat isn't
 // built yet).
 //
+// Backed by AdminDataContext, same as the order detail page — marking a
+// line here is immediately reflected on the Purchases list, and the
+// order-context strip above links straight back to the real order.
+//
+// This is also the "tick" that ops requires before an order can move to
+// Quality check: markPurchased/flagUnavailable write straight into the
+// shared purchases store, and AdminDataContext refuses to advance an
+// order's stage past "Ordered" until every item on it has been marked
+// purchased here. Because Purchases now covers every order item (not
+// just ones that happen to have an existing Purchase row), markPurchased
+// and flagUnavailable take (orderId, orderItemId) rather than a purchase
+// id — they upsert: a first-time tick creates the record, a retry (e.g.
+// after a prior "unavailable") updates it in place.
+//
 // NOTE: folder is [PurchaseId], not [id] — must match the key destructured
 // from useParams() below, since Next.js takes the params key from the
-// folder name literally. If you rename one, rename the other. (QC's detail
-// route uses [id] instead — the two aren't required to match each other,
-// just worth knowing they're named differently if you go looking.)
-//
-// TODO: replace local useState with a real mutation once there's an API.
-// Right now marking an action only updates this page's own state — it does
-// not write back to the list page, since there's no shared store yet.
+// folder name literally. If you rename one, rename the other. (The order
+// detail route uses [orderId] instead — the two aren't required to match
+// each other, just worth knowing they're named differently if you go
+// looking.)
 
 export default function PurchaseDetailPage() {
   const params = useParams<{ PurchaseId: string }>()
   const router = useRouter()
-  const initial = getPurchaseLine(params.PurchaseId)
+  const { getPurchaseLine, canActOnPurchaseLine, markPurchased, flagUnavailable } = useAdminData()
+  const line = getPurchaseLine(params.PurchaseId)
 
-  const [status, setStatus] = useState<PurchaseStatus | undefined>(initial?.status)
-  const [actualPrice, setActualPrice] = useState(initial?.quotedUnitPriceINR?.toString() ?? "")
-  const [issueNote, setIssueNote] = useState(initial?.issueNote ?? "")
+  const [actualPrice, setActualPrice] = useState(line?.quotedUnitPriceINR?.toString() ?? "")
+  const [issueNote, setIssueNote] = useState(line?.issueNote ?? "")
   const [mode, setMode] = useState<"idle" | "confirming_purchase" | "confirming_issue">("idle")
 
-  if (!initial) {
+  if (!line) {
     return (
       <div className="px-6 py-10 lg:px-10">
         <p className="text-sm text-ink/50">Purchase not found.</p>
@@ -55,8 +61,8 @@ export default function PurchaseDetailPage() {
     )
   }
 
-  const line = initial
-  const currentStatus = status ?? line.status
+  const currentStatus = line.status
+  const canAct = canActOnPurchaseLine(line)
   const trimmedPrice = actualPrice.trim()
   const priceDrift = trimmedPrice === "" ? null : Number(trimmedPrice) - line.quotedUnitPriceINR
 
@@ -71,10 +77,16 @@ export default function PurchaseDetailPage() {
         Back to Purchases
       </button>
 
-      {/* Order context */}
+      {/* Order context — links back to the real order, since this line is
+          joined from it rather than being its own record. */}
       <div className="mb-4 flex items-center justify-between rounded-2xl border border-ink/10 bg-card px-4 py-3 text-sm">
         <div>
-          <span className="font-medium text-ink">{line.orderNumber}</span>
+          <Link
+            href={`/admin/orders/${line.orderId}`}
+            className="font-medium text-ink hover:text-teal-deep hover:underline"
+          >
+            {line.orderNumber}
+          </Link>
           <span className="mx-1.5 text-ink/25">·</span>
           <span className="text-ink/60">{line.customerName}</span>
         </div>
@@ -142,7 +154,7 @@ export default function PurchaseDetailPage() {
 
       {/* Actions */}
       <div className="mt-4 rounded-2xl border border-ink/10 bg-card p-5">
-        {currentStatus === "needs_purchase" && mode === "idle" && (
+        {currentStatus === "needs_purchase" && mode === "idle" && canAct && (
           <div className="flex flex-wrap gap-2.5">
             <button
               type="button"
@@ -159,6 +171,12 @@ export default function PurchaseDetailPage() {
               Flag as unavailable
             </button>
           </div>
+        )}
+
+        {currentStatus === "needs_purchase" && mode === "idle" && !canAct && (
+          <p className="text-sm text-ink/40">
+            This line belongs to a different site — you can view it but not act on it.
+          </p>
         )}
 
         {mode === "confirming_purchase" && (
@@ -185,9 +203,7 @@ export default function PurchaseDetailPage() {
               <button
                 type="button"
                 onClick={() => {
-                  // TODO: PATCH /api/admin/purchases/{line.id}
-                  //   { status: "purchased", actualUnitPriceINR: Number(actualPrice), purchasedBy, purchasedAt }
-                  setStatus("purchased")
+                  markPurchased(line.orderId, line.orderItemId, Number(actualPrice))
                   setMode("idle")
                 }}
                 disabled={trimmedPrice === ""}
@@ -223,8 +239,7 @@ export default function PurchaseDetailPage() {
               <button
                 type="button"
                 onClick={() => {
-                  // TODO: PATCH /api/admin/purchases/{line.id} { status: "unavailable", issueNote }
-                  setStatus("unavailable")
+                  flagUnavailable(line.orderId, line.orderItemId, issueNote)
                   setMode("idle")
                 }}
                 disabled={!issueNote.trim()}
@@ -257,9 +272,7 @@ export default function PurchaseDetailPage() {
               <AlertTriangle size={15} />
               Flagged unavailable
             </p>
-            {(issueNote || line.issueNote) && (
-              <p className="mt-1.5 text-sm text-ink/60">{issueNote || line.issueNote}</p>
-            )}
+            {line.issueNote && <p className="mt-1.5 text-sm text-ink/60">{line.issueNote}</p>}
           </div>
         )}
       </div>

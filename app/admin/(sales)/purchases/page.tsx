@@ -6,14 +6,11 @@ import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { ChevronRight, Inbox, Search, SearchX, ShoppingBag, Store } from "lucide-react"
 
-import {
-  MOCK_PURCHASE_LINES,
-  STATUS_LABEL,
-  CHANNEL_LABEL,
-  type PurchaseStatus,
-} from "@/data/purchases/data"
+import { STATUS_LABEL, CHANNEL_LABEL } from "@/data/purchases/data"
+import type { PurchaseLine, PurchaseStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass } from "@/components/admin/seller/shared"
+import { useAdminData } from "@/contexts/AdminDataContext"
 
 // Purchases queue — the ops screen for "go buy this item from this seller."
 // Scoped per order-line/seller (not per whole order): an order can span
@@ -21,12 +18,13 @@ import { panelClass } from "@/components/admin/seller/shared"
 // can pick up and complete on its own. Each row still shows the parent
 // order/customer so ops has context without needing a separate lookup.
 //
+// Backed by AdminDataContext.visiblePurchaseLines, which is joined live
+// from real orders — so this queue and the /admin/orders pages can never
+// disagree about a customer name, site, or stage.
+//
 // Visual language matches the Sellers/Quality check screens deliberately —
 // same panelClass table shell, same tone system, same edge-bar rows —
 // since ops moves between all three queues in the course of a shift.
-//
-// TODO: replace MOCK_PURCHASE_LINES with a real fetch once the purchases
-// table exists. Filtering/search stays client-side either way at this scale.
 
 const STATUS_TONE: Record<PurchaseStatus, StatusTone> = {
   needs_purchase: "amber",
@@ -61,10 +59,11 @@ const COLUMNS = ["Product", "Order", "Seller", "Qty", "Quoted price", "Age", "St
 
 export default function PurchasesPage() {
   const router = useRouter()
+  const { visiblePurchaseLines } = useAdminData()
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("needs_purchase")
   const [query, setQuery] = useState("")
 
-  const matchesQuery = (line: (typeof MOCK_PURCHASE_LINES)[number], q: string) =>
+  const matchesQuery = (line: PurchaseLine, q: string) =>
     !q ||
     line.orderNumber.toLowerCase().includes(q) ||
     line.customerName.toLowerCase().includes(q) ||
@@ -76,23 +75,21 @@ export default function PurchasesPage() {
   const counts = useMemo(() => {
     const q = query.trim().toLowerCase()
     const base: Record<string, number> = { all: 0 }
-    for (const line of MOCK_PURCHASE_LINES) {
+    for (const line of visiblePurchaseLines) {
       if (!matchesQuery(line, q)) continue
       base.all += 1
       base[line.status] = (base[line.status] ?? 0) + 1
     }
     return base
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query])
+  }, [visiblePurchaseLines, query])
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return MOCK_PURCHASE_LINES.filter((line) => {
+    return visiblePurchaseLines.filter((line) => {
       if (tab !== "all" && line.status !== tab) return false
       return matchesQuery(line, q)
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, query])
+  }, [visiblePurchaseLines, tab, query])
 
   const hasAnyFilter = query.trim().length > 0 || tab !== "all"
   const clearFilters = () => {
@@ -190,7 +187,7 @@ function PurchaseRow({
   line,
   onOpen,
 }: {
-  line: (typeof MOCK_PURCHASE_LINES)[number]
+  line: PurchaseLine
   onOpen: () => void
 }) {
   const tone = STATUS_TONE[line.status]

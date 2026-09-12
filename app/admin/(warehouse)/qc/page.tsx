@@ -6,14 +6,8 @@ import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { ClipboardCheck, Inbox, Search, SearchX, Store } from "lucide-react"
 
-import {
-  getQCRows,
-  isOrderAgeBreached,
-  QC_STATUS_LABEL,
-  QC_STATUS_TONE,
-  type QCStatus,
-} from "@/data/qc/data"
-import { CHANNEL_LABEL } from "@/data/purchases/data"
+import { useAdminData, hoursSince, isOrderAgeBreached } from "@/contexts/AdminDataContext"
+import { QC_STATUS_LABEL, CHANNEL_LABEL, type QCStatus, type QCLine } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass } from "@/components/admin/seller/shared"
 
@@ -23,8 +17,12 @@ import { panelClass } from "@/components/admin/seller/shared"
 // pipeline: an item only shows up here once its purchase line has been
 // bought and has arrived at this warehouse site.
 //
-// TODO: scope getQCRows() to the signed-in Warehouse account's own
-// warehouse_id server-side — never trust a client-supplied site param.
+// Previously backed by a standalone @/data/qc/data mock table, unrelated
+// to Orders/Purchases. Now `visibleQcLines` is derived straight from
+// AdminDataContext's purchases + orders, so this queue can never disagree
+// with what Purchases or Order detail show for the same item — and the
+// site-scoping this page's old TODO asked for is now just Warehouse's
+// existing `ordersScopedToOwnSite` permission, applied uniformly.
 
 const TABS: { key: "all" | QCStatus; label: string }[] = [
   { key: "all", label: "All" },
@@ -48,45 +46,49 @@ const TONE_EDGE: Record<StatusTone, string> = {
   amber: "before:bg-gold-deep",
   rose: "before:bg-rose-600/70",
 }
+const QC_STATUS_TONE: Record<QCStatus, StatusTone> = {
+  pending: "amber",
+  passed: "teal",
+  flagged: "rose",
+}
 
 const COLUMNS = ["Product", "Order", "Seller", "Qty", "Arrived", "Order age", "Notes", "Status"]
 
 export default function QCPage() {
   const router = useRouter()
+  const { visibleQcLines, currentUser, permissions, sites } = useAdminData()
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("pending")
   const [query, setQuery] = useState("")
 
-  const allRows = useMemo(() => getQCRows(), [])
-
-  const matchesQuery = (row: ReturnType<typeof getQCRows>[number], q: string) =>
+  const matchesQuery = (row: QCLine, q: string) =>
     !q ||
-    row.purchase.orderNumber.toLowerCase().includes(q) ||
-    row.purchase.customerName.toLowerCase().includes(q) ||
-    row.purchase.productTitle.toLowerCase().includes(q) ||
-    row.purchase.sellerName.toLowerCase().includes(q)
+    row.orderNumber.toLowerCase().includes(q) ||
+    row.customerName.toLowerCase().includes(q) ||
+    row.productTitle.toLowerCase().includes(q) ||
+    row.sellerName.toLowerCase().includes(q)
 
   // Counts reflect the active search too, so the tab pills never disagree
   // with what's actually on screen underneath them.
   const counts = useMemo(() => {
     const q = query.trim().toLowerCase()
     const base: Record<string, number> = { all: 0 }
-    for (const row of allRows) {
+    for (const row of visibleQcLines) {
       if (!matchesQuery(row, q)) continue
       base.all += 1
       base[row.status] = (base[row.status] ?? 0) + 1
     }
     return base
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allRows, query])
+  }, [visibleQcLines, query])
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return allRows.filter((row) => {
+    return visibleQcLines.filter((row) => {
       if (tab !== "all" && row.status !== tab) return false
       return matchesQuery(row, q)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allRows, tab, query])
+  }, [visibleQcLines, tab, query])
 
   const hasAnyFilter = query.trim().length > 0 || tab !== "all"
   const clearFilters = () => {
@@ -95,6 +97,13 @@ export default function QCPage() {
   }
 
   const tabTotal = counts[tab] ?? 0
+
+  // Warehouse is pinned to one site; everyone else is looking at every
+  // site's queue at once, so the subtitle should say so honestly instead
+  // of hardcoding a site name that may not even be the viewer's.
+  const scopeLabel = permissions.ordersScopedToOwnSite
+    ? sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
+    : "all sites"
 
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
@@ -108,7 +117,7 @@ export default function QCPage() {
             <div>
               <h1 className="font-display text-3xl text-ink">Quality check</h1>
               <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Inspect each item that&rsquo;s arrived at Colombo Hub before it&rsquo;s packed.
+                Inspect each item that&rsquo;s arrived at {scopeLabel} before it&rsquo;s packed.
               </p>
             </div>
           </div>
@@ -167,11 +176,7 @@ export default function QCPage() {
             <EmptyState hasAnyFilter={hasAnyFilter} onClearFilters={clearFilters} />
           ) : (
             rows.map((row) => (
-              <QCRow
-                key={row.id}
-                row={row}
-                onOpen={() => router.push(`/admin/qc/${row.id}`)}
-              />
+              <QCRow key={row.id} row={row} onOpen={() => router.push(`/admin/qc/${row.id}`)} />
             ))
           )}
         </div>
@@ -180,7 +185,7 @@ export default function QCPage() {
   )
 }
 
-function QCRow({ row, onOpen }: { row: ReturnType<typeof getQCRows>[number]; onOpen: () => void }) {
+function QCRow({ row, onOpen }: { row: QCLine; onOpen: () => void }) {
   const tone = QC_STATUS_TONE[row.status]
   const breached = isOrderAgeBreached(row.orderAgeHours)
 
@@ -197,36 +202,28 @@ function QCRow({ row, onOpen }: { row: ReturnType<typeof getQCRows>[number]; onO
       {/* Product */}
       <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
         <span className="h-10 w-10 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04]">
-          <Image
-            src={row.purchase.productImage}
-            alt=""
-            width={40}
-            height={40}
-            className="h-full w-full object-cover"
-          />
+          <Image src={row.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold text-ink">{row.purchase.productTitle}</span>
-          {row.purchase.variant && (
-            <span className="block truncate text-xs text-ink/40">{row.purchase.variant}</span>
-          )}
+          <span className="block truncate text-sm font-semibold text-ink">{row.productTitle}</span>
+          {row.variant && <span className="block truncate text-xs text-ink/40">{row.variant}</span>}
         </span>
       </span>
 
       <span className="hidden flex-col sm:flex">
-        <span className="truncate text-sm text-ink/70">{row.purchase.orderNumber}</span>
-        <span className="truncate text-xs text-ink/40">{row.purchase.customerName}</span>
+        <span className="truncate text-sm text-ink/70">{row.orderNumber}</span>
+        <span className="truncate text-xs text-ink/40">{row.customerName}</span>
       </span>
 
       <span className="hidden flex-col sm:flex">
         <span className="flex items-center gap-1.5 truncate text-sm text-ink/70">
           <Store size={12} className="flex-none text-ink/30" />
-          {row.purchase.sellerName}
+          {row.sellerName}
         </span>
-        <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[row.purchase.channel]}</span>
+        <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[row.channel]}</span>
       </span>
 
-      <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{row.purchase.quantity}</span>
+      <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{row.quantity}</span>
 
       <span className="hidden text-sm text-ink/50 sm:block">{row.arrivedAgo}</span>
 

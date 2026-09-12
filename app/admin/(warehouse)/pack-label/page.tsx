@@ -1,227 +1,250 @@
+// app/admin/pack-label/page.tsx
 "use client"
 
 import { useMemo, useState } from "react"
-import Link from "next/link"
-import { PackageCheck, Search } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Inbox, PackageCheck, Search, SearchX } from "lucide-react"
 
-// Pack & label queue — orders that passed QC at this site, awaiting packing.
-// Mirrors the visual pattern established on /admin/qc: icon header, pill
-// tabs with live counts, search, uppercase-label table. Rows are per-order
-// here (not per-item like QC), since packing/labeling is an order-level
-// action, not a per-line-item one.
+import { useAdminData, hoursSince } from "@/contexts/AdminDataContext"
+import { CHANNEL_LABEL, PACK_STATUS_LABEL, type PackStatus, type PackLine } from "@/types/admin"
+import type { StatusTone } from "@/components/admin/warehouse/status-pill"
+import { panelClass } from "@/components/admin/seller/shared"
+
+// Pack & label queue — orders that passed QC at this site, awaiting
+// packing. Rows are per-order here (not per-item like QC), since
+// packing/labeling is an order-level action, not a per-line-item one.
 //
-// TODO: mock data — swap for real fetch scoped to the logged-in Warehouse
-// account's site once the API exists.
+// Previously backed by a standalone hardcoded ORDERS array with its own
+// ad-hoc "Affiliated store" | "Scraped link" | "Manual quote" channel
+// strings and a "Packed" status nothing ever actually set. Now
+// `visiblePackLines` is derived from AdminDataContext's orders +
+// purchases: an order surfaces here once every item on it has passed QC
+// (see PackLine in types/admin.ts), and "Packed" reflects a real
+// packOrder() call rather than a status no button could reach.
 
-type PackOrder = {
-  id: string
-  customer: string
-  channel: "Affiliated store" | "Scraped link" | "Manual quote"
-  itemCount: number
-  destination: string
-  qcPassedAgeHours: number
-  orderAge: string
-  handlingNote: string | null
-  status: "Awaiting pack" | "Packed"
-}
-
-const ORDERS: PackOrder[] = [
-  {
-    id: "WD-2281",
-    customer: "Priyanka Silva",
-    channel: "Affiliated store",
-    itemCount: 3,
-    destination: "Colombo 05",
-    qcPassedAgeHours: 26,
-    orderAge: "3d 4h",
-    handlingNote: "Fragile — glass item, double-box",
-    status: "Awaiting pack",
-  },
-  {
-    id: "WD-2288",
-    customer: "Nadeesha K.",
-    channel: "Scraped link",
-    itemCount: 1,
-    destination: "Kandy",
-    qcPassedAgeHours: 4,
-    orderAge: "6h",
-    handlingNote: null,
-    status: "Awaiting pack",
-  },
-  {
-    id: "WD-2270",
-    customer: "Ruwan Jayasuriya",
-    channel: "Manual quote",
-    itemCount: 2,
-    destination: "Galle",
-    qcPassedAgeHours: 52,
-    orderAge: "5d 12h",
-    handlingNote: "Customer requested gift wrap",
-    status: "Awaiting pack",
-  },
-  {
-    id: "WD-2292",
-    customer: "Ishara Fonseka",
-    channel: "Affiliated store",
-    itemCount: 1,
-    destination: "Negombo",
-    qcPassedAgeHours: 1,
-    orderAge: "1d 2h",
-    handlingNote: null,
-    status: "Packed",
-  },
+const TABS: { key: "all" | PackStatus; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "awaiting_pack", label: "Awaiting pack" },
+  { key: "packed", label: "Packed" },
 ]
 
-const TABS = ["All", "Awaiting pack", "Packed"] as const
-type Tab = (typeof TABS)[number]
-
-const CHANNEL_BADGE: Record<PackOrder["channel"], string> = {
-  "Affiliated store": "bg-indigo-50 text-indigo-700",
-  "Scraped link": "bg-indigo-50 text-indigo-700",
-  "Manual quote": "bg-amber-50 text-amber-700",
+const TONE_DOT: Record<StatusTone, string> = {
+  teal: "bg-teal-deep",
+  amber: "bg-gold-deep",
+  rose: "bg-rose-600",
+}
+const TONE_PILL: Record<StatusTone, string> = {
+  teal: "bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25",
+  amber: "bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30",
+  rose: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200",
+}
+const TONE_EDGE: Record<StatusTone, string> = {
+  teal: "before:bg-teal-deep/70",
+  amber: "before:bg-gold-deep",
+  rose: "before:bg-rose-600/70",
+}
+const PACK_STATUS_TONE: Record<PackStatus, StatusTone> = {
+  awaiting_pack: "amber",
+  packed: "teal",
 }
 
+const COLUMNS = ["Order", "Destination", "Items", "Passed QC", "Order age", "Handling", "Status"]
+
 export default function PackLabelPage() {
-  const [tab, setTab] = useState<Tab>("Awaiting pack")
+  const router = useRouter()
+  const { visiblePackLines, currentUser, permissions, sites } = useAdminData()
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("awaiting_pack")
   const [query, setQuery] = useState("")
 
-  const counts = useMemo(
-    () => ({
-      All: ORDERS.length,
-      "Awaiting pack": ORDERS.filter((o) => o.status === "Awaiting pack").length,
-      Packed: ORDERS.filter((o) => o.status === "Packed").length,
-    }),
-    []
-  )
+  const matchesQuery = (row: PackLine, q: string) =>
+    !q || row.orderNumber.toLowerCase().includes(q) || row.customerName.toLowerCase().includes(q)
+
+  const counts = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const base: Record<string, number> = { all: 0 }
+    for (const row of visiblePackLines) {
+      if (!matchesQuery(row, q)) continue
+      base.all += 1
+      base[row.status] = (base[row.status] ?? 0) + 1
+    }
+    return base
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visiblePackLines, query])
 
   const rows = useMemo(() => {
-    return ORDERS.filter((o) => {
-      const matchesTab = tab === "All" ? true : o.status === tab
-      const matchesQuery =
-        query.trim() === "" ||
-        o.id.toLowerCase().includes(query.toLowerCase()) ||
-        o.customer.toLowerCase().includes(query.toLowerCase())
-      return matchesTab && matchesQuery
-    }).sort((a, b) => b.qcPassedAgeHours - a.qcPassedAgeHours)
-  }, [tab, query])
+    const q = query.trim().toLowerCase()
+    return visiblePackLines
+      .filter((row) => {
+        if (tab !== "all" && row.status !== tab) return false
+        return matchesQuery(row, q)
+      })
+      .sort((a, b) => b.qcPassedAgeHours - a.qcPassedAgeHours)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visiblePackLines, tab, query])
+
+  const hasAnyFilter = query.trim().length > 0 || tab !== "all"
+  const clearFilters = () => {
+    setQuery("")
+    setTab("all")
+  }
+
+  const scopeLabel = permissions.ordersScopedToOwnSite
+    ? sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
+    : "all sites"
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
-      {/* Header */}
-      <div className="mb-6 flex items-start gap-4">
-        <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-white shadow-[0_2px_8px_rgba(32,36,43,0.08)]">
-          <PackageCheck size={22} className="text-teal-deep" strokeWidth={1.75} />
-        </div>
-        <div>
-          <h1 className="font-display text-3xl font-semibold text-ink">Pack &amp; label</h1>
-          <p className="mt-1 max-w-xl text-sm text-ink/55">
-            Orders that passed quality check at Colombo Hub, ready to be packed and labeled for export.
-          </p>
-        </div>
-      </div>
-
-      {/* Tabs + search */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                tab === t
-                  ? "bg-teal-deep text-parchment"
-                  : "bg-white text-ink/60 hover:bg-ink/[0.04]"
-              }`}
-            >
-              {t} <span className={tab === t ? "text-parchment/70" : "text-ink/35"}>{counts[t]}</span>
-            </button>
-          ))}
+    <div className="min-h-screen bg-parchment font-body text-ink">
+      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
+        {/* ── Header ── */}
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+              <PackageCheck size={22} strokeWidth={1.75} />
+            </div>
+            <div>
+              <h1 className="font-display text-3xl text-ink">Pack &amp; label</h1>
+              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+                Orders that passed quality check at {scopeLabel}, ready to be packed and labeled for export.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="relative">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/30" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search order or customer"
-            className="w-72 rounded-full border border-ink/10 bg-white py-2 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-teal/40"
-          />
-        </div>
-      </div>
-
-      <p className="mb-2 text-sm text-ink/45">
-        {rows.length} {rows.length === 1 ? "order" : "orders"}
-      </p>
-
-      {/* Table */}
-      <div className="overflow-hidden rounded-2xl border border-ink/10 bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-ink/10 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-indigo-500/70">
-              <th className="px-5 py-3">Order</th>
-              <th className="px-5 py-3">Destination</th>
-              <th className="px-5 py-3">Items</th>
-              <th className="px-5 py-3">Passed QC</th>
-              <th className="px-5 py-3">Order age</th>
-              <th className="px-5 py-3">Handling</th>
-              <th className="px-5 py-3">Status</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((o) => (
-              <tr key={o.id} className="border-b border-ink/[0.06] last:border-0 hover:bg-ink/[0.02]">
-                <td className="px-5 py-4">
-                  <div className="font-semibold text-ink">{o.id}</div>
-                  <div className="text-xs text-ink/45">{o.customer}</div>
-                  <span
-                    className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${CHANNEL_BADGE[o.channel]}`}
-                  >
-                    {o.channel}
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-ink/70">{o.destination}</td>
-                <td className="px-5 py-4 text-ink/70">{o.itemCount}</td>
-                <td className="px-5 py-4 text-ink/70">{o.qcPassedAgeHours}h ago</td>
-                <td className="px-5 py-4 text-ink/70">{o.orderAge}</td>
-                <td className="px-5 py-4">
-                  {o.handlingNote ? (
-                    <span className="text-xs text-amber-700">{o.handlingNote}</span>
-                  ) : (
-                    <span className="text-ink/25">—</span>
-                  )}
-                </td>
-                <td className="px-5 py-4">
-                  <span
-                    className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${
-                      o.status === "Packed"
-                        ? "bg-teal/[0.08] text-teal-deep"
-                        : "bg-amber-50 text-amber-700"
-                    }`}
-                  >
-                    {o.status}
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-right">
-                  <Link
-                    href={`/admin/pack-label/${o.id}`}
-                    className="text-sm font-medium text-teal-deep hover:underline"
-                  >
-                    {o.status === "Packed" ? "View" : "Pack"}
-                  </Link>
-                </td>
-              </tr>
+        {/* ── Filters ── */}
+        <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
+                  tab === t.key
+                    ? "bg-teal-deep text-parchment shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]"
+                    : "text-ink/55 hover:text-ink/80"
+                }`}
+              >
+                {t.label}
+                <span className={tab === t.key ? "text-parchment/70" : "text-ink/35"}>{counts[t.key] ?? 0}</span>
+              </button>
             ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-5 py-10 text-center text-sm text-ink/40">
-                  Nothing here right now.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search order or customer"
+              className="w-full rounded-full border border-ink/10 bg-card py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+            />
+          </div>
+        </div>
+
+        <p className="mt-4 text-xs font-medium text-ink/40">
+          {rows.length} order{rows.length === 1 ? "" : "s"}
+        </p>
+
+        {/* ── Table ── */}
+        <div className={`mt-3 overflow-hidden ${panelClass}`}>
+          <div className="sticky top-0 z-10 hidden grid-cols-[1fr_0.9fr_0.6fr_0.9fr_0.9fr_1.2fr_0.9fr] gap-2 border-b border-ink/10 bg-parchment/70 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
+            {COLUMNS.map((label, i) => (
+              <span key={label} className={i === 2 ? "text-right" : ""}>
+                {label}
+              </span>
+            ))}
+          </div>
+
+          {rows.length === 0 ? (
+            <EmptyState hasAnyFilter={hasAnyFilter} onClearFilters={clearFilters} />
+          ) : (
+            rows.map((row) => (
+              <PackRow key={row.id} row={row} onOpen={() => router.push(`/admin/pack-label/${row.id}`)} />
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PackRow({ row, onOpen }: { row: PackLine; onOpen: () => void }) {
+  const tone = PACK_STATUS_TONE[row.status]
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen()
+      }}
+      className={`group relative grid w-full cursor-pointer grid-cols-[1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 pl-6 text-left outline-none transition-colors before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[''] last:border-b-0 hover:bg-parchment/50 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1fr_0.9fr_0.6fr_0.9fr_0.9fr_1.2fr_0.9fr] ${TONE_EDGE[tone]}`}
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold text-ink">{row.orderNumber}</span>
+        <span className="block truncate text-xs text-ink/45">{row.customerName}</span>
+        <span className="mt-1 inline-block text-[11px] font-medium text-ink/40">{CHANNEL_LABEL[row.channel]}</span>
+      </span>
+
+      <span className="hidden truncate text-sm text-ink/70 sm:block">{row.destination}</span>
+
+      <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{row.itemCount}</span>
+
+      <span className="hidden text-sm text-ink/50 sm:block">{row.qcPassedAgeLabel} ago</span>
+
+      <span className="hidden text-sm text-ink/50 sm:block">{row.orderAgeLabel}</span>
+
+      <span className="hidden truncate text-xs text-gold-deep sm:block">{row.handlingNote ?? <span className="text-ink/25">—</span>}</span>
+
+      <span className="hidden sm:block">
+        <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} />
+          {PACK_STATUS_LABEL[row.status]}
+        </span>
+      </span>
+
+      {/* mobile-only summary */}
+      <span className="col-span-2 flex items-center justify-between gap-2 pl-13 sm:hidden">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} />
+          {PACK_STATUS_LABEL[row.status]}
+        </span>
+        <span className="text-xs text-ink/50">{row.destination}</span>
+      </span>
+    </div>
+  )
+}
+
+function EmptyState({ hasAnyFilter, onClearFilters }: { hasAnyFilter: boolean; onClearFilters: () => void }) {
+  if (hasAnyFilter) {
+    return (
+      <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+        <SearchX size={22} className="text-ink/25" />
+        <div>
+          <p className="text-sm font-semibold text-ink/70">Nothing matches this filter</p>
+          <p className="mt-1 text-xs text-ink/45">Try a different search term or tab.</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClearFilters}
+          className="mt-1 text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+        >
+          Clear filters
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+      <Inbox size={22} className="text-ink/25" />
+      <div>
+        <p className="text-sm font-semibold text-ink/70">Nothing here right now</p>
+        <p className="mt-1 max-w-xs text-xs text-ink/45">
+          Orders show up here once every item on them has passed quality check.
+        </p>
       </div>
     </div>
   )
