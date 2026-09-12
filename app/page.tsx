@@ -29,7 +29,7 @@ import StatsBand from '@/components/landing/StatsBand'
 import Community from '@/components/landing/Community'
 import Partners from '@/components/landing/Partners'
 import WhyChooseWishdrop from '@/components/landing/WhyChooseWishdrop'
-import DealCoupon, { type Deal } from '@/components/shared/DealCoupon'
+import DealCoupon, { dealToCoupon, type Deal } from '@/components/shared/DealCoupon'
 // REAL, CONNECTED chat components — this page previously had its own
 // dead local `ChatButton` function (see removed "CHAT BUTTON" section)
 // that rendered a static button with no onClick and no useChat() at all.
@@ -446,7 +446,7 @@ function ShopByCategory() {
       <div className="mt-8 mb-16 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {topDeals.map((deal, index) => (
           <Reveal key={deal.brand} delay={index * 60}>
-            <DealCoupon deal={deal} />
+            <DealCoupon coupon={dealToCoupon(deal)} />
           </Reveal>
         ))}
       </div>
