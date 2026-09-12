@@ -569,7 +569,7 @@ export default function Home() {
   return (
     <ChatProvider>
       <main className="bg-parchment">
-        <style jsx global>{`
+        <style>{`
           @keyframes float-slow {
             0%, 100% { transform: translateY(0); }
             50% { transform: translateY(-10px); }
