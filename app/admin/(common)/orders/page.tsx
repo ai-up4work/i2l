@@ -10,33 +10,15 @@ import {
 } from "@/contexts/AdminDataContext";
 import type { Channel, OrderStage } from "@/types/admin";
 import { STAGE_ORDER } from "@/types/admin";
+import { ChannelBadge, StageBadge, DelayedBadge } from "@/components/admin/badges";
+import { StatCard } from "@/components/admin/StatCard";
 
-const CHANNEL_LABEL: Record<Channel, string> = {
-  1: "Affiliated store",
-  2: "Scraped link",
-  3: "Manual request",
-};
-
-function ChannelBadge({ channel }: { channel: Channel }) {
-  if (channel === 3) {
-    // Distinct tag so anyone scanning the list can tell this price
-    // wasn't system-generated — see route spec note on /admin/orders.
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-gold bg-gold/15 px-2 py-0.5 text-xs font-medium text-amber-800">
-        Ch. 3 · Manual quote
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-      Ch. {channel} · {CHANNEL_LABEL[channel]}
-    </span>
-  );
-}
+const inputClass =
+  "rounded-md border border-indigo-200 px-2 py-1.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal";
 
 export default function OrdersPage() {
   const router = useRouter();
-  const { visibleOrders, sites, role, currentUser, permissions, updateOrderStage, reassignSite, toggleDelayed } =
+  const { visibleOrders, sites, currentUser, permissions, updateOrderStage, reassignSite, toggleDelayed } =
     useAdminData();
 
   const [search, setSearch] = useState("");
@@ -46,6 +28,25 @@ export default function OrdersPage() {
   const [delayedOnly, setDelayedOnly] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    channelFilter !== "all" ||
+    stageFilter !== "all" ||
+    siteFilter !== "all" ||
+    delayedOnly ||
+    dateFrom !== "" ||
+    dateTo !== "";
+
+  const clearFilters = () => {
+    setSearch("");
+    setChannelFilter("all");
+    setStageFilter("all");
+    setSiteFilter("all");
+    setDelayedOnly(false);
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const filtered = useMemo(() => {
     return visibleOrders.filter((o) => {
@@ -67,6 +68,9 @@ export default function OrdersPage() {
 
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
 
+  const delayedCount = visibleOrders.filter((o) => o.delayed).length;
+  const manualQuoteCount = visibleOrders.filter((o) => o.isManualQuote && o.stage !== "Delivered").length;
+
   return (
     <div className="space-y-6">
       <div>
@@ -74,6 +78,17 @@ export default function OrdersPage() {
         <p className="mt-1 text-sm text-indigo-500">
           Every order across all three channels, independent of the warehouse queue.
         </p>
+      </div>
+
+      {/* Stat strip */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Visible orders" value={visibleOrders.length} />
+        <StatCard
+          label="Delayed"
+          value={delayedCount}
+          tone={delayedCount > 0 ? "warning" : "default"}
+        />
+        <StatCard label="Manual quotes in flight" value={manualQuoteCount} hint="Channel 3, not yet delivered" />
       </div>
 
       {/* Filter bar */}
@@ -84,7 +99,7 @@ export default function OrdersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Order ID or customer"
-            className="w-48 rounded-md border border-indigo-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal"
+            className={`w-48 ${inputClass}`}
           />
         </div>
 
@@ -93,7 +108,7 @@ export default function OrdersPage() {
           <select
             value={channelFilter}
             onChange={(e) => setChannelFilter(e.target.value === "all" ? "all" : (Number(e.target.value) as Channel))}
-            className="rounded-md border border-indigo-200 px-2 py-1.5 text-sm"
+            className={inputClass}
           >
             <option value="all">All channels</option>
             <option value={1}>1 · Affiliated store</option>
@@ -107,7 +122,7 @@ export default function OrdersPage() {
           <select
             value={stageFilter}
             onChange={(e) => setStageFilter(e.target.value as "all" | OrderStage)}
-            className="rounded-md border border-indigo-200 px-2 py-1.5 text-sm"
+            className={inputClass}
           >
             <option value="all">All stages</option>
             {STAGE_ORDER.map((s) => (
@@ -123,7 +138,7 @@ export default function OrdersPage() {
             <select
               value={siteFilter}
               onChange={(e) => setSiteFilter(e.target.value)}
-              className="rounded-md border border-indigo-200 px-2 py-1.5 text-sm"
+              className={inputClass}
             >
               <option value="all">All sites</option>
               {sites.map((s) => (
@@ -135,13 +150,11 @@ export default function OrdersPage() {
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-indigo-500">Placed from</label>
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-            className="rounded-md border border-indigo-200 px-2 py-1.5 text-sm" />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-indigo-500">Placed to</label>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-            className="rounded-md border border-indigo-200 px-2 py-1.5 text-sm" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} />
         </div>
 
         <label className="flex items-center gap-2 pb-1.5 text-sm text-indigo-700">
@@ -149,10 +162,19 @@ export default function OrdersPage() {
             type="checkbox"
             checked={delayedOnly}
             onChange={(e) => setDelayedOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-indigo-300 text-teal focus:ring-teal"
+            className="h-4 w-4 rounded border-indigo-300 text-teal focus-visible:ring-2 focus-visible:ring-teal"
           />
           Delayed only
         </label>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="ml-auto pb-1.5 text-sm text-indigo-500 underline hover:text-indigo-700"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -166,7 +188,7 @@ export default function OrdersPage() {
               <th className="px-4 py-3">Stage</th>
               <th className="px-4 py-3">Site</th>
               <th className="px-4 py-3">Age</th>
-              <th className="px-4 py-3">Total</th>
+              <th className="px-4 py-3 text-right">Total</th>
               <th className="px-4 py-3">Delayed</th>
               {permissions.canMutateOrderStage && <th className="px-4 py-3">Actions</th>}
             </tr>
@@ -181,28 +203,26 @@ export default function OrdersPage() {
                 <tr
                   key={o.id}
                   onClick={() => router.push(`/admin/orders/${o.id}`)}
-                  className="cursor-pointer border-b border-indigo-50 last:border-0 hover:bg-teal/5"
+                  className={`cursor-pointer border-b border-indigo-50 last:border-0 hover:bg-teal/5 ${o.delayed ? "bg-red-50/40" : ""}`}
                 >
                   <td className="px-4 py-3 font-medium text-indigo-900">{o.id}</td>
                   <td className="px-4 py-3 text-indigo-700">{o.customerName}</td>
                   <td className="px-4 py-3"><ChannelBadge channel={o.channel} /></td>
-                  <td className="px-4 py-3 text-indigo-700">{o.stage}</td>
+                  <td className="px-4 py-3"><StageBadge stage={o.stage} /></td>
                   <td className="px-4 py-3 text-indigo-700">{siteName(o.siteId)}</td>
                   <td className="px-4 py-3 text-indigo-500">{formatAge(hoursSince(o.placedAt))}</td>
-                  <td className="px-4 py-3 text-indigo-900">₹{o.totalValue.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-indigo-900">₹{o.totalValue.toLocaleString()}</td>
                   <td className="px-4 py-3">
-                    {o.delayed && (
-                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-500" title="Delayed" />
-                    )}
+                    {o.delayed && <DelayedBadge compact />}
                   </td>
                   {permissions.canMutateOrderStage && (
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       {canEditThisRow ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <select
                             value={o.stage}
                             onChange={(e) => updateOrderStage(o.id, e.target.value as OrderStage)}
-                            className="rounded-md border border-indigo-200 px-1.5 py-1 text-xs"
+                            className="rounded-md border border-indigo-200 px-1.5 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                           >
                             {STAGE_ORDER.map((s) => (
                               <option key={s} value={s}>{s}</option>
@@ -213,7 +233,7 @@ export default function OrdersPage() {
                             <select
                               value={o.siteId}
                               onChange={(e) => reassignSite(o.id, e.target.value)}
-                              className="rounded-md border border-indigo-200 px-1.5 py-1 text-xs"
+                              className="rounded-md border border-indigo-200 px-1.5 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                               title="Reassign site"
                             >
                               {sites.map((s) => (
@@ -222,10 +242,10 @@ export default function OrdersPage() {
                             </select>
                           )}
 
-                          {permissions.canReassignSite && (
+                          {permissions.canToggleDelayed && (
                             <button
                               onClick={() => toggleDelayed(o.id)}
-                              className="rounded-md border border-indigo-200 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50"
+                              className="rounded-md border border-indigo-200 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                             >
                               {o.delayed ? "Clear delay" : "Flag delayed"}
                             </button>
@@ -242,8 +262,17 @@ export default function OrdersPage() {
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-sm text-indigo-400">
-                  No orders match these filters.
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-indigo-400">
+                  {visibleOrders.length === 0 ? (
+                    "No orders assigned to you yet."
+                  ) : (
+                    <>
+                      No orders match these filters.{" "}
+                      <button onClick={clearFilters} className="text-teal-700 underline">
+                        Clear filters
+                      </button>
+                    </>
+                  )}
                 </td>
               </tr>
             )}

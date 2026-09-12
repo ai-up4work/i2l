@@ -4,8 +4,7 @@
 // [orderId] (/admin/orders/age, not /admin/orders/[orderId]/age) — the
 // route spec flagged that nesting this under a single order would scope
 // it to one order's history instead of the cross-order dashboard the
-// spec actually describes. Confirm this is the intended version; if you
-// actually wanted the per-order age trend, that's a different page.
+// spec actually describes.
 "use client";
 
 import { useMemo, useState } from "react";
@@ -16,6 +15,24 @@ import {
   formatAge,
 } from "@/contexts/AdminDataContext";
 import { STAGE_AGE_THRESHOLD_HOURS, type OrderStage } from "@/types/admin";
+import { DelayedBadge } from "@/components/admin/badges";
+import { StatCard } from "@/components/admin/StatCard";
+
+function StageAgeBar({ stage, hours }: { stage: OrderStage; hours: number }) {
+  const threshold = STAGE_AGE_THRESHOLD_HOURS[stage];
+  const breach = threshold !== Infinity && hours > threshold;
+  const pct = threshold === Infinity ? 0 : Math.min(100, (hours / threshold) * 100);
+  const barColor = breach ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-teal";
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-indigo-100">
+        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={breach ? "font-medium text-red-600" : "text-indigo-600"}>{formatAge(hours)}</span>
+    </div>
+  );
+}
 
 export default function OrdersAgePage() {
   const router = useRouter();
@@ -32,8 +49,15 @@ export default function OrdersAgePage() {
 
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
 
-  const isOverThreshold = (stage: OrderStage, stageHours: number) =>
-    stageHours > STAGE_AGE_THRESHOLD_HOURS[stage];
+  const isOverThreshold = (stage: OrderStage, stageHours: number) => {
+    const threshold = STAGE_AGE_THRESHOLD_HOURS[stage];
+    return threshold !== Infinity && stageHours > threshold;
+  };
+
+  const breachCount = useMemo(
+    () => visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length,
+    [visibleOrders]
+  );
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -48,7 +72,7 @@ export default function OrdersAgePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-2xl text-indigo-900">Order age</h1>
           <p className="mt-1 text-sm text-indigo-500">
@@ -63,11 +87,22 @@ export default function OrdersAgePage() {
               setSelected(new Set());
             }}
             disabled={selected.size === 0}
-            className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+            className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
           >
             Flag {selected.size || ""} for review
           </button>
         )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Orders in view" value={visibleOrders.length} />
+        <StatCard
+          label="Over threshold"
+          value={breachCount}
+          tone={breachCount > 0 ? "warning" : "default"}
+          hint="Sitting past their stage's SLA"
+        />
+        <StatCard label="Selected for review" value={selected.size} />
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-indigo-100 bg-white">
@@ -81,6 +116,7 @@ export default function OrdersAgePage() {
               <th className="px-4 py-3">Stage</th>
               <th className="px-4 py-3">Total order age</th>
               <th className="px-4 py-3">Current-stage age</th>
+              <th className="px-4 py-3">Flagged</th>
               {permissions.canMutateOrderStage && <th className="px-4 py-3">Act</th>}
             </tr>
           </thead>
@@ -93,7 +129,7 @@ export default function OrdersAgePage() {
               return (
                 <tr
                   key={o.id}
-                  className={`cursor-pointer border-b border-indigo-50 last:border-0 hover:bg-teal/5 ${breach ? "bg-red-50/50" : ""}`}
+                  className={`cursor-pointer border-b border-indigo-50 last:border-0 hover:bg-teal/5 ${breach ? "bg-red-50/40" : ""}`}
                   onClick={() => router.push(`/admin/orders/${o.id}`)}
                 >
                   {permissions.canBulkFlag && (
@@ -102,7 +138,7 @@ export default function OrdersAgePage() {
                         type="checkbox"
                         checked={selected.has(o.id)}
                         onChange={() => toggleSelect(o.id)}
-                        className="h-4 w-4 rounded border-indigo-300 text-teal focus:ring-teal"
+                        className="h-4 w-4 rounded border-indigo-300 text-teal focus-visible:ring-2 focus-visible:ring-teal"
                       />
                     </td>
                   )}
@@ -112,24 +148,22 @@ export default function OrdersAgePage() {
                   <td className="px-4 py-3 text-indigo-700">{o.stage}</td>
                   <td className="px-4 py-3 text-indigo-500">{formatAge(totalHours)}</td>
                   <td className="px-4 py-3">
-                    <span className={breach ? "font-medium text-red-600" : "text-indigo-500"}>
-                      {formatAge(stageHours)}
-                      {breach && " · over threshold"}
-                    </span>
+                    <StageAgeBar stage={o.stage} hours={stageHours} />
                   </td>
+                  <td className="px-4 py-3">{o.delayed && <DelayedBadge compact />}</td>
                   {permissions.canMutateOrderStage && (
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       {canActOnRow(o.siteId) ? (
                         <div className="flex gap-1">
                           <button
                             onClick={() => rollbackStage(o.id)}
-                            className="rounded-md border border-indigo-200 px-2 py-1 text-xs text-indigo-600"
+                            className="rounded-md border border-indigo-200 px-2 py-1 text-xs text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                           >
                             ←
                           </button>
                           <button
                             onClick={() => advanceStage(o.id)}
-                            className="rounded-md bg-teal px-2 py-1 text-xs text-white"
+                            className="rounded-md bg-teal px-2 py-1 text-xs text-white hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                           >
                             →
                           </button>
@@ -145,7 +179,7 @@ export default function OrdersAgePage() {
 
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-indigo-400">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-indigo-400">
                   No orders to show.
                 </td>
               </tr>

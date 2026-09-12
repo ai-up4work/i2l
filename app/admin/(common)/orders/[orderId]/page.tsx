@@ -10,6 +10,8 @@ import {
   formatAge,
 } from "@/contexts/AdminDataContext";
 import { STAGE_ORDER } from "@/types/admin";
+import { DelayedBadge } from "@/components/admin/badges";
+import { StageStepper } from "@/components/admin/StageStepper";
 
 export default function OrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -54,12 +56,15 @@ export default function OrderDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/admin/orders" className="text-xs text-teal underline">
             ← All orders
           </Link>
-          <h1 className="mt-1 font-serif text-2xl text-indigo-900">{order.id}</h1>
+          <div className="mt-1 flex items-center gap-2">
+            <h1 className="font-serif text-2xl text-indigo-900">{order.id}</h1>
+            {order.delayed && <DelayedBadge />}
+          </div>
           <p className="text-sm text-indigo-500">
             {order.customerName} · {siteName} · placed {formatAge(hoursSince(order.placedAt))} ago
           </p>
@@ -80,26 +85,23 @@ export default function OrderDetailPage() {
         <div className="space-y-6 lg:col-span-2">
           {/* Stage control */}
           <section className="rounded-xl border border-indigo-100 bg-white p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-medium text-indigo-900">Pipeline stage</h2>
-              <span className="rounded-full bg-teal/10 px-3 py-1 text-sm font-medium text-teal-700">
-                {order.stage}
-              </span>
-            </div>
+            <h2 className="mb-4 font-medium text-indigo-900">Pipeline stage</h2>
+
+            <StageStepper current={order.stage} />
 
             {canMutateThisOrder && (
-              <div className="mt-3 flex gap-2">
+              <div className="mt-5 flex gap-2 border-t border-indigo-50 pt-4">
                 <button
                   onClick={() => rollbackStage(order.id)}
                   disabled={stageIdx <= 0}
-                  className="rounded-md border border-indigo-200 px-3 py-1.5 text-sm text-indigo-600 disabled:opacity-40"
+                  className="rounded-md border border-indigo-200 px-3 py-1.5 text-sm text-indigo-600 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                 >
                   ← Roll back
                 </button>
                 <button
                   onClick={() => advanceStage(order.id)}
                   disabled={stageIdx >= STAGE_ORDER.length - 1}
-                  className="rounded-md bg-teal px-3 py-1.5 text-sm text-white hover:bg-teal-700 disabled:opacity-40"
+                  className="rounded-md bg-teal px-3 py-1.5 text-sm text-white hover:bg-teal-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                 >
                   Advance →
                 </button>
@@ -107,12 +109,12 @@ export default function OrderDetailPage() {
             )}
 
             {permissions.canReassignSite && (
-              <div className="mt-4 flex items-center gap-2 border-t border-indigo-50 pt-3">
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-indigo-50 pt-3">
                 <label className="text-sm text-indigo-500">Reassign site</label>
                 <select
                   value={order.siteId}
                   onChange={(e) => reassignSite(order.id, e.target.value)}
-                  className="rounded-md border border-indigo-200 px-2 py-1 text-sm"
+                  className="rounded-md border border-indigo-200 px-2 py-1 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                 >
                   {sites.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -129,9 +131,9 @@ export default function OrderDetailPage() {
             <ul className="space-y-2">
               {order.items.map((item) => (
                 <li key={item.id} className="rounded-lg border border-indigo-50 p-3 text-sm">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="font-medium text-indigo-800">{item.title}</span>
-                    <span className="text-indigo-400">×{item.quantity}</span>
+                    <span className="shrink-0 text-indigo-400">×{item.quantity}</span>
                   </div>
                   {item.sku && (
                     <p className="mt-1 text-xs text-indigo-500">Catalog SKU: {item.sku}</p>
@@ -149,14 +151,20 @@ export default function OrderDetailPage() {
             </ul>
           </section>
 
-          {/* Stage history */}
+          {/* Stage history — timeline */}
           <section className="rounded-xl border border-indigo-100 bg-white p-4">
-            <h2 className="mb-3 font-medium text-indigo-900">Stage history</h2>
-            <ol className="space-y-2 border-l border-indigo-100 pl-4">
+            <h2 className="mb-4 font-medium text-indigo-900">Stage history</h2>
+            <ol className="space-y-4">
               {order.stageHistory.map((ev, i) => (
-                <li key={i} className="text-sm">
-                  <span className="font-medium text-indigo-800">{ev.stage}</span>
-                  <span className="text-indigo-400"> — {new Date(ev.at).toLocaleString()} · {ev.by}</span>
+                <li key={i} className="relative pl-5">
+                  <span className="absolute left-0 top-1.5 h-2 w-2 rounded-full bg-indigo-400" />
+                  {i < order.stageHistory.length - 1 && (
+                    <span className="absolute left-[3px] top-3.5 h-[calc(100%+0.5rem)] w-px bg-indigo-100" />
+                  )}
+                  <p className="text-sm font-medium text-indigo-800">{ev.stage}</p>
+                  <p className="text-xs text-indigo-400">
+                    {new Date(ev.at).toLocaleString()} · {ev.by}
+                  </p>
                 </li>
               ))}
             </ol>
@@ -171,7 +179,7 @@ export default function OrderDetailPage() {
             {order.linkedRequestId ? (
               <Link
                 href={`/admin/chat?requestId=${order.linkedRequestId}`}
-                className="inline-flex items-center gap-1 rounded-md bg-teal/10 px-3 py-1.5 text-sm text-teal-700 hover:bg-teal/20"
+                className="inline-flex items-center gap-1 rounded-md bg-teal/10 px-3 py-1.5 text-sm text-teal-700 hover:bg-teal/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
               >
                 Open thread for {order.linkedRequestId}
               </Link>
@@ -180,14 +188,16 @@ export default function OrderDetailPage() {
             )}
           </section>
 
-          {/* Internal notes — never customer-visible, never fed into chat */}
-          <section className="rounded-xl border border-indigo-100 bg-white p-4">
+          {/* Internal notes — never customer-visible, never fed into chat.
+              Gold tint matches the "manual quote" badge — both are things
+              a human wrote/priced by hand rather than the system. */}
+          <section className="rounded-xl border border-gold/40 bg-gold/5 p-4">
             <h2 className="mb-1 font-medium text-indigo-900">Internal notes</h2>
-            <p className="mb-3 text-xs text-indigo-400">Ops-only. Never shown to the customer.</p>
+            <p className="mb-3 text-xs text-amber-800/70">Ops-only. Never shown to the customer.</p>
 
             <ul className="mb-3 space-y-2">
               {order.internalNotes.map((n) => (
-                <li key={n.id} className="rounded-lg bg-indigo-50/60 p-2 text-sm">
+                <li key={n.id} className="rounded-lg bg-white/70 p-2 text-sm">
                   <p className="text-indigo-800">{n.body}</p>
                   <p className="mt-1 text-xs text-indigo-400">{n.author} · {new Date(n.at).toLocaleString()}</p>
                 </li>
@@ -204,7 +214,7 @@ export default function OrderDetailPage() {
                   onChange={(e) => setNoteDraft(e.target.value)}
                   rows={2}
                   placeholder="Add a note for ops…"
-                  className="w-full rounded-md border border-indigo-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal"
+                  className="w-full rounded-md border border-indigo-200 bg-white px-2 py-1.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                 />
                 <button
                   onClick={() => {
@@ -212,7 +222,7 @@ export default function OrderDetailPage() {
                     setNoteDraft("");
                   }}
                   disabled={!noteDraft.trim()}
-                  className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+                  className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
                 >
                   Add note
                 </button>
