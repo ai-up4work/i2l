@@ -589,7 +589,7 @@ export default function Header({
                   <button
                     type="button"
                     aria-label="Get started"
-                    onClick={() => router.push("/signup")}
+                    onClick={() => router.push("/auth/signup")}
                     className={`rounded-xl bg-gold-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-gold-deep/20 transition-all duration-200 hover:bg-gold hover:shadow-md hover:shadow-gold/25 ${focusRing}`}
                   >
                     Get started
