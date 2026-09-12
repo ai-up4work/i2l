@@ -325,16 +325,6 @@ export default function DiscountCustomizer() {
                 </select>
               </Field>
             </Section>
-
-            <Section title="Product">
-              <Field label="Product icon (used when no image is uploaded)" hint="Tinted from the accent color, or upload a real cutout on the right — it always takes priority.">
-                <select className={inputClass} value={state.productIcon} onChange={(e) => update('productIcon', e.target.value as ProductIconType)}>
-                  {ICONS.map((i) => (
-                    <option key={i.value} value={i.value}>{i.label}</option>
-                  ))}
-                </select>
-              </Field>
-            </Section>
           </div>
 
           <div className="flex flex-col gap-5">
