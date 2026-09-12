@@ -67,7 +67,7 @@ export default function HowItWorks() {
         />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-6 lg:px-10">
+      <div className="relative mx-auto max-w-8xl px-6 lg:px-10">
         <div className="flex items-start justify-between gap-6">
           <div>
             <h2 className="mt-10 max-w-lg pr-8 font-display text-3xl font-semibold leading-tight text-indigo sm:text-4xl">
