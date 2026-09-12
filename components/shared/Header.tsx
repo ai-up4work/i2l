@@ -362,9 +362,9 @@ export default function Header({
                   type="button"
                   aria-label="Open account menu"
                   onClick={onMenuClick}
-                  className={`${accountNavIconClass} lg:hidden`}
+                  className={`grid h-9 w-9 place-items-center rounded-full border border-gold/20 bg-gold/10 text-ink/70 transition-all duration-200 hover:border-gold/40 hover:bg-gold/20 hover:text-gold-deep active:scale-95 active:bg-gold/25 motion-reduce:transition-none lg:hidden ${focusRing}`}
                 >
-                  <Menu size={17} />
+                  <Menu size={17} strokeWidth={2.25} />
                 </button>
               )}
 
