@@ -67,13 +67,10 @@ export const HEADER_BAR_HEIGHT = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_MOBILE = OUTER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_DESKTOP = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
+export { INNER_H }
 
-// Header surface stays parchment (light). Text/icon colors below are all
-// dark-on-light now instead of the old white-on-dark set.
 const MOBILE_BG = "bg-parchment"
 
-// FIX: ring-offset-black assumed a dark header surface. On parchment the
-// focus ring's offset needs to match the light background instead.
 const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep/60 focus-visible:ring-offset-2 focus-visible:ring-offset-parchment"
 
@@ -97,6 +94,9 @@ const CATEGORY_ICON: Record<NotificationCategory, React.ElementType> = {
   promo: Percent,
   system: Info,
 }
+
+const HOVER_OPEN_DELAY = 120
+const HOVER_CLOSE_DELAY = 200
 
 export default function Header({
   title,
@@ -127,12 +127,45 @@ export default function Header({
   const cartCount = hasMounted ? cart.itemCount : 0
 
   const visibleNavLinks = isAccount ? navLinks.filter((l) => l.megaMenu) : navLinks
+  const shopLink = visibleNavLinks[0]
 
   const pathname = usePathname()
   const navRef = useRef<HTMLElement>(null)
   const actionsRef = useRef<HTMLDivElement>(null)
   const SHOP_PANEL_ID = "shop-mega-menu-panel"
   const ACCOUNT_MENU_ID = "#account"
+
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function clearHoverTimer() {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+  }
+
+  function handleNotchMouseEnter(href: string) {
+    clearHoverTimer()
+    hoverTimerRef.current = setTimeout(() => {
+      setActiveDesktopMenu(href)
+    }, HOVER_OPEN_DELAY)
+  }
+
+  function handleNotchMouseLeave() {
+    clearHoverTimer()
+    hoverTimerRef.current = setTimeout(() => {
+      setActiveDesktopMenu(null)
+    }, HOVER_CLOSE_DELAY)
+  }
+
+  function handleNotchClick(e: React.MouseEvent) {
+    if (!shopLink) return
+    const hasDropdown = shopLink.megaMenu || !!shopLink.items
+    if (!hasDropdown) return
+    e.preventDefault()
+    clearHoverTimer()
+    setActiveDesktopMenu((prev) => (prev === shopLink.href ? null : shopLink.href))
+  }
 
   const [rightNotch, setRightNotch] = useState(LEFT_NOTCH)
   useEffect(() => {
@@ -175,6 +208,10 @@ export default function Header({
   }, [pathname])
 
   useEffect(() => {
+    return () => clearHoverTimer()
+  }, [])
+
+  useEffect(() => {
     function handleOpenShop() {
       if (typeof window === "undefined") return
       if (window.innerWidth >= 1024) {
@@ -213,8 +250,6 @@ export default function Header({
     router.push(path)
   }
 
-  // Notification bell + dropdown. Badge ring switched from ring-black to
-  // ring-parchment so it matches the light header surface it sits on.
   const notificationBell = (
     <div ref={notifRef} className="relative">
       <button
@@ -238,7 +273,7 @@ export default function Header({
           notifOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"
         }`}
       >
-        <div className="rounded-2xl border border-gold/30 bg-parchment shadow-xl shadow-black/10">
+        <div className="rounded-2xl border border-gold/20 bg-parchment shadow-xl shadow-black/10">
           <div className="flex items-center justify-between border-b border-ink/10 px-4 py-3">
             <span className="text-sm font-semibold text-ink">Notifications</span>
             {unreadCount > 0 && (
@@ -314,7 +349,7 @@ export default function Header({
               <svg className="absolute left-0 top-0 w-[2000px] h-full" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d={`M 0 ${OUTER_H} L ${rightNotch} ${OUTER_H} L ${rightNotch + NOTCH_GAP} ${INNER_H} L 2000 ${INNER_H}`}
-                  stroke="rgba(201, 138, 42, 0.5)"
+                  stroke="rgba(14, 140, 156, 0.5)"
                   strokeWidth="1.5"
                   fill="none"
                 />
@@ -322,8 +357,6 @@ export default function Header({
             </div>
           </div>
 
-          {/* Shadow lightened — a heavy dark drop-shadow read fine under a
-              black header but looks like a dirty smudge under parchment. */}
           <div className={`lg:hidden absolute inset-0 ${MOBILE_BG} shadow-[0_1px_0_0_rgba(201,138,42,0.35),0_6px_16px_-8px_rgba(0,0,0,0.15)]`} />
 
           <div className="relative z-10 container mx-auto px-4 flex items-center justify-between w-full max-w-[1600px] h-full">
@@ -356,7 +389,51 @@ export default function Header({
               )}
             </div>
 
-            <div className="hidden lg:flex items-center justify-center min-w-0 px-5 absolute left-1/2 top-0 -translate-x-1/2 z-20" style={{ height: INNER_H }}>
+            {shopLink && (
+              <button
+                type="button"
+                aria-label="Shop"
+                aria-haspopup="true"
+                aria-expanded={shopSheetOpen}
+                onClick={() => setShopSheetOpen(true)}
+                className={`flex lg:hidden flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
+              >
+                <span className="text-sm font-semibold font-body truncate">{shopLink.label}</span>
+                <ChevronDown
+                  size={13}
+                  className={`shrink-0 text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${shopSheetOpen ? "-rotate-180" : ""}`}
+                />
+              </button>
+            )}
+
+            {/*
+              DESKTOP Shop trigger — THE FIX.
+              Previously this wrapper was centered with `left-1/2
+              -translate-x-1/2` and no explicit width, so it shrank to
+              fit its own content (just the "Shop" label + chevron). The
+              hoverable/clickable area ended up matching only the text's
+              bounding box, not the physical narrow strip visible on the
+              page between the two notch wings.
+
+              Now it's positioned with explicit `left`/`right` pixel
+              offsets computed from the SAME geometry that draws the
+              clip-path notch (LEFT_NOTCH + NOTCH_GAP on the left,
+              rightNotch + NOTCH_GAP on the right) — so this div's
+              boundaries are pixel-identical to the visible flat strip
+              in the header. Hover or click ANYWHERE inside that strip
+              (not just over the word "Shop") now opens the panel.
+            */}
+            <div
+              className="hidden lg:flex items-center justify-center absolute top-0 z-20 cursor-pointer transition-colors duration-150 hover:bg-gold/5"
+              style={{
+                height: INNER_H,
+                left: LEFT_NOTCH + NOTCH_GAP,
+                right: rightNotch + NOTCH_GAP,
+              }}
+              onMouseEnter={() => shopLink && handleNotchMouseEnter(shopLink.href)}
+              onMouseLeave={handleNotchMouseLeave}
+              onClick={handleNotchClick}
+            >
               <nav ref={navRef} className="flex items-center gap-6 -mt-2" aria-label="Primary navigation">
                 {visibleNavLinks.map((link) => {
                   const isActive = activeDesktopMenu === link.href
@@ -366,21 +443,19 @@ export default function Header({
                       <a
                         href={link.href}
                         aria-expanded={hasDropdown ? isActive : undefined}
-                        className={`group relative flex items-center gap-1 rounded text-sm font-semibold font-body tracking-wide text-ink/80 transition-colors duration-200 hover:text-gold-deep ${focusRing}`}
-                        onClick={(e) => {
-                          if (!hasDropdown) return
-                          e.preventDefault()
-                          setActiveDesktopMenu((prev) => (prev === link.href ? null : link.href))
-                        }}
+                        className={`group relative flex items-center gap-1 rounded text-sm font-semibold font-body tracking-wide transition-colors duration-200 ${
+                          isActive ? "text-gold-deep" : "text-ink/80"
+                        } ${focusRing}`}
+                        onFocus={() => handleNotchMouseEnter(link.href)}
                       >
                         {link.label}
                         {hasDropdown && (
-                          <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none group-hover:text-gold-deep ${isActive ? "-rotate-180" : ""}`} />
+                          <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${isActive ? "-rotate-180" : ""}`} />
                         )}
                         <span
-                          className={`teal-shimmer absolute -bottom-1.5 left-0 h-[1.5px] w-full origin-center scale-x-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${isActive ? "scale-x-100" : "group-hover:scale-x-100"}`}
-                        />                      
-                        </a>
+                          className={`teal-shimmer absolute -bottom-1.5 left-0 h-[1.5px] w-full origin-center scale-x-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${isActive ? "scale-x-100" : ""}`}
+                        />
+                      </a>
 
                       {link.megaMenu && <ShopMegaMenuPanel isActive={isActive} />}
 
@@ -402,7 +477,7 @@ export default function Header({
               </nav>
             </div>
 
-            <div className="flex lg:hidden flex-1 items-center justify-end gap-1 h-full">
+            <div className="flex lg:hidden items-center gap-1 h-full">
               <button
                 type="button"
                 aria-label={`Wishlist${wishlistCount > 0 ? `, ${wishlistCount} items` : ""}`}
