@@ -244,7 +244,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           <CircleHelp />
         </button>
 
-        <style jsx global>{`
+        <style>{`
           .content-scroll {
             scrollbar-width: thin;
             scrollbar-color: rgba(14, 140, 156, 0.25) transparent;
