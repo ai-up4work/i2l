@@ -577,14 +577,6 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
           className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-white/20 to-transparent"
         />
 
-        {coupon.badge && (
-          <span
-            className={`absolute right-2 top-2 z-20 rounded-full px-2 py-0.5 font-body text-[10px] font-semibold uppercase tracking-wide ${coupon.badge.className}`}
-          >
-            {coupon.badge.label}
-          </span>
-        )}
-
         <div className="relative z-10 min-w-0 max-w-[62%] pr-2">
           <p
             className={`font-body font-extrabold leading-none ${accent}`}

@@ -1,47 +1,43 @@
+// contexts/AdminSidebarContext.tsx
 "use client"
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react"
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 
-type AdminSidebarContextValue = {
+interface AdminSidebarContextValue {
   collapsed: boolean
-  setCollapsed: (value: boolean) => void
   toggle: () => void
   isMobile: boolean
 }
 
-const AdminSidebarContext = createContext<AdminSidebarContextValue | null>(null)
-const MOBILE_BREAKPOINT = 768 // matches Tailwind's `md`
+const AdminSidebarContext = createContext<AdminSidebarContextValue | undefined>(undefined)
 
-export function AdminSidebarProvider({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsedState] = useState(false)
+const MOBILE_BREAKPOINT_PX = 768
+
+export function AdminSidebarProvider({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
 
+  // Mobile is always forced closed (per admin-sidebar.tsx's own comment:
+  // "nothing for the user to toggle" there), so the layout and the
+  // sidebar can't drift out of sync on resize.
   useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-
-    const applyMatch = (matches: boolean) => {
-      setIsMobile(matches)
-      if (matches) setCollapsedState(true) // mobile is always closed
+    const check = () => {
+      const mobile = window.innerWidth < MOBILE_BREAKPOINT_PX
+      setIsMobile(mobile)
+      if (mobile) setCollapsed(true)
     }
-
-    applyMatch(mql.matches)
-    const listener = (e: MediaQueryListEvent) => applyMatch(e.matches)
-    mql.addEventListener("change", listener)
-    return () => mql.removeEventListener("change", listener)
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
   }, [])
 
-  const setCollapsed = useCallback(
-    (value: boolean) => {
-      if (isMobile) return // no manual override on mobile
-      setCollapsedState(value)
-    },
-    [isMobile]
-  )
-
-  const toggle = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed])
+  const toggle = () => {
+    if (isMobile) return // no toggle control is rendered on mobile anyway
+    setCollapsed((c) => !c)
+  }
 
   return (
-    <AdminSidebarContext.Provider value={{ collapsed, setCollapsed, toggle, isMobile }}>
+    <AdminSidebarContext.Provider value={{ collapsed, toggle, isMobile }}>
       {children}
     </AdminSidebarContext.Provider>
   )
@@ -49,6 +45,6 @@ export function AdminSidebarProvider({ children }: { children: React.ReactNode }
 
 export function useAdminSidebar() {
   const ctx = useContext(AdminSidebarContext)
-  if (!ctx) throw new Error("useAdminSidebar must be used within an AdminSidebarProvider")
+  if (!ctx) throw new Error("useAdminSidebar must be used within AdminSidebarProvider")
   return ctx
 }
