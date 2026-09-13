@@ -70,7 +70,8 @@ export default function Hero() {
   // own ShopBottomSheet instance via OPEN_SHOP_EVENT instead of wiring up
   // new state, the same as before.
   function handleBrowseStores() {
-    window.dispatchEvent(new Event(OPEN_SHOP_EVENT))
+    // redirect to the storefront if the user is already logged in, otherwise
+    router.push('/stores')
   }
 
   return (
