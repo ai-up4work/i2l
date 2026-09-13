@@ -344,8 +344,6 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
   const [coupons, setCoupons] = useState<Coupon[]>(EMPTY_STATE.coupons)
   const [hydrated, setHydrated] = useState(false)
 
-  const dbSyncedForUserId = useRef<string | null>(null)
-
   // ---- Guest load (localStorage) — only takes effect while logged out ----
   useEffect(() => {
     if (user) return
@@ -382,12 +380,7 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
   // ---- Real load from Supabase on login ----
   useEffect(() => {
     if (authLoading) return
-    if (!user) {
-      dbSyncedForUserId.current = null
-      return
-    }
-    if (dbSyncedForUserId.current === user.id) return
-    dbSyncedForUserId.current = user.id
+    if (!user) return
 
     let cancelled = false
     ;(async () => {

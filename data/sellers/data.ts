@@ -37,6 +37,10 @@ export interface SellerAdminMeta {
   joinedAt: string // ISO date
   ordersReceived: number
   ordersPending: number
+  /** Whether sellers.owner_user_id is set — i.e. this seller has a real login. */
+  hasLogin?: boolean
+  /** WishDrop's markup applied automatically on top of a seller's own cost price. */
+  defaultMarginPercent?: number
 }
 
 // TODO(wire-up): this becomes a real table (e.g. `seller_admin_meta`,
@@ -163,7 +167,7 @@ export function mapDbRowToAdminSeller(row: Record<string, unknown>): AdminSeller
       payment: display.payment as string | undefined,
       tags: display.tags as string[] | undefined,
     },
-    providerConfig: config as StoreProviderConfig,
+    providerConfig: config as unknown as StoreProviderConfig,
     admin: {
       status: row.status as SellerStatus,
       contactName: (row.contact_name as string) ?? '',
@@ -173,6 +177,8 @@ export function mapDbRowToAdminSeller(row: Record<string, unknown>): AdminSeller
       joinedAt: ((row.created_at as string) ?? new Date().toISOString()).slice(0, 10),
       ordersReceived: 0, // TODO: derive from orders once order_items references sellers
       ordersPending: 0,
+      hasLogin: Boolean(row.owner_user_id),
+      defaultMarginPercent: row.default_margin_percent != null ? Number(row.default_margin_percent) : 25,
     },
   }
 }

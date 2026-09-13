@@ -158,6 +158,22 @@ export default function Header({
     if (!shopLink) return
     const hasDropdown = shopLink.megaMenu || !!shopLink.items
     if (!hasDropdown) return
+    // Defense-in-depth: ShopMegaMenuPanel is portaled to document.body, so
+    // its DOM node lives outside this div entirely — but because it's
+    // still a React *child* of this div, its clicks bubble through the
+    // React synthetic-event tree and land here regardless of the portal.
+    // The panel already calls stopPropagation() on its own click handler,
+    // but if that ever gets bypassed (nested portals, 3rd-party libs,
+    // etc.) this check is a second guard: it looks at the real DOM
+    // target (e.target is the actual clicked DOM node, unaffected by the
+    // portal) and bails out entirely if the click originated inside the
+    // actual panel element in the document — so a click on a category,
+    // store, or "browse all" link NEVER reaches the preventDefault/close
+    // logic below, and the link's normal navigation proceeds.
+    const clickedInsidePanel = document
+      .getElementById(SHOP_PANEL_ID)
+      ?.contains(e.target as Node)
+    if (clickedInsidePanel) return
     e.preventDefault()
     clearHoverTimer()
     setActiveDesktopMenu((prev) => (prev === shopLink.href ? null : shopLink.href))
@@ -401,7 +417,17 @@ export default function Header({
               aria-haspopup="true"
               aria-expanded={shopSheetOpen}
               onClick={() => setShopSheetOpen(true)}
-              className={`hidden flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
+              className={`${
+                // Shop trigger in the middle of the mobile bar: only makes
+                // sense on public/landing pages on mobile — account pages
+                // get their own nav via the hamburger menu, and desktop
+                // already has the full "Shop" nav item + mega menu in the
+                // notch below, so this stays lg:hidden either way. It was
+                // previously `hidden` unconditionally, which meant this
+                // button never rendered anywhere; now it's visible on
+                // mobile specifically when we're NOT on an account route.
+                isAccount ? "hidden" : "flex lg:hidden"
+              } flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
             >
               <span className="text-sm font-semibold font-body truncate">{shopLink.label}</span>
               <ChevronDown
@@ -445,7 +471,13 @@ export default function Header({
                         />
                       </a>
 
-                      {link.megaMenu && <ShopMegaMenuPanel isActive={isActive} />}
+                      {link.megaMenu && (
+                        <ShopMegaMenuPanel
+                          isActive={isActive}
+                          onMouseEnter={clearHoverTimer}
+                          onMouseLeave={handleNotchMouseLeave}
+                        />
+                      )}
 
                       {link.items && (
                         <div className={`absolute left-1/2 top-full z-50 w-80 -translate-x-1/2 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isActive ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>

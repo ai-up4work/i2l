@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useDashboard } from '@/contexts/DashboardContext'
+import { OrdersProvider, useOrders } from '@/contexts/Ordercontexts'
 import {
   getDualDeliveryPricing,
   formatLKR,
@@ -433,7 +434,7 @@ function useMatchHeightAtDesktop<T extends HTMLElement>() {
   return { sourceRef, height }
 }
 
-export default function CartPage() {
+function CartPageContent() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
@@ -492,11 +493,13 @@ export default function CartPage() {
     }
   }, [cart.items, deliveryChoice])
 
-  const pendingRequestCount = dashboard.requests.length
+  const pendingRequestCount = useOrders().orders.length
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (cart.items.length === 0 || confirming || !detailsComplete) return
     setConfirming(true)
+    setCheckoutError(null)
 
     const lines = cart.items.map((line) => {
       const dual = getDualDeliveryPricing(toPriceableItem(line.product))
@@ -510,7 +513,12 @@ export default function CartPage() {
       }
     })
 
-    dashboard.confirmCartOrder(lines)
+    const result = await dashboard.confirmCartOrder(lines)
+    if (!result.ok) {
+      setCheckoutError(result.error ?? 'Something went wrong placing your order. Please try again.')
+      setConfirming(false)
+      return
+    }
     cart.clearCart()
     router.push('/account/orders')
   }
@@ -797,6 +805,10 @@ export default function CartPage() {
                 {!confirming && <ArrowRight size={16} />}
               </button>
 
+              {checkoutError && (
+                <p className="mt-2.5 text-center text-xs font-semibold text-red-600">{checkoutError}</p>
+              )}
+
               <div className="mt-4 flex items-start gap-2 text-xs text-ink/45">
                 <ShieldCheck size={15} className="mt-0.5 flex-none text-teal-deep/60" />
                 <p>
@@ -817,5 +829,13 @@ export default function CartPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function CartPage() {
+  return (
+    <OrdersProvider>
+      <CartPageContent />
+    </OrdersProvider>
   )
 }

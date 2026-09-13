@@ -1,204 +1,203 @@
-// app/seller/catalogue/[catalogueId]/page.tsx
+// app/admin/(sales)/catalogues/[catalogueId]/page.tsx
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Check, Clock } from 'lucide-react'
+import { ArrowLeft, Loader2, Trash2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { panelClass } from '@/components/admin/seller/shared'
 
-import { getCatalogueEntry, getCurrentSellerId, submitChangeRequest } from '@/data/catalogues/data'
-import { panelClass, groupClass, inputClass, Field, SectionHeading } from '@/components/admin/seller/shared'
+type Product = {
+  id: string
+  name: string
+  description: string | null
+  category: string | null
+  cost_price: number | null
+  margin_percent: number | null
+  price: number
+  currency: string
+  stock_count: number | null
+  active: boolean
+  images: string[]
+  sellers: { name: string; platform_slug: string } | null
+}
 
-// ---------------------------------------------------------------------------
-// /seller/catalogue/[catalogueId] — Seller Dashboard
-//
-// Deliberately narrow: cost price + availability only. Never renders
-// sellingPrice, markupPercent, or any margin/profit number — those stay
-// admin/manager-only. Title/description/images/category are read-only
-// here; changing them goes through Sales & Purchase, not this form.
-//
-// Submitting queues a CatalogueChangeRequest for admin/manager approval
-// (§ decision) rather than writing live — the seller sees "Awaiting
-// review" until it's actioned, matching the pending badge shown on
-// /seller/catalogue's list.
-// ---------------------------------------------------------------------------
-
-export default function SellerCatalogueEditPage() {
-  const router = useRouter()
+export default function CatalogueDetailPage() {
   const params = useParams<{ catalogueId: string }>()
-  const sellerId = getCurrentSellerId() // TODO(wire-up): real seller session
-  const entry = getCatalogueEntry(params.catalogueId)
+  const router = useRouter()
 
-  const [costPrice, setCostPrice] = useState(entry?.costPrice ?? 0)
-  const [inStock, setInStock] = useState(entry?.inStock ?? true)
-  const [variants, setVariants] = useState(
-    entry?.variants?.map((v) => ({ id: v.id, title: v.title, costPrice: v.costPrice, available: v.available })) ?? []
-  )
-  const [note, setNote] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
+  const [product, setProduct] = useState<Product | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [marginInput, setMarginInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
 
-  if (!entry || entry.sellerId !== sellerId) {
-    // Structural scoping: a seller can never open another seller's
-    // catalogue entry, even by guessing an id in the URL.
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('products')
+      .select('*, sellers(name, platform_slug)')
+      .eq('id', params.catalogueId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setProduct(data as unknown as Product)
+        setMarginInput(data ? String((data as any).margin_percent ?? 25) : '')
+        setLoading(false)
+      })
+  }, [params.catalogueId])
+
+  async function handleSaveMargin() {
+    if (!product) return
+    const margin = Number(marginInput)
+    if (!Number.isFinite(margin) || margin < 0) return setSaveError('Enter a valid margin percentage.')
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/admin/catalogues/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marginPercent: margin }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to save')
+      setProduct(body.product)
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleToggleActive() {
+    if (!product) return
+    const res = await fetch(`/api/admin/catalogues/${product.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !product.active }),
+    })
+    const body = await res.json()
+    if (res.ok) setProduct(body.product)
+  }
+
+  async function handleDelete() {
+    if (!product) return
+    if (!window.confirm(`Hide "${product.name}" from active listings? You can re-activate it later from this page.`)) return
+    const res = await fetch(`/api/admin/catalogues/${product.id}`, { method: 'DELETE' })
+    if (res.ok) router.push('/admin/catalogues')
+  }
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-parchment font-body text-ink">
-        <div className="mx-auto max-w-xl px-6 pb-20 pt-16 text-center lg:px-10">
-          <p className="text-sm text-ink/50">This listing isn&rsquo;t available.</p>
-          <button
-            type="button"
-            onClick={() => router.push('/seller/catalogue')}
-            className="mt-4 text-sm font-semibold text-teal-deep hover:underline"
-          >
-            Back to your listings
-          </button>
-        </div>
+      <div className="flex flex-col items-center gap-2 py-20 text-ink/50">
+        <Loader2 size={20} className="animate-spin" />
+        <p className="text-sm">Loading product…</p>
       </div>
     )
   }
 
-  const updateVariant = (id: string, patch: Partial<{ costPrice: number; available: boolean }>) =>
-    setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)))
-
-  const hasChanges =
-    costPrice !== entry.costPrice ||
-    inStock !== entry.inStock ||
-    variants.some((v) => {
-      const orig = entry.variants?.find((ev) => ev.id === v.id)
-      return orig && (orig.costPrice !== v.costPrice || orig.available !== v.available)
-    })
-
-  const handleSubmit = () => {
-    if (!hasChanges) return
-    setSubmitting(true)
-    submitChangeRequest(
-      entry.id,
-      'seller',
-      {
-        costPrice: costPrice !== entry.costPrice ? costPrice : undefined,
-        inStock: inStock !== entry.inStock ? inStock : undefined,
-        variants: variants.filter((v) => {
-          const orig = entry.variants?.find((ev) => ev.id === v.id)
-          return orig && (orig.costPrice !== v.costPrice || orig.available !== v.available)
-        }),
-      },
-      note || undefined,
-      entry.sellerId // TODO(wire-up): real seller display name
+  if (!product) {
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <p className="text-sm text-ink/55">Product not found. It may have been removed.</p>
+        <button onClick={() => router.push('/admin/catalogues')} className="mt-3 text-sm font-semibold text-teal-deep">
+          Back to Catalogues
+        </button>
+      </div>
     )
-    window.setTimeout(() => {
-      setSubmitting(false)
-      setSubmitted(true)
-    }, 500)
   }
 
   return (
-    <div className="min-h-screen bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-2xl px-6 pb-24 pt-10 lg:px-10">
+    <div className="mx-auto max-w-3xl px-6 py-8">
+      <button
+        onClick={() => router.push('/admin/catalogues')}
+        className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink"
+      >
+        <ArrowLeft size={15} /> Catalogues
+      </button>
+
+      <div className="mt-4 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl text-ink">{product.name}</h1>
+          <p className="mt-1 text-sm text-ink/55">
+            Added by {product.sellers?.name ?? 'Unknown seller'} — this seller edits name, description,
+            cost price, and stock from their own portal. Admin's only control here is the margin.
+          </p>
+        </div>
         <button
-          type="button"
-          onClick={() => router.push('/seller/catalogue')}
-          className="flex items-center gap-1.5 text-sm font-semibold text-ink/50 transition-colors hover:text-ink"
+          onClick={handleToggleActive}
+          className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
+            product.active ? 'bg-teal/10 text-teal-deep' : 'bg-ink/5 text-ink/40'
+          }`}
         >
-          <ArrowLeft size={14} />
-          Your listings
+          {product.active ? 'Active' : 'Hidden'}
         </button>
+      </div>
 
-        <h1 className="mt-4 font-display text-3xl text-ink">{entry.title}</h1>
-        <p className="mt-1.5 text-sm text-ink/60">
-          Update your cost price or availability. Changes are reviewed by WishDrop before they go live.
-        </p>
-
-        {entry.pendingChange && (
-          <div className={`mt-6 flex items-center gap-2 p-4 text-sm font-semibold text-gold-deep border-gold-deep/25 ${groupClass}`}>
-            <Clock size={16} />
-            A change is already awaiting review — submitting again will replace it.
-          </div>
-        )}
-
-        {submitted ? (
-          <div className={`mt-6 flex items-center gap-2 p-4 text-sm font-semibold text-teal-deep ${groupClass} border-teal-deep/25`}>
-            <Check size={16} />
-            Submitted for review. WishDrop will approve or follow up with you shortly.
-          </div>
-        ) : (
-          <div className="mt-6 flex flex-col gap-6">
-            <section className={`flex flex-col gap-5 p-6 ${panelClass}`}>
-              <SectionHeading title="Cost & availability" subtitle="What you charge WishDrop for this product, and whether it's currently in stock." />
-
-              <Field label="Cost price" required>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={costPrice || ''}
-                    onChange={(e) => setCostPrice(Number(e.target.value) || 0)}
-                    className={inputClass}
-                  />
-                  <span className="flex-none text-sm font-semibold text-ink/40">{entry.currency}</span>
-                </div>
-              </Field>
-
-              <label className="flex items-center gap-2.5 text-sm font-semibold text-ink/70">
-                <input
-                  type="checkbox"
-                  checked={inStock}
-                  onChange={(e) => setInStock(e.target.checked)}
-                  className="h-4 w-4 rounded border-ink/30 text-teal-deep focus:ring-teal/40"
-                />
-                In stock for Sri Lanka orders
-              </label>
-
-              {variants.length > 0 && (
-                <div className="flex flex-col gap-2 border-t border-ink/10 pt-4">
-                  <p className="text-xs font-semibold text-ink/50">Variants</p>
-                  {variants.map((v) => (
-                    <div key={v.id} className="grid grid-cols-1 items-center gap-2 rounded-lg border border-ink/10 bg-white p-3 sm:grid-cols-[1.4fr_1fr_auto]">
-                      <span className="text-sm font-medium text-ink/70">{v.title}</span>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={v.costPrice || ''}
-                          onChange={(e) => updateVariant(v.id, { costPrice: Number(e.target.value) || 0 })}
-                          className={inputClass}
-                        />
-                        <span className="flex-none text-xs font-semibold text-ink/40">{entry.currency}</span>
-                      </div>
-                      <label className="flex items-center justify-center gap-1.5 text-xs font-semibold text-ink/55">
-                        <input
-                          type="checkbox"
-                          checked={v.available}
-                          onChange={(e) => updateVariant(v.id, { available: e.target.checked })}
-                          className="h-3.5 w-3.5 rounded border-ink/30 text-teal-deep focus:ring-teal/40"
-                        />
-                        Available
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <Field label="Note to WishDrop (optional)">
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={2}
-                  placeholder="Why this change? e.g. supplier price increase, restocked, seasonal item ending..."
-                  className={inputClass}
-                />
-              </Field>
-            </section>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!hasChanges || submitting}
-                className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment shadow-[0_10px_28px_-10px_rgba(11,114,128,0.55)] transition-all hover:bg-teal active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:shadow-none"
-              >
-                {submitting ? 'Submitting...' : 'Submit for review'}
-              </button>
-            </div>
+      <div className={`mt-6 grid grid-cols-2 gap-4 p-6 ${panelClass}`}>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Category</p>
+          <p className="mt-1 text-sm text-ink">{product.category ?? '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Stock</p>
+          <p className="mt-1 text-sm text-ink">{product.stock_count ?? '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Cost price (seller-entered)</p>
+          <p className="mt-1 text-sm text-ink">
+            {product.currency} {product.cost_price?.toFixed(2) ?? '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Selling price (computed)</p>
+          <p className="mt-1 text-sm font-semibold text-ink">
+            {product.currency} {product.price.toFixed(2)}
+          </p>
+        </div>
+        {product.description && (
+          <div className="col-span-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Description</p>
+            <p className="mt-1 text-sm text-ink/70">{product.description}</p>
           </div>
         )}
       </div>
+
+      <div className={`mt-4 p-6 ${panelClass}`}>
+        <h3 className="font-semibold text-ink">WishDrop margin</h3>
+        <p className="mt-1 text-sm text-ink/55">
+          Applied on top of the seller's cost price to compute the selling price shown above.
+        </p>
+        <div className="mt-4 flex items-center gap-3">
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={marginInput}
+            onChange={(e) => setMarginInput(e.target.value)}
+            className="w-28 rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+          />
+          <span className="text-sm text-ink/55">%</span>
+          <button
+            onClick={handleSaveMargin}
+            disabled={saving}
+            className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment hover:bg-teal disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save margin'}
+          </button>
+          {saved && <span className="text-sm font-semibold text-teal-deep">Saved.</span>}
+        </div>
+        {saveError && <p className="mt-2 text-sm font-semibold text-red-700">{saveError}</p>}
+      </div>
+
+      <button
+        onClick={handleDelete}
+        className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-red-700 hover:underline"
+      >
+        <Trash2 size={14} /> Hide from listings
+      </button>
     </div>
   )
 }

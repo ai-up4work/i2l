@@ -194,8 +194,30 @@ function useIsDesktopNav() {
  * The inner panel re-enables `pointer-events-auto` for itself only in
  * the `isActive` branch, since `pointer-events` is inherited and would
  * otherwise be `none` for the open panel's own contents too.
+ *
+ * HOVER-CLOSE FIX: Header.tsx's notch trigger arms a short close-timer
+ * on mouseleave (`handleNotchMouseLeave`) so the menu auto-closes when
+ * you stop hovering the trigger. But because this panel lives in a
+ * *different* DOM subtree (the portal) than that trigger, moving your
+ * mouse from the trigger down into the panel to click a category/store
+ * link ALSO fires the trigger's mouseleave — arming the close timer —
+ * with nothing in the panel to cancel it. The panel would then vanish
+ * (invisible + pointer-events-none) out from under the cursor before
+ * the click landed. `onMouseEnter`/`onMouseLeave` are accepted as props
+ * here and wired onto the actual pointer-events-auto inner panel (NOT
+ * the outer pointer-events-none wrapper, which never receives mouse
+ * events) so hovering the panel itself keeps cancelling that timer, the
+ * same way hovering the trigger does.
  */
-export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
+export function ShopMegaMenuPanel({
+  isActive,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  isActive: boolean
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
+}) {
   const [mounted, setMounted] = useState(false)
   const isDesktop = useIsDesktopNav()
   const { stores } = useAffiliatedStores()
@@ -217,6 +239,8 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
       style={{ top: PANEL_TOP }}
     >
       <div
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
         className={`origin-top border-b border-teal/20 bg-parchment shadow-2xl shadow-ink/25 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isActive
             ? "pointer-events-auto visible [transform:rotateX(0deg)] opacity-100"

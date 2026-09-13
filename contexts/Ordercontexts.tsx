@@ -1,15 +1,15 @@
 /**
  * contexts/orderContexts.tsx
  *
- * Mock order data + context for the customer-facing "My Orders" page
+ * Real order data + context for the customer-facing "My Orders" page
  * (app/account/orders/page.tsx) and the "Track Order" page
  * (app/account/orders/track/page.tsx). Wrap your orders page (or a layout
  * above it) in <OrdersProvider> and read data with the useOrders() hook.
  *
- * This is intentionally a drop-in mock: swap MOCK_ORDERS for a real
- * fetch/query (e.g. load them in a server component and pass as
- * `initialOrders` to <OrdersProvider>) and everything downstream keeps
- * working as-is.
+ * Fetches the logged-in user's own `orders` (+ order_items + the linked
+ * product_snapshots image + recipient address) straight from Supabase
+ * on mount — see the real implementation below the type/helper section.
+ * `initialOrders` is kept as an escape hatch for tests only.
  *
  * Each OrderItem carries an `image` field used for the product thumbnail(s)
  * on the order card. The values below use LoremFlickr (https://loremflickr.com),
@@ -44,7 +44,9 @@
  */
 'use client'
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useAuth } from './AuthContext'
+import { createClient } from '@/lib/supabase/client'
 
 export type OrderStatus = 'Processing' | 'Quality Check' | 'Shipped' | 'Delivered' | 'Cancelled'
 
@@ -273,10 +275,14 @@ export function getOrderTimeline(order: Order): TimelineEvent[] {
   return events.reverse() // newest first
 }
 
-// Real, license-friendly product photo matching the given keyword(s), served
-// via LoremFlickr's keyword lookup (https://loremflickr.com/WIDTH/HEIGHT/tag1,tag2).
-// A stable `lock` id is included so the same item always renders the same photo
-// instead of a new random one on every reload.
+
+// ---------------------------------------------------------------------------
+// LEGACY SEED DATA — kept only because contexts/AdminDataContext.tsx still
+// imports MOCK_ORDERS (as CUSTOMER_ORDERS) to seed its own, still-fully-mock
+// admin dataset. The real customer-facing OrdersProvider below this block
+// no longer reads from it at all. Safe to delete once AdminDataContext gets
+// its own real Supabase-backed rewrite (a separate, admin-side pass).
+// ---------------------------------------------------------------------------
 function productImage(keywords: string, lock: number) {
   return `https://loremflickr.com/200/200/${keywords}?lock=${lock}`
 }
@@ -778,8 +784,106 @@ export const MOCK_ORDERS: Order[] = [
   },
 ]
 
+
+// ---------------------------------------------------------------------------
+// Real data layer. Fetches the logged-in customer's own `orders` (+ their
+// `order_items`, each item's `product_snapshots.image_url` for a thumbnail,
+// and the order's `addresses` row for the recipient block) from Supabase.
+// Every type/helper above this line is unchanged from the original mock —
+// OrdersHubPage.tsx and orders/track/page.tsx keep working exactly as
+// before, per this file's own original doc comment: "swap MOCK_ORDERS for
+// a real fetch/query and everything downstream keeps working as-is."
+//
+// Placeholder image for any item that never got a scraped/catalog photo
+// (rare — cart/wishlist always try to capture one via ensureProductSnapshot
+// before an order can exist, but a NULL is still possible for very old or
+// hand-inserted rows).
+const FALLBACK_ITEM_IMAGE = 'https://loremflickr.com/200/200/package?lock=0'
+
+// Maps the DB's `orders.stage` enum to this file's own OrderStatus/
+// SHIPPING_FLOW vocabulary. README's stated pipeline is
+// `Ordered -> Quality check -> Shipped -> Delivered`, and SHIPPING_FLOW
+// above already uses those exact 4 labels — 'ordered' is shown as
+// "Processing" in the OrderStatus/badge vocabulary specifically (matching
+// the original mock's distinction between the two: the list/badge says
+// "Processing", the timeline's first step says "Ordered"). There is no
+// "Cancelled" concept in the real schema (no such column on `orders`) —
+// that FILTERS/STATUS_BADGE entry simply won't match anything real until
+// a cancellation flow exists. Anything unrecognized falls back to a
+// title-cased version of the raw value rather than throwing, since the
+// exact full enum wasn't available when this was written.
+function mapStageToOrderStatus(stage: string): OrderStatus {
+  const normalized = stage.toLowerCase()
+  if (normalized === 'ordered') return 'Processing'
+  if (normalized.includes('quality')) return 'Quality Check'
+  if (normalized === 'shipped') return 'Shipped'
+  if (normalized === 'delivered') return 'Delivered'
+  // Best-effort fallback — title-case the raw value so a future/unknown
+  // stage still renders as *something* readable instead of crashing the
+  // union type. Not a real member of OrderStatus, but every consumer here
+  // only switches on known values and falls through to a default case.
+  return (stage.charAt(0).toUpperCase() + stage.slice(1).replace(/_/g, ' ')) as OrderStatus
+}
+
+type OrderRow = {
+  id: string
+  display_id: string
+  stage: string
+  currency: string
+  total_value: number
+  delayed: boolean
+  carrier: string | null
+  tracking_number: string | null
+  estimated_delivery: string | null
+  created_at: string
+  order_items: {
+    id: string
+    title: string
+    variant_label: string | null
+    quantity: number
+    unit_price: number
+    seller_name: string | null
+    seller_type: string | null
+    store_url: string | null
+    product_snapshots: { image_url: string | null } | null
+  }[]
+  addresses: { recipient_name: string; city: string; country: string } | null
+}
+
+function formatOrderDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+}
+
+function rowToOrder(row: OrderRow): Order {
+  return {
+    id: row.display_id,
+    date: formatOrderDate(row.created_at),
+    status: mapStageToOrderStatus(row.stage),
+    currency: row.currency === 'INR' ? 'INR' : 'LKR',
+    note: row.delayed ? 'This order is running behind schedule \u2014 we\u2019ll update you as soon as there\u2019s news.' : undefined,
+    carrier: row.carrier ?? undefined,
+    trackingNumber: row.tracking_number ?? undefined,
+    estimatedDelivery: row.estimated_delivery ?? undefined,
+    recipient: row.addresses
+      ? { name: row.addresses.recipient_name, city: row.addresses.city, country: row.addresses.country }
+      : undefined,
+    items: row.order_items.map((it) => ({
+      name: it.title,
+      variant: it.variant_label ?? undefined,
+      qty: it.quantity,
+      unitPrice: it.unit_price,
+      image: it.product_snapshots?.image_url ?? FALLBACK_ITEM_IMAGE,
+      sellerName: it.seller_name ?? undefined,
+      sellerType: (it.seller_type as SellerType | null) ?? undefined,
+      storeUrl: it.store_url ?? undefined,
+    })),
+  }
+}
+
 type OrdersContextValue = {
   orders: Order[]
+  loading: boolean
+  error: string | null
   getOrderById: (id: string) => Order | undefined
   filterOrders: (status: OrderStatus | 'All', query: string) => Order[]
 }
@@ -788,18 +892,63 @@ const OrdersContext = createContext<OrdersContextValue | undefined>(undefined)
 
 export function OrdersProvider({
   children,
-  initialOrders = MOCK_ORDERS,
+  initialOrders,
 }: {
   children: ReactNode
+  /** Escape hatch for tests/storybook — when omitted (the normal case),
+   * orders are fetched live for the logged-in user instead. */
   initialOrders?: Order[]
 }) {
-  // Swap this useState for real data fetching (e.g. React Query / server
-  // component fetch passed down as `initialOrders`) when going live.
-  const [orders] = useState<Order[]>(initialOrders)
+  const { user, loading: authLoading } = useAuth()
+  const [orders, setOrders] = useState<Order[]>(initialOrders ?? [])
+  const [loading, setLoading] = useState(initialOrders == null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (initialOrders != null) return // escape hatch in use — never fetches
+    if (authLoading) return
+    if (!user) {
+      setOrders([])
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    const supabase = createClient()
+
+    supabase
+      .from('orders')
+      .select(
+        `id, display_id, stage, currency, total_value, delayed, carrier, tracking_number, estimated_delivery, created_at,
+         order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, product_snapshots ( image_url ) ),
+         addresses ( recipient_name, city, country )`,
+      )
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data, error: fetchError }) => {
+        if (cancelled) return
+        if (fetchError) {
+          setError(fetchError.message)
+          setOrders([])
+        } else {
+          setOrders(((data ?? []) as unknown as OrderRow[]).map(rowToOrder))
+        }
+        setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, initialOrders])
 
   const value = useMemo<OrdersContextValue>(
     () => ({
       orders,
+      loading,
+      error,
       getOrderById: (id) => orders.find((o) => o.id.toLowerCase() === id.toLowerCase()),
       filterOrders: (status, query) => {
         const q = query.trim().toLowerCase()
@@ -813,7 +962,7 @@ export function OrdersProvider({
         })
       },
     }),
-    [orders]
+    [orders, loading, error],
   )
 
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>

@@ -62,7 +62,7 @@ function rowToResolvedSeller(data: {
     platform: data.platform_slug,
     name: data.name,
     url: data.outbound_url ?? undefined,
-    config: config as StoreProviderConfig,
+    config: config as unknown as StoreProviderConfig,
   }
 }
 

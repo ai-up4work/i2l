@@ -351,6 +351,44 @@ export default function SellerFormClient({
     }
   }
 
+  // ---- Seller portal login ----
+  // Provisions a real Supabase auth user for this seller and links it via
+  // sellers.owner_user_id (see app/api/admin/sellers/[platform]/create-login).
+  // That route already existed with no UI caller anywhere — this is the
+  // missing other half. `hasLogin` starts from the server-fetched seller
+  // (mapDbRowToAdminSeller already computes it as Boolean(owner_user_id))
+  // but is tracked in local state too, so a successful creation flips the
+  // UI immediately without needing a full page reload.
+  const [loginEmail, setLoginEmail] = useState(seller?.admin.contactEmail ?? '')
+  const [hasLogin, setHasLogin] = useState(seller?.admin.hasLogin ?? false)
+  const [creatingLogin, setCreatingLogin] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  // Holds the one-time temp password just long enough to show/copy it —
+  // the API never returns it again on subsequent calls, so this is the
+  // only place it's ever visible.
+  const [createdLogin, setCreatedLogin] = useState<{ email: string; tempPassword: string } | null>(null)
+
+  const handleCreateLogin = async () => {
+    if (!seller || !loginEmail.trim()) return
+    setCreatingLogin(true)
+    setLoginError(null)
+    try {
+      const res = await fetch(`/api/admin/sellers/${seller.platform}/create-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail.trim() }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to create login')
+      setCreatedLogin({ email: body.email, tempPassword: body.tempPassword })
+      setHasLogin(true)
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Failed to create login')
+    } finally {
+      setCreatingLogin(false)
+    }
+  }
+
   // ---- Method state ----
   const cfg = seller?.providerConfig
   const [providerType, setProviderType] = useState<StoreProviderType>(cfg?.type ?? 'mock')
@@ -2268,6 +2306,76 @@ export default function SellerFormClient({
                 }
               />
               {testPanel}
+            </section>
+
+            {/* ---- Seller portal login (full width) ---- */}
+            <section className={`flex flex-col gap-4 p-6 ${panelClass}`}>
+              <SectionHeading
+                title="Seller portal login"
+                subtitle="Lets this seller sign in at /seller/login and add/manage their own products directly, instead of ops doing it on their behalf."
+              />
+
+              {hasLogin ? (
+                <div className="flex items-center gap-2 text-sm font-semibold text-teal-deep">
+                  <Check size={15} />
+                  This seller already has a login.
+                </div>
+              ) : createdLogin ? (
+                <div className={`flex flex-col gap-3 p-4 ${groupClass} border-teal-deep/25`}>
+                  <p className="text-sm font-semibold text-teal-deep">
+                    Login created \u2014 share these with the seller now. The password won&rsquo;t be shown again.
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">Email</p>
+                      <p className="mt-1 font-mono text-sm text-ink">{createdLogin.email}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">Temporary password</p>
+                      <p className="mt-1 font-mono text-sm text-ink">{createdLogin.tempPassword}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-ink/45">
+                    They can sign in at <span className="font-mono">/seller/login</span> now. There&rsquo;s no forced
+                    password-change flow yet, so ask them to change it once they&rsquo;re in.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <Field label="Login email" className="flex-1">
+                      <input
+                        type="email"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="seller@example.com"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={handleCreateLogin}
+                      disabled={creatingLogin || !loginEmail.trim()}
+                      className="flex flex-none items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment shadow-[0_10px_28px_-10px_rgba(11,114,128,0.55)] transition-all hover:bg-teal active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:shadow-none"
+                    >
+                      {creatingLogin ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Creating\u2026
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus size={14} /> Create seller login
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {loginError && <p className="text-xs font-semibold text-red-700">{loginError}</p>}
+                  <p className="text-xs text-ink/40">
+                    Creates a real account for this seller and links it to this store. Defaults to the contact email
+                    above \u2014 change it first if products should be managed by someone else.
+                  </p>
+                </>
+              )}
             </section>
           </div>
         )}

@@ -10,6 +10,7 @@
 // middleware.ts at the project root).
 
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from './types'
 
@@ -44,12 +45,14 @@ export async function createClient() {
  * this into a 'use client' file or a file that could end up in the client
  * bundle. Use for admin/ops routes (app/api/admin/**, app/admin/**'s data
  * loaders) where the operation legitimately needs to act across all users'
- * rows (e.g. staff editing any seller's products).
+ * rows (e.g. staff editing any seller's products), and for auth.admin.*
+ * calls (e.g. creating a seller login) — those specifically require the
+ * plain supabase-js client, not the cookie-oriented @supabase/ssr one.
  */
 export function createServiceRoleClient() {
-  return createServerClient<Database>(
+  return createSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { cookies: { getAll: () => [], setAll: () => {} } },
+    { auth: { autoRefreshToken: false, persistSession: false } },
   )
 }

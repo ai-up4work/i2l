@@ -15,18 +15,15 @@ import { createClient } from '@/lib/supabase/client'
 import { ensureProductSnapshot, findSnapshotId } from '@/lib/supabase/product-snapshots'
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (unchanged)
 // ---------------------------------------------------------------------------
 
-/** A saved variant selection — size/color/whatever the product supports. */
 export type ProductVariant = {
-  label: string // e.g. "Size / Color"
-  value: string // e.g. "M / Black"
+  label: string
+  value: string
 }
 
-/** Same idea as CartProduct — a small serializable snapshot, not the full scrape result. */
 export type WishlistProduct = {
-  /** Stable identity — use the listing URL, same convention as the cart. */
   id: string
   url: string
   site?: string | null
@@ -38,7 +35,6 @@ export type WishlistProduct = {
 
 export type WishlistEntry = WishlistProduct & { addedAt: number }
 
-/** A product as saved inside a board — adds variant/qty/ordering on top of the base product. */
 export type BoardProduct = WishlistProduct & {
   variant?: ProductVariant | null
   quantity?: number
@@ -46,9 +42,7 @@ export type BoardProduct = WishlistProduct & {
 
 export type BoardItem = BoardProduct & {
   addedAt: number
-  /** Snapshot of price at the moment it was saved — compare to live price to detect drops. */
   priceAtSave?: string | null
-  /** Sort position within the board (lower = earlier). Kept dense on every reorder. */
   position: number
 }
 
@@ -60,15 +54,12 @@ export type Board = {
   description?: string | null
   items: BoardItem[]
   visibility: BoardVisibility
-  /** Opaque token used in shareable URLs. Only present once a share link has been generated. */
   shareToken?: string | null
   createdAt: number
   updatedAt: number
-  /** Sort position among the user's boards (for drag-reordering the board list). */
   position: number
 }
 
-/** Result of pushing an entire board into the cart in one action. */
 export type AddBoardToCartResult = {
   added: BoardItem[]
   skipped: BoardItem[]
@@ -76,8 +67,6 @@ export type AddBoardToCartResult = {
 
 type WishlistContextValue = {
   hydrated: boolean
-
-  // ---- flat wishlist -------------------------------------------------
   items: WishlistEntry[]
   count: number
   addItem: (product: WishlistProduct) => void
@@ -86,7 +75,6 @@ type WishlistContextValue = {
   isInWishlist: (id: string) => boolean
   clearWishlist: () => void
 
-  // ---- boards: CRUD ----------------------------------------------------
   boards: Board[]
   createBoard: (name?: string, initialItems?: BoardProduct[]) => Board
   renameBoard: (boardId: string, name: string) => void
@@ -96,7 +84,6 @@ type WishlistContextValue = {
   reorderBoards: (orderedIds: string[]) => void
   getBoard: (boardId: string) => Board | undefined
 
-  // ---- boards: items -----------------------------------------------------
   addItemToBoard: (boardId: string, product: BoardProduct) => void
   removeItemFromBoard: (boardId: string, itemId: string) => void
   moveItem: (fromBoardId: string, toBoardId: string, itemId: string) => void
@@ -107,12 +94,10 @@ type WishlistContextValue = {
   isInBoard: (boardId: string, itemId: string) => boolean
   getBoardsForItem: (itemId: string) => Board[]
 
-  // ---- boards: sharing -----------------------------------------------------
   setBoardVisibility: (boardId: string, visibility: BoardVisibility) => void
   generateShareLink: (boardId: string) => string
   revokeShareLink: (boardId: string) => void
 
-  // ---- boards: cart -----------------------------------------------------
   addBoardToCart: (
     boardId: string,
     addToCart: (item: BoardItem) => boolean | void,
@@ -122,40 +107,56 @@ type WishlistContextValue = {
 const WishlistContext = createContext<WishlistContextValue | null>(null)
 
 // ---------------------------------------------------------------------------
-// Persistence — one storage key for the whole feature (items + boards +
-// naming counter), since they're always read/written together on load.
+// Persistence
 //
-// NOTE ON SUPABASE SYNC: only the flat `items` list below is synced to the
-// `wishlist_items` table for logged-in users. Boards (`boards` state) are
-// NOT yet synced — they stay localStorage-only, matching how they already
-// worked before. Boards need their own migration path (create/rename/
-// delete/reorder/share-token generation all need server round-trips, and
-// getting the share-link flow right needs its own pass) — flagged here
-// rather than done partially/incorrectly. `board_items`/`boards` tables
-// already exist in the schema and are ready for this when it's built.
+// Two SEPARATE keys now, because the two halves of this context have
+// different truth sources:
+//
+// - `wishdrop:wishlist-items` — GUEST-ONLY. A logged-in user's flat
+//   wishlist lives solely in the `wishlist_items` table; nothing about it
+//   is ever written to, or read back from, localStorage once logged in.
+//
+// - `wishdrop:wishlist-boards` — ALWAYS local, for every user, logged in
+//   or not. Boards have no DB table wired up yet (see below), so there's
+//   no "fetch from DB" option to fall back to — losing this on login/out
+//   would mean losing all board data on every device switch. Because it's
+//   still just sitting in the browser regardless of who's logged in, it
+//   keeps its own account-switch wipe so User A's boards can't leak into
+//   User B's session on a shared device.
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'wishdrop:wishlist-data'
+const ITEMS_STORAGE_KEY = 'wishdrop:wishlist-items'
+const BOARDS_STORAGE_KEY = 'wishdrop:wishlist-boards'
 
-type PersistedShape = {
-  items: WishlistEntry[]
+type PersistedBoardsShape = {
   boards: Board[]
   boardCounter: number
 }
 
-function loadInitialState(): PersistedShape {
-  if (typeof window === 'undefined') return { items: [], boards: [], boardCounter: 0 }
+function loadInitialItems(): WishlistEntry[] {
+  if (typeof window === 'undefined') return []
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { items: [], boards: [], boardCounter: 0 }
+    const raw = window.localStorage.getItem(ITEMS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function loadInitialBoards(): PersistedBoardsShape {
+  if (typeof window === 'undefined') return { boards: [], boardCounter: 0 }
+  try {
+    const raw = window.localStorage.getItem(BOARDS_STORAGE_KEY)
+    if (!raw) return { boards: [], boardCounter: 0 }
     const parsed = JSON.parse(raw)
     return {
-      items: Array.isArray(parsed.items) ? parsed.items : [],
       boards: Array.isArray(parsed.boards) ? parsed.boards : [],
       boardCounter: typeof parsed.boardCounter === 'number' ? parsed.boardCounter : 0,
     }
   } catch {
-    return { items: [], boards: [], boardCounter: 0 }
+    return { boards: [], boardCounter: 0 }
   }
 }
 
@@ -179,34 +180,69 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   const [boards, setBoards] = useState<Board[]>([])
   const [boardCounter, setBoardCounter] = useState(0)
   const [hydrated, setHydrated] = useState(false)
-  const dbSyncedForUserId = useRef<string | null>(null)
 
+  // Which user's DB wishlist is currently reflected in `items` (null =
+  // no one yet / guest). Mirrors the same ref in CartContext.
+  const loadedUserIdRef = useRef<string | null>(null)
+
+  // Boards keep their own separate "whose boards are these" tracking,
+  // since they follow the OLD local-only-with-account-switch-wipe model
+  // regardless of login state.
+  const loadedBoardsForUserRef = useRef<string | null | undefined>(undefined)
+
+  // ---- initial hydration --------------------------------------------
   useEffect(() => {
-    const initial = loadInitialState()
-    setItems(initial.items)
-    setBoards(initial.boards)
-    setBoardCounter(initial.boardCounter)
+    setItems(loadInitialItems())
+    const initialBoards = loadInitialBoards()
+    setBoards(initialBoards.boards)
+    setBoardCounter(initialBoards.boardCounter)
     setHydrated(true)
   }, [])
 
+  // ---- guest-only items persistence ----------------------------------
+  useEffect(() => {
+    if (!hydrated || user) return
+    try {
+      window.localStorage.setItem(ITEMS_STORAGE_KEY, JSON.stringify(items))
+    } catch {
+      // best-effort
+    }
+  }, [items, hydrated, user])
+
+  // ---- boards persistence (always, regardless of login) -------------
   useEffect(() => {
     if (!hydrated) return
     try {
-      const payload: PersistedShape = { items, boards, boardCounter }
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+      const payload: PersistedBoardsShape = { boards, boardCounter }
+      window.localStorage.setItem(BOARDS_STORAGE_KEY, JSON.stringify(payload))
     } catch {
-      // Storage can fail (quota, private mode) — losing persistence isn't
-      // worth crashing the wishlist/boards feature over.
+      // best-effort
     }
-  }, [items, boards, boardCounter, hydrated])
+  }, [boards, boardCounter, hydrated])
 
+  // ---- guest-only items cross-tab sync -------------------------------
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (e.key !== STORAGE_KEY) return
+      if (user) return
+      if (e.key !== ITEMS_STORAGE_KEY) return
+      try {
+        const parsed = e.newValue ? JSON.parse(e.newValue) : []
+        setItems(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        // ignore malformed cross-tab payloads
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [user])
+
+  // ---- boards cross-tab sync (always) --------------------------------
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== BOARDS_STORAGE_KEY) return
       try {
         const parsed = e.newValue ? JSON.parse(e.newValue) : null
         if (!parsed) return
-        if (Array.isArray(parsed.items)) setItems(parsed.items)
         if (Array.isArray(parsed.boards)) setBoards(parsed.boards)
         if (typeof parsed.boardCounter === 'number') setBoardCounter(parsed.boardCounter)
       } catch {
@@ -217,7 +253,27 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  // ---- flat wishlist: Supabase sync --------------------------------------
+  // ---- BOARDS: account-switch guard ----------------------------------
+  // Boards have no DB backing, so this is the only thing standing between
+  // "User A's boards" and "User B logs in on the same browser and sees
+  // them". Kept from the original implementation, unchanged in spirit.
+  useEffect(() => {
+    if (authLoading || !hydrated) return
+    const currentUserId = user?.id ?? null
+    const isFirstRun = loadedBoardsForUserRef.current === undefined
+    if (!isFirstRun && loadedBoardsForUserRef.current !== currentUserId) {
+      setBoards([])
+      setBoardCounter(0)
+      try {
+        window.localStorage.removeItem(BOARDS_STORAGE_KEY)
+      } catch {
+        // best-effort
+      }
+    }
+    loadedBoardsForUserRef.current = currentUserId
+  }, [user?.id, authLoading, hydrated])
+
+  // ---- flat wishlist: Supabase sync ----------------------------------
 
   const pushItemToDb = useCallback(
     async (product: WishlistProduct, userId: string) => {
@@ -260,22 +316,33 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     [supabase],
   )
 
-  // On login: push local (guest) wishlist items up, then replace local
-  // state with the merged server-side list. Boards are intentionally left
-  // untouched here — see the note above the storage-key section.
+  // Same guest<->logged-in load/merge pattern as CartContext.
   useEffect(() => {
     if (authLoading || !hydrated) return
+
     if (!user) {
-      dbSyncedForUserId.current = null
+      if (loadedUserIdRef.current !== null) {
+        setItems(loadInitialItems())
+      }
+      loadedUserIdRef.current = null
       return
     }
-    if (dbSyncedForUserId.current === user.id) return
-    dbSyncedForUserId.current = user.id
+
+    if (loadedUserIdRef.current === user.id) return
 
     let cancelled = false
+    const guestItemsAtLogin = items
+
     ;(async () => {
-      for (const entry of items) {
+      for (const entry of guestItemsAtLogin) {
         await pushItemToDb(entry, user.id)
+      }
+      if (guestItemsAtLogin.length) {
+        try {
+          window.localStorage.removeItem(ITEMS_STORAGE_KEY)
+        } catch {
+          // best-effort
+        }
       }
 
       const { data, error } = await supabase
@@ -283,7 +350,12 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         .select('added_at, product_snapshots(url, site, title, image_url, currency, price)')
         .eq('user_id', user.id)
 
-      if (cancelled || error || !data) return
+      if (cancelled) return
+
+      if (error || !data) {
+        loadedUserIdRef.current = user.id
+        return
+      }
 
       const merged: WishlistEntry[] = data
         .filter((row: any) => row.product_snapshots?.url)
@@ -299,6 +371,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         }))
 
       setItems(merged)
+      loadedUserIdRef.current = user.id
     })()
 
     return () => {
@@ -351,7 +424,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     if (user) idsToRemove.forEach((id) => removeItemFromDb(id, user.id))
   }, [items, user, removeItemFromDb])
 
-  // ---- boards: CRUD (unchanged — localStorage only, see note above) -----
+  // ---- boards: CRUD (unchanged — always local, see note above) ------
 
   const createBoard = useCallback(
     (name?: string, initialItems: BoardProduct[] = []): Board => {

@@ -60,7 +60,7 @@ export default function OrdersHubPage() {
 }
 
 function OrdersPageContent() {
-  const { orders } = useOrders()
+  const { orders, loading } = useOrders()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All')
   const [page, setPage] = useState(1)
@@ -138,16 +138,21 @@ function OrdersPageContent() {
 
         {/* Order list */}
         <div className="mt-6 space-y-4">
-          {pageOrders.length === 0 && (
+          {loading ? (
+            <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-12 text-center">
+              <PackageSearch size={36} strokeWidth={1.2} className="animate-pulse text-ink/25" />
+              <p className="text-sm text-ink/50">Loading your orders…</p>
+            </div>
+          ) : pageOrders.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-12 text-center">
               <PackageSearch size={36} strokeWidth={1.2} className="text-ink/25" />
-              <p className="text-sm text-ink/50">No orders match your search.</p>
+              <p className="text-sm text-ink/50">
+                {orders.length === 0 ? 'No orders yet.' : 'No orders match your search.'}
+              </p>
             </div>
+          ) : (
+            pageOrders.map((order) => <OrderCard key={order.id} order={order} />)
           )}
-
-          {pageOrders.map((order) => (
-            <OrderCard key={order.id} order={order} />
-          ))}
         </div>
 
         {/* Pagination */}

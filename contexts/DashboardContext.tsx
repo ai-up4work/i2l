@@ -1,14 +1,17 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { initialRequests, productImage } from '@/components/dashboard/data'
+import { productImage } from '@/components/dashboard/data'
 import { pathForView } from '@/components/dashboard/routes'
-import { REQUEST_STATUS_FLOW } from '@/components/dashboard/types'
-import type { Draft, ItemRequest, RequestStatus } from '@/components/dashboard/types'
+import type { Draft } from '@/components/dashboard/types'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import { useProductLookup } from '@/hooks/useProductLookup'
 import { rateToLKR } from '@/lib/currency-config'
+import { useAuth } from './AuthContext'
+import { createClient } from '@/lib/supabase/client'
+import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const emptyDraft: Draft = {
   url: '',
@@ -22,7 +25,6 @@ const emptyDraft: Draft = {
 }
 
 const DRAFT_STORAGE_KEY = 'dashboard:pendingDraft'
-const REQUESTS_STORAGE_KEY = 'wishdrop:requests'
 
 function loadPersistedDraft(): Draft {
   if (typeof window === 'undefined') return emptyDraft
@@ -55,18 +57,6 @@ function clearPersistedDraft() {
   }
 }
 
-function loadInitialRequests(): ItemRequest[] {
-  if (typeof window === 'undefined') return initialRequests
-  try {
-    const raw = window.localStorage.getItem(REQUESTS_STORAGE_KEY)
-    if (raw == null) return initialRequests
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : initialRequests
-  } catch {
-    return initialRequests
-  }
-}
-
 export type CartOrderLine = {
   name: string
   url: string
@@ -75,8 +65,9 @@ export type CartOrderLine = {
   image: string
 }
 
+export type ConfirmResult = { ok: boolean; error?: string }
+
 type DashboardContextValue = {
-  requests: ItemRequest[]
   draft: Draft
   setDraft: (draft: Draft) => void
   pastedLink: string
@@ -97,15 +88,17 @@ type DashboardContextValue = {
   startItemInfo: (event: React.FormEvent) => Promise<void>
   beginRequestForUrl: (url: string) => Promise<void>
   saveItemInfo: (event: React.FormEvent) => void
-  confirmRequest: () => void
+  /** Writes the current draft to a real order (price already known) or a
+   * Channel 3 request (no price yet, needs a Sales & Purchase quote).
+   * Navigates to /account/orders on success; returns ok:false and stays
+   * put on failure so the customer can retry. */
+  confirmRequest: () => Promise<ConfirmResult>
   selectVariant: (url: string) => Promise<void>
-  confirmCartOrder: (lines: CartOrderLine[]) => void
-
-  /** Moves a single request forward one step in REQUEST_STATUS_FLOW.
-   * No-ops if the request is already at the last status or isn't found. */
-  advanceRequestStatus: (id: string) => void
-  /** Jumps a single request directly to `status`, regardless of flow order. */
-  setRequestStatus: (id: string, status: RequestStatus) => void
+  /** Writes cart lines to a single real order. Does NOT navigate or clear
+   * the cart itself — the caller (cart page) does that only once this
+   * resolves with ok: true, so a failed write never silently loses the
+   * cart's contents. */
+  confirmCartOrder: (lines: CartOrderLine[]) => Promise<ConfirmResult>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -124,11 +117,43 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
   }
 }
 
+/**
+ * Creates one `orders` row with a random human-readable display_id,
+ * retrying on a (rare) unique-constraint collision. There's no DB
+ * sequence/function exposed for this, so a client-generated random id is
+ * the pragmatic option — it's purely a display number, never used as a
+ * foreign key, so a retry-on-collision loop is safe and simple.
+ */
+async function createOrderWithRetry(
+  supabase: SupabaseClient,
+  fields: { user_id: string; channel: 1 | 2 | 3; currency: string; total_value: number },
+): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const displayId = `WD-${Math.floor(10000 + Math.random() * 89999)}`
+    const { data, error } = await supabase
+      .from('orders')
+      .insert({ display_id: displayId, ...fields })
+      .select('id')
+      .single()
+    if (!error) return data.id as string
+    if (error.code !== '23505') throw error
+    // 23505 = unique_violation on display_id — loop and try a new one.
+  }
+  throw new Error('Could not generate a unique order number. Please try again.')
+}
+
+function sourceDomainFor(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return 'unknown'
+  }
+}
+
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const { user } = useAuth()
 
-  const [requests, setRequests] = useState<ItemRequest[]>(loadInitialRequests)
-  const [requestsHydrated, setRequestsHydrated] = useState(false)
   const [draft, setDraft] = useState<Draft>(loadPersistedDraft)
   const [pastedLink, setPastedLink] = useState('')
   const [promoCode, setPromoCode] = useState('')
@@ -143,34 +168,6 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     lookup,
     reset: resetLookup,
   } = useProductLookup()
-
-  useEffect(() => {
-    setRequestsHydrated(true)
-  }, [])
-
-  useEffect(() => {
-    if (!requestsHydrated) return
-    try {
-      window.localStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(requests))
-    } catch {
-      // Storage can fail (quota, private mode) — losing persistence isn't
-      // worth crashing the requests list over.
-    }
-  }, [requests, requestsHydrated])
-
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (e.key !== REQUESTS_STORAGE_KEY) return
-      try {
-        const parsed = e.newValue ? JSON.parse(e.newValue) : initialRequests
-        setRequests(Array.isArray(parsed) ? parsed : initialRequests)
-      } catch {
-        // ignore malformed cross-tab payloads
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
 
   const resetDraft = useCallback(() => {
     setDraft(emptyDraft)
@@ -228,75 +225,128 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     [draft, router],
   )
 
-  // Starting status is 'Awaiting payment' — the first stage in
-  // REQUEST_STATUS_FLOW. advanceRequestStatus/setRequestStatus are what
-  // move a request through 'Requested' -> 'Processing' -> 'Shipped' ->
-  // 'Delivered' from there.
-  const confirmRequest = useCallback(() => {
-    setRequests((current) => [
-      {
-        id: `P${Math.floor(100000000 + Math.random() * 899999999)}`,
-        name: draft.name,
-        url: draft.url,
-        qty: draft.qty,
-        unitPrice: draft.unitPrice,
-        image: draft.image,
-        status: 'Awaiting payment',
-        statusHistory: [],
-        customerId: '',
-        customerName: '',
-      },
-      ...current,
-    ])
-    clearPersistedDraft()
-    setActiveTab('Requested')
-    router.push(pathForView('ordersHub'))
-  }, [draft, router])
+  // Writes the confirmed draft to Supabase. Two paths, split on whether a
+  // price is already known:
+  //   - Priced (scraped successfully, or hand-entered in ItemInfoModal):
+  //     Channel 2 — goes straight to a real order, no admin quote needed,
+  //     since there's nothing left to price.
+  //   - Unpriced: Channel 3 — the link couldn't be priced automatically,
+  //     so this becomes a `requests` row for Sales & Purchase to quote by
+  //     hand (plus the chat_thread it's required to reference).
+  //
+  // KNOWN GAP: a Channel 3 request has nowhere good to land yet — there's
+  // no "my pending requests" list page, so this still routes to
+  // /account/orders like the priced path, where it simply won't appear
+  // (it isn't an order yet). Surfacing pending requests needs either a
+  // small new page or extending Order's status union in Ordercontexts.tsx
+  // — flagged, not solved here.
+  const confirmRequest = useCallback(async (): Promise<ConfirmResult> => {
+    if (!user) return { ok: false, error: 'You need to be signed in to confirm a request.' }
 
-  const confirmCartOrder = useCallback((lines: CartOrderLine[]) => {
-    if (!lines.length) return
-    setRequests((current) => [
-      ...lines.map((line) => ({
-        id: `P${Math.floor(100000000 + Math.random() * 899999999)}`,
-        name: line.name,
-        url: line.url,
-        qty: line.qty,
-        unitPrice: line.unitPriceLKR,
-        image: line.image,
-        status: 'Awaiting payment' as const,
-        statusHistory: [],
-        customerId: '',
-        customerName: '',
-      })),
-      ...current,
-    ])
-    setActiveTab('Requested')
-  }, [])
+    const supabase = createClient()
+    try {
+      if (draft.unitPrice > 0) {
+        const snapshotId = await ensureProductSnapshot(supabase, {
+          id: draft.url || draft.name,
+          title: draft.name,
+          image: draft.image,
+          site: null,
+          price: null,
+        })
+        const orderId = await createOrderWithRetry(supabase, {
+          user_id: user.id,
+          channel: 2,
+          currency: 'LKR',
+          total_value: draft.unitPrice * draft.qty,
+        })
+        const { error: itemError } = await supabase.from('order_items').insert({
+          order_id: orderId,
+          product_snapshot_id: snapshotId,
+          title: draft.name,
+          quantity: draft.qty,
+          unit_price: draft.unitPrice,
+        })
+        if (itemError) throw itemError
+      } else {
+        const { data: thread, error: threadError } = await supabase
+          .from('chat_threads')
+          .insert({ user_id: user.id })
+          .select('id')
+          .single()
+        if (threadError) throw threadError
 
-  const advanceRequestStatus = useCallback((id: string) => {
-    setRequests((current) =>
-      current.map((request) => {
-        if (request.id !== id) return request
-        const currentIndex = REQUEST_STATUS_FLOW.indexOf(request.status)
-        const nextStatus = REQUEST_STATUS_FLOW[currentIndex + 1]
-        // Already at the end of the flow, or status isn't in the known
-        // sequence (shouldn't happen, but don't throw on stale data) —
-        // leave it as-is.
-        if (!nextStatus) return request
-        return { ...request, status: nextStatus }
-      }),
-    )
-  }, [])
+        const { error: requestError } = await supabase.from('requests').insert({
+          user_id: user.id,
+          link: draft.url,
+          note: draft.name,
+          source_domain: sourceDomainFor(draft.url),
+          chat_thread_id: thread.id,
+        })
+        if (requestError) throw requestError
+      }
 
-  const setRequestStatus = useCallback((id: string, status: RequestStatus) => {
-    setRequests((current) =>
-      current.map((request) => (request.id === id ? { ...request, status } : request)),
-    )
-  }, [])
+      clearPersistedDraft()
+      setActiveTab('Requested')
+      router.push(pathForView('ordersHub'))
+      return { ok: true }
+    } catch (err) {
+      console.error('[dashboard] failed to confirm request', err)
+      return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
+    }
+  }, [draft, user, router])
+
+  // See confirmRequest above for the general shape. Cart checkout is
+  // always priced (every line came from a real listing already shown at
+  // a price), so this is always Channel 2 — no unpriced branch needed.
+  const confirmCartOrder = useCallback(
+    async (lines: CartOrderLine[]): Promise<ConfirmResult> => {
+      if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
+      if (!user) return { ok: false, error: 'You need to be signed in to confirm an order.' }
+
+      const supabase = createClient()
+      try {
+        const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
+        const orderId = await createOrderWithRetry(supabase, {
+          user_id: user.id,
+          channel: 2,
+          currency: 'LKR',
+          total_value: total,
+        })
+
+        const itemRows = await Promise.all(
+          lines.map(async (line) => {
+            const snapshotId = await ensureProductSnapshot(supabase, {
+              id: line.url || line.name,
+              title: line.name,
+              image: line.image,
+              site: null,
+              price: null,
+            })
+            return {
+              order_id: orderId,
+              product_snapshot_id: snapshotId,
+              title: line.name,
+              quantity: line.qty,
+              unit_price: line.unitPriceLKR,
+            }
+          }),
+        )
+
+        const { error: itemsError } = await supabase.from('order_items').insert(itemRows)
+        if (itemsError) throw itemsError
+
+        setActiveTab('Requested')
+        return { ok: true }
+      } catch (err) {
+        console.error('[dashboard] failed to confirm cart order', err)
+        return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
+      }
+    },
+    [user],
+  )
 
   const value = useMemo<DashboardContextValue>(
     () => ({
-      requests,
       draft,
       setDraft,
       pastedLink,
@@ -318,11 +368,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       confirmRequest,
       selectVariant,
       confirmCartOrder,
-      advanceRequestStatus,
-      setRequestStatus,
     }),
     [
-      requests,
       draft,
       pastedLink,
       promoCode,
@@ -339,8 +386,6 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       confirmRequest,
       selectVariant,
       confirmCartOrder,
-      advanceRequestStatus,
-      setRequestStatus,
     ],
   )
 

@@ -256,8 +256,10 @@ function TrackOrderContent() {
   const searchParams = useSearchParams()
   const orderId = searchParams.get('order')
   const initialTab = resolveInitialTab(searchParams.get('tab'))
-  const { orders, getOrderById } = useOrders()
+  const { orders, loading, getOrderById } = useOrders()
   const [query, setQuery] = useState(orderId ?? '')
+
+  if (loading) return <TrackOrderSkeleton />
 
   const explicitOrder = orderId ? getOrderById(orderId) : undefined
   const notFound = !!orderId && !explicitOrder
