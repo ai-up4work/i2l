@@ -3,33 +3,34 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Inbox, Package, Search, SearchX } from "lucide-react"
+import { ChevronRight, Flag, Inbox, MapPinned, Package, Search, SearchX } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
-import type { Channel, OrderStage } from "@/types/admin"
+import type { Channel, Order, OrderStage } from "@/types/admin"
 import { STAGE_ORDER, STAGE_AGE_THRESHOLD_HOURS, CHANNEL_LABEL } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
-import { panelClass } from "@/components/admin/seller/shared"
+import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
 
 // Orders — every order across all three channels, independent of the
-// warehouse queue. Restyled to match the Purchases screen deliberately:
-// same panelClass table shell, same ink/parchment/card palette, same
-// pill-tab + edge-bar tone system — ops moves between Orders and
-// Purchases constantly in the course of a shift, so the two should read
-// as one product, not two.
+// warehouse queue.
 //
-// Data comes from useAdminData() — the same store /admin/orders/[orderId]
-// and the Purchases pages read from — so nothing here is a local copy.
+// DESIGN PASS (2026-09): restyled from a dense table into the same card
+// language as the customer-facing "My Orders" page — a left-edge status
+// accent, an item image stack, and a clean total/action area — instead
+// of a 10-column grid. Ops still needs to scan a lot of orders fast, so
+// the card keeps every field the table had (channel, stage, site, both
+// age readouts, override controls), just organized as one flexible row
+// per order instead of fixed grid tracks. This also removes the
+// separate "mobile summary row" the table needed, since a card-based
+// row is naturally responsive at any width.
 //
 // The stage dropdown here is the OVERRIDE control, not the normal way an
 // order progresses — that's what the QC/Pack & label/Export bin/In
-// transit pages are for, and canMutateOrderStage (Warehouse-at-own-site +
-// Manager-anywhere) still governs those. This page's dropdown/override
-// column is gated on the separate `canOverrideOrderStage` permission
-// (Manager only), enforced both here and centrally in
-// AdminDataContext.updateOrderStage, so a Warehouse user can't skip an
-// order past Quality check without ever going through the real Pack &
-// label workflow.
+// transit pages are for, and canMutateOrderStage (Warehouse-at-own-site
+// + Manager-anywhere) still governs those. This page's override row is
+// gated on the separate `canOverrideOrderStage` permission (Manager
+// only), enforced both here and centrally in
+// AdminDataContext.updateOrderStage.
 
 type SortMode = "recent" | "stuck"
 
@@ -43,14 +44,6 @@ const TONE_PILL: Record<StatusTone, string> = {
   amber: "bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30",
   rose: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200",
 }
-const TONE_EDGE: Record<StatusTone, string> = {
-  teal: "before:bg-teal-deep/70",
-  amber: "before:bg-gold-deep",
-  rose: "before:bg-rose-600/70",
-}
-// One neutral tone on top of the shared teal/amber/rose set — local to
-// this file, not part of the shared StatusTone type, since only Orders
-// needs a "nothing to flag" pill (e.g. the Ordered stage, channel 2).
 const INK_PILL = "bg-ink/[0.04] text-ink/60 ring-1 ring-inset ring-ink/10"
 const INK_DOT = "bg-ink/30"
 
@@ -65,6 +58,25 @@ const STAGE_TONE: Record<OrderStage, StatusTone | "ink"> = {
   "Quality check": "amber",
   "Shipped": "teal",
   "Delivered": "teal",
+}
+
+// Left-edge accent per card — mirrors STATUS_ACCENT on the customer
+// "My Orders" page. Delayed/breached orders always read as rose
+// regardless of stage, since that's the thing ops needs to spot first
+// scanning down the list; otherwise the accent follows the stage tone.
+function orderAccent(order: Order, breach: boolean): string {
+  if (order.delayed || breach) return "border-l-rose-500"
+  switch (order.stage) {
+    case "Ordered":
+      return "border-l-ink/15"
+    case "Quality check":
+      return "border-l-gold-deep"
+    case "Shipped":
+    case "Delivered":
+      return "border-l-teal-deep"
+    default:
+      return "border-l-ink/15"
+  }
 }
 
 function pillClass(tone: StatusTone | "ink") {
@@ -83,15 +95,7 @@ function Pill({ tone, children }: { tone: StatusTone | "ink"; children: React.Re
   )
 }
 
-function DelayedDot({ compact = false }: { compact?: boolean }) {
-  if (compact) {
-    return (
-      <span className="inline-flex items-center" title="Delayed">
-        <span className="h-2.5 w-2.5 rounded-full bg-rose-600" />
-        <span className="sr-only">Delayed</span>
-      </span>
-    )
-  }
+function DelayedPill() {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
       <span className="h-1.5 w-1.5 rounded-full bg-rose-600" />
@@ -120,18 +124,24 @@ function StatCard({
   )
 }
 
-function StageAgeBar({ stage, hours }: { stage: OrderStage; hours: number }) {
-  const threshold = STAGE_AGE_THRESHOLD_HOURS[stage]
+// Compact "bar + label" age readout — used for both age fields on a
+// card. Label is fixed-width and never wraps.
+function AgeReadout({ label, hours, threshold }: { label: string; hours: number; threshold: number }) {
   const breach = threshold !== Infinity && hours > threshold
   const pct = threshold === Infinity ? 0 : Math.min(100, (hours / threshold) * 100)
   const barColor = breach ? "bg-rose-600" : pct > 70 ? "bg-gold-deep" : "bg-teal-deep"
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-ink/[0.06]">
-        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className={breach ? "font-medium text-rose-600" : "text-ink/60"}>{formatAge(hours)}</span>
+    <div className="flex items-center gap-1.5" title={breach ? `${formatAge(hours)} — over the ${formatAge(threshold)} threshold` : undefined}>
+      <span className="text-[11px] uppercase tracking-wide text-ink/35">{label}</span>
+      {threshold !== Infinity && (
+        <div className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-ink/[0.06]">
+          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <span className={`whitespace-nowrap text-xs tabular-nums ${breach ? "font-semibold text-rose-600" : "text-ink/60"}`}>
+        {formatAge(hours)}
+      </span>
     </div>
   )
 }
@@ -161,6 +171,7 @@ export default function OrdersPage() {
   const [sortMode, setSortMode] = useState<SortMode>("recent")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [blockedReasons, setBlockedReasons] = useState<Record<string, string>>({})
+  const [openSiteMenuFor, setOpenSiteMenuFor] = useState<string | null>(null)
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -238,7 +249,7 @@ export default function OrdersPage() {
 
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
+      <div className="mx-auto max-w-[1200px] px-6 pb-20 pt-10 lg:px-10">
         {/* ── Header ── */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
@@ -278,7 +289,6 @@ export default function OrdersPage() {
 
         {/* ── Filters ── */}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {/* Sort — pill tabs, same shape as the Purchases status tabs */}
           <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
             {(["recent", "stuck"] as SortMode[]).map((mode) => (
               <button
@@ -337,7 +347,6 @@ export default function OrdersPage() {
             </select>
           </div>
 
-          {/* Site filter hidden for Warehouse — their list is already scoped to one site */}
           {!permissions.ordersScopedToOwnSite && (
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-ink/45">Site</label>
@@ -385,21 +394,8 @@ export default function OrdersPage() {
           {filtered.length} of {visibleOrders.length} orders
         </p>
 
-        {/* ── Table ── */}
-        <div className={`mt-3 overflow-hidden ${panelClass}`}>
-          <div className="sticky top-0 z-10 hidden grid-cols-[1fr_1fr_1.1fr_1fr_1fr_0.8fr_0.9fr_0.9fr_0.7fr_auto] gap-2 border-b border-ink/10 bg-parchment/70 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
-            {permissions.canBulkFlag && <span />}
-            <span>Order</span>
-            <span>Customer</span>
-            <span>Channel</span>
-            <span>Stage</span>
-            <span>Site</span>
-            <span>Order age</span>
-            <span>Time in stage</span>
-            <span className="text-right">Total</span>
-            {permissions.canOverrideOrderStage && <span>Override</span>}
-          </div>
-
+        {/* ── Card list ── */}
+        <div className="mt-3 space-y-3">
           {filtered.length === 0 ? (
             <EmptyState
               hasAnyFilter={hasActiveFilters}
@@ -409,120 +405,157 @@ export default function OrdersPage() {
           ) : (
             filtered.map((o) => {
               const stageHours = hoursSince(o.stageEnteredAt)
+              const orderAgeHours = hoursSince(o.placedAt)
               const breach = isOverThreshold(o.stage, stageHours)
-              const edgeTone: StatusTone | "ink" = o.delayed || breach ? "rose" : STAGE_TONE[o.stage]
+              const accent = orderAccent(o, breach)
               const blockedReason = blockedReasons[o.id]
+              const siteMenuOpen = openSiteMenuFor === o.id
+              const itemCount = o.items.reduce((sum, i) => sum + i.quantity, 0)
 
               return (
                 <div
                   key={o.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(`/admin/orders/${o.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") router.push(`/admin/orders/${o.id}`)
-                  }}
-                  className={`group relative grid w-full cursor-pointer grid-cols-[1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 pl-6 text-left outline-none transition-colors before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[''] last:border-b-0 hover:bg-parchment/50 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1fr_1fr_1.1fr_1fr_1fr_0.8fr_0.9fr_0.9fr_0.7fr_auto] ${TONE_EDGE[edgeTone === "ink" ? "teal" : edgeTone]}`}
-                  style={edgeTone === "ink" ? undefined : undefined}
+                  className={`overflow-hidden rounded-2xl border pt-2 border-ink/10 border-l-4 bg-card transition-colors hover:border-ink/20 ${accent}`}
                 >
-                  {permissions.canBulkFlag && (
-                    <span className="hidden sm:block" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(o.id)}
-                        onChange={() => toggleSelect(o.id)}
-                        className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
-                      />
-                    </span>
-                  )}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/admin/orders/${o.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") router.push(`/admin/orders/${o.id}`)
+                    }}
+                    className="flex cursor-pointer flex-col gap-4 p-4 outline-none focus-visible:bg-teal/[0.06] sm:flex-row sm:items-center"
+                  >
+                    {permissions.canBulkFlag && (
+                      <span
+                        className="flex-none self-start sm:self-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.has(o.id)}
+                          onChange={() => toggleSelect(o.id)}
+                          className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
+                        />
+                      </span>
+                    )}
 
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-ink">{o.id}</span>
-                    {o.delayed && <span className="mt-0.5 block sm:hidden"><DelayedDot compact /></span>}
-                  </span>
+                    {/* w-32 is only a sensible fixed box for a single
+                        item (the stack fills it edge to edge). With 2+
+                        items the stack sizes itself to fit its fixed
+                        rail widths (see OrderItemImageStack) and would
+                        get clipped by a fixed-width parent, so it gets
+                        room to grow instead. */}
+                        <div className="h-20 w-full flex-none sm:w-32">
+                          <AnimatedItemCardStack items={o.items} className="h-full" />
+                        </div>
 
-                  <span className="hidden truncate text-sm text-ink/70 sm:block">{o.customerName}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-display text-sm font-semibold text-ink">{o.id}</span>
+                            {o.delayed && <DelayedPill />}
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-ink/55">
+                            {o.customerName} <span className="text-ink/25">·</span> {siteName(o.siteId)}
+                          </p>
+                        </div>
+                        <Pill tone={STAGE_TONE[o.stage]}>{o.stage}</Pill>
+                      </div>
 
-                  <span className="hidden sm:block">
-                    <Pill tone={CHANNEL_TONE[o.channel]}>
-                      Ch. {o.channel} · {CHANNEL_LABEL[o.channel]}
-                    </Pill>
-                  </span>
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <Pill tone={CHANNEL_TONE[o.channel]}>
+                          Ch. {o.channel} · {CHANNEL_LABEL[o.channel]}
+                        </Pill>
+                        <span className="text-xs text-ink/45">
+                          {itemCount} item{itemCount === 1 ? "" : "s"}
+                        </span>
+                        <AgeReadout label="Placed" hours={orderAgeHours} threshold={Infinity} />
+                        <AgeReadout label="In stage" hours={stageHours} threshold={STAGE_AGE_THRESHOLD_HOURS[o.stage]} />
+                      </div>
+                    </div>
 
-                  <span className="hidden sm:block">
-                    <Pill tone={STAGE_TONE[o.stage]}>{o.stage}</Pill>
-                  </span>
+                    <div className="flex flex-none items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-center sm:gap-1.5">
+                      <span className="font-display text-base text-ink">₹{o.totalValue.toLocaleString("en-IN")}</span>
+                      <ChevronRight size={16} className="hidden text-ink/25 sm:block" />
+                    </div>
+                  </div>
 
-                  <span className="hidden truncate text-sm text-ink/70 sm:block">{siteName(o.siteId)}</span>
-
-                  <span className="hidden text-sm text-ink/50 sm:block">{formatAge(hoursSince(o.placedAt))}</span>
-
-                  <span className="hidden sm:block">
-                    <StageAgeBar stage={o.stage} hours={stageHours} />
-                  </span>
-
-                  <span className="hidden justify-self-end text-sm font-medium text-ink/80 sm:block">
-                    ₹{o.totalValue.toLocaleString("en-IN")}
-                  </span>
-
-                  {/* Override controls — Manager only. Warehouse (and Sales)
-                      never see this column at all, since the real way an
-                      order moves forward is via QC / Pack & label / Export
-                      bin / In transit, not a raw stage jump here. */}
+                  {/* Override footer — Manager only, tucked below the
+                      main card so it never competes with the info ops
+                      scans for. See file header re: canOverrideOrderStage
+                      vs canMutateOrderStage. */}
                   {permissions.canOverrideOrderStage && (
-                    <span className="hidden sm:block" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-col items-start gap-1.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <select
-                            value={o.stage}
-                            onChange={(e) => handleStageChange(o.id, e.target.value as OrderStage)}
-                            className="rounded-lg border border-ink/10 bg-card px-1.5 py-1 text-xs text-ink outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex flex-wrap items-center gap-2 border-t border-ink/[0.06] bg-parchment/40 px-4 py-2"
+                    >
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-ink/35">Override</span>
+                      <select
+                        value={o.stage}
+                        onChange={(e) => handleStageChange(o.id, e.target.value as OrderStage)}
+                        className="rounded-lg border border-ink/10 bg-card px-2 py-1 text-xs text-ink outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+                      >
+                        {STAGE_ORDER.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+
+                      {permissions.canReassignSite && (
+                        <div className="relative">
+                          <button
+                            type="button"
+                            title={`Reassign site (currently ${siteName(o.siteId)})`}
+                            onClick={() => setOpenSiteMenuFor(siteMenuOpen ? null : o.id)}
+                            className={`grid h-[26px] w-[26px] place-items-center rounded-lg border text-ink/55 transition-colors hover:bg-ink/[0.04] hover:text-ink ${
+                              siteMenuOpen ? "border-teal/50 bg-teal/[0.08] text-teal-deep" : "border-ink/10"
+                            }`}
                           >
-                            {STAGE_ORDER.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-
-                          {permissions.canReassignSite && (
-                            <select
-                              value={o.siteId}
-                              onChange={(e) => reassignSite(o.id, e.target.value)}
-                              title="Reassign site"
-                              className="rounded-lg border border-ink/10 bg-card px-1.5 py-1 text-xs text-ink outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
-                            >
+                            <MapPinned size={13} />
+                          </button>
+                          {siteMenuOpen && (
+                            <div className="absolute left-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-xl border border-ink/10 bg-card py-1 shadow-[0_12px_32px_-12px_rgba(32,36,43,0.25)]">
                               {sites.map((s) => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => {
+                                    reassignSite(o.id, s.id)
+                                    setOpenSiteMenuFor(null)
+                                  }}
+                                  className={`block w-full px-3 py-1.5 text-left text-xs ${
+                                    s.id === o.siteId ? "font-semibold text-teal-deep" : "text-ink/70 hover:bg-ink/[0.04]"
+                                  }`}
+                                >
+                                  {s.name}
+                                </button>
                               ))}
-                            </select>
-                          )}
-
-                          {permissions.canToggleDelayed && (
-                            <button
-                              type="button"
-                              onClick={() => toggleDelayed(o.id)}
-                              className="rounded-lg border border-ink/10 px-2 py-1 text-xs text-ink/60 hover:bg-ink/[0.04] hover:text-ink"
-                            >
-                              {o.delayed ? "Clear delay" : "Flag delayed"}
-                            </button>
+                            </div>
                           )}
                         </div>
-                        {blockedReason && (
-                          <p className="max-w-[220px] text-[11px] leading-snug text-rose-600">{blockedReason}</p>
-                        )}
-                      </div>
-                    </span>
-                  )}
+                      )}
 
-                  <ChevronRight size={16} className="hidden flex-none text-ink/25 transition-colors group-hover:text-ink/50 sm:block" />
+                      {permissions.canToggleDelayed && (
+                        <button
+                          type="button"
+                          onClick={() => toggleDelayed(o.id)}
+                          title={o.delayed ? "Clear delayed flag" : "Flag as delayed"}
+                          className={`grid h-[26px] w-[26px] place-items-center rounded-lg border transition-colors ${
+                            o.delayed
+                              ? "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                              : "border-ink/10 text-ink/45 hover:bg-ink/[0.04] hover:text-ink"
+                          }`}
+                        >
+                          <Flag size={12} fill={o.delayed ? "currentColor" : "none"} />
+                        </button>
+                      )}
 
-                  {/* mobile-only summary row, mirrors the Purchases card's collapsed layout */}
-                  <span className="col-span-2 flex items-center justify-between gap-2 pl-13 sm:hidden">
-                    <div className="flex items-center gap-1.5">
-                      <Pill tone={STAGE_TONE[o.stage]}>{o.stage}</Pill>
-                      {o.delayed && <DelayedDot compact />}
+                      {blockedReason && (
+                        <p className="w-full text-[11px] leading-snug text-rose-600 sm:w-auto">{blockedReason}</p>
+                      )}
                     </div>
-                    <span className="text-xs font-medium text-ink/60">₹{o.totalValue.toLocaleString("en-IN")}</span>
-                  </span>
+                  )}
                 </div>
               )
             })
@@ -533,12 +566,6 @@ export default function OrdersPage() {
   )
 }
 
-/**
- * Same split as the Purchases queue: "nothing matches your filters"
- * (recoverable, offer to clear) vs. "you genuinely have no orders"
- * (a Warehouse account not yet assigned anything — no clear-filters CTA
- * makes sense there since there's nothing to clear).
- */
 function EmptyState({
   hasAnyFilter,
   isEmptyOverall,
@@ -550,7 +577,7 @@ function EmptyState({
 }) {
   if (isEmptyOverall) {
     return (
-      <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-card px-4 py-16 text-center">
         <Inbox size={22} className="text-ink/25" />
         <div>
           <p className="text-sm font-semibold text-ink/70">No orders assigned to you yet</p>
@@ -562,7 +589,7 @@ function EmptyState({
 
   if (hasAnyFilter) {
     return (
-      <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-card px-4 py-16 text-center">
         <SearchX size={22} className="text-ink/25" />
         <div>
           <p className="text-sm font-semibold text-ink/70">Nothing matches this filter</p>

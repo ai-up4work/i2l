@@ -9,14 +9,16 @@ import { ArrowLeft, ChevronRight, MessageSquare, PencilLine } from "lucide-react
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import { STAGE_ORDER, CHANNEL_LABEL, type OrderStage } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
-import { panelClass } from "@/components/admin/seller/shared"
+import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
 
-// Order detail — restyled to match Orders/Purchases: ink/parchment/card
-// palette, font-display headers, the shared Pill tone system instead of
-// the old indigo/teal/gold badge set. Backed by the same useAdminData()
-// store the list page and Purchases read from, so nothing here is a
-// local copy — editing stage/site/notes here is reflected everywhere
-// else immediately.
+// Order detail — restyled to match the card language now shared with
+// /admin/orders and the customer-facing "My Orders" page: a left-edge
+// status accent on the header card, the item image stack in place of a
+// plain text block, and small item thumbnails in the items list instead
+// of text-only rows. Backed by the same useAdminData() store the list
+// page and Purchases read from, so nothing here is a local copy —
+// editing stage/site/notes here is reflected everywhere else
+// immediately.
 //
 // The Advance/Roll back buttons are the OVERRIDE tool, gated on
 // canOverrideOrderStage (Manager only) — not canMutateOrderStage, which
@@ -37,6 +39,9 @@ const TONE_DOT: Record<StatusTone, string> = {
 }
 const INK_PILL = "bg-ink/[0.04] text-ink/60 ring-1 ring-inset ring-ink/10"
 const INK_DOT = "bg-ink/30"
+
+const FALLBACK_PRODUCT_IMAGE =
+  "https://images.pexels.com/photos/5632402/pexels-photo-5632402.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop"
 
 function Pill({ tone, children }: { tone: StatusTone | "ink"; children: React.ReactNode }) {
   const pillClass = tone === "ink" ? INK_PILL : TONE_PILL[tone]
@@ -64,6 +69,23 @@ const STAGE_TONE: Record<OrderStage, StatusTone | "ink"> = {
   "Quality check": "amber",
   "Shipped": "teal",
   "Delivered": "teal",
+}
+
+// Same accent rule as the list page — delayed always reads as rose,
+// otherwise the stage tone. Kept in sync deliberately so a card looks
+// like the same order whether you're scanning the list or looking at
+// its detail page.
+function orderAccent(stage: OrderStage, delayed: boolean): string {
+  if (delayed) return "border-l-rose-500"
+  switch (stage) {
+    case "Ordered":
+      return "border-l-ink/15"
+    case "Quality check":
+      return "border-l-gold-deep"
+    case "Shipped":
+    case "Delivered":
+      return "border-l-teal-deep"
+  }
 }
 
 function StagePips({ current }: { current: OrderStage }) {
@@ -145,20 +167,14 @@ export default function OrderDetailPage() {
     )
   }
 
-  // The Advance/Roll back override is Manager-only, everywhere — unlike
-  // the real per-stage actions, this isn't a "your own site" thing, it's
-  // "your role" thing. Warehouse sees the pipeline as read-only here.
   const canOverride = permissions.canOverrideOrderStage
-
-  // Adding a note is a normal per-order action, not an override — same
-  // gate as the real queue actions: Warehouse can note orders at their
-  // own site, Manager can note any order.
   const canAddNote =
     permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || order.siteId === currentUser.siteId)
 
   const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
   const stageIdx = STAGE_ORDER.indexOf(order.stage)
   const advanceCheck = canAdvanceStage(order.id)
+  const accent = orderAccent(order.stage, order.delayed)
 
   const handleAdvance = () => {
     const result = advanceStage(order.id)
@@ -182,30 +198,39 @@ export default function OrderDetailPage() {
           Back to Orders
         </button>
 
-        {/* ── Header ── */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-2xl text-ink">{order.id}</h1>
-              {order.delayed && <DelayedPill />}
+        {/* ── Header card — accent + image stack, matches the list/customer card language ── */}
+        <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${accent}`}>
+          <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center">
+            <div className="h-28 w-full flex-none sm:w-56">
+              <AnimatedItemCardStack items={order.items} className="h-full" />
             </div>
-            <p className="mt-1.5 text-sm text-ink/55">
-              {order.customerName} <span className="text-ink/25">·</span> {siteName}{" "}
-              <span className="text-ink/25">·</span> placed {formatAge(hoursSince(order.placedAt))} ago
-            </p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <Pill tone={CHANNEL_TONE[order.channel]}>
-                Ch. {order.channel} · {CHANNEL_LABEL[order.channel]}
-              </Pill>
-              {order.isManualQuote && (
-                <Pill tone="amber">Manual quote</Pill>
-              )}
-            </div>
-          </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-card px-5 py-3 text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total</p>
-            <p className="mt-0.5 font-display text-xl text-ink">₹{order.totalValue.toLocaleString("en-IN")}</p>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <h1 className="font-display text-2xl text-ink">{order.id}</h1>
+                    {order.delayed && <DelayedPill />}
+                  </div>
+                  <p className="mt-1.5 text-sm text-ink/55">
+                    {order.customerName} <span className="text-ink/25">·</span> {siteName}{" "}
+                    <span className="text-ink/25">·</span> placed {formatAge(hoursSince(order.placedAt))} ago
+                  </p>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <Pill tone={CHANNEL_TONE[order.channel]}>
+                      Ch. {order.channel} · {CHANNEL_LABEL[order.channel]}
+                    </Pill>
+                    {order.isManualQuote && <Pill tone="amber">Manual quote</Pill>}
+                    <Pill tone={STAGE_TONE[order.stage]}>{order.stage}</Pill>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total</p>
+                  <p className="mt-0.5 font-display text-xl text-ink">₹{order.totalValue.toLocaleString("en-IN")}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -272,25 +297,32 @@ export default function OrderDetailPage() {
               )}
             </SectionCard>
 
-            {/* Items — channel-aware */}
+            {/* Items — channel-aware, now with a thumbnail per row */}
             <SectionCard title="Items">
               <ul className="space-y-2.5">
                 {order.items.map((item) => (
-                  <li key={item.id} className="rounded-xl border border-ink/[0.06] bg-parchment/40 p-3.5 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium text-ink">{item.title}</span>
-                      <span className="shrink-0 text-ink/40">×{item.quantity}</span>
+                  <li key={item.id} className="flex gap-3 rounded-xl border border-ink/[0.06] bg-parchment/40 p-3.5 text-sm">
+                    <img
+                      src={item.productImage ?? FALLBACK_PRODUCT_IMAGE}
+                      alt={item.title}
+                      className="h-14 w-14 flex-none rounded-lg bg-ink/5 object-contain"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-ink">{item.title}</span>
+                        <span className="shrink-0 text-ink/40">×{item.quantity}</span>
+                      </div>
+                      {item.variant && <p className="mt-1 text-xs text-ink/50">{item.variant}</p>}
+                      {item.sku && <p className="mt-1 text-xs text-ink/45">Catalog SKU: {item.sku}</p>}
+                      {item.sourceSnapshot && (
+                        <p className="mt-1 text-xs text-ink/45">Source snapshot: {item.sourceSnapshot}</p>
+                      )}
+                      {item.requestLink && (
+                        <p className="mt-1 text-xs text-ink/45">
+                          Original request link: <span className="underline">{item.requestLink}</span>
+                        </p>
+                      )}
                     </div>
-                    {item.variant && <p className="mt-1 text-xs text-ink/50">{item.variant}</p>}
-                    {item.sku && <p className="mt-1 text-xs text-ink/45">Catalog SKU: {item.sku}</p>}
-                    {item.sourceSnapshot && (
-                      <p className="mt-1 text-xs text-ink/45">Source snapshot: {item.sourceSnapshot}</p>
-                    )}
-                    {item.requestLink && (
-                      <p className="mt-1 text-xs text-ink/45">
-                        Original request link: <span className="underline">{item.requestLink}</span>
-                      </p>
-                    )}
                   </li>
                 ))}
               </ul>
