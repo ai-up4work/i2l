@@ -134,7 +134,7 @@ export default function PackLabelDetailPage() {
 
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-4xl px-6 pb-24 pt-10 lg:px-10">
+      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
         {/* ── Breadcrumb / back ── */}
         <button
           type="button"

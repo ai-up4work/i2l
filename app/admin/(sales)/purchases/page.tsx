@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
-import { ChevronRight, Inbox, Search, SearchX, ShoppingBag, Store } from "lucide-react"
+import { ChevronRight, Inbox, Layers, Search, SearchX, ShoppingBag, Store } from "lucide-react"
 
 import { STATUS_LABEL, CHANNEL_LABEL } from "@/data/purchases/data"
 import type { PurchaseLine, PurchaseStatus } from "@/types/admin"
@@ -15,16 +15,28 @@ import { useAdminData } from "@/contexts/AdminDataContext"
 // Purchases queue — the ops screen for "go buy this item from this seller."
 // Scoped per order-line/seller (not per whole order): an order can span
 // multiple sellers, and each purchase is an independent action one person
-// can pick up and complete on its own. Each row still shows the parent
-// order/customer so ops has context without needing a separate lookup.
+// can pick up and complete on its own.
+//
+// GROUPING (2026-09): rows are grouped by parent order rather than shown
+// as a flat list. Nothing on the old flat layout told you two rows were
+// the same order unless you happened to notice a matching order number —
+// easy to miss on a busy queue, and actively confusing on a multi-item
+// order where some lines are purchased and others aren't. Each group now
+// gets a single header (order number, customer, seller-count tag, and a
+// "X/Y purchased" progress pill computed from ALL of that order's lines,
+// not just the ones visible in the current tab/search) with its item
+// rows nested underneath.
+//
+// Progress is computed from `allLinesByOrder` (built from the full,
+// unfiltered visiblePurchaseLines) rather than from the filtered `rows`,
+// specifically so switching to the "Needs purchase" tab doesn't make an
+// order LOOK like it's 0/1 purchased just because its other, already-
+// purchased line is hidden by the filter. A small note below the header
+// covers that gap explicitly instead of leaving it implicit.
 //
 // Backed by AdminDataContext.visiblePurchaseLines, which is joined live
 // from real orders — so this queue and the /admin/orders pages can never
 // disagree about a customer name, site, or stage.
-//
-// Visual language matches the Sellers/Quality check screens deliberately —
-// same panelClass table shell, same tone system, same edge-bar rows —
-// since ops moves between all three queues in the course of a shift.
 
 const STATUS_TONE: Record<PurchaseStatus, StatusTone> = {
   needs_purchase: "amber",
@@ -55,7 +67,18 @@ const TABS: { key: "all" | PurchaseStatus; label: string }[] = [
   { key: "unavailable", label: "Issues" },
 ]
 
-const COLUMNS = ["Product", "Order", "Seller", "Qty", "Quoted price", "Age", "Status"]
+const COLUMNS = ["Product", "Seller", "Qty", "Quoted price", "Age", "Status"]
+
+interface OrderGroup {
+  orderId: string
+  orderNumber: string
+  customerName: string
+  channel: PurchaseLine["channel"]
+  /** Every line on this order visible to the current user, regardless of tab/search — used for the progress pill. */
+  allLines: PurchaseLine[]
+  /** Only the lines that survive the current tab/search filter — these are what actually render. */
+  visibleLines: PurchaseLine[]
+}
 
 export default function PurchasesPage() {
   const router = useRouter()
@@ -83,14 +106,40 @@ export default function PurchasesPage() {
     return base
   }, [visiblePurchaseLines, query])
 
-  const rows = useMemo(() => {
+  // Build order groups: every group carries its full (unfiltered-by-tab)
+  // line set for the progress pill, plus the subset that survives the
+  // active tab/search for actual rendering. A group with zero visible
+  // lines is dropped entirely — it just means none of that order's items
+  // match the current filter.
+  const groups = useMemo<OrderGroup[]>(() => {
     const q = query.trim().toLowerCase()
-    return visiblePurchaseLines.filter((line) => {
-      if (tab !== "all" && line.status !== tab) return false
-      return matchesQuery(line, q)
-    })
+    const byOrder = new Map<string, OrderGroup>()
+
+    for (const line of visiblePurchaseLines) {
+      if (!matchesQuery(line, q)) continue // search still scopes which orders appear at all
+
+      let group = byOrder.get(line.orderId)
+      if (!group) {
+        group = {
+          orderId: line.orderId,
+          orderNumber: line.orderNumber,
+          customerName: line.customerName,
+          channel: line.channel,
+          allLines: [],
+          visibleLines: [],
+        }
+        byOrder.set(line.orderId, group)
+      }
+      group.allLines.push(line)
+      if (tab === "all" || line.status === tab) {
+        group.visibleLines.push(line)
+      }
+    }
+
+    return Array.from(byOrder.values()).filter((g) => g.visibleLines.length > 0)
   }, [visiblePurchaseLines, tab, query])
 
+  const totalVisibleRows = groups.reduce((sum, g) => sum + g.visibleLines.length, 0)
   const hasAnyFilter = query.trim().length > 0 || tab !== "all"
   const clearFilters = () => {
     setQuery("")
@@ -151,33 +200,95 @@ export default function PurchasesPage() {
 
         {/* ── Result count ── */}
         <p className="mt-4 text-xs font-medium text-ink/40">
-          {rows.length === tabTotal
-            ? `${tabTotal} item${tabTotal === 1 ? "" : "s"}`
-            : `${rows.length} of ${tabTotal} items`}
+          {totalVisibleRows === tabTotal
+            ? `${tabTotal} item${tabTotal === 1 ? "" : "s"} across ${groups.length} order${groups.length === 1 ? "" : "s"}`
+            : `${totalVisibleRows} of ${tabTotal} items across ${groups.length} order${groups.length === 1 ? "" : "s"}`}
         </p>
 
-        {/* ── Table ── */}
-        <div className={`mt-3 overflow-hidden ${panelClass}`}>
-          <div className="sticky top-0 z-10 hidden grid-cols-[1.8fr_1fr_1.1fr_0.5fr_0.9fr_0.7fr_0.9fr_auto] gap-2 border-b border-ink/10 bg-parchment/70 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
-            {COLUMNS.map((label, i) => (
-              <span key={label} className={i === 3 || i === 4 ? "text-right" : ""}>
-                {label}
-              </span>
-            ))}
-          </div>
-
-          {rows.length === 0 ? (
-            <EmptyState hasAnyFilter={hasAnyFilter} onClearFilters={clearFilters} />
+        {/* ── Grouped list ── */}
+        <div className="mt-3 space-y-4">
+          {groups.length === 0 ? (
+            <div className={panelClass}>
+              <EmptyState hasAnyFilter={hasAnyFilter} onClearFilters={clearFilters} />
+            </div>
           ) : (
-            rows.map((line) => (
-              <PurchaseRow
-                key={line.id}
-                line={line}
-                onOpen={() => router.push(`/admin/purchases/${line.id}`)}
+            groups.map((group) => (
+              <OrderGroupCard
+                key={group.orderId}
+                group={group}
+                onOpenOrder={() => router.push(`/admin/orders/${group.orderId}`)}
+                onOpenLine={(id) => router.push(`/admin/purchases/${id}`)}
               />
             ))
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function OrderGroupCard({
+  group,
+  onOpenOrder,
+  onOpenLine,
+}: {
+  group: OrderGroup
+  onOpenOrder: () => void
+  onOpenLine: (id: string) => void
+}) {
+  const purchasedCount = group.allLines.filter((l) => l.status === "purchased").length
+  const totalCount = group.allLines.length
+  const hiddenCount = totalCount - group.visibleLines.length
+  const sellerCount = new Set(group.allLines.map((l) => l.sellerName)).size
+  const allDone = purchasedCount === totalCount
+
+  return (
+    <div className={`overflow-hidden ${panelClass}`}>
+      {/* Order header — always shown, even for a single-item order, so
+          "which order is this" never depends on remembering a row's order
+          number from three rows up. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/[0.06] bg-parchment/40 px-5 py-3">
+        <button
+          type="button"
+          onClick={onOpenOrder}
+          className="flex min-w-0 items-center gap-2 text-left hover:underline"
+        >
+          <span className="font-display text-sm font-semibold text-ink">{group.orderNumber}</span>
+          <span className="text-ink/25">·</span>
+          <span className="truncate text-sm text-ink/60">{group.customerName}</span>
+        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {totalCount > 1 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.05] px-2.5 py-1 text-xs font-semibold text-ink/55 ring-1 ring-inset ring-ink/10">
+              <Layers size={11} /> {totalCount} items{sellerCount > 1 ? ` · ${sellerCount} sellers` : ""}
+            </span>
+          )}
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+              allDone
+                ? "bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25"
+                : "bg-ink/[0.04] text-ink/55 ring-1 ring-inset ring-ink/10"
+            }`}
+          >
+            {purchasedCount}/{totalCount} purchased
+          </span>
+        </div>
+      </div>
+
+      {hiddenCount > 0 && (
+        <p className="border-b border-ink/[0.06] bg-parchment/20 px-5 py-1.5 text-[11px] text-ink/40">
+          +{hiddenCount} other item{hiddenCount === 1 ? "" : "s"} on this order not shown in the current filter
+        </p>
+      )}
+
+      {/* Item rows — indented slightly so they read as children of the
+          header above, with their own order/customer columns dropped
+          since the header already carries that context. */}
+      <div>
+        {group.visibleLines.map((line) => (
+          <PurchaseRow key={line.id} line={line} onOpen={() => onOpenLine(line.id)} />
+        ))}
       </div>
     </div>
   )
@@ -200,60 +311,55 @@ function PurchaseRow({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onOpen()
       }}
-      className={`group relative grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 pl-6 text-left outline-none transition-colors before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[''] last:border-b-0 hover:bg-parchment/50 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1.8fr_1fr_1.1fr_0.5fr_0.9fr_0.7fr_0.9fr_auto] ${TONE_EDGE[tone]}`}
+      className={`group relative grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] py-3.5 pl-8 pr-5 text-left outline-none transition-colors before:absolute before:inset-y-0 before:left-5 before:w-[3px] before:content-[''] last:border-b-0 hover:bg-parchment/50 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[2fr_1.3fr_0.5fr_0.9fr_0.7fr_0.9fr_auto] ${TONE_EDGE[tone]}`}
     >
-      
-    {/* Product */}
-    <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
-      <span className="h-10 w-10 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04]">
-        <Image src={line.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
+      {/* Product */}
+      <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
+        <span className="h-10 w-10 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04]">
+          <Image src={line.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold text-ink">{line.productTitle}</span>
+          {line.variant && <span className="block truncate text-xs text-ink/40">{line.variant}</span>}
+        </span>
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold text-ink">{line.productTitle}</span>
-        {line.variant && <span className="block truncate text-xs text-ink/40">{line.variant}</span>}
+
+      <span className="hidden min-w-0 flex-col sm:flex">
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-ink/70">
+          <Store size={12} className="flex-none text-ink/30" />
+          <span className="truncate">{line.sellerName}</span>
+        </span>
+        <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[line.channel]}</span>
       </span>
-    </span>
 
-    <span className="hidden min-w-0 flex-col sm:flex">
-      <span className="truncate text-sm text-ink/70">{line.orderNumber}</span>
-      <span className="truncate text-xs text-ink/40">{line.customerName}</span>
-    </span>
+      <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{line.quantity}</span>
 
-    <span className="hidden min-w-0 flex-col sm:flex">
-      <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-ink/70">
-        <Store size={12} className="flex-none text-ink/30" />
-        <span className="truncate">{line.sellerName}</span>
+      <span className="hidden justify-self-end whitespace-nowrap text-sm font-medium text-ink/70 sm:block">
+        ₹{line.quotedUnitPriceINR.toLocaleString("en-IN")}
       </span>
-      <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[line.channel]}</span>
-    </span>
 
-    <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{line.quantity}</span>
+      <span className="hidden whitespace-nowrap text-sm text-ink/50 sm:block">{line.ageLabel}</span>
 
-    <span className="hidden justify-self-end whitespace-nowrap text-sm font-medium text-ink/70 sm:block">
-      ₹{line.quotedUnitPriceINR.toLocaleString("en-IN")}
-    </span>
-
-    <span className="hidden whitespace-nowrap text-sm text-ink/50 sm:block">{line.ageLabel}</span>
-
-    <span className="hidden sm:block">
-      <span
-        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}
-      >
-        <span className={`h-1.5 w-1.5 flex-none rounded-full ${TONE_DOT[tone]}`} />
-        {STATUS_LABEL[line.status]}
+      <span className="hidden sm:block">
+        <span
+          className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}
+        >
+          <span className={`h-1.5 w-1.5 flex-none rounded-full ${TONE_DOT[tone]}`} />
+          {STATUS_LABEL[line.status]}
+        </span>
       </span>
-    </span>
 
       <ChevronRight size={16} className="hidden flex-none text-ink/25 transition-colors group-hover:text-ink/50 sm:block" />
 
-      {/* mobile-only: price + status since the grid above collapses */}
+      {/* mobile-only: seller + price + status since the grid above collapses */}
       <span className="col-span-3 flex items-center justify-between gap-2 pl-13 sm:hidden">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}>
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink/50">
+          <Store size={11} className="flex-none text-ink/30" />
+          <span className="truncate">{line.sellerName}</span>
+        </span>
+        <span className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} />
           {STATUS_LABEL[line.status]}
-        </span>
-        <span className="text-xs font-medium text-ink/50">
-          ₹{line.quotedUnitPriceINR.toLocaleString("en-IN")}
         </span>
       </span>
     </div>
