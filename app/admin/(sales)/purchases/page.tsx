@@ -202,44 +202,47 @@ function PurchaseRow({
       }}
       className={`group relative grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 pl-6 text-left outline-none transition-colors before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[''] last:border-b-0 hover:bg-parchment/50 focus-visible:bg-teal/[0.08] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:grid-cols-[1.8fr_1fr_1.1fr_0.5fr_0.9fr_0.7fr_0.9fr_auto] ${TONE_EDGE[tone]}`}
     >
-      {/* Product */}
-      <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
-        <span className="h-10 w-10 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04]">
-          <Image src={line.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold text-ink">{line.productTitle}</span>
-          {line.variant && <span className="block truncate text-xs text-ink/40">{line.variant}</span>}
-        </span>
+      
+    {/* Product */}
+    <span className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
+      <span className="h-10 w-10 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04]">
+        <Image src={line.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
       </span>
-
-      <span className="hidden flex-col sm:flex">
-        <span className="truncate text-sm text-ink/70">{line.orderNumber}</span>
-        <span className="truncate text-xs text-ink/40">{line.customerName}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold text-ink">{line.productTitle}</span>
+        {line.variant && <span className="block truncate text-xs text-ink/40">{line.variant}</span>}
       </span>
+    </span>
 
-      <span className="hidden flex-col sm:flex">
-        <span className="flex items-center gap-1.5 truncate text-sm text-ink/70">
-          <Store size={12} className="flex-none text-ink/30" />
-          {line.sellerName}
-        </span>
-        <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[line.channel]}</span>
+    <span className="hidden min-w-0 flex-col sm:flex">
+      <span className="truncate text-sm text-ink/70">{line.orderNumber}</span>
+      <span className="truncate text-xs text-ink/40">{line.customerName}</span>
+    </span>
+
+    <span className="hidden min-w-0 flex-col sm:flex">
+      <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-ink/70">
+        <Store size={12} className="flex-none text-ink/30" />
+        <span className="truncate">{line.sellerName}</span>
       </span>
+      <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[line.channel]}</span>
+    </span>
 
-      <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{line.quantity}</span>
+    <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{line.quantity}</span>
 
-      <span className="hidden justify-self-end text-sm font-medium text-ink/70 sm:block">
-        ₹{line.quotedUnitPriceINR.toLocaleString("en-IN")}
+    <span className="hidden justify-self-end whitespace-nowrap text-sm font-medium text-ink/70 sm:block">
+      ₹{line.quotedUnitPriceINR.toLocaleString("en-IN")}
+    </span>
+
+    <span className="hidden whitespace-nowrap text-sm text-ink/50 sm:block">{line.ageLabel}</span>
+
+    <span className="hidden sm:block">
+      <span
+        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}
+      >
+        <span className={`h-1.5 w-1.5 flex-none rounded-full ${TONE_DOT[tone]}`} />
+        {STATUS_LABEL[line.status]}
       </span>
-
-      <span className="hidden text-sm text-ink/50 sm:block">{line.ageLabel}</span>
-
-      <span className="hidden sm:block">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_PILL[tone]}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} />
-          {STATUS_LABEL[line.status]}
-        </span>
-      </span>
+    </span>
 
       <ChevronRight size={16} className="hidden flex-none text-ink/25 transition-colors group-hover:text-ink/50 sm:block" />
 

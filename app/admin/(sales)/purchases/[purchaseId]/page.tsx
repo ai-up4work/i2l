@@ -44,7 +44,9 @@ export default function PurchaseDetailPage() {
   const params = useParams<{ PurchaseId: string }>()
   const router = useRouter()
   const { getPurchaseLine, canActOnPurchaseLine, markPurchased, flagUnavailable } = useAdminData()
-  const line = getPurchaseLine(params.PurchaseId)
+
+  const purchaseId = decodeURIComponent(params.PurchaseId)
+  const line = getPurchaseLine(purchaseId)
 
   const [actualPrice, setActualPrice] = useState(line?.quotedUnitPriceINR?.toString() ?? "")
   const [issueNote, setIssueNote] = useState(line?.issueNote ?? "")
