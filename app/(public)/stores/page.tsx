@@ -5,7 +5,42 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import { ALL_STORES, FILTERS, ALPHABET, type Store, type FilterKey } from '@/data/stores/data';
+import { FILTERS, ALPHABET, type Store, type FilterKey } from '@/data/stores/data';
+import { createClient } from '@/lib/supabase/client';
+
+// Maps a raw `sellers` table row into the legacy `Store` shape this page
+// already renders against (slug/category singular/type instead of
+// platform/categories[]/buildType — see data/stores/data.ts's own comment
+// on why ALL_STORES existed as a derived, back-compat view). Only
+// store_kind='local' rows reach this page at all (filtered in the query).
+//
+// KNOWN GAP: `type` (custom vs template — drives this page's "Custom
+// builds"/"Templates" filter pills) isn't stored as its own column yet.
+// scripts/seed-sellers.mjs didn't carry the old buildType field through
+// into provider_config.display, so every seeded row defaults to
+// 'template' here. Add a real `build_type` column (or fold it into
+// provider_config.display like the other merchandising fields) if that
+// filter needs to be accurate rather than defaulted.
+function mapRowToStore(row: Record<string, unknown>): Store {
+  const providerConfig = (row.provider_config ?? {}) as Record<string, unknown>;
+  const display = (providerConfig.display ?? {}) as Record<string, unknown>;
+  const categories = (row.categories as string[]) ?? [];
+
+  return {
+    slug: row.platform_slug as string,
+    name: row.name as string,
+    type: (display.buildType as Store['type']) ?? 'template',
+    isNew: display.isNew as boolean | undefined,
+    logo: (row.logo_url as string) ?? '',
+    bannerStyle: (display.bannerStyle as Store['bannerStyle']) ?? {},
+    category: categories[0] ?? '',
+    description: (row.description as string) ?? '',
+    shipping: (display.shipping as string) ?? '',
+    payment: (display.payment as string) ?? '',
+    tags: (display.tags as string[]) ?? [],
+    itemCount: (display.itemCount as number) ?? 0,
+  };
+}
 
 // ─── Skeletons ────────────────────────────────────────────────────────────────
 
@@ -60,12 +95,12 @@ function PageSkeleton() {
 
 // ─── New Stores Carousel ──────────────────────────────────────────────────────
 
-function NewStoresCarousel() {
+function NewStoresCarousel({ stores }: { stores: Store[] }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [atStart, setAtStart] = useState(true);
   const [atEnd,   setAtEnd]   = useState(false);
 
-  const newStores = ALL_STORES.filter(s => s.isNew);
+  const newStores = stores.filter(s => s.isNew);
 
   // Check bounds on mount so the Next button starts correctly disabled when
   // all cards are already visible (avoids the false-enabled bug from brands page)
@@ -147,7 +182,7 @@ function NewStoresCarousel() {
 
 // ─── All Stores ───────────────────────────────────────────────────────────────
 
-function AllStores({ activeFilter }: { activeFilter: FilterKey }) {
+function AllStores({ activeFilter, stores }: { activeFilter: FilterKey; stores: Store[] }) {
   const [search,       setSearch]       = useState('');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
 
@@ -155,7 +190,7 @@ function AllStores({ activeFilter }: { activeFilter: FilterKey }) {
   useEffect(() => { setActiveLetter(null); }, [activeFilter]);
 
   // 1. Apply filter + search
-  const preFiltered = ALL_STORES.filter(s => {
+  const preFiltered = stores.filter(s => {
     const matchesFilter =
       activeFilter === 'all'      ? true :
       activeFilter === 'new'      ? !!s.isNew :
@@ -324,11 +359,28 @@ function AllStores({ activeFilter }: { activeFilter: FilterKey }) {
 
 export default function StoresPage() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from('sellers')
+      .select('*')
+      .eq('store_kind', 'local')
+      .eq('status', 'active')
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error('[stores page] failed to load sellers', error);
+          setStores([]);
+        } else {
+          setStores((data ?? []).map(mapRowToStore));
+        }
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <PageSkeleton />;
@@ -357,8 +409,8 @@ export default function StoresPage() {
             ))}
           </div>
 
-          <NewStoresCarousel />
-          <AllStores activeFilter={activeFilter} />
+          <NewStoresCarousel stores={stores} />
+          <AllStores activeFilter={activeFilter} stores={stores} />
 
         </div>
       </div>

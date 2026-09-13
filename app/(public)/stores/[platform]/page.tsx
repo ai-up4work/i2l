@@ -1,11 +1,12 @@
 // app/(public)/stores/[platform]/page.tsx
 import { notFound } from 'next/navigation'
-import { affiliatedStores } from '@/components/dashboard/data'
+import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
 import StoreCatalogClient from '@/components/stores/StoreCatalogClient'
 
-export function generateStaticParams() {
-  return affiliatedStores.map((s) => ({ platform: s.platform }))
-}
+// No generateStaticParams — sellers are added/edited through the admin
+// panel at any time now, so the valid platform list can't be known at
+// build time the way the hardcoded affiliatedStores array could. This
+// route renders on demand instead.
 
 export default async function StoreLandingPage({
   params,
@@ -14,7 +15,7 @@ export default async function StoreLandingPage({
 }) {
   const { platform } = await params
 
-  const store = affiliatedStores.find((s) => s.platform === platform)
+  const store = await fetchAffiliatedStore(platform)
   if (!store) notFound()
 
   return <StoreCatalogClient store={store} />

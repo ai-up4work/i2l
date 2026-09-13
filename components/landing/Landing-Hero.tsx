@@ -5,20 +5,16 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowRight, Check, Link } from 'lucide-react'
 import { OPEN_SHOP_EVENT } from '@/components/shared/Header'
-import { affiliatedStores } from '@/data/stores/data'
+import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
 
-// Full pool of local-store logos for the hero's "Browse Stores" row —
-// pulled from the same affiliatedStores array the /stores pages use, so
-// this never drifts out of sync with the real store list. Marketplaces
-// lead here since they're the most globally recognizable names for a
-// first-time visitor; local sellers get their moment on the /stores
-// browse page.
+// Full pool of local-store logos for the hero's "Browse Stores" row — now
+// fetched live via useAffiliatedStores() inside Hero() below, instead of a
+// static import, so this never drifts out of sync with the real store list.
 //
 // This used to be a static slice(0, 7). It's now the full pool that the
 // avatar row rotates through (see VISIBLE_COUNT / useStoreCarousel
 // below) — same trust-signal row, but it can now surface more than six
 // stores over time instead of always showing the same fixed set.
-const localStores = affiliatedStores.filter((store) => store.storeType === 'local')
 
 const VISIBLE_COUNT = 10
 const ROTATE_MS = 6000
@@ -29,7 +25,7 @@ const ROTATE_MS = 6000
 // changes. Runs entirely client-side after mount, so the first paint
 // still matches the server (no hydration mismatch), it just starts
 // rotating a beat later.
-function useStoreCarousel() {
+function useStoreCarousel(localStores: ReturnType<typeof useAffiliatedStores>['stores']) {
   const [offset, setOffset] = useState(0)
 
   useEffect(() => {
@@ -38,7 +34,7 @@ function useStoreCarousel() {
       setOffset((o) => (o + VISIBLE_COUNT) % localStores.length)
     }, ROTATE_MS)
     return () => window.clearInterval(id)
-  }, [])
+  }, [localStores])
 
   const count = Math.min(VISIBLE_COUNT, localStores.length)
   return Array.from({ length: count }, (_, i) => localStores[(offset + i) % localStores.length])
@@ -52,7 +48,9 @@ export default function Hero() {
   const router = useRouter()
   const [link, setLink] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const visibleStores = useStoreCarousel()
+  const { stores } = useAffiliatedStores()
+  const localStores = stores.filter((store) => store.storeType === 'local')
+  const visibleStores = useStoreCarousel(localStores)
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -179,7 +177,7 @@ export default function Hero() {
               intentional trust signal rather than a loose row of logos. */}
           <div className="mt-16 w-full max-w-xl">
             {/* <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/40">
-              Handling {affiliatedStores.length}+ platforms worldwide
+              Handling {stores.length}+ platforms worldwide
             </p> */}
             <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink">
               Trusted by 1000+ customers, partnered with the best
@@ -205,9 +203,9 @@ export default function Hero() {
                   ))}
                 </span>
 
-                {affiliatedStores.length > VISIBLE_COUNT && (
+                {stores.length > VISIBLE_COUNT && (
                   <span className="relative ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-2 ring-card bg-indigo/8 font-body text-[11px] font-bold text-indigo-deep">
-                    +{affiliatedStores.length - VISIBLE_COUNT}
+                    +{stores.length - VISIBLE_COUNT}
                   </span>
                 )}
               </span>

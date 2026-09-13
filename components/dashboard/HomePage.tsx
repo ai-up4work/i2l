@@ -1,6 +1,6 @@
 'use client'
 
-import { useLayoutEffect, useRef, useState, useEffect } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, useEffect } from 'react'
 import {
   ChevronRight,
   Plus,
@@ -25,10 +25,12 @@ import { offers } from './data'
 import Image from 'next/image'
 import { useClipboardLink } from '@/hooks/useClipboardLink'
 import { useElementHeight } from '@/hooks/useElementHeight'
-import { affiliatedStores, type AffiliatedStore } from '@/data/stores/data'
+import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
+import type { AffiliatedStore } from '@/data/stores/data'
 import Flag from '@/components/ui/Flag'
 
 type HomePageProps = {
+  name?: string
   link: string
   setLink: (value: string) => void
   onSubmitRequest: (event: React.FormEvent) => void
@@ -296,12 +298,15 @@ function SuggestedStoresCard({
   onBrowseStores?: () => void
 }) {
   // isNew stores surfaced first (most relevant to highlight), backfilled
-  // with the rest of the catalog. Stable order — not shuffled per render —
-  // so the grid doesn't jump around as rows are added/removed while
-  // fitting to targetHeight.
-  const orderedStores = useRef<AffiliatedStore[]>(
-    [...affiliatedStores.filter((s) => s.isNew), ...affiliatedStores.filter((s) => !s.isNew)]
-  ).current
+  // with the rest of the catalog. Stable order — only recomputes when the
+  // fetched `stores` array itself changes (i.e. once, when the fetch
+  // resolves) — so the grid doesn't jump around as rows are added/removed
+  // while fitting to targetHeight.
+  const { stores } = useAffiliatedStores()
+  const orderedStores = useMemo<AffiliatedStore[]>(
+    () => [...stores.filter((s) => s.isNew), ...stores.filter((s) => !s.isNew)],
+    [stores],
+  )
 
   const [storesCount, setStoresCount] = useState(Math.min(STORE_GRID_COLS * 2, orderedStores.length))
 
@@ -360,7 +365,7 @@ function SuggestedStoresCard({
         onClick={onBrowseStores}
         className="mt-auto flex w-full items-center justify-center gap-1 rounded-full bg-teal/8 py-2.5 text-xs font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/14"
       >
-        View all {affiliatedStores.length} stores
+        View all {stores.length} stores
         <ChevronRight size={13} />
       </button>
     </div>
@@ -368,6 +373,7 @@ function SuggestedStoresCard({
 }
 
 export default function HomePage({
+  name,
   link,
   setLink,
   onSubmitRequest,
@@ -545,7 +551,7 @@ export default function HomePage({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h1 className="font-display text-2xl text-ink sm:text-3xl">
-                  Hello, Safnas Kaldeen
+                  Hello, {name?.trim() || 'there'}
                 </h1>
                 <p className="mt-1.5 text-sm font-semibold text-ink/55">
                   Everything you need to shop, ship, and save — all in one place.

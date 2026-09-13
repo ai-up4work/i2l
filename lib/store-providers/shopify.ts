@@ -510,8 +510,22 @@ export async function fetchShopifyProducts(
   params: ProviderFetchParams
 ): Promise<ProviderFetchResult> {
   const currency = config.currency ?? 'USD';
-  const collectionHandle = params.category ? config.collectionMap?.[params.category] : undefined;
   const mergedHeaders = { ...HEADERS, ...config.headers };
+
+  // Resolve params.category to a real collection handle. See the doc
+  // comment above for the full precedence order.
+  let collectionHandle: string | undefined;
+  if (params.category) {
+    // config.collectionMap is an explicit human override — check it first
+    // so a seller who deliberately remapped a category name always wins,
+    // even if params.category also happens to match a live handle exactly.
+    if (config.collectionMap?.[params.category]) {
+      collectionHandle = config.collectionMap[params.category];
+    } else {
+      const knownCollections = await fetchShopifyCollections(config.baseUrl, mergedHeaders);
+      collectionHandle = knownCollections.find((c) => c.handle === params.category)?.handle;
+    }
+  }
 
   const isSearching = !!params.search;
   // IMPORTANT: limit must equal params.perPage (not perPage + 1) for
@@ -540,7 +554,9 @@ export async function fetchShopifyProducts(
   const data = (await res.json()) as ShopifyProductsResponse;
   let products = data.products.map((p) => normaliseShopifyProduct(p, platform, currency, storeName, config));
 
-  // Category filter with no collection mapping → fall back to product_type match
+  // Category given but no real collection resolved (neither collectionMap
+  // nor a live handle matched) → fall back to loose product_type match,
+  // same behavior as before this change.
   if (params.category && !collectionHandle) {
     products = products.filter((p) => p.category.toLowerCase() === params.category.toLowerCase());
   }
@@ -652,6 +668,55 @@ export interface ShopifyCollectionSummary {
   title: string;
 }
 
+// lib/store-providers/shopify.ts
+
+/**
+ * /collections.json silently omits some published collections on certain
+ * stores (confirmed on live data — collections fully linked in nav/theme
+ * and returning real products were absent from the JSON feed entirely).
+ * The sitemap is generated straight off what's actually published to the
+ * Online Store channel, so it's the more complete source of TRUTH for
+ * "what collections really exist" — it just doesn't give titles cheaply
+ * (only handles + optional image alt text), so we still prefer JSON's
+ * title where we have it and fall back to a humanized handle otherwise.
+ */
+async function fetchShopifyCollectionHandlesFromSitemap(
+  baseUrl: string,
+  headers: Record<string, string> = HEADERS
+): Promise<{ handle: string; title?: string }[]> {
+  try {
+    const indexRes = await fetch(`${baseUrl}/sitemap.xml`, { headers, next: { revalidate: CACHE_SECONDS } });
+    if (!indexRes.ok) return [];
+    const indexXml = await indexRes.text();
+
+    // Pull out the collections-sitemap URL(s) — handles the ?from=&to= id-range
+    // pattern Shopify uses to shard large sitemaps.
+    const sitemapUrls = [...indexXml.matchAll(/<loc>([^<]*sitemap_collections[^<]*)<\/loc>/g)].map((m) => m[1]);
+    if (!sitemapUrls.length) return [];
+
+    const results: { handle: string; title?: string }[] = [];
+    for (const sitemapUrl of sitemapUrls) {
+      const res = await fetch(sitemapUrl, { headers, next: { revalidate: CACHE_SECONDS } });
+      if (!res.ok) continue;
+      const xml = await res.text();
+
+      // Split on <url>...</url> blocks so we can pair each loc with its own
+      // optional <image:title> rather than just harvesting both arrays blind.
+      const blocks = [...xml.matchAll(/<url>([\s\S]*?)<\/url>/g)];
+      for (const [, block] of blocks) {
+        const locMatch = block.match(/<loc>https?:\/\/[^/]+\/collections\/([^<?]+)/);
+        if (!locMatch) continue;
+        const handle = locMatch[1];
+        const titleMatch = block.match(/<image:title>([^<]*)<\/image:title>/);
+        results.push({ handle, title: titleMatch?.[1] });
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchShopifyCollections(
   baseUrl: string,
   headers: Record<string, string> = HEADERS
@@ -664,24 +729,33 @@ export async function fetchShopifyCollections(
     const qs = new URLSearchParams({ limit: String(pageSize), page: String(page) });
     let res: Response;
     try {
-      res = await fetch(`${baseUrl}/collections.json?${qs}`, {
-        headers,
-        next: { revalidate: CACHE_SECONDS },
-      });
+      res = await fetch(`${baseUrl}/collections.json?${qs}`, { headers, next: { revalidate: CACHE_SECONDS } });
     } catch {
-      return collections;
+      break;
     }
     if (!res.ok) break;
-
     const data = (await res.json()) as { collections?: { handle: string; title: string }[] };
     const batch = data.collections ?? [];
     for (const c of batch) {
       if (c.handle && c.title) collections.push({ handle: c.handle, title: c.title });
     }
-
     if (batch.length < pageSize) break;
     page += 1;
     if (page > 20) break;
+  }
+
+  // Merge in anything the sitemap has that the JSON feed missed.
+  const seenHandles = new Set(collections.map((c) => c.handle));
+  const sitemapHandles = await fetchShopifyCollectionHandlesFromSitemap(baseUrl, headers);
+  for (const { handle, title } of sitemapHandles) {
+    if (seenHandles.has(handle)) continue;
+    seenHandles.add(handle);
+    collections.push({
+      handle,
+      // Humanize the handle as a last resort so the admin UI never shows
+      // a bare slug — e.g. "premium-collections" -> "Premium Collections".
+      title: title || handle.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    });
   }
 
   return collections;

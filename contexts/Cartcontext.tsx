@@ -6,9 +6,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { useAuth } from './AuthContext'
+import { createClient } from '@/lib/supabase/client'
+import { ensureProductSnapshot, findSnapshotId } from '@/lib/supabase/product-snapshots'
 
 /**
  * A trimmed, serializable snapshot of whatever product the shopper added —
@@ -27,26 +31,7 @@ export type CartProduct = {
   sourcePrice?: string | null
   estimatedPrice?: string | null
   weightKg?: number | null
-  /** How this line entered the cart — 'catalogue' via an affiliated
-   * store's "Add to bag" (AddToBagButton.tsx), 'link' via a pasted URL
-   * scraped through ItemInfoModal. Optional/undefined for any older
-   * persisted cart data written before this field existed — the cart
-   * page treats a missing source as 'link' since that's the harder case
-   * to misattribute (a catalogue item always has a real `site`). */
   source?: 'catalogue' | 'link'
-  /**
-   * The variant selected at add-time, e.g. { Size: 'M', Color: 'Black' }.
-   * Undefined for products with no size/color options.
-   *
-   * Previously this only survived baked into `id`/`url` as a suffix
-   * (`:Size=M,Color=Black`) built by the snapshot builders in
-   * AddToBagButton/ProductActions. That was enough to dedupe lines
-   * correctly, but not enough to re-check a specific variant's live
-   * price/availability without parsing it back out of the id string.
-   * Kept here as structured data so a live-pricing/availability refresh
-   * (see hooks/useCartLivePricing.ts) can pass it straight to whatever
-   * fetch fetches current stock/price for that exact combination.
-   */
   selectedOptions?: Record<string, string>
 }
 
@@ -57,21 +42,12 @@ export type CartLineItem = {
 }
 
 type CartContextValue = {
-  /**
-   * False until the initial localStorage read has completed. Consumers
-   * should render a loading/skeleton state while this is false instead of
-   * treating an empty `items` array as "genuinely empty".
-   */
   hydrated: boolean
   items: CartLineItem[]
-  /** Total units across all line items (sum of qty) — what a cart badge usually shows. */
   itemCount: number
-  /** Number of distinct line items. */
   lineCount: number
-  /** Adds `product`. If that id is already in the cart, increments qty by `qty` instead of duplicating. */
   addItem: (product: CartProduct, qty?: number) => void
   removeItem: (id: string) => void
-  /** Setting qty to 0 or below removes the line item. */
   updateQty: (id: string, qty: number) => void
   clearCart: () => void
   isInCart: (id: string) => boolean
@@ -90,31 +66,18 @@ function loadInitialItems(): CartLineItem[] {
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
   } catch {
-    // Corrupt or pre-migration data shouldn't crash the app — just start empty.
     return []
   }
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  // Start empty on BOTH server and client. Loading from localStorage during
-  // the initial render (even via a lazy `useState` initializer) makes the
-  // client's first render diverge from the server-rendered HTML the moment
-  // anything is actually persisted — e.g. server renders "Cart (0)" while
-  // the client's first render already says "Cart (3)" from localStorage,
-  // which throws a hydration mismatch and forces React to discard and
-  // re-render the whole subtree. Instead we render empty first, matching
-  // the server exactly, then hydrate the real data in an effect below —
-  // effects only run client-side, and only after the DOM has already been
-  // reconciled against the server markup, so there's nothing left to
-  // mismatch against.
+  const { user, loading: authLoading } = useAuth()
+  const supabase = useMemo(() => createClient(), [])
+
   const [items, setItems] = useState<CartLineItem[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const dbSyncedForUserId = useRef<string | null>(null)
 
-  // Runs once on mount, client-only. Pulls in whatever was actually saved,
-  // then flips `hydrated` so the persist-effect below is safe to start
-  // writing (it must not fire before this, or it would overwrite storage
-  // with the empty initial state). Consumers use `hydrated` to distinguish
-  // "still loading" from "genuinely empty".
   useEffect(() => {
     setItems(loadInitialItems())
     setHydrated(true)
@@ -130,7 +93,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   }, [items, hydrated])
 
-  // Keep multiple tabs in sync: if the cart changes in another tab, pick it up here.
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key !== STORAGE_KEY) return
@@ -145,38 +107,161 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const addItem = useCallback((product: CartProduct, qty: number = 1) => {
-    if (qty <= 0) return
-    setItems((prev) => {
-      const existingIndex = prev.findIndex((line) => line.product.id === product.id)
-      if (existingIndex === -1) {
-        return [...prev, { product, qty, addedAt: Date.now() }]
+  // ---- Supabase sync -------------------------------------------------
+  // Pushes a single line up to cart_items (creating/reusing its
+  // product_snapshot). Fire-and-forget from the caller's point of view —
+  // local state is the source of truth for rendering; this just keeps the
+  // account's server-side cart in step so it survives a device switch.
+  const pushLineToDb = useCallback(
+    async (line: CartLineItem, userId: string) => {
+      try {
+        const snapshotId = await ensureProductSnapshot(supabase, {
+          id: line.product.id,
+          title: line.product.title,
+          image: line.product.image,
+          currencyCode: line.product.currencyCode,
+          price: line.product.sourcePrice,
+          site: line.product.site,
+        })
+        await supabase.from('cart_items').upsert(
+          {
+            user_id: userId,
+            product_snapshot_id: snapshotId,
+            quantity: line.qty,
+            selected_options: line.product.selectedOptions ?? null,
+          },
+          { onConflict: 'user_id,product_snapshot_id' },
+        )
+      } catch (err) {
+        console.error('[cart] failed to sync line to db', err)
       }
-      const next = [...prev]
-      const existing = next[existingIndex]
-      next[existingIndex] = {
-        ...existing,
-        // Refresh the snapshot (price may have moved since it was first added)
-        // but keep accumulating quantity.
-        product,
-        qty: existing.qty + qty,
+    },
+    [supabase],
+  )
+
+  const removeLineFromDb = useCallback(
+    async (productId: string, userId: string) => {
+      try {
+        const snapshotId = await findSnapshotId(supabase, productId)
+        if (!snapshotId) return
+        await supabase.from('cart_items').delete().eq('user_id', userId).eq('product_snapshot_id', snapshotId)
+      } catch (err) {
+        console.error('[cart] failed to remove line from db', err)
       }
-      return next
-    })
-  }, [])
+    },
+    [supabase],
+  )
 
-  const removeItem = useCallback((id: string) => {
-    setItems((prev) => prev.filter((line) => line.product.id !== id))
-  }, [])
+  // On login: push whatever's currently in the local (possibly guest) cart
+  // up to the DB first — so nothing added before signing in is lost — then
+  // pull the merged server-side cart back down as the new source of truth.
+  // Runs once per user id per session (guarded by dbSyncedForUserId).
+  useEffect(() => {
+    if (authLoading || !hydrated) return
+    if (!user) {
+      dbSyncedForUserId.current = null
+      return
+    }
+    if (dbSyncedForUserId.current === user.id) return
+    dbSyncedForUserId.current = user.id
 
-  const updateQty = useCallback((id: string, qty: number) => {
-    setItems((prev) => {
-      if (qty <= 0) return prev.filter((line) => line.product.id !== id)
-      return prev.map((line) => (line.product.id === id ? { ...line, qty } : line))
-    })
-  }, [])
+    let cancelled = false
+    ;(async () => {
+      for (const line of items) {
+        await pushLineToDb(line, user.id)
+      }
 
-  const clearCart = useCallback(() => setItems([]), [])
+      const { data, error } = await supabase
+        .from('cart_items')
+        .select(
+          'quantity, selected_options, added_at, product_snapshots(url, site, title, image_url, currency, price)',
+        )
+        .eq('user_id', user.id)
+
+      if (cancelled || error || !data) return
+
+      const merged: CartLineItem[] = data
+        .filter((row: any) => row.product_snapshots?.url)
+        .map((row: any) => ({
+          product: {
+            id: row.product_snapshots.url,
+            url: row.product_snapshots.url,
+            site: row.product_snapshots.site,
+            title: row.product_snapshots.title,
+            image: row.product_snapshots.image_url,
+            currencyCode: row.product_snapshots.currency,
+            sourcePrice: row.product_snapshots.price != null ? String(row.product_snapshots.price) : null,
+            selectedOptions: row.selected_options ?? undefined,
+            source: 'link' as const,
+          },
+          qty: row.quantity,
+          addedAt: new Date(row.added_at).getTime(),
+        }))
+
+      setItems(merged)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, hydrated])
+
+  const addItem = useCallback(
+    (product: CartProduct, qty: number = 1) => {
+      if (qty <= 0) return
+      let nextLine: CartLineItem | null = null
+      setItems((prev) => {
+        const existingIndex = prev.findIndex((line) => line.product.id === product.id)
+        if (existingIndex === -1) {
+          nextLine = { product, qty, addedAt: Date.now() }
+          return [...prev, nextLine]
+        }
+        const next = [...prev]
+        const existing = next[existingIndex]
+        nextLine = { ...existing, product, qty: existing.qty + qty }
+        next[existingIndex] = nextLine
+        return next
+      })
+      if (user && nextLine) pushLineToDb(nextLine, user.id)
+    },
+    [user, pushLineToDb],
+  )
+
+  const removeItem = useCallback(
+    (id: string) => {
+      setItems((prev) => prev.filter((line) => line.product.id !== id))
+      if (user) removeLineFromDb(id, user.id)
+    },
+    [user, removeLineFromDb],
+  )
+
+  const updateQty = useCallback(
+    (id: string, qty: number) => {
+      if (qty <= 0) {
+        removeItem(id)
+        return
+      }
+      let updatedLine: CartLineItem | undefined
+      setItems((prev) =>
+        prev.map((line) => {
+          if (line.product.id !== id) return line
+          updatedLine = { ...line, qty }
+          return updatedLine
+        }),
+      )
+      if (user && updatedLine) pushLineToDb(updatedLine, user.id)
+    },
+    [user, pushLineToDb, removeItem],
+  )
+
+  const clearCart = useCallback(() => {
+    const idsToRemove = items.map((line) => line.product.id)
+    setItems([])
+    if (user) {
+      idsToRemove.forEach((id) => removeLineFromDb(id, user.id))
+    }
+  }, [items, user, removeLineFromDb])
 
   const isInCart = useCallback(
     (id: string) => items.some((line) => line.product.id === id),

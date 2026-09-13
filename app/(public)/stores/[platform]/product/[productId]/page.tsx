@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight, Package, Star, Weight, Zap } from 'lucide-react'
-import { affiliatedStores } from '@/components/dashboard/data'
+import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { getDualDeliveryPricing } from '@/lib/pricing'
 import ProductActions from '@/components/stores/ProductActions'
@@ -165,7 +165,7 @@ export default async function ProductDetailPage({
 }) {
   const { platform, productId } = await params
 
-  const store = affiliatedStores.find((s) => s.platform === platform)
+  const store = await fetchAffiliatedStore(platform)
   if (!store) notFound()
 
   let product

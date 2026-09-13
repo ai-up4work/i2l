@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { ArrowRight } from 'lucide-react'
-import { affiliatedStores } from '@/data/stores/data'
+import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
 
 /* ============================================================================
  * AFFILIATE STORES STRIP
@@ -15,7 +15,7 @@ import { affiliatedStores } from '@/data/stores/data'
 // Marketplaces lead here since they're the most globally recognizable
 // names for a first-time visitor. Swap/extend this filter if local
 // sellers (GIVA, Chickadee, etc.) should also get a slot in the strip.
-const featuredStores = affiliatedStores.filter((store) => store.storeType === 'marketplace')
+// (Computed inside AffiliateStores() below via useAffiliatedStores().)
 
 function WaveMark() {
   // Small decorative squiggle, standing in for a "signal / discovery"
@@ -30,6 +30,9 @@ function WaveMark() {
 }
 
 export default function AffiliateStores() {
+  const { stores } = useAffiliatedStores()
+  const featuredStores = stores.filter((store) => store.storeType === 'marketplace')
+
   return (
     <section className="mx-auto max-w-7xl px-6 lg:px-10">
       <div className="overflow-hidden rounded-2xl border border-black/5 bg-parchment shadow-lift">

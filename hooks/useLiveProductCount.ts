@@ -3,7 +3,8 @@
 
 import { useEffect, useState } from 'react'
 
-// Must match PER_PAGE_MAX in app/api/stores/[platform]/route.ts — no point
+// Must match PER_PAGE_MAX in app/api/admin/sellers/[platform]/live-count/route.ts
+// (and app/api/stores/[platform]/route.ts, which it mirrors) — no point
 // requesting more than the route will actually honor.
 const MAX_PER_PAGE = 48
 
@@ -25,13 +26,23 @@ interface LiveProductCount {
 }
 
 /**
- * Fetches the REAL product count for a seller by hitting the same
- * app/api/stores/[platform] route the storefront uses. Requests
- * MAX_PER_PAGE rather than a minimal page size — for providers whose
- * `total` is only as accurate as what was actually fetched (see `atLeast`
- * above), asking for 1 product would silently report "1" for every store
- * regardless of real size. MAX_PER_PAGE is exact for any catalogue at or
- * under that size, and an honest lower bound ("48+") beyond it.
+ * Fetches the REAL product count for a seller from the admin-only
+ * app/api/admin/sellers/[platform]/live-count route — NOT the public
+ * app/api/stores/[platform] route the storefront uses. The public route
+ * is intentionally scoped to `status = 'active'` sellers only (shoppers
+ * shouldn't see an unpublished store's products), which meant this hook
+ * used to 404 for any seller still `pending_review` or `inactive` — i.e.
+ * exactly the sellers an admin is most likely to be looking at while
+ * setting them up. The admin route resolves the seller without that
+ * status filter, so counts work regardless of where the seller is in its
+ * lifecycle.
+ *
+ * Requests MAX_PER_PAGE rather than a minimal page size — for providers
+ * whose `total` is only as accurate as what was actually fetched (see
+ * `atLeast` above), asking for 1 product would silently report "1" for
+ * every store regardless of real size. MAX_PER_PAGE is exact for any
+ * catalogue at or under that size, and an honest lower bound ("48+")
+ * beyond it.
  *
  * Only meaningful once a seller's provider config is something other than
  * 'mock' — callers should gate `enabled` on that (a mock/manual-entry
@@ -50,7 +61,7 @@ export function useLiveProductCount(platform: string, enabled: boolean): LivePro
     setLoading(true)
     setError(null)
 
-    fetch(`/api/stores/${platform}?per_page=${MAX_PER_PAGE}`)
+    fetch(`/api/admin/sellers/${platform}/live-count?per_page=${MAX_PER_PAGE}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Store feed returned ${res.status}`)
         return res.json()

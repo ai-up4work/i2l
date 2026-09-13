@@ -130,3 +130,49 @@ export function getSeller(platform: string | undefined): AdminSeller | undefined
   if (!platform) return undefined
   return ADMIN_SELLERS.find((s) => s.platform === platform)
 }
+
+// ---------------------------------------------------------------------------
+// Real data path — maps a raw `sellers` table row (as returned by
+// /api/admin/sellers or a direct server-side Supabase query) into the same
+// AdminSeller shape as ADMIN_SELLERS above, so every consumer of AdminSeller
+// (the list page, the add/edit wizard) renders identically regardless of
+// whether the seller came from the database or (for anything not migrated
+// yet) the hardcoded array above.
+// ---------------------------------------------------------------------------
+export function mapDbRowToAdminSeller(row: Record<string, unknown>): AdminSeller {
+  const providerConfig = (row.provider_config ?? { type: 'mock' }) as Record<string, unknown>
+  const display = (providerConfig.display ?? {}) as Record<string, unknown>
+  const { display: _display, ...config } = providerConfig
+
+  return {
+    platform: row.platform_slug as string,
+    store: {
+      platform: row.platform_slug as string,
+      name: row.name as string,
+      logo: (row.logo_url as string) ?? '',
+      url: (row.outbound_url as string) ?? undefined,
+      country: (row.country as string) ?? '',
+      flag: (row.flag_emoji as string) ?? '',
+      description: (row.description as string) ?? '',
+      categories: (row.categories as string[]) ?? [],
+      storeType: row.store_kind as AffiliatedStore['storeType'],
+      isNew: display.isNew as boolean | undefined,
+      itemCount: display.itemCount as number | undefined,
+      bannerStyle: display.bannerStyle as AffiliatedStore['bannerStyle'],
+      shipping: display.shipping as string | undefined,
+      payment: display.payment as string | undefined,
+      tags: display.tags as string[] | undefined,
+    },
+    providerConfig: config as StoreProviderConfig,
+    admin: {
+      status: row.status as SellerStatus,
+      contactName: (row.contact_name as string) ?? '',
+      contactEmail: (row.contact_email as string) ?? '',
+      contactPhone: (row.contact_phone as string) ?? '',
+      notes: (row.notes as string) ?? '',
+      joinedAt: ((row.created_at as string) ?? new Date().toISOString()).slice(0, 10),
+      ordersReceived: 0, // TODO: derive from orders once order_items references sellers
+      ordersPending: 0,
+    },
+  }
+}

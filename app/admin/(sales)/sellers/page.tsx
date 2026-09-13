@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Calendar,
   ChevronRight,
   Inbox,
+  Loader2,
   Plus,
   Search,
   SearchX,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 
-import { ADMIN_SELLERS, STATUS_LABEL, type AdminSeller, type SellerStatus } from '@/data/sellers/data'
+import { STATUS_LABEL, mapDbRowToAdminSeller, type AdminSeller, type SellerStatus } from '@/data/sellers/data'
 import { useSequentialLiveProductCounts, type LiveCountEntry } from '@/hooks/useSequentialLiveProductCounts'
 import { panelClass } from '@/components/admin/seller/shared'
 
@@ -93,18 +94,47 @@ export default function SellersListPage() {
   const router = useRouter()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [sellers, setSellers] = useState<AdminSeller[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch('/api/admin/sellers')
+      .then(async (res) => {
+        const body = await res.json()
+        if (!res.ok) throw new Error(body.error ?? 'Failed to load sellers')
+        return body.sellers as Record<string, unknown>[]
+      })
+      .then((rows) => {
+        if (cancelled) return
+        setSellers(rows.map(mapDbRowToAdminSeller))
+        setLoadError(null)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setLoadError(err instanceof Error ? err.message : 'Failed to load sellers')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Queue is built from the full seller list (not the filtered view) so
   // searching/filtering doesn't restart or reorder in-flight fetching.
   const liveFeedPlatforms = useMemo(
-    () => ADMIN_SELLERS.filter((s) => s.providerConfig.type !== 'mock').map((s) => s.platform),
-    []
+    () => sellers.filter((s) => s.providerConfig.type !== 'mock').map((s) => s.platform),
+    [sellers],
   )
   const { entries: liveCounts, refresh: refreshLiveCount } = useSequentialLiveProductCounts(liveFeedPlatforms)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return ADMIN_SELLERS.filter((s) => {
+    return sellers.filter((s) => {
       const matchesSearch =
         !q ||
         s.store.name.toLowerCase().includes(q) ||
@@ -112,7 +142,7 @@ export default function SellersListPage() {
       const matchesStatus = statusFilter === 'all' || s.admin.status === statusFilter
       return matchesSearch && matchesStatus
     })
-  }, [search, statusFilter])
+  }, [sellers, search, statusFilter])
 
   const hasAnyFilter = search.trim().length > 0 || statusFilter !== 'all'
   const clearFilters = () => {
@@ -181,9 +211,9 @@ export default function SellersListPage() {
 
         {/* ── Result count ── */}
         <p className="mt-4 text-xs font-medium text-ink/40">
-          {filtered.length === ADMIN_SELLERS.length
-            ? `${ADMIN_SELLERS.length} seller${ADMIN_SELLERS.length === 1 ? '' : 's'}`
-            : `${filtered.length} of ${ADMIN_SELLERS.length} sellers`}
+          {filtered.length === sellers.length
+            ? `${sellers.length} seller${sellers.length === 1 ? '' : 's'}`
+            : `${filtered.length} of ${sellers.length} sellers`}
         </p>
 
         {/* ── Table ── */}
@@ -196,7 +226,16 @@ export default function SellersListPage() {
             ))}
           </div>
 
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+              <Loader2 size={22} className="animate-spin text-ink/25" />
+              <p className="text-sm font-semibold text-ink/60">Loading sellers…</p>
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+              <p className="text-sm font-semibold text-red-700">{loadError}</p>
+            </div>
+          ) : filtered.length === 0 ? (
             <EmptyState hasAnyFilter={hasAnyFilter} onClearFilters={clearFilters} />
           ) : (
             filtered.map((s) => (

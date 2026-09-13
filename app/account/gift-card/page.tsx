@@ -52,8 +52,8 @@ export default function GiftCardPage() {
     scrollerRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
   }
 
-  const handleRedeem = () => {
-    const amount = loyalty.redeemGiftCard(code)
+  const handleRedeem = async () => {
+    const amount = await loyalty.redeemGiftCard(code)
     if (amount > 0) {
       setFeedback({ ok: true, message: `€${amount.toFixed(2)} added to your wallet.` })
       setCode('')

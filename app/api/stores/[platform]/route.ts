@@ -1,7 +1,6 @@
 // app/api/stores/[platform]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { affiliatedStores } from '@/components/dashboard/data';
-import { getProviderConfig } from '@/lib/store-config';
+import { getSellerAndConfig } from '@/lib/store-config-db';
 import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
@@ -26,8 +25,8 @@ export async function GET(
   try {
     const { platform } = await params;
 
-    const store = affiliatedStores.find((s) => s.platform === platform);
-    if (!store) {
+    const seller = await getSellerAndConfig(platform);
+    if (!seller) {
       return NextResponse.json({ error: 'Unknown store platform' }, { status: 404 });
     }
 
@@ -44,7 +43,7 @@ export async function GET(
     // via a best-effort distinct-category scan over a page of products
     // (no dedicated taxonomy endpoint to call for those).
     if (searchParams.get('collections') === '1') {
-      const config = getProviderConfig(platform);
+      const config = seller.config;
       let collections: LiveCollection[] = [];
 
       if (config.type === 'shopify') {
@@ -69,7 +68,7 @@ export async function GET(
         // of trusting a hand-typed list. Best-effort: a store with more
         // distinct categories than fit on one page may miss some: raise
         // perPage here if that turns out to matter for a real store.
-        const result = await fetchJsonApiProducts(platform, config, store.name, {
+        const result = await fetchJsonApiProducts(platform, config, seller.name, {
           page: 1,
           perPage: 250,
           category: '',
@@ -107,15 +106,15 @@ export async function GET(
       sort: (searchParams.get('sort') as ProviderFetchParams['sort']) ?? 'newest',
     };
 
-    const config = getProviderConfig(platform);
+    const config = seller.config;
 
     const result =
       config.type === 'shopify'
-        ? await fetchShopifyProducts(platform, config, store.name, fetchParams)
+        ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
         : config.type === 'woocommerce'
         ? await fetchWooCommerceProducts(platform, config, fetchParams)
         : config.type === 'jsonapi'
-        ? await fetchJsonApiProducts(platform, config, store.name, fetchParams)
+        ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
         : await fetchMockProducts(platform, fetchParams);
 
     return NextResponse.json(

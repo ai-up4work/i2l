@@ -1,6 +1,5 @@
 // lib/store-providers/product.ts
-import { affiliatedStores } from '@/components/dashboard/data';
-import { getProviderConfig } from '@/lib/store-config';
+import { getSellerAndConfig } from '@/lib/store-config-db';
 import type { StoreProduct } from '@/lib/store.types';
 import { fetchJsonApiProduct } from './jsonapi';
 import { fetchMockProduct } from './mock';
@@ -15,19 +14,19 @@ import { fetchWooCommerceProduct } from './woocommerce';
  * that as a normal notFound() case.
  */
 export async function fetchStoreProduct(platform: string, handle: string): Promise<StoreProduct | null> {
-  const store = affiliatedStores.find((s) => s.platform === platform);
-  if (!store) return null;
+  const seller = await getSellerAndConfig(platform);
+  if (!seller) return null;
 
-  const config = getProviderConfig(platform);
+  const config = seller.config;
 
   if (config.type === 'shopify') {
-    return fetchShopifyProduct(platform, config, store.name, handle);
+    return fetchShopifyProduct(platform, config, seller.name, handle);
   }
   if (config.type === 'woocommerce') {
     return fetchWooCommerceProduct(platform, config, handle);
   }
   if (config.type === 'jsonapi') {
-    return fetchJsonApiProduct(platform, config, store.name, handle);
+    return fetchJsonApiProduct(platform, config, seller.name, handle);
   }
   return fetchMockProduct(platform, handle);
 }

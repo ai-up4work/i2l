@@ -6,9 +6,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { useAuth } from './AuthContext'
+import { createClient } from '@/lib/supabase/client'
+import { ensureProductSnapshot, findSnapshotId } from '@/lib/supabase/product-snapshots'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,13 +75,6 @@ export type AddBoardToCartResult = {
 }
 
 type WishlistContextValue = {
-  // ---- hydration -------------------------------------------------------
-  /**
-   * False until the initial localStorage read has completed. Consumers
-   * should render a loading/skeleton state while this is false instead of
-   * treating an empty `items`/`boards` array as "genuinely empty" — the
-   * data hasn't been read yet, it just looks the same as if it were.
-   */
   hydrated: boolean
 
   // ---- flat wishlist -------------------------------------------------
@@ -85,7 +82,6 @@ type WishlistContextValue = {
   count: number
   addItem: (product: WishlistProduct) => void
   removeItem: (id: string) => void
-  /** Adds if absent, removes if present — what a heart/save button wants. */
   toggleItem: (product: WishlistProduct) => void
   isInWishlist: (id: string) => boolean
   clearWishlist: () => void
@@ -103,30 +99,20 @@ type WishlistContextValue = {
   // ---- boards: items -----------------------------------------------------
   addItemToBoard: (boardId: string, product: BoardProduct) => void
   removeItemFromBoard: (boardId: string, itemId: string) => void
-  /** Moves an item out of one board and into another (not a copy). */
   moveItem: (fromBoardId: string, toBoardId: string, itemId: string) => void
-  /** Adds the same item to another board without removing it from the first. */
   copyItemToBoard: (boardId: string, itemId: string, toBoardId: string) => void
   updateItemQuantity: (boardId: string, itemId: string, quantity: number) => void
   updateItemVariant: (boardId: string, itemId: string, variant: ProductVariant | null) => void
-  /** Reorders items within a board — pass the full item-id order after a drag. */
   reorderBoardItems: (boardId: string, orderedItemIds: string[]) => void
   isInBoard: (boardId: string, itemId: string) => boolean
-  /** Every board (name + id) that currently contains this item — for a multi-board picker UI. */
   getBoardsForItem: (itemId: string) => Board[]
 
   // ---- boards: sharing -----------------------------------------------------
   setBoardVisibility: (boardId: string, visibility: BoardVisibility) => void
-  /** Generates (or returns the existing) share token and flips visibility to 'link'. */
   generateShareLink: (boardId: string) => string
   revokeShareLink: (boardId: string) => void
 
   // ---- boards: cart -----------------------------------------------------
-  /**
-   * Pushes every item in a board through `addToCart`. Items are only counted
-   * as "skipped" if `addToCart` throws or returns false — the context itself
-   * has no notion of stock/availability, that lives with the caller.
-   */
   addBoardToCart: (
     boardId: string,
     addToCart: (item: BoardItem) => boolean | void,
@@ -138,6 +124,15 @@ const WishlistContext = createContext<WishlistContextValue | null>(null)
 // ---------------------------------------------------------------------------
 // Persistence — one storage key for the whole feature (items + boards +
 // naming counter), since they're always read/written together on load.
+//
+// NOTE ON SUPABASE SYNC: only the flat `items` list below is synced to the
+// `wishlist_items` table for logged-in users. Boards (`boards` state) are
+// NOT yet synced — they stay localStorage-only, matching how they already
+// worked before. Boards need their own migration path (create/rename/
+// delete/reorder/share-token generation all need server round-trips, and
+// getting the share-link flow right needs its own pass) — flagged here
+// rather than done partially/incorrectly. `board_items`/`boards` tables
+// already exist in the schema and are ready for this when it's built.
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = 'wishdrop:wishlist-data'
@@ -169,7 +164,6 @@ function makeId(prefix: string) {
 }
 
 function makeShareToken() {
-  // Opaque, non-sequential — don't let people enumerate boards by guessing ids.
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
 }
 
@@ -178,23 +172,15 @@ function makeShareToken() {
 // ---------------------------------------------------------------------------
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
-  // Start with the SAME empty state on server and client. Reading
-  // localStorage here (even guarded by `typeof window`) would make the
-  // client's first render differ from the server-rendered HTML the moment
-  // there's anything persisted, which throws a hydration mismatch. Instead,
-  // we render empty first, then hydrate from storage in an effect below —
-  // that effect only runs client-side and runs *after* the DOM has already
-  // been reconciled against the server markup.
+  const { user, loading: authLoading } = useAuth()
+  const supabase = useMemo(() => createClient(), [])
+
   const [items, setItems] = useState<WishlistEntry[]>([])
   const [boards, setBoards] = useState<Board[]>([])
   const [boardCounter, setBoardCounter] = useState(0)
   const [hydrated, setHydrated] = useState(false)
+  const dbSyncedForUserId = useRef<string | null>(null)
 
-  // Runs once on mount, client-only. Pulls in whatever was actually saved,
-  // then flips `hydrated` so the persist-effect below is safe to start
-  // writing (it must not fire before this, or it would overwrite storage
-  // with the empty initial state). Consumers use `hydrated` to distinguish
-  // "still loading" from "genuinely empty".
   useEffect(() => {
     const initial = loadInitialState()
     setItems(initial.items)
@@ -203,8 +189,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     setHydrated(true)
   }, [])
 
-  // Persist on any change, once hydrated (avoids clobbering storage with the
-  // SSR-time empty state before we've actually read it back).
   useEffect(() => {
     if (!hydrated) return
     try {
@@ -216,7 +200,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     }
   }, [items, boards, boardCounter, hydrated])
 
-  // Keep multiple tabs in sync.
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key !== STORAGE_KEY) return
@@ -234,32 +217,141 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  // ---- flat wishlist -----------------------------------------------------
+  // ---- flat wishlist: Supabase sync --------------------------------------
 
-  const addItem = useCallback((product: WishlistProduct) => {
-    setItems((prev) => {
-      if (prev.some((entry) => entry.id === product.id)) return prev
-      return [...prev, { ...product, addedAt: Date.now() }]
-    })
-  }, [])
+  const pushItemToDb = useCallback(
+    async (product: WishlistProduct, userId: string) => {
+      try {
+        const snapshotId = await ensureProductSnapshot(supabase, {
+          id: product.id,
+          title: product.title,
+          image: product.image,
+          currencyCode: product.currencyCode,
+          price: product.price,
+          site: product.site,
+        })
+        await supabase
+          .from('wishlist_items')
+          .upsert(
+            { user_id: userId, product_snapshot_id: snapshotId },
+            { onConflict: 'user_id,product_snapshot_id' },
+          )
+      } catch (err) {
+        console.error('[wishlist] failed to sync item to db', err)
+      }
+    },
+    [supabase],
+  )
 
-  const removeItem = useCallback((id: string) => {
-    setItems((prev) => prev.filter((entry) => entry.id !== id))
-  }, [])
+  const removeItemFromDb = useCallback(
+    async (productId: string, userId: string) => {
+      try {
+        const snapshotId = await findSnapshotId(supabase, productId)
+        if (!snapshotId) return
+        await supabase
+          .from('wishlist_items')
+          .delete()
+          .eq('user_id', userId)
+          .eq('product_snapshot_id', snapshotId)
+      } catch (err) {
+        console.error('[wishlist] failed to remove item from db', err)
+      }
+    },
+    [supabase],
+  )
 
-  const toggleItem = useCallback((product: WishlistProduct) => {
-    setItems((prev) => {
-      const exists = prev.some((entry) => entry.id === product.id)
-      if (exists) return prev.filter((entry) => entry.id !== product.id)
-      return [...prev, { ...product, addedAt: Date.now() }]
-    })
-  }, [])
+  // On login: push local (guest) wishlist items up, then replace local
+  // state with the merged server-side list. Boards are intentionally left
+  // untouched here — see the note above the storage-key section.
+  useEffect(() => {
+    if (authLoading || !hydrated) return
+    if (!user) {
+      dbSyncedForUserId.current = null
+      return
+    }
+    if (dbSyncedForUserId.current === user.id) return
+    dbSyncedForUserId.current = user.id
+
+    let cancelled = false
+    ;(async () => {
+      for (const entry of items) {
+        await pushItemToDb(entry, user.id)
+      }
+
+      const { data, error } = await supabase
+        .from('wishlist_items')
+        .select('added_at, product_snapshots(url, site, title, image_url, currency, price)')
+        .eq('user_id', user.id)
+
+      if (cancelled || error || !data) return
+
+      const merged: WishlistEntry[] = data
+        .filter((row: any) => row.product_snapshots?.url)
+        .map((row: any) => ({
+          id: row.product_snapshots.url,
+          url: row.product_snapshots.url,
+          site: row.product_snapshots.site,
+          title: row.product_snapshots.title,
+          image: row.product_snapshots.image_url,
+          currencyCode: row.product_snapshots.currency,
+          price: row.product_snapshots.price != null ? String(row.product_snapshots.price) : null,
+          addedAt: new Date(row.added_at).getTime(),
+        }))
+
+      setItems(merged)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, hydrated])
+
+  const addItem = useCallback(
+    (product: WishlistProduct) => {
+      setItems((prev) => {
+        if (prev.some((entry) => entry.id === product.id)) return prev
+        return [...prev, { ...product, addedAt: Date.now() }]
+      })
+      if (user) pushItemToDb(product, user.id)
+    },
+    [user, pushItemToDb],
+  )
+
+  const removeItem = useCallback(
+    (id: string) => {
+      setItems((prev) => prev.filter((entry) => entry.id !== id))
+      if (user) removeItemFromDb(id, user.id)
+    },
+    [user, removeItemFromDb],
+  )
+
+  const toggleItem = useCallback(
+    (product: WishlistProduct) => {
+      let added = false
+      setItems((prev) => {
+        const exists = prev.some((entry) => entry.id === product.id)
+        if (exists) return prev.filter((entry) => entry.id !== product.id)
+        added = true
+        return [...prev, { ...product, addedAt: Date.now() }]
+      })
+      if (user) {
+        if (added) pushItemToDb(product, user.id)
+        else removeItemFromDb(product.id, user.id)
+      }
+    },
+    [user, pushItemToDb, removeItemFromDb],
+  )
 
   const isInWishlist = useCallback((id: string) => items.some((entry) => entry.id === id), [items])
 
-  const clearWishlist = useCallback(() => setItems([]), [])
+  const clearWishlist = useCallback(() => {
+    const idsToRemove = items.map((entry) => entry.id)
+    setItems([])
+    if (user) idsToRemove.forEach((id) => removeItemFromDb(id, user.id))
+  }, [items, user, removeItemFromDb])
 
-  // ---- boards: CRUD -----------------------------------------------------
+  // ---- boards: CRUD (unchanged — localStorage only, see note above) -----
 
   const createBoard = useCallback(
     (name?: string, initialItems: BoardProduct[] = []): Board => {
@@ -344,16 +436,12 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         })
         .filter((b): b is Board => b !== null)
 
-      // Any boards not mentioned (shouldn't normally happen) keep their
-      // relative order, appended after the explicitly ordered ones.
       const remaining = prev.filter((b) => !orderedIds.includes(b.id))
       return [...reordered, ...remaining]
     })
   }, [])
 
   const getBoard = useCallback((boardId: string) => boards.find((b) => b.id === boardId), [boards])
-
-  // ---- boards: items -----------------------------------------------------
 
   const addItemToBoard = useCallback((boardId: string, product: BoardProduct) => {
     setBoards((prev) =>
@@ -394,7 +482,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
           return { ...b, items: b.items.filter((i) => i.id !== itemId), updatedAt: now }
         }
         if (b.id === toBoardId) {
-          if (b.items.some((i) => i.id === itemId)) return b // already there
+          if (b.items.some((i) => i.id === itemId)) return b
           return {
             ...b,
             items: [...b.items, { ...item, position: b.items.length, addedAt: now }],
@@ -415,7 +503,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       const now = Date.now()
       return prev.map((b) => {
         if (b.id !== toBoardId) return b
-        if (b.items.some((i) => i.id === itemId)) return b // no duplicates within one board
+        if (b.items.some((i) => i.id === itemId)) return b
         return {
           ...b,
           items: [...b.items, { ...item, position: b.items.length, addedAt: now }],
@@ -487,8 +575,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     [boards],
   )
 
-  // ---- boards: sharing -----------------------------------------------------
-
   const setBoardVisibility = useCallback((boardId: string, visibility: BoardVisibility) => {
     setBoards((prev) =>
       prev.map((b) => (b.id === boardId ? { ...b, visibility, updatedAt: Date.now() } : b)),
@@ -523,8 +609,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
-  // ---- boards: cart -----------------------------------------------------
-
   const addBoardToCart = useCallback(
     (boardId: string, addToCart: (item: BoardItem) => boolean | void): AddBoardToCartResult => {
       const board = boards.find((b) => b.id === boardId)
@@ -551,12 +635,9 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     [boards],
   )
 
-  // ---- context value -----------------------------------------------------
-
   const value = useMemo<WishlistContextValue>(
     () => ({
       hydrated,
-
       items,
       count: items.length,
       addItem,
@@ -564,7 +645,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       toggleItem,
       isInWishlist,
       clearWishlist,
-
       boards,
       createBoard,
       renameBoard,
@@ -573,7 +653,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       duplicateBoard,
       reorderBoards,
       getBoard,
-
       addItemToBoard,
       removeItemFromBoard,
       moveItem,
@@ -583,11 +662,9 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       reorderBoardItems,
       isInBoard,
       getBoardsForItem,
-
       setBoardVisibility,
       generateShareLink,
       revokeShareLink,
-
       addBoardToCart,
     }),
     [

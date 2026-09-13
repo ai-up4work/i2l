@@ -1,15 +1,59 @@
 'use client'
 
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import HomePage from '@/components/dashboard/HomePage'
 import { pathForView } from '@/components/dashboard/routes'
 import { useDashboard } from '@/contexts/DashboardContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { useLoyalty, effectiveCouponStatus } from '@/contexts/Loyaltycontext'
+import { useWishlist } from '@/contexts/Wishlistcontext'
+import { createClient } from '@/lib/supabase/client'
+
+const ORDER_STAGE_LABEL: Record<string, string> = {
+  ordered: 'Ordered',
+  quality_check: 'Quality check',
+  shipped: 'Shipped',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+}
 
 function AccountHomePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { pastedLink, setPastedLink, startItemInfo } = useDashboard()
+  const { user } = useAuth()
+  const { points, credits, coupons } = useLoyalty()
+  const { count: wishlistCount } = useWishlist()
+
+  const [followingCount, setFollowingCount] = useState(0)
+  const [latestOrderStatus, setLatestOrderStatus] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    const supabase = createClient()
+    ;(async () => {
+      const [{ count }, { data: latestOrder }] = await Promise.all([
+        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', user.id),
+        supabase
+          .from('orders')
+          .select('stage')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+      if (cancelled) return
+      setFollowingCount(count ?? 0)
+      setLatestOrderStatus(latestOrder ? ORDER_STAGE_LABEL[latestOrder.stage] ?? latestOrder.stage : undefined)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
+  const couponsCount = coupons.filter((c) => effectiveCouponStatus(c) === 'unused').length
 
   const hasConsumedLinkParam = useRef(false)
 
@@ -41,6 +85,7 @@ function AccountHomePageInner() {
 
   return (
     <HomePage
+      name={user?.name}
       link={pastedLink}
       setLink={setPastedLink}
       onSubmitRequest={startItemInfo}
@@ -56,6 +101,12 @@ function AccountHomePageInner() {
       onViewWishlist={() => router.push(pathForView('/account/wishlist'))}
       onViewFollowing={() => router.push(pathForView('/account/my-following'))}
       onViewRecentlyViewed={() => router.push(pathForView('/account/recently-viewed'))}
+      couponsCount={couponsCount}
+      pointsBalance={points}
+      walletBalance={credits}
+      wishlistCount={wishlistCount}
+      followingCount={followingCount}
+      latestOrderStatus={latestOrderStatus}
     />
   )
 }

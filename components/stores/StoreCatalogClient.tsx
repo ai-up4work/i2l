@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
   Sparkles, PackageSearch,
 } from 'lucide-react';
 import type { AffiliatedStore } from '@/components/dashboard/data';
-import { affiliatedStores } from '@/components/dashboard/data';
+import { useAffiliatedStores } from '@/hooks/useAffiliatedStores';
 import type { StoreProduct, StoreApiResponse } from '@/lib/store.types';
 import Image from 'next/image';
 import { formatPrice } from '@/lib/currency';
@@ -28,27 +29,25 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 const PER_PAGE = 24;
 
-// Shown in place of a product/logo image whenever the real one fails to
-// load (dead link, host hotlink-protection, temporary downtime, etc) so we
-// never show Next's broken-image icon in a fixed-size box.
 const FALLBACK_IMAGE = '/placeholder-product.png';
 
 // ─── Live collections ───────────────────────────────────────────────────────
-// Shape returned by GET /api/stores/[platform]?collections=1 (Shopify
-// stores only — see the ?collections=1 branch in the API route and
-// fetchShopifyCollections in lib/store-providers/shopify.ts). Fetched
-// fresh on mount so the category buttons always reflect the store's
-// REAL, currently-published Shopify collections instead of a hand-typed
-// `categories` array in data/stores/data.ts that can silently drift out
-// of sync with the actual storefront (this is exactly what happened with
-// santhiya-fashions and old-money — the static categories didn't match
-// any real collection, so every click fell back to an unreliable
-// product_type string match).
 interface LiveCollectionsResponse {
   platform: string;
   baseUrl: string;
   count: number;
   collections: { handle: string; title: string }[];
+}
+
+interface CategoryFilter {
+  handle: string;
+  title: string;
+}
+
+// A valid SortKey guard for values pulled straight out of the URL, which
+// could be anything a person typed/pasted.
+function isSortKey(v: string | null): v is SortKey {
+  return v === 'newest' || v === 'price-asc' || v === 'price-desc' || v === 'sale';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -67,13 +66,6 @@ function writeCart(platform: string, items: CartItem[]) {
   window.dispatchEvent(new Event('store_cart_updated'));
 }
 
-/**
- * Builds the exact same serializable wishlist snapshot ProductActions
- * builds on the product detail page (components/stores/ProductActions.tsx)
- * — product.url (falling back to a platform-scoped id) is the identity
- * key, so hearting a listing from this grid and hearting the same listing
- * from its own PDP dedupe to one wishlist entry instead of two.
- */
 function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistProduct {
   const url = product.url || '';
   const id = url || `${platform}:${product.id}`;
@@ -112,16 +104,9 @@ function ProductCard({
   platform: string;
   onAdd: (p: StoreProduct) => void;
 }) {
-  // Real wishlist context — the same one ProductActions uses on the PDP —
-  // so hearting an item here and hearting it from its own product page
-  // reflect one persisted state instead of two independent toggles.
   const wishlist = useWishlist();
   const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform]);
   const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id);
-
-  // All display pricing (price, "was" price, discount %) comes from the
-  // shared lib/pricing.ts helper — same one the PDP uses — so this card
-  // can never disagree with the product detail page on what something costs.
   const pricing = getProductPricing(product);
 
   return (
@@ -160,10 +145,6 @@ function ProductCard({
           </span>
         </div>
 
-        {/* Real wishlist toggle — same context + snapshot shape
-            ProductActions uses on the PDP (toWishlistSnapshot above
-            mirrors it exactly), so this is the actual persisted wishlist,
-            not a per-card visual toggle that forgets itself on remount. */}
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); wishlist.toggleItem(wishlistSnapshot); }}
@@ -176,21 +157,6 @@ function ProductCard({
           <Heart size={14} className={wishlisted ? 'fill-red-500 text-red-500' : 'text-ink'} />
         </button>
 
-        {/* Real add-to-bag button — the same AddToBagButton component
-            ProductActions renders on the PDP, so a quick-add here writes
-            into the same cart /account/cart reads, instead of only this
-            page's own local mini-cart. The grid has no size/color picker,
-            so this adds the base product at quantity 1 with no
-            selectedOptions — the same thing that happens on the PDP for a
-            product with no variants to choose.
-            The wrapping div's onClick (bubble phase, so it fires after
-            AddToBagButton's own click handler has already run) stops the
-            click from also triggering the parent Link's navigation, and
-            onClickCapture (capture phase, before AddToBagButton's handler)
-            mirrors the add into this page's own per-store sessionStorage
-            cart (onAdd) that drives the WhatsApp "Bag" drawer below —
-            AddToBagButton has no reason to know that flow exists, so this
-            keeps both in sync from one click. */}
         <div
           className="absolute bottom-3 left-3 right-12
             translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200"
@@ -241,12 +207,8 @@ function MiniCart({
   onClose: () => void;
   onClear: () => void;
 }) {
-  // Catalog (Economy) prices throughout — same numbers the grid cards
-  // and PDP show, so the bag/WhatsApp message never quotes a different
-  // total than what the shopper saw while browsing. All from lib/pricing.ts.
   const total = getCartSubtotalLKR(items);
   const WA = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '+94755354830').replace(/\D/g, '');
-
   const lines = formatCartLinesForWhatsApp(items);
 
   const whatsappText = encodeURIComponent(
@@ -349,10 +311,6 @@ function Pagination({
 }) {
   if (totalPages <= 1) return null;
 
-  // Build the set of page numbers to show: first 3, last 2, and the
-  // current page plus its immediate neighbors (so jumping around the
-  // middle still shows context). Gaps between consecutive shown pages
-  // become a single "…".
   const shown = new Set<number>();
   for (let i = 1; i <= Math.min(3, totalPages); i++) shown.add(i);
   for (let i = Math.max(1, totalPages - 1); i <= totalPages; i++) shown.add(i);
@@ -412,16 +370,6 @@ function Pagination({
 }
 
 // ─── Mobile category / store sheet ─────────────────────────────────────────
-// Bottom-sheet overlay for small screens, mirroring the site's own
-// MobileBottomNav → CategorySheet interaction (backdrop blur, slide up
-// from the bottom, rounded top corners, drag handle) so this doesn't feel
-// like a different pattern bolted onto the page. Desktop keeps the small
-// dropdown next to the store name; this only renders/shows on mobile
-// (`sm:hidden` on the outer wrapper — display:none there means it's fully
-// inert on desktop, not just visually hidden). Lists this store's
-// categories AND a row of other affiliated stores to jump to, since on
-// mobile there's room to let people switch stores from right here instead
-// of going back through the header nav.
 function MobileCategorySheet({
   open,
   onClose,
@@ -434,12 +382,13 @@ function MobileCategorySheet({
   onClose: () => void;
   store: AffiliatedStore;
   category: string;
-  categoryFilters: string[];
-  onSelectCategory: (c: string) => void;
+  categoryFilters: CategoryFilter[];
+  onSelectCategory: (c: CategoryFilter) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
   const [storeSearch, setStoreSearch] = useState('');
+  const { stores: allStores } = useAffiliatedStores();
 
   useEffect(() => {
     if (open) {
@@ -462,22 +411,19 @@ function MobileCategorySheet({
     return () => { document.body.style.overflow = prev; };
   }, [mounted]);
 
-  // Reset the store search whenever the sheet closes, so it doesn't
-  // reopen next time still filtered from a previous session.
   useEffect(() => {
     if (!open) setStoreSearch('');
   }, [open]);
 
   if (!mounted) return null;
 
-  const otherStores = affiliatedStores.filter((s) => s.platform !== store.platform);
+  const otherStores = allStores.filter((s) => s.platform !== store.platform);
   const filteredStores = storeSearch.trim()
     ? otherStores.filter((s) => s.name.toLowerCase().includes(storeSearch.trim().toLowerCase()))
     : otherStores;
 
   return (
     <div className="sm:hidden">
-      {/* Backdrop */}
       <div
         onClick={onClose}
         className="fixed inset-0 z-40 bg-ink/40 backdrop-blur-sm"
@@ -488,7 +434,6 @@ function MobileCategorySheet({
         }}
       />
 
-      {/* Sheet */}
       <div
         className="fixed left-0 right-0 bottom-0 z-50 flex flex-col rounded-t-3xl overflow-hidden bg-parchment shadow-2xl"
         style={{
@@ -519,15 +464,15 @@ function MobileCategorySheet({
           <div className="px-2 py-2">
             {categoryFilters.map((c) => (
               <button
-                key={c || 'all'}
+                key={c.handle || 'all'}
                 type="button"
                 onClick={() => { onSelectCategory(c); onClose(); }}
                 className={
                   'font-body w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ' +
-                  (category === c ? 'bg-ink text-parchment font-bold' : 'text-ink/70 hover:bg-teal/10')
+                  (category === (c.handle || c.title) ? 'bg-ink text-parchment font-bold' : 'text-ink/70 hover:bg-teal/10')
                 }
               >
-                {c || 'All'}
+                {c.title || 'All'}
               </button>
             ))}
           </div>
@@ -587,14 +532,6 @@ function MobileCategorySheet({
 }
 
 // ─── Debug / verification strip ────────────────────────────────────────────
-// Small, plain strip surfacing the raw numbers the API returned (total
-// pages, total product count including whether it's exact or a lower
-// bound, and the category list ACTUALLY in use — either the live-fetched
-// Shopify collections or the static fallback) so counting/filtering
-// issues can be sanity-checked directly on the page instead of digging
-// through network tab responses. Intentionally muted/monospace so it
-// doesn't compete visually with the real toolbar above it. Safe to delete
-// this component + its call site once you're done verifying.
 function DebugInfoBar({
   totalItems,
   totalIsExact,
@@ -651,9 +588,6 @@ function DebugInfoBar({
             {categoriesSource === 'live' ? 'live Shopify collections' : categoriesSource === 'loading' ? 'loading…' : 'static fallback (data.ts)'}
           </span>
         </span>
-        {/* Raw JSON check — same endpoint the categoriesSource state
-            above pulls from, opened directly for inspection. 400s in the
-            new tab for non-Shopify stores, which is expected/harmless. */}
         <a
           href={`/api/stores/${platform}?collections=1`}
           target="_blank"
@@ -673,16 +607,32 @@ function DebugInfoBar({
   );
 }
 
-// ─── Main client component ─────────────────────────────────────────────────────
-
-export default function StoreCatalogClient({ store }: { store: AffiliatedStore }) {
+// ─── Main client component (inner, uses useSearchParams) ──────────────────────
+// Split into an inner component wrapped by a <Suspense> boundary in the
+// default export below — useSearchParams() requires this in the App
+// Router, or Next throws a build-time error.
+function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   const platform = store.platform;
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const [category,    setCategory]    = useState('');
-  const [sortBy,       setSortBy]      = useState<SortKey>('newest');
-  const [page,         setPage]        = useState(1);
-  const [search,       setSearch]      = useState('');
-  const [searchInput,  setSearchInput] = useState('');
+  // Every filter is seeded from the URL on first render, so a refresh or
+  // a shared link reproduces the exact same view. `category` holds the
+  // real Shopify handle (or, for the static fallback path with no real
+  // handle, the title) — never a display label — since that's the value
+  // actually round-tripped through the URL and sent to the API.
+  const [category,      setCategory]      = useState(searchParams.get('category') ?? '');
+  const [categoryLabel, setCategoryLabel] = useState(''); // resolved once effectiveCategories is known, see effect below
+  const [sortBy,        setSortBy]        = useState<SortKey>(
+    isSortKey(searchParams.get('sort')) ? (searchParams.get('sort') as SortKey) : 'newest'
+  );
+  const [page,          setPage]          = useState(() => {
+    const n = Number(searchParams.get('page'));
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  });
+  const [search,        setSearch]        = useState(searchParams.get('q') ?? '');
+  const [searchInput,   setSearchInput]   = useState(searchParams.get('q') ?? '');
 
   const [products,    setProducts]    = useState<StoreProduct[]>([]);
   const [totalPages,  setTotalPages]  = useState(1);
@@ -691,16 +641,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
 
-  // Live-fetched category list — populated from the store's actual
-  // Shopify collections (via /api/stores/[platform]?collections=1) so the
-  // buttons the shopper clicks always exist as real collections, instead
-  // of trusting `store.categories` in data/stores/data.ts, which is
-  // hand-typed and can drift out of sync with the live storefront (the
-  // exact bug behind santhiya-fashions/old-money). null while
-  // loading/not-yet-attempted; [] after a confirmed empty/failed fetch
-  // (non-Shopify store, or the store genuinely has no published
-  // collections) — either null or [] falls back to store.categories.
-  const [liveCategories, setLiveCategories] = useState<string[] | null>(null);
+  const [liveCategories, setLiveCategories] = useState<CategoryFilter[] | null>(null);
   const [categoriesSource, setCategoriesSource] = useState<'live' | 'static' | 'loading'>('loading');
 
   const [cart,        setCart]        = useState<CartItem[]>([]);
@@ -709,7 +650,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
   const [showCategoryMenu, setShowCategoryMenu] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
-  const requestIdRef = useRef(0); // identifies the latest in-flight request; lets us ignore stale/aborted responses
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     setCart(readCart(platform));
@@ -718,12 +659,6 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
     return () => window.removeEventListener('store_cart_updated', sync);
   }, [platform]);
 
-  // Fetch the store's real collections once on mount (and whenever the
-  // platform changes, in case this component is ever reused across store
-  // navigations without a full remount). Failure — 400 for non-Shopify
-  // stores, network error, whatever — just falls back to the static
-  // `store.categories` list rather than breaking the page; this is a
-  // pure enhancement, never a hard dependency.
   useEffect(() => {
     let cancelled = false;
     setCategoriesSource('loading');
@@ -736,7 +671,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
         if (cancelled) return;
 
         if (data.collections?.length) {
-          setLiveCategories(data.collections.map((c) => c.title));
+          setLiveCategories(data.collections.map((c) => ({ handle: c.handle, title: c.title })));
           setCategoriesSource('live');
         } else {
           setLiveCategories(null);
@@ -752,12 +687,44 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
     return () => { cancelled = true; };
   }, [platform]);
 
+  // Prefer the live-fetched {handle, title} pairs; fall back to the
+  // static `store.categories` (titles only, no real handle) when live
+  // data isn't available.
+  const effectiveCategories: CategoryFilter[] = liveCategories
+    ?? store.categories.map((title) => ({ handle: '', title }));
+
+  const categoryFilters: CategoryFilter[] = [{ handle: '', title: '' }, ...effectiveCategories];
+
+  // The URL only stores the raw category value (handle, or title for the
+  // static fallback) — resolve the human-readable label for display once
+  // the real collection list is known. Runs whenever `category` or the
+  // resolved list changes (e.g. after the initial live-collections fetch
+  // completes following a hard refresh with ?category=... already in the URL).
+  useEffect(() => {
+    if (!category) { setCategoryLabel(''); return; }
+    const match = effectiveCategories.find((c) => (c.handle || c.title) === category);
+    setCategoryLabel(match?.title ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, liveCategories]);
+
+  // Keeps the URL in sync with every filter so a refresh, a shared link,
+  // or the browser back/forward buttons reproduce the exact same view.
+  // Uses replace (not push) so clicking a filter doesn't spam browser
+  // history — only real page navigations should be back-button-able.
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (category) qs.set('category', category);
+    if (search) qs.set('q', search);
+    if (sortBy !== 'newest') qs.set('sort', sortBy);
+    if (page > 1) qs.set('page', String(page));
+
+    const query = qs.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, search, sortBy, page, pathname]);
+
   const clearCart = () => { writeCart(platform, []); setCart([]); };
 
-  // Feeds this page's own per-store WhatsApp mini-cart (sessionStorage).
-  // Called alongside the real AddToBagButton (see ProductCard) rather than
-  // instead of it, so both the real cart (/account/cart) and this page's
-  // WhatsApp "Bag" drawer stay in sync from the same click.
   const addToCart = (product: StoreProduct) => {
     const current = readCart(platform);
     const idx = current.findIndex((i) => i.id === product.id);
@@ -776,10 +743,6 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
       const controller = new AbortController();
       abortRef.current = controller;
 
-      // Every call gets a fresh id. Only the call whose id still matches
-      // requestIdRef.current when it finishes is allowed to touch state —
-      // this stops an aborted/superseded request from flipping `loading`
-      // back to false (via `finally`) after a newer request has taken over.
       const requestId = ++requestIdRef.current;
 
       setLoading(true);
@@ -797,7 +760,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
         }
         const data = (await res.json()) as StoreApiResponse;
 
-        if (requestIdRef.current !== requestId) return; // a newer request has since started; drop this one
+        if (requestIdRef.current !== requestId) return;
 
         setProducts(data.products);
         setTotalPages(data.totalPages);
@@ -818,26 +781,19 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
 
   useEffect(() => { fetchProducts(category, page, search, sortBy); }, [category, page, search, sortBy, fetchProducts]);
 
-  const handleCategory = (c: string) => { setCategory(c); setPage(1); };
+  const handleCategory = (c: CategoryFilter) => {
+    setCategory(c.handle || c.title);
+    setCategoryLabel(c.title);
+    setPage(1);
+  };
   const handleSearch = () => { setSearch(searchInput); setPage(1); };
   const goToPage = (pg: number) => { setPage(pg); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   const cartQty = cart.reduce((s, i) => s + i.qty, 0);
 
-  // Prefer the live-fetched collection titles; fall back to the static
-  // `store.categories` from data/stores/data.ts only when the live fetch
-  // hasn't returned anything usable (non-Shopify store, network failure,
-  // or a Shopify store with genuinely zero published collections).
-  const effectiveCategories = liveCategories ?? store.categories;
-  const categoryFilters = ['', ...effectiveCategories];
-
   return (
     <div className="min-h-screen bg-parchment">
 
-      {/* Breadcrumb — normal document flow, NOT sticky. Scrolls away
-          naturally with the page instead of competing with the site's
-          own sticky header. max-w-8xl here so the breadcrumb/bag row
-          spans the same wider width as the category bar below it. */}
       <div className="bg-parchment border-b border-ink/[0.06] pt-3">
         <div className="max-w-8xl mx-auto flex items-center justify-between gap-4 px-4 sm:px-10 lg:px-40 pb-2.5">
           <div className="flex items-center gap-1.5 text-[11px] text-ink/40 shrink-0 font-body min-w-0">
@@ -895,15 +851,6 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
                 </div>
               </div>
 
-              {/* Category picker — stays inline with the store name row at
-                  every width. On mobile it collapses to an icon-only button
-                  (just the chevron) and opens a full bottom-sheet overlay
-                  (MobileCategorySheet, below) instead of the small dropdown
-                  — same click handler drives both, CSS breakpoints decide
-                  which one is actually visible/interactive. Uses
-                  categoryFilters (live-first, see effectiveCategories
-                  above) — same array both the desktop dropdown and the
-                  mobile sheet render from, so they can never disagree. */}
               <div className="relative shrink-0">
                 <button
                   type="button"
@@ -911,30 +858,28 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
                   aria-label="Filter by category"
                   className="font-body flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl border border-ink/10 bg-card text-xs font-semibold text-ink hover:bg-teal/10 transition-colors"
                 >
-                  <span className="hidden sm:inline whitespace-nowrap">{category || 'All categories'}</span>
+                  <span className="hidden sm:inline whitespace-nowrap">{categoryLabel || 'All categories'}</span>
                   <ChevronDown size={14} className={showCategoryMenu ? 'rotate-180 transition-transform' : 'transition-transform'} />
                 </button>
 
-                {/* Desktop dropdown — hidden entirely (display:none) below `sm`. */}
                 {showCategoryMenu && (
                   <div className="hidden sm:block absolute right-0 top-full mt-1.5 bg-card border border-ink/10 rounded-xl shadow-xl z-20 py-1 min-w-[160px] max-h-64 overflow-y-auto">
                     {categoryFilters.map((c) => (
                       <button
-                        key={c || 'all'}
+                        key={c.handle || 'all'}
                         type="button"
                         onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
                         className={
                           'font-body w-full text-left px-4 py-2.5 text-xs whitespace-nowrap transition-colors hover:bg-teal/10 ' +
-                          (category === c ? 'font-bold text-ink' : 'text-ink/55')
+                          (category === (c.handle || c.title) ? 'font-bold text-ink' : 'text-ink/55')
                         }
                       >
-                        {c || 'All'}
+                        {c.title || 'All'}
                       </button>
                     ))}
                   </div>
                 )}
 
-                {/* Mobile bottom sheet — only this renders/shows below `sm`. */}
                 <MobileCategorySheet
                   open={showCategoryMenu}
                   onClose={() => setShowCategoryMenu(false)}
@@ -972,7 +917,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
             totalPages={totalPages}
             page={page}
             shownCount={products.length}
-            categories={effectiveCategories}
+            categories={effectiveCategories.map((c) => c.title)}
             categoriesSource={categoriesSource}
             platform={platform}
           /> */}
@@ -1033,7 +978,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
                       <button
                         key={s.key}
                         type="button"
-                        onClick={() => { setSortBy(s.key); setShowSort(false); }}
+                        onClick={() => { setSortBy(s.key); setPage(1); setShowSort(false); }}
                         className={
                           'font-body w-full text-left px-4 py-2.5 text-xs transition-colors hover:bg-teal/10 ' +
                           (sortBy === s.key ? 'font-bold text-ink' : 'text-ink/55')
@@ -1078,7 +1023,7 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
               {(category || search) && (
                 <button
                   type="button"
-                  onClick={() => { handleCategory(''); setSearch(''); setSearchInput(''); }}
+                  onClick={() => { handleCategory({ handle: '', title: '' }); setSearch(''); setSearchInput(''); }}
                   className="mt-3 text-xs font-semibold text-ink underline hover:no-underline font-body"
                 >
                   Clear filters
@@ -1131,5 +1076,18 @@ export default function StoreCatalogClient({ store }: { store: AffiliatedStore }
         <MiniCart items={cart} storeName={store.name} onClose={() => setCartOpen(false)} onClear={clearCart} />
       )}
     </div>
+  );
+}
+
+// ─── Default export ─────────────────────────────────────────────────────────
+// useSearchParams() requires a <Suspense> boundary in the App Router, or
+// Next throws a build-time error ("useSearchParams should be wrapped in a
+// suspense boundary"). The fallback renders instantly and invisibly since
+// this is a client-rendered page with no server data dependency here.
+export default function StoreCatalogClient({ store }: { store: AffiliatedStore }) {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-parchment" />}>
+      <StoreCatalogInner store={store} />
+    </Suspense>
   );
 }

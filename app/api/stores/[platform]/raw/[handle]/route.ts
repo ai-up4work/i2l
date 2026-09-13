@@ -19,9 +19,8 @@
 //                    JSON endpoint at all.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { affiliatedStores } from '@/components/dashboard/data';
 import { mockProducts } from '@/components/dashboard/data';
-import { getProviderConfig } from '@/lib/store-config';
+import { getSellerAndConfig } from '@/lib/store-config-db';
 import type { StoreApiError } from '@/lib/store.types';
 
 const HEADERS = {
@@ -48,12 +47,12 @@ export async function GET(
   try {
     const { platform, handle } = await params;
 
-    const store = affiliatedStores.find((s) => s.platform === platform);
-    if (!store) {
+    const seller = await getSellerAndConfig(platform);
+    if (!seller) {
       return NextResponse.json({ error: 'Unknown store platform' } satisfies StoreApiError, { status: 404 });
     }
 
-    const config = getProviderConfig(platform);
+    const config = seller.config;
 
     // ── mock: no upstream, just hand back the raw local entry ──────────────
     if (config.type === 'mock') {

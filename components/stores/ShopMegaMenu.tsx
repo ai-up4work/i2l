@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   Shirt,
@@ -12,7 +12,8 @@ import {
   Heart,
   Package,
 } from "lucide-react"
-import { affiliatedStores, type AffiliatedStore } from "@/data/stores/data"
+import { useAffiliatedStores } from "@/hooks/useAffiliatedStores"
+import type { AffiliatedStore } from "@/data/stores/data"
 import Flag from "@/components/ui/Flag"
 import { INNER_H } from "@/components/shared/headerMetrics"
 import { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
@@ -34,15 +35,9 @@ const categoryIcons: { name: string; icon: typeof Shirt }[] = [
   { name: "Collectibles", icon: Package },
 ]
 
-const marketplaceStores = affiliatedStores.filter((s) => s.storeType === "marketplace")
-// Preview of local stores in the mega menu — shows all local stores
-// (not filtered to `isNew` only), capped at 24 so the panel stays a
-// preview rather than a full duplicate of /stores. Raise this cap (or
-// drop it) if the full local catalog should always fit without needing
-// "Browse all".
-const featuredLocalStores = affiliatedStores
-  .filter((s) => s.storeType === "local")
-  .slice(0, 24)
+// marketplaceStores/featuredLocalStores are now computed inside each of
+// ShopMegaMenuPanel/ShopMegaMenuMobile below (via useAffiliatedStores()),
+// since they depend on a real fetch instead of a static import.
 
 // The panel's hinge sits at the bottom edge of the NARROW middle strip
 // of the header (INNER_H) — that's the seam the "Shop" trigger actually
@@ -203,6 +198,15 @@ function useIsDesktopNav() {
 export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
   const [mounted, setMounted] = useState(false)
   const isDesktop = useIsDesktopNav()
+  const { stores } = useAffiliatedStores()
+  const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
+  // Preview of local stores in the mega menu — shows all local stores
+  // (not filtered to `isNew` only), capped at 24 so the panel stays a
+  // preview rather than a full duplicate of /stores.
+  const featuredLocalStores = useMemo(
+    () => stores.filter((s) => s.storeType === "local").slice(0, 24),
+    [stores],
+  )
   useEffect(() => setMounted(true), [])
   if (!mounted || !isDesktop) return null
 
@@ -275,7 +279,7 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
               href="/stores"
               className="mt-2 block rounded-xl px-3 py-2.5 text-sm font-semibold font-body text-teal-deep transition-colors duration-150 hover:bg-teal/10"
             >
-              Browse all {affiliatedStores.length} affiliated stores →
+              Browse all {stores.length} affiliated stores →
             </a>
           </div>
         </div>
@@ -287,6 +291,13 @@ export function ShopMegaMenuPanel({ isActive }: { isActive: boolean }) {
 
 /** Mobile accordion body — same two groups, stacked instead of side by side. */
 export function ShopMegaMenuMobile() {
+  const { stores } = useAffiliatedStores()
+  const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
+  const featuredLocalStores = useMemo(
+    () => stores.filter((s) => s.storeType === "local").slice(0, 24),
+    [stores],
+  )
+
   return (
     <div className="bg-teal/[0.06] px-2 pb-3">
       <div className="px-4 pb-2 pt-3 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
@@ -327,7 +338,7 @@ export function ShopMegaMenuMobile() {
         href="/stores"
         className="mx-2 mt-2 block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-deep font-body"
       >
-        Browse all {affiliatedStores.length} affiliated stores →
+        Browse all {stores.length} affiliated stores →
       </a>
     </div>
   )

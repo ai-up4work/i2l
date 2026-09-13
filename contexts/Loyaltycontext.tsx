@@ -11,6 +11,8 @@ import {
   type ReactNode,
 } from 'react'
 
+import { useAuth } from './AuthContext'
+import { createClient } from '@/lib/supabase/client'
 import type { Order } from '@/contexts/Ordercontexts'
 import {
   TIER_ORDER,
@@ -26,7 +28,7 @@ import {
 } from '@/lib/loyaltyPoints'
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (unchanged from the mock version — every consumer keeps working)
 // ---------------------------------------------------------------------------
 
 export type { Tier, MilestoneKey }
@@ -39,9 +41,7 @@ export type PointsTransaction = {
   id: string
   kind: PointsTransactionKind
   label: string
-  /** Epoch ms — page-level code formats this for display. */
   timestamp: number
-  /** Positive for earned, negative for used/expired. */
   amount: number
 }
 
@@ -50,11 +50,8 @@ export type CreditTransaction = {
   kind: CreditTransactionKind
   label: string
   timestamp: number
-  /** Positive for refund/referral/gift-card/adjustment-in, negative for spend. */
   amount: number
 }
-
-// --- Referrals -------------------------------------------------------------
 
 export type ReferralStatus = 'invited' | 'joined' | 'rewarded'
 
@@ -75,41 +72,23 @@ export type ReferralRewardTier = {
   creditAmount: number
 }
 
-/**
- * Referral reward ladder — business config, single source of truth.
- * A bonus fires when your cumulative rewarded-friend count first hits
- * one of these thresholds (1st, 5th, 10th), not on every referral.
- */
 export const REFERRAL_REWARD_TIERS: ReferralRewardTier[] = [
   { friendCount: 1, label: '€5 credit', creditAmount: 5 },
   { friendCount: 5, label: '€30 credit', creditAmount: 30 },
   { friendCount: 10, label: '€75 credit + free shipping voucher', creditAmount: 75 },
 ]
 
-const REFERRAL_LINK_BASE =
-  // Swap for your real domain / env var, e.g. process.env.NEXT_PUBLIC_APP_URL
-  'https://wishdrop.app'
-
-// --- Gift cards --------------------------------------------------------
+const REFERRAL_LINK_BASE = 'https://wishdrop.app'
 
 export type GiftCardProduct = {
   id: string
   name: string
   image: string
-  /** Face value credited when redeemed, e.g. 100 for a "100.00€" card. */
   value: number
-  /** What it costs to buy, e.g. 93 for a discounted "93.00€" price. */
   price: number
   currency: string
 }
 
-/**
- * Gift card catalog — business config, single source of truth. Purely
- * display/purchase data; redeeming a card is what actually moves money,
- * via the same `credits` wallet refunds and referrals use. There is no
- * separate "gift card balance" — a redeemed card is a credit grant with
- * a distinct transaction label.
- */
 export const GIFT_CARD_CATALOG: GiftCardProduct[] = [
   { id: 'gc-classic', name: 'WishDrop Classic', image: '', value: 100, price: 93, currency: '€' },
   { id: 'gc-amazing', name: "You're Amazing", image: '', value: 100, price: 93, currency: '€' },
@@ -118,13 +97,10 @@ export const GIFT_CARD_CATALOG: GiftCardProduct[] = [
   { id: 'gc-thanks', name: 'Thank You', image: '', value: 100, price: 93, currency: '€' },
 ]
 
-// --- Coupons -------------------------------------------------------------
-
 export type CouponDiscountType = 'percent' | 'fixed'
 export type CouponScope = 'all' | 'selected'
 export type CouponCategory = 'discount' | 'shipping'
 export type CouponUsageLimit = 'one-time' | 'multi-use'
-/** Derived, not stored — see effectiveCouponStatus. Matches the page's tab keys. */
 export type CouponEffectiveStatus = 'unused' | 'used' | 'expired'
 
 export type Coupon = {
@@ -140,7 +116,6 @@ export type Coupon = {
   usageLimit: CouponUsageLimit
   issuedAt: number
   expiresAt: number
-  /** Set once redeemed. A coupon's *used* state is authoritative here; expiry is derived at read time instead of stored, so it never goes stale. */
   usedAt: number | null
 }
 
@@ -156,15 +131,14 @@ type GrantCouponParams = {
   validForDays: number
 }
 
-/** A coupon's status is computed, not stored, so it can never be stale relative to the clock. */
 export function effectiveCouponStatus(coupon: Coupon, now: number = Date.now()): CouponEffectiveStatus {
   if (coupon.usedAt !== null) return 'used'
   if (coupon.expiresAt < now) return 'expired'
   return 'unused'
 }
 
-const EXPIRING_SOON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
-const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
+const EXPIRING_SOON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
+const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
 
 export function isCouponExpiringSoon(coupon: Coupon, now: number = Date.now()): boolean {
   return effectiveCouponStatus(coupon, now) === 'unused' && coupon.expiresAt - now <= EXPIRING_SOON_WINDOW_MS
@@ -195,12 +169,6 @@ type LoyaltyContextValue = {
   lastCheckInAt: number | null
   transactions: PointsTransaction[]
 
-  /**
-   * Non-expiring wallet balance. Sourced from refunds, referrals, gift
-   * card redemptions, and manual adjustments — never from activity, and
-   * never affects `tier`. No withdraw action exists on purpose: credits
-   * can only be spent on future purchases, never cashed out.
-   */
   credits: number
   creditTransactions: CreditTransaction[]
 
@@ -222,7 +190,6 @@ type LoyaltyContextValue = {
   grantBroadcastPoints: (campaignId: string, points: number) => number
   usePoints: (amount: number, label: string) => boolean
 
-  // --- Referrals ---
   referralCode: string
   referralLink: string
   referredFriends: ReferralEntry[]
@@ -231,21 +198,14 @@ type LoyaltyContextValue = {
   markFriendJoined: (id: string) => void
   rewardReferral: (id: string) => number
 
-  // --- Gift cards ---
   giftCardCatalog: GiftCardProduct[]
-  /**
-   * Redeems a gift card code for its face value, crediting the wallet.
-   * Returns the credited amount (0 on failure). Mock validator only —
-   * see implementation note in the provider for what a real backend
-   * check needs to cover (uniqueness, single-redemption, region).
-   */
-  redeemGiftCard: (code: string) => number
+  /** Now a REAL redemption against the `gift_cards` table — returns the
+   *  credited amount (0 on failure: not found, already redeemed, expired,
+   *  or not logged in). Requires migration 0004. */
+  redeemGiftCard: (code: string) => Promise<number>
 
-  // --- Coupons ---
   coupons: Coupon[]
-  /** Issues a new coupon (admin grant, campaign, or internal reward trigger). Returns the new coupon's id. */
   grantCoupon: (params: GrantCouponParams) => string
-  /** Redeems a coupon at checkout. Returns false if already used/expired/not found. */
   useCoupon: (id: string) => boolean
 
   resetLoyalty: () => void
@@ -254,7 +214,7 @@ type LoyaltyContextValue = {
 const LoyaltyContext = createContext<LoyaltyContextValue | null>(null)
 
 // ---------------------------------------------------------------------------
-// Derived-value helpers
+// Derived-value helpers (unchanged)
 // ---------------------------------------------------------------------------
 
 function tierForPoints(points: number): Tier {
@@ -268,13 +228,11 @@ function tierForPoints(points: number): Tier {
 function progressForPoints(points: number, tier: Tier): number {
   const currentIndex = TIER_ORDER.indexOf(tier)
   if (currentIndex === TIER_ORDER.length - 1) return 100
-
   const nextTier = TIER_ORDER[currentIndex + 1]
   const floor = TIER_THRESHOLDS[tier]
   const ceiling = TIER_THRESHOLDS[nextTier]
   const span = ceiling - floor
   if (span <= 0) return 100
-
   const pct = ((points - floor) / span) * 100
   return Math.min(100, Math.max(0, Math.round(pct)))
 }
@@ -282,7 +240,6 @@ function progressForPoints(points: number, tier: Tier): number {
 function requirementsForPoints(points: number, tier: Tier): string[] {
   const currentIndex = TIER_ORDER.indexOf(tier)
   if (currentIndex === TIER_ORDER.length - 1) return []
-
   const nextTier = TIER_ORDER[currentIndex + 1]
   const remaining = Math.max(0, TIER_THRESHOLDS[nextTier] - points)
   return [`Earn ${remaining.toLocaleString()} more points to reach ${nextTier}`]
@@ -299,28 +256,35 @@ function makeTxId(prefix: string): string {
 }
 
 function generateReferralCode(): string {
-  const random = Math.random().toString(36).slice(2, 8).toUpperCase()
-  return `WISH-${random}`
+  return `WISH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 }
 
 function generateCouponCode(): string {
-  const random = Math.random().toString(36).slice(2, 8).toUpperCase()
-  return `WD${random}`
+  return `WD${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+}
+
+function milestoneLabel(key: MilestoneKey): string {
+  switch (key) {
+    case 'firstPurchase':
+      return 'First purchase bonus'
+    case 'mobileVerified':
+      return 'Phone verified bonus'
+    case 'firstBoardShared':
+      return 'First board shared bonus'
+    case 'fiveOrdersCompleted':
+      return '5 orders completed bonus'
+    default:
+      return 'Milestone bonus'
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Persistence
+// Guest (localStorage) persistence — unauthenticated visitors still get a
+// working (if not very meaningful) loyalty experience, same as before.
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = 'wishdrop:loyalty'
 
-/**
- * Genuinely empty starting state — NOT sample/demo data. `referralCode`
- * is left blank here; it gets generated once inside fetchInitialState
- * (never inline in a component) and persisted from then on. If you
- * render this, the UI should already be behind `hydrated`, so nobody
- * ever sees these placeholders as "their" data.
- */
 const EMPTY_STATE: LoyaltyState = {
   points: 0,
   credits: 0,
@@ -335,12 +299,15 @@ const EMPTY_STATE: LoyaltyState = {
   coupons: [],
 }
 
-function parseStoredState(raw: string): LoyaltyState {
+function loadGuestState(): LoyaltyState {
+  if (typeof window === 'undefined') return { ...EMPTY_STATE, referralCode: generateReferralCode() }
   try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return { ...EMPTY_STATE, referralCode: generateReferralCode() }
     const parsed = JSON.parse(raw)
     return {
-      points: typeof parsed.points === 'number' && Number.isFinite(parsed.points) ? Math.max(0, parsed.points) : EMPTY_STATE.points,
-      credits: typeof parsed.credits === 'number' && Number.isFinite(parsed.credits) ? Math.max(0, parsed.credits) : EMPTY_STATE.credits,
+      points: typeof parsed.points === 'number' ? Math.max(0, parsed.points) : 0,
+      credits: typeof parsed.credits === 'number' ? Math.max(0, parsed.credits) : 0,
       lastCheckInAt: typeof parsed.lastCheckInAt === 'number' ? parsed.lastCheckInAt : null,
       claimedMilestones: Array.isArray(parsed.claimedMilestones) ? parsed.claimedMilestones : [],
       claimedOrderIds: Array.isArray(parsed.claimedOrderIds) ? parsed.claimedOrderIds : [],
@@ -356,32 +323,14 @@ function parseStoredState(raw: string): LoyaltyState {
   }
 }
 
-/**
- * Loads the member's real loyalty state. Replace the body with your
- * actual API call (e.g. `fetch('/api/loyalty')`). It's async on purpose
- * — that's what makes `hydrated` truthful instead of a formality that
- * resolves before the first paint. Falls back to localStorage for now.
- */
-async function fetchInitialState(): Promise<LoyaltyState> {
-  if (typeof window === 'undefined') return { ...EMPTY_STATE, referralCode: generateReferralCode() }
-
-  // --- Swap this block for your real API call ---
-  // const res = await fetch('/api/loyalty', { credentials: 'include' })
-  // if (!res.ok) return { ...EMPTY_STATE, referralCode: generateReferralCode() }
-  // const data = await res.json()
-  // return parseStoredState(JSON.stringify(data))
-  // ------------------------------------------------
-
-  const raw = window.localStorage.getItem(STORAGE_KEY)
-  if (!raw) return { ...EMPTY_STATE, referralCode: generateReferralCode() }
-  return parseStoredState(raw)
-}
-
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
 export function LoyaltyProvider({ children }: { children: ReactNode }) {
+  const { user, loading: authLoading } = useAuth()
+  const supabase = useMemo(() => createClient(), [])
+
   const [points, setPointsState] = useState(EMPTY_STATE.points)
   const [credits, setCreditsState] = useState(EMPTY_STATE.credits)
   const [lastCheckInAt, setLastCheckInAt] = useState<number | null>(EMPTY_STATE.lastCheckInAt)
@@ -395,125 +344,223 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
   const [coupons, setCoupons] = useState<Coupon[]>(EMPTY_STATE.coupons)
   const [hydrated, setHydrated] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
+  const dbSyncedForUserId = useRef<string | null>(null)
 
-    fetchInitialState()
-      .then((initial) => {
-        if (cancelled) return
-        setPointsState(initial.points)
-        setCreditsState(initial.credits)
-        setLastCheckInAt(initial.lastCheckInAt)
-        setClaimedMilestones(initial.claimedMilestones)
-        setClaimedOrderIds(initial.claimedOrderIds)
-        setClaimedCampaignIds(initial.claimedCampaignIds)
-        setTransactions(initial.transactions)
-        setCreditTransactions(initial.creditTransactions)
-        setReferralCode(initial.referralCode)
-        setReferredFriends(initial.referredFriends)
-        setCoupons(initial.coupons)
-      })
-      .catch(() => {
-        // Real data failed to load — stay on EMPTY_STATE rather than
-        // showing stale or fabricated numbers.
-      })
-      .finally(() => {
-        if (!cancelled) setHydrated(true)
-      })
+  // ---- Guest load (localStorage) — only takes effect while logged out ----
+  useEffect(() => {
+    if (user) return
+    const initial = loadGuestState()
+    setPointsState(initial.points)
+    setCreditsState(initial.credits)
+    setLastCheckInAt(initial.lastCheckInAt)
+    setClaimedMilestones(initial.claimedMilestones)
+    setClaimedOrderIds(initial.claimedOrderIds)
+    setClaimedCampaignIds(initial.claimedCampaignIds)
+    setTransactions(initial.transactions)
+    setCreditTransactions(initial.creditTransactions)
+    setReferralCode(initial.referralCode)
+    setReferredFriends(initial.referredFriends)
+    setCoupons(initial.coupons)
+    setHydrated(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated || user) return
+    try {
+      const payload: LoyaltyState = {
+        points, credits, lastCheckInAt, claimedMilestones, claimedOrderIds,
+        claimedCampaignIds, transactions, creditTransactions, referralCode,
+        referredFriends, coupons,
+      }
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    } catch {
+      // not worth crashing over
+    }
+  }, [points, credits, lastCheckInAt, claimedMilestones, claimedOrderIds, claimedCampaignIds, transactions, creditTransactions, referralCode, referredFriends, coupons, hydrated, user])
+
+  // ---- Real load from Supabase on login ----
+  useEffect(() => {
+    if (authLoading) return
+    if (!user) {
+      dbSyncedForUserId.current = null
+      return
+    }
+    if (dbSyncedForUserId.current === user.id) return
+    dbSyncedForUserId.current = user.id
+
+    let cancelled = false
+    ;(async () => {
+      setHydrated(false)
+
+      const [
+        { data: account },
+        { data: milestones },
+        { data: txRows },
+        { data: wallet },
+        { data: creditTxRows },
+        { data: profile },
+        { data: referralRows },
+        { data: couponRows },
+      ] = await Promise.all([
+        supabase.from('loyalty_accounts').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('loyalty_milestones_claimed').select('milestone_key').eq('user_id', user.id),
+        supabase.from('loyalty_transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('credit_wallets').select('balance').eq('user_id', user.id).maybeSingle(),
+        supabase.from('credit_transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('profiles').select('referral_code').eq('id', user.id).maybeSingle(),
+        supabase.from('referrals').select('*').eq('referrer_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('personal_coupons').select('*').eq('user_id', user.id).order('issued_at', { ascending: false }),
+      ])
+
+      if (cancelled) return
+
+      setPointsState(account?.points ?? 0)
+      setLastCheckInAt(account?.last_check_in_at ? new Date(account.last_check_in_at).getTime() : null)
+      setClaimedOrderIds(account?.claimed_order_ids ?? [])
+      setClaimedCampaignIds(account?.claimed_campaign_ids ?? [])
+      setClaimedMilestones(((milestones ?? []) as any[]).map((m) => m.milestone_key as MilestoneKey))
+      setTransactions(
+        ((txRows ?? []) as any[]).map((t) => ({
+          id: t.id,
+          kind: (t.delta >= 0 ? 'earned' : 'used') as PointsTransactionKind,
+          label: t.label ?? t.source,
+          timestamp: new Date(t.created_at).getTime(),
+          amount: t.delta,
+        })),
+      )
+      setCreditsState(Number(wallet?.balance ?? 0))
+      setCreditTransactions(
+        ((creditTxRows ?? []) as any[]).map((t) => ({
+          id: t.id,
+          kind: t.type as CreditTransactionKind,
+          label: t.label ?? '',
+          timestamp: new Date(t.created_at).getTime(),
+          amount: Number(t.amount),
+        })),
+      )
+
+      // Ensure a stable referral code exists for this account.
+      let code = profile?.referral_code as string | undefined
+      if (!code) {
+        code = generateReferralCode()
+        await supabase.from('profiles').update({ referral_code: code }).eq('id', user.id)
+      }
+      setReferralCode(code)
+
+      setReferredFriends(
+        ((referralRows ?? []) as any[]).map((r) => ({
+          id: r.id,
+          name: r.referred_contact ?? 'Friend',
+          status: r.status as ReferralStatus,
+          rewardLabel: r.reward_label,
+          rewardAmount: r.reward_amount != null ? Number(r.reward_amount) : null,
+          invitedAt: new Date(r.created_at).getTime(),
+          joinedAt: r.joined_at ? new Date(r.joined_at).getTime() : null,
+          rewardedAt: r.rewarded_at ? new Date(r.rewarded_at).getTime() : null,
+        })),
+      )
+
+      setCoupons(
+        ((couponRows ?? []) as any[]).map((c) => ({
+          id: c.id,
+          code: c.code,
+          title: c.title,
+          discountType: c.discount_type,
+          discountValue: Number(c.discount_value),
+          minOrderValue: Number(c.min_order_value),
+          maxDiscount: c.max_discount != null ? Number(c.max_discount) : null,
+          scope: c.scope,
+          category: c.category,
+          usageLimit: c.usage_limit,
+          issuedAt: new Date(c.issued_at).getTime(),
+          expiresAt: new Date(c.expires_at).getTime(),
+          usedAt: c.used_at ? new Date(c.used_at).getTime() : null,
+        })),
+      )
+
+      setHydrated(true)
+    })()
 
     return () => {
       cancelled = true
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading])
 
-  useEffect(() => {
-    if (!hydrated) return
-    try {
-      const payload: LoyaltyState = {
-        points,
-        credits,
-        lastCheckInAt,
-        claimedMilestones,
-        claimedOrderIds,
-        claimedCampaignIds,
-        transactions,
-        creditTransactions,
-        referralCode,
-        referredFriends,
-        coupons,
+  // ---- DB write helpers — no-op (return immediately) when logged out ----
+
+  const persistPoints = useCallback(
+    async (next: number) => {
+      if (!user) return
+      await supabase.from('loyalty_accounts').update({ points: Math.max(0, next) }).eq('user_id', user.id)
+    },
+    [user, supabase],
+  )
+
+  const persistCredits = useCallback(
+    async (next: number) => {
+      if (!user) return
+      await supabase.from('credit_wallets').update({ balance: Math.max(0, next) }).eq('user_id', user.id)
+    },
+    [user, supabase],
+  )
+
+  const logTransaction = useCallback(
+    (kind: PointsTransactionKind, label: string, amount: number, source: string = 'admin', sourceRef?: string) => {
+      const entry: PointsTransaction = { id: makeTxId('tx'), kind, label, timestamp: Date.now(), amount }
+      setTransactions((prev) => [entry, ...prev])
+      if (user) {
+        supabase
+          .from('loyalty_transactions')
+          .insert({ user_id: user.id, delta: amount, source, source_ref: sourceRef ?? null, label })
+          .then(() => {})
       }
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-    } catch {
-      // Storage can fail (quota, private mode) — losing persistence isn't
-      // worth crashing the loyalty feature over.
-    }
-  }, [
-    points,
-    credits,
-    lastCheckInAt,
-    claimedMilestones,
-    claimedOrderIds,
-    claimedCampaignIds,
-    transactions,
-    creditTransactions,
-    referralCode,
-    referredFriends,
-    coupons,
-    hydrated,
-  ])
+    },
+    [user, supabase],
+  )
 
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (e.key !== STORAGE_KEY) return
-      try {
-        const parsed = e.newValue ? JSON.parse(e.newValue) : null
-        if (!parsed) return
-        if (typeof parsed.points === 'number') setPointsState(Math.max(0, parsed.points))
-        if (typeof parsed.credits === 'number') setCreditsState(Math.max(0, parsed.credits))
-        if (typeof parsed.lastCheckInAt === 'number' || parsed.lastCheckInAt === null) {
-          setLastCheckInAt(parsed.lastCheckInAt)
-        }
-        if (Array.isArray(parsed.claimedMilestones)) setClaimedMilestones(parsed.claimedMilestones)
-        if (Array.isArray(parsed.claimedOrderIds)) setClaimedOrderIds(parsed.claimedOrderIds)
-        if (Array.isArray(parsed.claimedCampaignIds)) setClaimedCampaignIds(parsed.claimedCampaignIds)
-        if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions)
-        if (Array.isArray(parsed.creditTransactions)) setCreditTransactions(parsed.creditTransactions)
-        if (typeof parsed.referralCode === 'string' && parsed.referralCode) setReferralCode(parsed.referralCode)
-        if (Array.isArray(parsed.referredFriends)) setReferredFriends(parsed.referredFriends)
-        if (Array.isArray(parsed.coupons)) setCoupons(parsed.coupons)
-      } catch {
-        // ignore malformed cross-tab payloads
+  const logCreditTransaction = useCallback(
+    (kind: CreditTransactionKind, label: string, amount: number) => {
+      const entry: CreditTransaction = { id: makeTxId('ctx'), kind, label, timestamp: Date.now(), amount }
+      setCreditTransactions((prev) => [entry, ...prev])
+      if (user) {
+        supabase
+          .from('credit_transactions')
+          .insert({ user_id: user.id, amount, type: kind, label })
+          .then(() => {})
       }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
+    },
+    [user, supabase],
+  )
 
-  const logTransaction = useCallback((kind: PointsTransactionKind, label: string, amount: number) => {
-    setTransactions((prev) => [{ id: makeTxId('tx'), kind, label, timestamp: Date.now(), amount }, ...prev])
-  }, [])
-
-  const logCreditTransaction = useCallback((kind: CreditTransactionKind, label: string, amount: number) => {
-    setCreditTransactions((prev) => [{ id: makeTxId('ctx'), kind, label, timestamp: Date.now(), amount }, ...prev])
-  }, [])
+  // ---- Points ----
 
   const addPoints = useCallback(
     (delta: number, label = 'Manual adjustment') => {
       if (!Number.isFinite(delta) || delta === 0) return
-      setPointsState((prev) => Math.max(0, prev + delta))
+      const next = Math.max(0, points + delta)
+      setPointsState(next)
       logTransaction(delta > 0 ? 'earned' : 'used', label, delta)
+      persistPoints(next)
     },
-    [logTransaction],
+    [points, logTransaction, persistPoints],
   )
 
-  const setPoints = useCallback((value: number) => {
-    setPointsState(Number.isFinite(value) ? Math.max(0, value) : 0)
-  }, [])
+  const setPoints = useCallback(
+    (value: number) => {
+      const next = Number.isFinite(value) ? Math.max(0, value) : 0
+      setPointsState(next)
+      persistPoints(next)
+    },
+    [persistPoints],
+  )
 
   const addCredits = useCallback(
     (amount: number, label: string) => {
       if (!Number.isFinite(amount) || amount <= 0) return
-      setCreditsState((prev) => prev + amount)
+      const next = credits + amount
+      setCreditsState(next)
       const kind: CreditTransactionKind = /gift card/i.test(label)
         ? 'gift_card'
         : /referral/i.test(label)
@@ -522,19 +569,22 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
             ? 'refund'
             : 'adjustment'
       logCreditTransaction(kind, label, amount)
+      persistCredits(next)
     },
-    [logCreditTransaction],
+    [credits, logCreditTransaction, persistCredits],
   )
 
   const useCreditsFn = useCallback(
     (amount: number, label: string): boolean => {
       if (!Number.isFinite(amount) || amount <= 0) return false
       if (credits < amount) return false
-      setCreditsState((prev) => Math.max(0, prev - amount))
+      const next = Math.max(0, credits - amount)
+      setCreditsState(next)
       logCreditTransaction('used', label, -amount)
+      persistCredits(next)
       return true
     },
-    [credits, logCreditTransaction],
+    [credits, logCreditTransaction, persistCredits],
   )
 
   const addOrderPoints = useCallback(
@@ -542,12 +592,16 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       if (claimedOrderIds.includes(order.id)) return 0
       const awarded = pointsForOrder(order)
       if (!awarded) return 0
-      setPointsState((prev) => prev + awarded)
-      setClaimedOrderIds((prev) => [...prev, order.id])
-      logTransaction('earned', `Order #${order.id} delivered`, awarded)
+      const next = points + awarded
+      setPointsState(next)
+      const nextClaimed = [...claimedOrderIds, order.id]
+      setClaimedOrderIds(nextClaimed)
+      logTransaction('earned', `Order #${order.id} delivered`, awarded, 'order', order.id)
+      persistPoints(next)
+      if (user) supabase.from('loyalty_accounts').update({ claimed_order_ids: nextClaimed }).eq('user_id', user.id).then(() => {})
       return awarded
     },
-    [claimedOrderIds, logTransaction],
+    [claimedOrderIds, points, logTransaction, persistPoints, user, supabase],
   )
 
   const claimMilestone = useCallback(
@@ -555,12 +609,15 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       const alreadyClaimed = claimedMilestones.includes(key)
       const awarded = pointsForMilestone(key, alreadyClaimed)
       if (awarded <= 0) return 0
-      setPointsState((prev) => prev + awarded)
+      const next = points + awarded
+      setPointsState(next)
       setClaimedMilestones((prev) => [...prev, key])
-      logTransaction('earned', milestoneLabel(key), awarded)
+      logTransaction('earned', milestoneLabel(key), awarded, 'milestone', key)
+      persistPoints(next)
+      if (user) supabase.from('loyalty_milestones_claimed').insert({ user_id: user.id, milestone_key: key }).then(() => {})
       return awarded
     },
-    [claimedMilestones, logTransaction],
+    [claimedMilestones, points, logTransaction, persistPoints, user, supabase],
   )
 
   const claimFiveOrdersMilestoneIfReached = useCallback(
@@ -569,12 +626,15 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       const alreadyClaimed = claimedMilestones.includes(key)
       if (alreadyClaimed || !hasReachedFiveOrdersMilestone(eligibleOrderCount)) return 0
       const awarded = pointsForMilestone(key, false)
-      setPointsState((prev) => prev + awarded)
+      const next = points + awarded
+      setPointsState(next)
       setClaimedMilestones((prev) => [...prev, key])
-      logTransaction('earned', milestoneLabel(key), awarded)
+      logTransaction('earned', milestoneLabel(key), awarded, 'milestone', key)
+      persistPoints(next)
+      if (user) supabase.from('loyalty_milestones_claimed').insert({ user_id: user.id, milestone_key: key }).then(() => {})
       return awarded
     },
-    [claimedMilestones, logTransaction],
+    [claimedMilestones, points, logTransaction, persistPoints, user, supabase],
   )
 
   const canCheckInToday = useMemo(() => {
@@ -584,60 +644,93 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
 
   const checkIn = useCallback((): boolean => {
     const now = Date.now()
-    if (lastCheckInAt !== null && isSameCalendarDay(lastCheckInAt, now)) {
-      return false // already checked in today
-    }
-    setPointsState((prev) => prev + CHECK_IN_POINTS)
+    if (lastCheckInAt !== null && isSameCalendarDay(lastCheckInAt, now)) return false
+    const next = points + CHECK_IN_POINTS
+    setPointsState(next)
     setLastCheckInAt(now)
-    logTransaction('earned', 'Daily check-in', CHECK_IN_POINTS)
+    logTransaction('earned', 'Daily check-in', CHECK_IN_POINTS, 'checkin')
+    persistPoints(next)
+    if (user) {
+      supabase
+        .from('loyalty_accounts')
+        .update({ last_check_in_at: new Date(now).toISOString().slice(0, 10) })
+        .eq('user_id', user.id)
+        .then(() => {})
+    }
     return true
-  }, [lastCheckInAt, logTransaction])
+  }, [lastCheckInAt, points, logTransaction, persistPoints, user, supabase])
 
   const grantBroadcastPoints = useCallback(
     (campaignId: string, campaignPoints: number): number => {
       if (!canGrantCampaign(campaignId, claimedCampaignIds)) return 0
-      setPointsState((prev) => prev + campaignPoints)
-      setClaimedCampaignIds((prev) => [...prev, campaignId])
-      logTransaction('earned', `Campaign reward (${campaignId})`, campaignPoints)
+      const next = points + campaignPoints
+      setPointsState(next)
+      const nextCampaigns = [...claimedCampaignIds, campaignId]
+      setClaimedCampaignIds(nextCampaigns)
+      logTransaction('earned', `Campaign reward (${campaignId})`, campaignPoints, 'broadcast', campaignId)
+      persistPoints(next)
+      if (user) supabase.from('loyalty_accounts').update({ claimed_campaign_ids: nextCampaigns }).eq('user_id', user.id).then(() => {})
       return campaignPoints
     },
-    [claimedCampaignIds, logTransaction],
+    [claimedCampaignIds, points, logTransaction, persistPoints, user, supabase],
   )
 
   const usePointsFn = useCallback(
     (amount: number, label: string): boolean => {
       if (!Number.isFinite(amount) || amount <= 0) return false
       if (points < amount) return false
-      setPointsState((prev) => Math.max(0, prev - amount))
+      const next = Math.max(0, points - amount)
+      setPointsState(next)
       logTransaction('used', label, -amount)
+      persistPoints(next)
       return true
     },
-    [points, logTransaction],
+    [points, logTransaction, persistPoints],
   )
 
-  // --- Referrals -----------------------------------------------------------
+  // ---- Referrals ----
 
-  const inviteFriend = useCallback((name: string): string => {
-    const id = makeTxId('ref')
-    const entry: ReferralEntry = {
-      id,
-      name,
-      status: 'invited',
-      rewardLabel: null,
-      rewardAmount: null,
-      invitedAt: Date.now(),
-      joinedAt: null,
-      rewardedAt: null,
-    }
-    setReferredFriends((prev) => [entry, ...prev])
-    return id
-  }, [])
+  const inviteFriend = useCallback(
+    (name: string): string => {
+      const id = makeTxId('ref')
+      const entry: ReferralEntry = {
+        id, name, status: 'invited', rewardLabel: null, rewardAmount: null,
+        invitedAt: Date.now(), joinedAt: null, rewardedAt: null,
+      }
+      setReferredFriends((prev) => [entry, ...prev])
+      if (user) {
+        supabase
+          .from('referrals')
+          .insert({ referrer_id: user.id, referred_contact: name, code: generateCouponCode(), status: 'invited' })
+          .select('id')
+          .single()
+          .then(({ data }) => {
+            // Reconcile the client-generated id with the real DB id so
+            // later markFriendJoined/rewardReferral calls (which match on
+            // id) hit the right row.
+            if (data) setReferredFriends((prev) => prev.map((f) => (f.id === id ? { ...f, id: data.id } : f)))
+          })
+      }
+      return id
+    },
+    [user, supabase],
+  )
 
-  const markFriendJoined = useCallback((id: string) => {
-    setReferredFriends((prev) =>
-      prev.map((f) => (f.id === id && f.status === 'invited' ? { ...f, status: 'joined', joinedAt: Date.now() } : f)),
-    )
-  }, [])
+  const markFriendJoined = useCallback(
+    (id: string) => {
+      setReferredFriends((prev) =>
+        prev.map((f) => (f.id === id && f.status === 'invited' ? { ...f, status: 'joined', joinedAt: Date.now() } : f)),
+      )
+      if (user) {
+        supabase
+          .from('referrals')
+          .update({ status: 'joined', joined_at: new Date().toISOString() })
+          .eq('id', id)
+          .then(() => {})
+      }
+    },
+    [user, supabase],
+  )
 
   const rewardReferral = useCallback(
     (id: string): number => {
@@ -647,75 +740,101 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       const alreadyRewardedCount = referredFriends.filter((f) => f.status === 'rewarded').length
       const ordinal = alreadyRewardedCount + 1
       const tier = REFERRAL_REWARD_TIERS.find((t) => t.friendCount === ordinal)
-
       const awarded = tier?.creditAmount ?? 0
       const label = tier?.label ?? 'Counted toward next reward tier'
 
       setReferredFriends((prev) =>
         prev.map((f) =>
-          f.id === id
-            ? { ...f, status: 'rewarded', rewardedAt: Date.now(), rewardAmount: awarded, rewardLabel: label }
-            : f,
+          f.id === id ? { ...f, status: 'rewarded', rewardedAt: Date.now(), rewardAmount: awarded, rewardLabel: label } : f,
         ),
       )
 
-      if (awarded > 0) {
-        addCredits(awarded, `Referral bonus — ${target.name} (${label})`)
+      if (user) {
+        supabase
+          .from('referrals')
+          .update({ status: 'rewarded', rewarded_at: new Date().toISOString(), reward_label: label, reward_amount: awarded || null })
+          .eq('id', id)
+          .then(() => {})
       }
 
+      if (awarded > 0) addCredits(awarded, `Referral bonus — ${target.name} (${label})`)
       return awarded
     },
-    [referredFriends, addCredits],
+    [referredFriends, addCredits, user, supabase],
   )
 
-  // --- Gift cards ------------------------------------------------------
+  // ---- Gift cards ----
 
   const redeemGiftCard = useCallback(
-    (code: string): number => {
+    async (code: string): Promise<number> => {
       const trimmed = code.trim()
-      // Mock validation only. A real implementation MUST verify the
-      // code server-side: that it exists, hasn't already been redeemed
-      // (codes are bearer tokens — first redemption wins), and belongs
-      // to a valid, unexpired batch. Never trust a client-side check
-      // for something that grants real balance.
-      if (trimmed.length < 6) return 0
+      if (!user || trimmed.length < 6) return 0
 
-      // Face value isn't derivable from an opaque code client-side in a
-      // real system — the API response would return it directly. This
-      // placeholder just exercises the credit + transaction wiring; wire
-      // it to the API's returned amount once a real backend exists.
-      const amount = GIFT_CARD_CATALOG[0]?.value ?? 0
-      if (amount <= 0) return 0
+      const { data: card, error } = await supabase
+        .from('gift_cards')
+        .select('id, balance, redeemed, expires_at')
+        .eq('code', trimmed)
+        .eq('redeemed', false)
+        .maybeSingle()
 
+      if (error || !card) return 0
+      if (card.expires_at && new Date(card.expires_at).getTime() < Date.now()) return 0
+
+      const { error: redeemError } = await supabase
+        .from('gift_cards')
+        .update({ redeemed: true, redeemed_by: user.id })
+        .eq('id', card.id)
+        .eq('redeemed', false) // extra guard against a race between two redeem attempts
+
+      if (redeemError) return 0
+
+      const amount = Number(card.balance)
       addCredits(amount, `Gift card redeemed (${trimmed})`)
       return amount
     },
-    [addCredits],
+    [user, supabase, addCredits],
   )
 
-  // --- Coupons -----------------------------------------------------------
+  // ---- Coupons ----
 
-  const grantCoupon = useCallback((params: GrantCouponParams): string => {
-    const id = makeTxId('cpn')
-    const now = Date.now()
-    const coupon: Coupon = {
-      id,
-      code: generateCouponCode(),
-      title: params.title,
-      discountType: params.discountType,
-      discountValue: params.discountValue,
-      minOrderValue: params.minOrderValue,
-      maxDiscount: params.maxDiscount ?? null,
-      scope: params.scope,
-      category: params.category,
-      usageLimit: params.usageLimit,
-      issuedAt: now,
-      expiresAt: now + params.validForDays * 24 * 60 * 60 * 1000,
-      usedAt: null,
-    }
-    setCoupons((prev) => [coupon, ...prev])
-    return id
-  }, [])
+  const grantCoupon = useCallback(
+    (params: GrantCouponParams): string => {
+      const id = makeTxId('cpn')
+      const now = Date.now()
+      const code = generateCouponCode()
+      const coupon: Coupon = {
+        id, code, title: params.title, discountType: params.discountType, discountValue: params.discountValue,
+        minOrderValue: params.minOrderValue, maxDiscount: params.maxDiscount ?? null, scope: params.scope,
+        category: params.category, usageLimit: params.usageLimit, issuedAt: now,
+        expiresAt: now + params.validForDays * 24 * 60 * 60 * 1000, usedAt: null,
+      }
+      setCoupons((prev) => [coupon, ...prev])
+      if (user) {
+        supabase
+          .from('personal_coupons')
+          .insert({
+            user_id: user.id,
+            code,
+            title: params.title,
+            discount_type: params.discountType,
+            discount_value: params.discountValue,
+            min_order_value: params.minOrderValue,
+            max_discount: params.maxDiscount ?? null,
+            scope: params.scope,
+            category: params.category,
+            usage_limit: params.usageLimit,
+            expires_at: new Date(coupon.expiresAt).toISOString(),
+          })
+          .select('id')
+          .single()
+          .then(({ data }) => {
+            if (data) setCoupons((prev) => prev.map((c) => (c.id === id ? { ...c, id: data.id } : c)))
+          })
+      }
+      return id
+    },
+    [user, supabase],
+  )
 
   const useCoupon = useCallback(
     (id: string): boolean => {
@@ -723,9 +842,12 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
       if (!target) return false
       if (effectiveCouponStatus(target) !== 'unused') return false
       setCoupons((prev) => prev.map((c) => (c.id === id ? { ...c, usedAt: Date.now() } : c)))
+      if (user) {
+        supabase.from('personal_coupons').update({ used_at: new Date().toISOString() }).eq('id', id).then(() => {})
+      }
       return true
     },
-    [coupons],
+    [coupons, user, supabase],
   )
 
   const resetLoyalty = useCallback(() => {
@@ -739,23 +861,17 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
     setCreditTransactions(EMPTY_STATE.creditTransactions)
     setReferredFriends(EMPTY_STATE.referredFriends)
     setCoupons(EMPTY_STATE.coupons)
-    // referralCode intentionally NOT reset — it's a stable identifier for
-    // links already shared; regenerating it would break outstanding shares.
+    // Local reset only — intentionally does NOT touch the database. This
+    // was a "wipe the demo" button for mock data; wired to real accounts,
+    // resetting someone's real point/credit balance needs to be a
+    // deliberate admin action, not something this button does silently.
   }, [])
 
-  // Tier is derived from `points` only — `credits` never factors in, by
-  // design, so refunding an order can never be used to rank up.
   const tier = useMemo(() => tierForPoints(points), [points])
   const progressToNext = useMemo(() => progressForPoints(points, tier), [points, tier])
   const nextTierRequirements = useMemo(() => requirementsForPoints(points, tier), [points, tier])
   const referralLink = useMemo(() => `${REFERRAL_LINK_BASE}/join?ref=${referralCode}`, [referralCode])
 
-  // Grants the VipPage-advertised "Level-Up Coupon" (V2 reward) the
-  // moment tier actually increases — not on mount, and not on tier
-  // decreases (there aren't any today, but this guards intent either
-  // way). prevTierRef starts `null` so the *first* render after
-  // hydration just records the baseline tier instead of firing a grant
-  // for whatever tier the member already happened to be at.
   const prevTierRef = useRef<Tier | null>(null)
   useEffect(() => {
     if (!hydrated) return
@@ -782,91 +898,27 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LoyaltyContextValue>(
     () => ({
-      hydrated,
-      points,
-      lastCheckInAt,
-      transactions,
-      credits,
-      creditTransactions,
-      tier,
-      progressToNext,
-      nextTierRequirements,
-      canCheckInToday,
-      addPoints,
-      setPoints,
-      addCredits,
-      useCredits: useCreditsFn,
-      addOrderPoints,
-      claimMilestone,
-      claimFiveOrdersMilestoneIfReached,
-      checkIn,
-      grantBroadcastPoints,
-      usePoints: usePointsFn,
-      referralCode,
-      referralLink,
-      referredFriends,
-      rewardTiers: REFERRAL_REWARD_TIERS,
-      inviteFriend,
-      markFriendJoined,
-      rewardReferral,
-      giftCardCatalog: GIFT_CARD_CATALOG,
-      redeemGiftCard,
-      coupons,
-      grantCoupon,
-      useCoupon,
+      hydrated, points, lastCheckInAt, transactions, credits, creditTransactions,
+      tier, progressToNext, nextTierRequirements, canCheckInToday,
+      addPoints, setPoints, addCredits, useCredits: useCreditsFn, addOrderPoints,
+      claimMilestone, claimFiveOrdersMilestoneIfReached, checkIn, grantBroadcastPoints,
+      usePoints: usePointsFn, referralCode, referralLink, referredFriends,
+      rewardTiers: REFERRAL_REWARD_TIERS, inviteFriend, markFriendJoined, rewardReferral,
+      giftCardCatalog: GIFT_CARD_CATALOG, redeemGiftCard, coupons, grantCoupon, useCoupon,
       resetLoyalty,
     }),
     [
-      hydrated,
-      points,
-      lastCheckInAt,
-      transactions,
-      credits,
-      creditTransactions,
-      tier,
-      progressToNext,
-      nextTierRequirements,
-      canCheckInToday,
-      addPoints,
-      setPoints,
-      addCredits,
-      useCreditsFn,
-      addOrderPoints,
-      claimMilestone,
-      claimFiveOrdersMilestoneIfReached,
-      checkIn,
-      grantBroadcastPoints,
-      usePointsFn,
-      referralCode,
-      referralLink,
-      referredFriends,
-      inviteFriend,
-      markFriendJoined,
-      rewardReferral,
-      redeemGiftCard,
-      coupons,
-      grantCoupon,
-      useCoupon,
+      hydrated, points, lastCheckInAt, transactions, credits, creditTransactions,
+      tier, progressToNext, nextTierRequirements, canCheckInToday,
+      addPoints, setPoints, addCredits, useCreditsFn, addOrderPoints,
+      claimMilestone, claimFiveOrdersMilestoneIfReached, checkIn, grantBroadcastPoints,
+      usePointsFn, referralCode, referralLink, referredFriends, inviteFriend,
+      markFriendJoined, rewardReferral, redeemGiftCard, coupons, grantCoupon, useCoupon,
       resetLoyalty,
     ],
   )
 
   return <LoyaltyContext.Provider value={value}>{children}</LoyaltyContext.Provider>
-}
-
-function milestoneLabel(key: MilestoneKey): string {
-  switch (key) {
-    case 'firstPurchase':
-      return 'First purchase bonus'
-    case 'mobileVerified':
-      return 'Phone verified bonus'
-    case 'firstBoardShared':
-      return 'First board shared bonus'
-    case 'fiveOrdersCompleted':
-      return '5 orders completed bonus'
-    default:
-      return 'Milestone bonus'
-  }
 }
 
 export function useLoyalty() {

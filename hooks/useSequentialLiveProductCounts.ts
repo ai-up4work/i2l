@@ -47,6 +47,17 @@ const EMPTY_ENTRY: LiveCountEntry = { status: 'pending', count: null, atLeast: f
  *
  * `refresh(platform)` re-queues just one platform without disturbing
  * whatever else is in flight.
+ *
+ * FIX (was silently stuck on 'pending' forever): the previous version
+ * pushed newly-seen platforms onto `queueRef.current` from INSIDE the
+ * `setEntries(updaterFn)` callback, then immediately called
+ * `processQueue()` on the next line. `setEntries` does not invoke its
+ * updater synchronously at the call site — React defers it — so
+ * `processQueue()` always ran against a stale (often still-empty) queue
+ * and spawned zero workers. Every row would sit in 'pending' forever
+ * because nothing was ever dequeued. This version mutates the queue in a
+ * plain synchronous loop, separate from the state update, before calling
+ * `processQueue()`.
  */
 export function useSequentialLiveProductCounts(platforms: string[], concurrency = DEFAULT_CONCURRENCY) {
   const [entries, setEntries] = useState<Record<string, LiveCountEntry>>(() =>
@@ -54,6 +65,11 @@ export function useSequentialLiveProductCounts(platforms: string[], concurrency 
   )
 
   const queueRef = useRef<string[]>([...platforms])
+  // Tracks every platform we've ever enqueued so a re-run of the effect
+  // (e.g. the sellers list re-fetches, or a parent re-render passes a new
+  // array with the same contents) doesn't push duplicates onto the queue
+  // for platforms that already completed or are mid-flight.
+  const seenRef = useRef<Set<string>>(new Set(platforms))
   const activeWorkersRef = useRef(0)
   const mountedRef = useRef(true)
 
@@ -65,13 +81,19 @@ export function useSequentialLiveProductCounts(platforms: string[], concurrency 
     setEntries((prev) => {
       const next = { ...prev }
       for (const p of platforms) {
-        if (!next[p]) {
-          next[p] = EMPTY_ENTRY
-          if (!queueRef.current.includes(p)) queueRef.current.push(p)
-        }
+        if (!next[p]) next[p] = EMPTY_ENTRY
       }
       return next
     })
+
+    // IMPORTANT: this must run synchronously, outside the setEntries
+    // updater above — see the FIX note in the doc comment.
+    for (const p of platforms) {
+      if (!seenRef.current.has(p)) {
+        seenRef.current.add(p)
+        queueRef.current.push(p)
+      }
+    }
 
     processQueue()
 
@@ -133,6 +155,7 @@ export function useSequentialLiveProductCounts(platforms: string[], concurrency 
   }
 
   function refresh(platform: string) {
+    seenRef.current.add(platform)
     if (!queueRef.current.includes(platform)) queueRef.current.push(platform)
     setEntries((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? EMPTY_ENTRY), status: 'pending', error: null } }))
     processQueue()
