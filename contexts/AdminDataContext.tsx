@@ -6,6 +6,60 @@
 // Purchases, Quality check, Pack & label, Export bin, In transit, and
 // Requests/Chat too — stay in sync automatically.
 //
+// SINGLE SOURCE OF TRUTH FOR ORDERS: this file used to hand-maintain its
+// own hardcoded `SEEDS` array of orders that was completely independent
+// from the customer-facing "My Orders" data in contexts/orderContexts.tsx
+// — same fake company, two disagreeing mock databases. That's fixed now:
+// `SEEDS` below is DERIVED from `MOCK_ORDERS` (exported from
+// orderContexts.tsx) via `deriveOrderSeedFromCustomerOrder()`, so:
+//   - Every multi-product order you see on the customer's "My Orders"
+//     page (different sellers/stores per item) shows up in the admin
+//     Orders list, Purchases queue, QC queue, etc. with the SAME items.
+//   - Edit or add an order in orderContexts.tsx's MOCK_ORDERS and it
+//     automatically flows through to every admin page, with no need to
+//     duplicate it here.
+//   - `PURCHASE_SEEDS` (below) is likewise synthesized per-item from the
+//     derived `SEEDS`, rather than hand-written — an order's purchase/QC
+//     state is inferred consistently from what stage the customer-facing
+//     data says it's in (see synthesizePurchaseSeed).
+//
+// KNOWN LIMITATIONS of this derivation (fine for a mock, flag if this
+// becomes a real integration):
+//   - orderContexts.tsx models ONE customer's order history ("My
+//     Orders"), so most of its orders have no `customerName` set. A
+//     `SAMPLE_CUSTOMER_NAMES` fallback list below assigns a distinct
+//     name per order purely so the admin panel (which lists MANY
+//     customers) doesn't show 18 orders all belonging to "Customer". Set
+//     `customerName` explicitly on an order in orderContexts.tsx if you
+//     want it to carry through here intentionally.
+//   - `Cancelled` orders are skipped entirely — the admin OrderStage type
+//     (types/admin.ts) has no "Cancelled" stage yet, so there's nowhere
+//     faithful to put them. Add one if the admin panel needs to manage
+//     cancellations.
+//   - `channel` (1 = affiliated store / 2 = scraped link / 3 = manual
+//     request) is INFERRED per order from its items' sellerType/storeUrl
+//     (see inferChannel), since the customer-facing type doesn't track
+//     admin's 3-channel distinction directly.
+//   - The four Channel-3 requests in REQUEST_SEEDS below that were
+//     previously seeded as already "confirmed" (REQ-2031/2044/1988/1877)
+//     no longer resolve to a real linked order, because the specific
+//     hardcoded order IDs they used to point at don't exist in the
+//     derived set anymore. `requestLines` still renders them fine —
+//     `linkedOrderId` is just `undefined` for those four — but the
+//     detail page's "View linked order" link won't appear for them.
+//     Confirming a NEW request via confirmRequest() still works exactly
+//     as before and creates a real, fully-linked order.
+//
+// PERSISTENCE: orders/purchases/requests/chatThreads are persisted to
+// localStorage (see usePersistentState below) instead of living only in
+// React memory. This means state survives refreshes and syncs across
+// tabs on the same origin via the `storage` event. This is still a mock
+// data layer, not a real backend — there's no server, no auth on the
+// writes, and no conflict resolution beyond "last write wins". When a
+// real database goes in, usePersistentState is the only place that
+// needs to change; every page keeps calling the same useAdminData()
+// functions (markPurchased, advanceStage, etc.) exactly as before.
+//
 // The whole "Shipped" leg of the pipeline (Pack & label → Export bin →
 // In transit → Delivered) is derived from a handful of optional fields
 // on Order — packedAt, pickedUpAt, deliveredAt (see types/admin.ts) —
@@ -19,6 +73,15 @@
 // it by reverse-joining against that field, exactly like PurchaseLine
 // reverse-joins against Purchase.
 //
+// REQUESTS ARE MULTI-ITEM: a Request holds `items: RequestItemAsk[]`
+// (each with its own link/note/quote/quoteHistory), not a single
+// link/note/quote triple — the same shape Order.items already uses
+// instead of special-casing a single-product order. setQuote now prices
+// one item at a time, and confirmRequest maps every item into its own
+// OrderItem, so a 3-product request produces a real 3-item order that
+// flows through purchaseLines/qcLines/packLines exactly like any other
+// multi-item order.
+//
 // IMPORTANT: because those warehouse queues are derived from those
 // fields and NOT from `stage` directly, every place that changes an
 // order's `stage` — including the free-form stage dropdown and
@@ -29,13 +92,14 @@
 // confirmRequest) funnels through.
 "use client"
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import type {
   Role,
   Channel,
   Order,
   OrderItem,
   OrderStage,
+  SellerType,
   Site,
   CurrentUser,
   Permissions,
@@ -54,6 +118,7 @@ import type {
   DeliveryStatus,
   Request,
   RequestStatus,
+  RequestItemAsk,
   QuoteHistoryEntry,
   ChatThread,
   ChatMessage,
@@ -63,11 +128,27 @@ import type {
 } from "@/types/admin"
 import {
   STAGE_ORDER,
+  STAGE_AGE_THRESHOLD_HOURS,
   ORDER_AGE_BREACH_HOURS,
   IN_TRANSIT_DEFAULT_ETA_HOURS,
   IN_TRANSIT_DUE_SOON_WINDOW_HOURS,
   REQUEST_SLA_HOURS,
 } from "@/types/admin"
+
+// ---------------------------------------------------------------------
+// Single source of truth: pull the customer-facing order data in and
+// derive everything admin needs from it, instead of duplicating a
+// second hardcoded order list here.
+// ---------------------------------------------------------------------
+import {
+  MOCK_ORDERS as CUSTOMER_ORDERS,
+  orderTotal,
+  shippingStepIndex,
+  getOrderCustomerName,
+  type Order as CustomerOrder,
+  type OrderItem as CustomerOrderItem,
+  type OrderStatus as CustomerOrderStatus,
+} from "@/contexts/Ordercontexts"
 
 /* ------------------------------------------------------------------ */
 /* Time helpers — exported because every order-facing page needs "how */
@@ -113,6 +194,89 @@ function hostnameOf(url: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* localStorage persistence — swap this out for real API calls later. */
+/* Bump STORAGE_VERSION any time a seed/type shape changes, so stale   */
+/* saved data from an old shape doesn't crash new code — old data is   */
+/* simply ignored and the fallback (fresh seed) is used instead.       */
+/* ------------------------------------------------------------------ */
+
+const STORAGE_VERSION = "v3" // bumped: orders are now derived from orderContexts.tsx
+const STORAGE_PREFIX = `wishdrop:${STORAGE_VERSION}:`
+
+function readFromStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback // SSR guard — no window on the server
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PREFIX + key)
+    if (raw === null) return fallback
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
+function writeToStorage<T>(key: string, value: T) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value))
+  } catch {
+    // e.g. quota exceeded, or storage disabled — fail silently, in-memory
+    // state still works for the rest of this tab's session
+  }
+}
+
+/**
+ * Drop-in-ish replacement for useState that persists to localStorage and
+ * syncs across tabs on the same origin via the `storage` event. Every
+ * existing setOrders/setPurchases/etc. call site elsewhere in this file
+ * is unaffected — this hook returns the same [value, setter] shape as
+ * useState, it just adds load-on-mount + save-on-change + cross-tab
+ * sync around that.
+ *
+ * NOTE: the initial render (both server-side and the client's first
+ * paint, for hydration) always uses `initial`, since reading
+ * localStorage during useState's lazy initializer would mismatch SSR
+ * output. The persisted value (if any) is applied client-side via the
+ * effect below, right after mount — the "not found" mismatches we hit
+ * earlier only affect explicit navigations, so this one-frame swap is
+ * not user-visible in practice for this app's data-heavy pages.
+ */
+function usePersistentState<T>(key: string, initial: T) {
+  const [state, setState] = useState<T>(initial)
+  const [hydrated, setHydrated] = useState(false)
+
+  // Load the persisted value once, right after mount (client-only).
+  useEffect(() => {
+    setState(readFromStorage(key, initial))
+    setHydrated(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  // Save on every change, but only after we've hydrated from storage —
+  // otherwise this would immediately overwrite a saved value with the
+  // fresh `initial` seed on every mount, before the read above runs.
+  useEffect(() => {
+    if (!hydrated) return
+    writeToStorage(key, state)
+  }, [key, state, hydrated])
+
+  // Pick up changes made in other tabs on the same origin.
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== STORAGE_PREFIX + key || e.newValue == null) return
+      try {
+        setState(JSON.parse(e.newValue) as T)
+      } catch {
+        // ignore malformed writes from elsewhere
+      }
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [key])
+
+  return [state, setState] as const
+}
+
+/* ------------------------------------------------------------------ */
 /* Reference data                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -131,10 +295,6 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
   warehouse: { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
 }
 
-// Reference roster for the reassign-request dropdown. Distinct from
-// MOCK_USERS (the single logged-in account per role) — this is meant to
-// grow into the real /admin/staff roster later, so it deliberately
-// includes a second Sales account MOCK_USERS doesn't have.
 // Reference roster for the reassign-request dropdown AND the Reports
 // site-detail page's "staff assigned here" panel. Distinct from
 // MOCK_USERS (the single logged-in account per role). siteId is only
@@ -187,8 +347,10 @@ const ROLE_PERMISSIONS: Record<Role, Permissions> = {
 }
 
 /* ------------------------------------------------------------------ */
-/* Seed orders — this is the "table". Add a row here to grow the mock  */
-/* database; stage history + ages are all derived, not hand-written.   */
+/* Seed orders — DERIVED from orderContexts.tsx's MOCK_ORDERS. Add or   */
+/* edit an order over there (including multi-item ones with different   */
+/* sellers/stores per item) and it flows through automatically; stage    */
+/* history + ages are all synthesized below, not hand-written per order. */
 /* ------------------------------------------------------------------ */
 
 type OrderSeed = {
@@ -221,179 +383,133 @@ type OrderSeed = {
 
 const ACTORS = ["Amara Perera", "Kasun Silva", "Nadia Fernando", "System"]
 
-const SEEDS: OrderSeed[] = [
-  {
-    id: "WD-1001", customerName: "Ishara Jayasuriya", channel: 1, stage: "Delivered",
-    siteId: "site_colombo", placedHoursAgo: 410, stageEnteredHoursAgo: 40, totalValue: 12500,
-    items: [{ id: "i1", title: "Banarasi Silk Saree — Maroon", quantity: 1, sku: "SKU-4821" }],
-  },
-  {
-    id: "WD-1002", customerName: "Ruwan Dissanayake", channel: 2, stage: "Shipped",
-    siteId: "site_kandy", placedHoursAgo: 150, stageEnteredHoursAgo: 18, totalValue: 8300,
-    destination: "Kandy town", packedHoursAgo: 18, packageWeightKg: 0.4,
-    packageDimensionsCm: { length: 18, width: 14, height: 8 },
-    labelGeneratedHoursAgo: 18, labelRef: "DMX-88213",
-    courier: "Domex", trackingRef: "DMX-88213", pickedUpHoursAgo: 10, etaHours: 24,
-    items: [{
-      id: "i1", title: "boAt Rockerz 450 Headphones", quantity: 1,
-      sourceSnapshot: "flipkart.com/boat-rockerz-450 @ ₹1,999",
-      unitPrice: 1999,
-      productImage: "https://images.pexels.com/photos/3945667/pexels-photo-3945667.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Flipkart Seller — AudioTech", sellerType: "feed",
-      storeUrl: "https://www.flipkart.com/boat-rockerz-450",
-    }],
-  },
-  {
-    id: "WD-1003", customerName: "Sithara Wickramasinghe", channel: 3, stage: "Quality check",
-    siteId: "site_galle", placedHoursAgo: 60, stageEnteredHoursAgo: 50, totalValue: 15200,
-    delayed: true, isManualQuote: true, linkedRequestId: "REQ-2031",
-    items: [{ id: "i1", title: "Custom embroidered lehenga (Instagram boutique order)", quantity: 1, requestLink: "instagram.com/p/exampleLehenga" }],
-    internalNotes: [{ body: "Seller confirmed stock, waiting on customer sizing photo before QC.", author: "Nadia Fernando", hoursAgo: 30 }],
-  },
-  {
-    id: "WD-1004", customerName: "Dilshan Rathnayake", channel: 1, stage: "Ordered",
-    siteId: "site_colombo", placedHoursAgo: 5, stageEnteredHoursAgo: 5, totalValue: 3200,
-    items: [{
-      id: "i1", title: "Fabindia Cotton Kurta", quantity: 2, sku: "SKU-1187",
-      variant: "Indigo, size M",
-      unitPrice: 1600,
-      productImage: "https://images.pexels.com/photos/20791992/pexels-photo-20791992.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Fabindia", sellerType: "feed",
-      storeUrl: "https://www.fabindia.com/products/cotton-kurta-indigo",
-    }],
-  },
-  {
-    id: "WD-1005", customerName: "Hasini Fernando", channel: 2, stage: "Ordered",
-    siteId: "site_kandy", placedHoursAgo: 28, stageEnteredHoursAgo: 28, totalValue: 5400, delayed: true,
-    items: [{
-      id: "i1", title: "Mamaearth Vitamin C Face Serum (Pack of 3)", quantity: 1,
-      sourceSnapshot: "amazon.in/mamaearth-vitc @ ₹899",
-      unitPrice: 899,
-      productImage: "https://images.pexels.com/photos/5632343/pexels-photo-5632343.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Amazon Seller — Mamaearth Official", sellerType: "feed",
-      storeUrl: "https://www.amazon.in/mamaearth-vitc",
-    }],
-  },
-  {
-    id: "WD-1006", customerName: "Chamath Wijesinghe", channel: 1, stage: "Quality check",
-    siteId: "site_galle", placedHoursAgo: 70, stageEnteredHoursAgo: 52, totalValue: 21000, delayed: true,
-    items: [{ id: "i1", title: "Titan Neo Analog Watch", quantity: 1, sku: "SKU-9021",
-      productImage: "https://images.pexels.com/photos/9978722/pexels-photo-9978722.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Titan Company", sellerType: "feed",
-    }],
-  },
-  {
-    id: "WD-1007", customerName: "Anusha Gunawardena", channel: 1, stage: "Shipped",
-    siteId: "site_colombo", placedHoursAgo: 90, stageEnteredHoursAgo: 30, totalValue: 6700,
-    destination: "Colombo 03", packedHoursAgo: 30, packageWeightKg: 0.3,
-    packageDimensionsCm: { length: 12, width: 9, height: 6 },
-    labelGeneratedHoursAgo: 30, labelRef: "DMX-88190",
-    items: [{ id: "i1", title: "Nykaa Matte Lipstick Trio", quantity: 1, sku: "SKU-3390" }],
-  },
-  {
-    id: "WD-1008", customerName: "Tharindu Bandara", channel: 3, stage: "Ordered",
-    siteId: "site_kandy", placedHoursAgo: 8, stageEnteredHoursAgo: 8, totalValue: 9800, isManualQuote: true,
-    linkedRequestId: "REQ-2044",
-    items: [{
-      id: "i1", title: "Handloom brass wall décor set", quantity: 1,
-      requestLink: "smallboutique.in/brass-wall-set",
-      unitPrice: 9800,
-      productImage: "https://images.pexels.com/photos/6444368/pexels-photo-6444368.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "smallboutique.in (manual request)", sellerType: "manual",
-    }],
-  },
-  {
-    id: "WD-1009", customerName: "Malsha Peiris", channel: 2, stage: "Delivered",
-    siteId: "site_colombo", placedHoursAgo: 500, stageEnteredHoursAgo: 60, totalValue: 4100,
-    items: [{ id: "i1", title: "Milton Thermosteel Flask 1L", quantity: 2, sourceSnapshot: "flipkart.com/milton-flask @ ₹649" }],
-  },
-  {
-    id: "WD-1010", customerName: "Nuwan Karunaratne", channel: 1, stage: "Quality check",
-    siteId: "site_colombo", placedHoursAgo: 40, stageEnteredHoursAgo: 12, totalValue: 17600,
-    items: [{ id: "i1", title: "Noise ColorFit Pro 4 Smartwatch", quantity: 1, sku: "SKU-5544",
-      productImage: "https://images.pexels.com/photos/437037/pexels-photo-437037.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Noise", sellerType: "feed",
-    }],
-  },
-  {
-    id: "WD-1011", customerName: "Yasodha Silva", channel: 3, stage: "Shipped",
-    siteId: "site_galle", placedHoursAgo: 120, stageEnteredHoursAgo: 15, totalValue: 11400, isManualQuote: true,
-    linkedRequestId: "REQ-1988", destination: "Galle Fort",
-    packedHoursAgo: 15, packageWeightKg: 1.1, labelGeneratedHoursAgo: 15, labelRef: "PRT-55031",
-    courier: "Pronto", trackingRef: "PRT-55031", pickedUpHoursAgo: 40, etaHours: 24,
-    items: [{ id: "i1", title: "Custom resin jewelry set (Instagram order)", quantity: 1, requestLink: "instagram.com/p/exampleJewelry" }],
-  },
-  {
-    id: "WD-1012", customerName: "Roshan Amarasekara", channel: 1, stage: "Ordered",
-    siteId: "site_kandy", placedHoursAgo: 2, stageEnteredHoursAgo: 2, totalValue: 2600,
-    items: [{
-      id: "i1", title: "Bata Men's Casual Sneakers", quantity: 1, sku: "SKU-7702",
-      variant: "UK 9",
-      unitPrice: 2600,
-      productImage: "https://images.pexels.com/photos/2529148/pexels-photo-2529148.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Bata India", sellerType: "feed",
-      storeUrl: "https://www.bata.in/products/mens-casual-sneakers",
-    }],
-  },
-  {
-    id: "WD-1013", customerName: "Kavindi Ranasinghe", channel: 2, stage: "Quality check",
-    siteId: "site_kandy", placedHoursAgo: 55, stageEnteredHoursAgo: 51, totalValue: 7300, delayed: true,
-    items: [{
-      id: "i1", title: "Prestige Electric Kettle 1.5L", quantity: 1,
-      sourceSnapshot: "amazon.in/prestige-kettle @ ₹1,299",
-      unitPrice: 1299,
-      productImage: "https://images.pexels.com/photos/6996091/pexels-photo-6996091.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Amazon Seller — Prestige Store", sellerType: "feed",
-      storeUrl: "https://www.amazon.in/prestige-kettle",
-    }],
-  },
-  {
-    id: "WD-1014", customerName: "Buddhika Herath", channel: 1, stage: "Shipped",
-    siteId: "site_galle", placedHoursAgo: 100, stageEnteredHoursAgo: 25, totalValue: 13300,
-    destination: "Galle town", packedHoursAgo: 25, packageWeightKg: 2.4,
-    labelGeneratedHoursAgo: 25, labelRef: "PRT-54991",
-    courier: "Pronto", trackingRef: "PRT-54991", pickedUpHoursAgo: 20, etaHours: 24,
-    items: [{
-      id: "i1", title: "FabIndia Block-Print Bedsheet Set", quantity: 1, sku: "SKU-2265",
-      unitPrice: 13300,
-      productImage: "https://images.pexels.com/photos/6969831/pexels-photo-6969831.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Fabindia", sellerType: "feed",
-      storeUrl: "https://www.fabindia.com/products/block-print-bedsheet-set",
-    }],
-  },
-  {
-    id: "WD-1015", customerName: "Oshadi Mendis", channel: 3, stage: "Delivered",
-    siteId: "site_colombo", placedHoursAgo: 600, stageEnteredHoursAgo: 80, totalValue: 19500, isManualQuote: true,
-    linkedRequestId: "REQ-1877",
-    items: [{ id: "i1", title: "Bespoke wedding invitation set", quantity: 1, requestLink: "boutiquecards.in/wedding-suite" }],
-  },
-  {
-    id: "WD-1016", customerName: "Lahiru Jayawardena", channel: 2, stage: "Ordered",
-    siteId: "site_galle", placedHoursAgo: 14, stageEnteredHoursAgo: 14, totalValue: 3900,
-    items: [{ id: "i1", title: "Wonderchef Nutri-Blender", quantity: 1, sourceSnapshot: "amazon.in/wonderchef-blender @ ₹2,199" }],
-  },
-  {
-    id: "WD-1017", customerName: "Priyanka Silva", channel: 1, stage: "Quality check",
-    siteId: "site_colombo", placedHoursAgo: 76, stageEnteredHoursAgo: 30, totalValue: 8200,
-    destination: "Colombo 05", handlingNote: "Fragile — glass item, double-box",
-    items: [{
-      id: "i1", title: "Hand-blown glass vase", quantity: 1, sku: "SKU-6610",
-      productImage: "https://images.pexels.com/photos/6207516/pexels-photo-6207516.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "ArtisanGlass Co.", sellerType: "feed",
-    }],
-  },
-  {
-    id: "WD-1018", customerName: "Ishara Fonseka", channel: 1, stage: "Shipped",
-    siteId: "site_colombo", placedHoursAgo: 50, stageEnteredHoursAgo: 1, totalValue: 4300,
-    destination: "Negombo", packedHoursAgo: 1, packageWeightKg: 0.9,
-    labelGeneratedHoursAgo: 1, labelRef: "DMX-88230",
-    items: [{
-      id: "i1", title: "Ceramic dinner set", quantity: 1, sku: "SKU-7788",
-      productImage: "https://images.pexels.com/photos/6207517/pexels-photo-6207517.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop",
-      sellerName: "Home Essentials", sellerType: "feed",
-    }],
-  },
+// Fallback names for admin-side attribution — orderContexts.tsx models a
+// single logged-in customer's order history, so most of its orders don't
+// carry a customerName of their own. Used only when an order has neither
+// an explicit `customerName` nor a `recipient.name` set.
+const SAMPLE_CUSTOMER_NAMES = [
+  "Ishara Jayasuriya", "Ruwan Dissanayake", "Sithara Wickramasinghe", "Dilshan Rathnayake",
+  "Hasini Fernando", "Chamath Wijesinghe", "Anusha Gunawardena", "Tharindu Bandara",
+  "Malsha Peiris", "Nuwan Karunaratne", "Yasodha Silva", "Roshan Amarasekara",
+  "Kavindi Ranasinghe", "Buddhika Herath", "Oshadi Mendis", "Lahiru Jayawardena",
+  "Priyanka Silva", "Ishara Fonseka",
 ]
+
+/** Customer-facing 'store' | 'individual' → admin's 'feed' | 'manual'. */
+function mapSellerType(t?: CustomerOrderItem["sellerType"]): SellerType {
+  return t === "individual" ? "manual" : "feed"
+}
+
+/** One customer-facing OrderItem → one admin OrderItem, `i1`/`i2`/... ids per order. */
+function mapCustomerItemToAdminItem(item: CustomerOrderItem, index: number): OrderItem {
+  const sellerType = mapSellerType(item.sellerType)
+  return {
+    id: `i${index + 1}`,
+    title: item.name,
+    quantity: item.qty,
+    unitPrice: item.unitPrice,
+    variant: item.variant,
+    productImage: item.image,
+    sellerName: item.sellerName,
+    sellerType,
+    // Admin's type only allows storeUrl on feed (storefront) items, never manual/individual ones.
+    storeUrl: sellerType === "feed" ? item.storeUrl : undefined,
+  }
+}
+
+/** Customer-facing status → admin pipeline stage. Cancelled has no admin equivalent yet — see file-header note. */
+function mapCustomerStatusToStage(status: CustomerOrderStatus): OrderStage | null {
+  switch (status) {
+    case "Processing":
+      return "Ordered"
+    case "Quality Check":
+      return "Quality check"
+    case "Shipped":
+      return "Shipped"
+    case "Delivered":
+      return "Delivered"
+    case "Cancelled":
+      return null
+    default:
+      return null
+  }
+}
+
+/**
+ * Admin's Channel (1 affiliated store / 2 scraped link / 3 manual
+ * request) is order-level, but sellers are now tracked per-ITEM on the
+ * customer side. Inferred as: any individually-sourced item → 3 (manual
+ * request, same as a Channel-3 order today); otherwise every item having
+ * a storeUrl → 1 (affiliated store); otherwise → 2 (scraped link).
+ */
+function inferChannel(items: OrderItem[]): Channel {
+  if (items.some((i) => i.sellerType === "manual")) return 3
+  if (items.length > 0 && items.every((i) => !!i.storeUrl)) return 1
+  return 2
+}
+
+/**
+ * The core adapter: one customer-facing Order → one admin OrderSeed (or
+ * `null` for Cancelled, which admin's pipeline doesn't model). Hours-ago
+ * values are computed from the customer order's real `date` field so
+ * ages stay consistent with what a customer would see on their own
+ * order history; `stageEnteredHoursAgo` is a proportion of that based on
+ * how far along the shipping flow the order's status implies.
+ */
+function deriveOrderSeedFromCustomerOrder(order: CustomerOrder, index: number): OrderSeed | null {
+  const stage = mapCustomerStatusToStage(order.status)
+  if (stage === null) return null
+
+  const placedHoursAgo = Math.max(hoursSince(new Date(order.date).toISOString()), 2)
+  const stepIdx = Math.max(shippingStepIndex(order.status), 0)
+  // Roughly: freshly Processing orders "entered their stage" at placement;
+  // orders further along entered their current stage more recently.
+  const stageFraction = [1, 0.55, 0.28, 0.08][stepIdx] ?? 1
+  const stageEnteredHoursAgo = Math.max(placedHoursAgo * stageFraction, 0.5)
+
+  const items = order.items.map(mapCustomerItemToAdminItem)
+  const channel = inferChannel(items)
+  const siteId = SITES[index % SITES.length].id
+  const threshold = STAGE_AGE_THRESHOLD_HOURS[stage]
+  const customerName =
+    getOrderCustomerName(order) !== "Customer"
+      ? getOrderCustomerName(order)
+      : SAMPLE_CUSTOMER_NAMES[index % SAMPLE_CUSTOMER_NAMES.length]
+
+  const seed: OrderSeed = {
+    id: order.id,
+    customerName,
+    channel,
+    stage,
+    siteId,
+    placedHoursAgo,
+    stageEnteredHoursAgo,
+    totalValue: orderTotal(order),
+    delayed: stageEnteredHoursAgo > threshold,
+    isManualQuote: channel === 3,
+    items,
+    destination: order.recipient ? `${order.recipient.city}, ${order.recipient.country}` : undefined,
+  }
+
+  if (stage === "Shipped" || stage === "Delivered") {
+    seed.packedHoursAgo = stageEnteredHoursAgo
+    seed.labelGeneratedHoursAgo = stageEnteredHoursAgo
+    seed.labelRef = order.trackingNumber
+    seed.courier = order.carrier
+    seed.trackingRef = order.trackingNumber
+    seed.pickedUpHoursAgo = Math.max(stageEnteredHoursAgo - 2, 0.5)
+    seed.etaHours = 24
+  }
+  if (stage === "Delivered") {
+    seed.deliveredHoursAgo = stageEnteredHoursAgo
+  }
+
+  return seed
+}
+
+const SEEDS: OrderSeed[] = CUSTOMER_ORDERS.map(deriveOrderSeedFromCustomerOrder).filter(
+  (s): s is OrderSeed => s !== null
+)
 
 function buildOrder(seed: OrderSeed): Order {
   const placedAt = isoHoursAgo(seed.placedHoursAgo)
@@ -449,7 +565,9 @@ function buildOrder(seed: OrderSeed): Order {
 const INITIAL_ORDERS: Order[] = SEEDS.map(buildOrder)
 
 /* ------------------------------------------------------------------ */
-/* Seed purchases — one per (orderId, orderItemId).                     */
+/* Seed purchases — one per (orderId, orderItemId), SYNTHESIZED from the */
+/* derived SEEDS above rather than hand-written, so an order's purchase/  */
+/* QC state always matches whatever stage orderContexts.tsx says it's in. */
 /* ------------------------------------------------------------------ */
 
 type PurchaseSeed = {
@@ -470,63 +588,64 @@ type PurchaseSeed = {
   qcResolvedHoursAgo?: number
 }
 
-const PURCHASE_SEEDS: PurchaseSeed[] = [
-  { id: "pur_1", orderId: "WD-1004", orderItemId: "i1", status: "needs_purchase", enteredQueueHoursAgo: 5 },
-  { id: "pur_2", orderId: "WD-1005", orderItemId: "i1", status: "needs_purchase", enteredQueueHoursAgo: 28 },
-  { id: "pur_3", orderId: "WD-1012", orderItemId: "i1", status: "needs_purchase", enteredQueueHoursAgo: 2 },
-  { id: "pur_4", orderId: "WD-1008", orderItemId: "i1", status: "needs_purchase", enteredQueueHoursAgo: 8 },
-  {
-    id: "pur_5", orderId: "WD-1002", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 150,
-    actualUnitPriceINR: 1950, purchaseReference: "FLPKRT-88213", purchasedBy: "Kasun Silva", purchasedAtHoursAgo: 145,
-    enteredQcHoursAgo: 22, qcStatus: "passed", qcPhotoCount: 1, qcResolvedHoursAgo: 19,
-  },
-  {
-    id: "pur_6", orderId: "WD-1014", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 100,
-    actualUnitPriceINR: 13300, purchaseReference: "FAB-2265", purchasedBy: "Amara Perera", purchasedAtHoursAgo: 96,
-    enteredQcHoursAgo: 27, qcStatus: "passed", qcPhotoCount: 1, qcResolvedHoursAgo: 26,
-  },
-  {
-    id: "pur_7", orderId: "WD-1013", orderItemId: "i1", status: "unavailable", enteredQueueHoursAgo: 55,
-    issueNote: "Seller marked out of stock at checkout — order is delayed waiting on a replacement pick.",
-  },
-  {
-    id: "pur_8", orderId: "WD-1006", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 70,
-    actualUnitPriceINR: 6200, purchaseReference: "TITAN-9021", purchasedBy: "Kasun Silva", purchasedAtHoursAgo: 54,
-    enteredQcHoursAgo: 20, qcStatus: "pending", qcPhotoCount: 0,
-  },
-  {
-    id: "pur_9", orderId: "WD-1010", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 40,
-    actualUnitPriceINR: 4300, purchaseReference: "NOISE-5544", purchasedBy: "Amara Perera", purchasedAtHoursAgo: 14,
-    enteredQcHoursAgo: 10, qcStatus: "flagged",
-    qcNote: "Screen has a visible scratch across the display — requesting a replacement unit from the seller.",
-    qcPhotoCount: 2,
-  },
-  {
-    id: "pur_10", orderId: "WD-1003", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 60,
-    actualUnitPriceINR: 15200, purchaseReference: "MANUAL-2031", purchasedBy: "Nadia Fernando", purchasedAtHoursAgo: 8,
-    enteredQcHoursAgo: 6, qcStatus: "pending", qcPhotoCount: 1,
-  },
-  {
-    id: "pur_11", orderId: "WD-1017", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 76,
-    actualUnitPriceINR: 5400, purchaseReference: "GLASS-6610", purchasedBy: "Kasun Silva", purchasedAtHoursAgo: 50,
-    enteredQcHoursAgo: 30, qcStatus: "passed", qcPhotoCount: 1, qcResolvedHoursAgo: 26,
-  },
-  {
-    id: "pur_12", orderId: "WD-1018", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 50,
-    actualUnitPriceINR: 2900, purchaseReference: "HOME-7788", purchasedBy: "Kasun Silva", purchasedAtHoursAgo: 30,
-    enteredQcHoursAgo: 10, qcStatus: "passed", qcPhotoCount: 1, qcResolvedHoursAgo: 5,
-  },
-  {
-    id: "pur_13", orderId: "WD-1007", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 90,
-    actualUnitPriceINR: 5900, purchaseReference: "NYKAA-3390", purchasedBy: "Amara Perera", purchasedAtHoursAgo: 62,
-    enteredQcHoursAgo: 31, qcStatus: "passed", qcPhotoCount: 1, qcResolvedHoursAgo: 30,
-  },
-  {
-    id: "pur_14", orderId: "WD-1011", orderItemId: "i1", status: "purchased", enteredQueueHoursAgo: 120,
-    actualUnitPriceINR: 11400, purchaseReference: "MANUAL-1988", purchasedBy: "Nadia Fernando", purchasedAtHoursAgo: 60,
-    enteredQcHoursAgo: 16, qcStatus: "passed", qcPhotoCount: 1, qcResolvedHoursAgo: 15,
-  },
-]
+/**
+ * Infers a plausible Purchase row for one item on a derived order seed:
+ *   - "Ordered" stage      → still needs_purchase.
+ *   - "Quality check" stage → purchased, sitting in QC as "pending"
+ *     (matches admin's own auto-advance behavior: an order only reaches
+ *     Quality check once every item is purchased — see markPurchased).
+ *   - "Shipped"/"Delivered" → purchased AND already QC-"passed" (an
+ *     order can't reach Pack & label without every item passing QC).
+ */
+function synthesizePurchaseSeed(order: OrderSeed, item: OrderItem): PurchaseSeed {
+  const id = `pur_${order.id}_${item.id}`
+  const fallbackUnitPrice = Math.round(order.totalValue / Math.max(order.items.length, 1))
+  const unitPrice = item.unitPrice ?? fallbackUnitPrice
+
+  if (order.stage === "Ordered") {
+    return { id, orderId: order.id, orderItemId: item.id, status: "needs_purchase", enteredQueueHoursAgo: order.placedHoursAgo }
+  }
+
+  const purchasedHoursAgo = Math.max(order.stageEnteredHoursAgo + 3, 1)
+
+  if (order.stage === "Quality check") {
+    return {
+      id,
+      orderId: order.id,
+      orderItemId: item.id,
+      status: "purchased",
+      enteredQueueHoursAgo: order.placedHoursAgo,
+      actualUnitPriceINR: unitPrice,
+      purchaseReference: `${order.id}-${item.id}`,
+      purchasedBy: "System",
+      purchasedAtHoursAgo: purchasedHoursAgo,
+      enteredQcHoursAgo: order.stageEnteredHoursAgo,
+      qcStatus: "pending",
+      qcPhotoCount: 0,
+    }
+  }
+
+  // Shipped or Delivered — fully purchased and already QC-passed.
+  return {
+    id,
+    orderId: order.id,
+    orderItemId: item.id,
+    status: "purchased",
+    enteredQueueHoursAgo: order.placedHoursAgo,
+    actualUnitPriceINR: unitPrice,
+    purchaseReference: `${order.id}-${item.id}`,
+    purchasedBy: "System",
+    purchasedAtHoursAgo: purchasedHoursAgo,
+    enteredQcHoursAgo: Math.max(purchasedHoursAgo - 2, 0.5),
+    qcStatus: "passed",
+    qcPhotoCount: 1,
+    qcResolvedHoursAgo: order.stageEnteredHoursAgo,
+  }
+}
+
+const PURCHASE_SEEDS: PurchaseSeed[] = SEEDS.flatMap((order) =>
+  order.items.map((item) => synthesizePurchaseSeed(order, item))
+)
 
 function buildPurchase(seed: PurchaseSeed): Purchase {
   return {
@@ -553,24 +672,31 @@ const INITIAL_PURCHASES: Purchase[] = PURCHASE_SEEDS.map(buildPurchase)
 /* ------------------------------------------------------------------ */
 /* Seed requests (Channel 3) + chat threads.                            */
 /*                                                                       */
-/* Confirmed requests here (REQ-2031/2044/1988/1877) are ones that       */
-/* already spun off an order in SEEDS above (matched via                */
-/* Order.linkedRequestId). requestLines below reverse-joins against      */
-/* `orders` to find that link live, exactly the way confirmRequest()     */
-/* behaves for a NEW confirmation — so seeded and freshly-confirmed      */
-/* requests end up looking identical to every page that reads them.      */
+/* Independent of the derived order data above — Requests are a         */
+/* pre-order concept (a customer asking about a product before there's   */
+/* any Order at all), so they aren't sourced from orderContexts.tsx.     */
+/* NOTE: REQ-2031/2044/1988/1877 were originally seeded "confirmed"      */
+/* against specific hardcoded order IDs that no longer exist now that    */
+/* orders are derived from MOCK_ORDERS — requestLines will show them as  */
+/* confirmed with no resolvable linkedOrderId. Confirming a NEW request  */
+/* via confirmRequest() is unaffected and creates a real linked order.   */
 /* ------------------------------------------------------------------ */
+
+type RequestItemSeed = {
+  id: string
+  link: string
+  note: string
+  screenshotUrl?: string
+  quote?: number
+  quoteHistory?: { amount: number; by: string; hoursAgo: number }[]
+}
 
 type RequestSeed = {
   id: string
   customerName: string
-  link: string
-  note: string
-  screenshotUrl?: string
+  items: RequestItemSeed[]
   status: RequestStatus
   submittedHoursAgo: number
-  quote?: number
-  quoteHistory?: { amount: number; by: string; hoursAgo: number }[]
   assignedStaffId?: string
   chatThreadId: string
 }
@@ -578,73 +704,118 @@ type RequestSeed = {
 const REQUEST_SEEDS: RequestSeed[] = [
   {
     id: "REQ-2031", customerName: "Sithara Wickramasinghe",
-    link: "https://instagram.com/p/exampleLehenga",
-    note: "Custom embroidered lehenga from this boutique's Instagram — need it in my measurements, can send them separately.",
-    screenshotUrl: "https://images.pexels.com/photos/8148087/pexels-photo-8148087.jpeg?auto=compress&cs=tinysrgb&w=600",
     status: "confirmed", submittedHoursAgo: 66,
-    quote: 15200, quoteHistory: [{ amount: 15200, by: "Nadia Fernando", hoursAgo: 62 }],
     assignedStaffId: "u_sales_1", chatThreadId: "thread-2031",
+    items: [
+      {
+        id: "ri1",
+        link: "https://instagram.com/p/exampleLehenga",
+        note: "Custom embroidered lehenga from this boutique's Instagram — need it in my measurements, can send them separately.",
+        screenshotUrl: "https://images.pexels.com/photos/8148087/pexels-photo-8148087.jpeg?auto=compress&cs=tinysrgb&w=600",
+        quote: 15200,
+        quoteHistory: [{ amount: 15200, by: "Nadia Fernando", hoursAgo: 62 }],
+      },
+    ],
   },
   {
     id: "REQ-2044", customerName: "Tharindu Bandara",
-    link: "https://smallboutique.in/brass-wall-set",
-    note: "Handloom brass wall décor set, the 5-piece one shown on the product page.",
     status: "confirmed", submittedHoursAgo: 12,
-    quote: 9800, quoteHistory: [{ amount: 9800, by: "Nadia Fernando", hoursAgo: 9 }],
     assignedStaffId: "u_sales_1", chatThreadId: "thread-2044",
+    items: [
+      {
+        id: "ri1",
+        link: "https://smallboutique.in/brass-wall-set",
+        note: "Handloom brass wall décor set, the 5-piece one shown on the product page.",
+        quote: 9800,
+        quoteHistory: [{ amount: 9800, by: "Nadia Fernando", hoursAgo: 9 }],
+      },
+    ],
   },
   {
     id: "REQ-1988", customerName: "Yasodha Silva",
-    link: "https://instagram.com/p/exampleJewelry",
-    note: "Custom resin jewelry set — matching earrings and necklace, gold flakes if possible.",
-    screenshotUrl: "https://images.pexels.com/photos/1927259/pexels-photo-1927259.jpeg?auto=compress&cs=tinysrgb&w=600",
     status: "confirmed", submittedHoursAgo: 130,
-    quote: 11400, quoteHistory: [
-      { amount: 12500, by: "Nadia Fernando", hoursAgo: 118 },
-      { amount: 11400, by: "Nadia Fernando", hoursAgo: 115 },
-    ],
     assignedStaffId: "u_sales_1", chatThreadId: "thread-1988",
+    items: [
+      {
+        id: "ri1",
+        link: "https://instagram.com/p/exampleJewelry",
+        note: "Custom resin jewelry set — matching earrings and necklace, gold flakes if possible.",
+        screenshotUrl: "https://images.pexels.com/photos/1927259/pexels-photo-1927259.jpeg?auto=compress&cs=tinysrgb&w=600",
+        quote: 11400,
+        quoteHistory: [
+          { amount: 12500, by: "Nadia Fernando", hoursAgo: 118 },
+          { amount: 11400, by: "Nadia Fernando", hoursAgo: 115 },
+        ],
+      },
+    ],
   },
   {
     id: "REQ-1877", customerName: "Oshadi Mendis",
-    link: "https://boutiquecards.in/wedding-suite",
-    note: "Bespoke wedding invitation set, 150 pieces, gold foil, need a proof before full print run.",
     status: "confirmed", submittedHoursAgo: 610,
-    quote: 19500, quoteHistory: [{ amount: 19500, by: "Amara Perera", hoursAgo: 605 }],
     assignedStaffId: "u_mgr_1", chatThreadId: "thread-1877",
+    items: [
+      {
+        id: "ri1",
+        link: "https://boutiquecards.in/wedding-suite",
+        note: "Bespoke wedding invitation set, 150 pieces, gold foil, need a proof before full print run.",
+        quote: 19500,
+        quoteHistory: [{ amount: 19500, by: "Amara Perera", hoursAgo: 605 }],
+      },
+    ],
   },
   {
     // Past SLA, already quoted, waiting on the customer to confirm —
     // the "needs a nudge" example.
     id: "REQ-2091", customerName: "Chathurika Wanigasekara",
-    link: "https://trendloop.lk/products/floral-midi-dress",
-    note: "Floral midi dress, size S, want to confirm it's the same fabric as the photo before I commit.",
     status: "quoted", submittedHoursAgo: 40,
-    quote: 6400, quoteHistory: [{ amount: 6400, by: "Nadia Fernando", hoursAgo: 30 }],
     assignedStaffId: "u_sales_1", chatThreadId: "thread-2091",
+    items: [
+      {
+        id: "ri1",
+        link: "https://trendloop.lk/products/floral-midi-dress",
+        note: "Floral midi dress, size S, want to confirm it's the same fabric as the photo before I commit.",
+        quote: 6400,
+        quoteHistory: [{ amount: 6400, by: "Nadia Fernando", hoursAgo: 30 }],
+      },
+    ],
   },
   {
     // Past SLA, never even quoted — the sharpest "needs attention" example.
     id: "REQ-2098", customerName: "Dinuka Abeysekara",
-    link: "https://glowcosmetics.in/products/vitamin-serum-set",
-    note: "The 3-piece vitamin serum set, want to know if it ships with the box shown or just the bottles.",
     status: "sent_for_review", submittedHoursAgo: 36,
     assignedStaffId: "u_sales_2", chatThreadId: "thread-2098",
+    items: [
+      {
+        id: "ri1",
+        link: "https://glowcosmetics.in/products/vitamin-serum-set",
+        note: "The 3-piece vitamin serum set, want to know if it ships with the box shown or just the bottles.",
+      },
+    ],
   },
   {
     // Fresh, well within SLA.
     id: "REQ-2102", customerName: "Sanduni Perera",
-    link: "https://meesho.com/products/handbag-tote",
-    note: "Tan tote bag, the one with the gold clasp — is it real leather or PU?",
     status: "sent_for_review", submittedHoursAgo: 4,
     assignedStaffId: "u_sales_1", chatThreadId: "thread-2102",
+    items: [
+      {
+        id: "ri1",
+        link: "https://meesho.com/products/handbag-tote",
+        note: "Tan tote bag, the one with the gold clasp — is it real leather or PU?",
+      },
+    ],
   },
   {
     id: "REQ-2075", customerName: "Kavisha Rodrigo",
-    link: "https://randomseller.xyz/item/9981",
-    note: "Wanted to check if this phone case is genuine or a knockoff before ordering.",
     status: "declined", submittedHoursAgo: 90,
     assignedStaffId: "u_sales_2", chatThreadId: "thread-2075",
+    items: [
+      {
+        id: "ri1",
+        link: "https://randomseller.xyz/item/9981",
+        note: "Wanted to check if this phone case is genuine or a knockoff before ordering.",
+      },
+    ],
   },
 ]
 
@@ -691,22 +862,29 @@ const CHAT_MESSAGE_SEEDS: Record<string, ChatMessageSeed[]> = {
   ],
 }
 
-function buildRequest(seed: RequestSeed): Request {
+function buildRequestItem(seed: RequestItemSeed): RequestItemAsk {
   return {
     id: seed.id,
-    customerName: seed.customerName,
     link: seed.link,
     note: seed.note,
     screenshotUrl: seed.screenshotUrl,
     sourceDomain: hostnameOf(seed.link),
-    status: seed.status,
-    submittedAt: isoHoursAgo(seed.submittedHoursAgo),
     quote: seed.quote,
     quoteHistory: (seed.quoteHistory ?? []).map((q) => ({
       amount: q.amount,
       by: q.by,
       at: isoHoursAgo(q.hoursAgo),
     })),
+  }
+}
+
+function buildRequest(seed: RequestSeed): Request {
+  return {
+    id: seed.id,
+    customerName: seed.customerName,
+    items: seed.items.map(buildRequestItem),
+    status: seed.status,
+    submittedAt: isoHoursAgo(seed.submittedHoursAgo),
     assignedStaffId: seed.assignedStaffId,
     chatThreadId: seed.chatThreadId,
   }
@@ -798,9 +976,9 @@ interface AdminDataContextValue {
   canWorkRequestLine: (line: RequestLine) => boolean
   canReassignRequestLine: () => boolean
   canCloseRequestLine: () => boolean
-  /** Sets/edits the quote — always appended to quoteHistory, never silently overwritten */
-  setQuote: (requestId: string, amount: number) => void
-  /** Moves a quoted request to confirmed AND creates its Channel 3 order — the only way that order is created */
+  /** Sets/edits the quote for ONE item on the request — always appended to that item's quoteHistory, never silently overwritten. Status flips to "quoted" only once every item has a quote. */
+  setQuote: (requestId: string, itemId: string, amount: number) => void
+  /** Moves a fully-quoted request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. */
   confirmRequest: (requestId: string) => void
   /** Declines/rejects a request outright — terminal, same as Manager's "close" action */
   declineRequest: (requestId: string) => void
@@ -816,16 +994,20 @@ interface AdminDataContextValue {
   markThreadRead: (threadId: string) => void
   /** Marks the given message as sent via the wa.me manual-send flow — does NOT open the link itself, that's a page-level concern */
   markSentViaWhatsApp: (threadId: string, messageId: string) => void
+
+  // -- Dev utilities -------------------------------------------------
+  /** Wipes all persisted localStorage data back to the original seed data. Dev-only escape hatch. */
+  resetToSeedData: () => void
 }
 
 const AdminDataContext = createContext<AdminDataContextValue | undefined>(undefined)
 
 export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>("manager")
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
-  const [purchases, setPurchases] = useState<Purchase[]>(INITIAL_PURCHASES)
-  const [requests, setRequests] = useState<Request[]>(INITIAL_REQUESTS)
-  const [chatThreads, setChatThreads] = useState<ChatThread[]>(INITIAL_CHAT_THREADS)
+  const [orders, setOrders] = usePersistentState<Order[]>("orders", INITIAL_ORDERS)
+  const [purchases, setPurchases] = usePersistentState<Purchase[]>("purchases", INITIAL_PURCHASES)
+  const [requests, setRequests] = usePersistentState<Request[]>("requests", INITIAL_REQUESTS)
+  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>("chatThreads", INITIAL_CHAT_THREADS)
 
   const currentUser = MOCK_USERS[role]
   const permissions = ROLE_PERMISSIONS[role]
@@ -1067,41 +1249,82 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const canActOnPurchaseLine = (line: PurchaseLine) =>
     permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || line.siteId === currentUser.siteId)
 
+  /**
+   * Marks one order item purchased, then — if that was the LAST unpurchased
+   * item on its order — auto-advances the order from "Ordered" straight to
+   * "Quality check", AND pushes every purchase on that order into the QC
+   * queue itself (enteredQcAt + qcStatus: "pending"). Without that second
+   * part, the order's `stage` would say "Quality check" everywhere (Orders
+   * list, order detail pips) while qcLines — which requires enteredQcAt +
+   * qcStatus, not just order.stage — would show nothing for a QC agent to
+   * act on. This mirrors how packOrder/markDelivered already auto-advance
+   * their own stages: the Advance/Rollback buttons on the order page are a
+   * manager OVERRIDE for exceptions, not the everyday path — normal orders
+   * are meant to move forward on their own as warehouse/purchase actions
+   * complete each stage's requirements.
+   *
+   * The all-purchased check has to run against the UPDATED purchases
+   * list, not the `purchases` closure variable (which is stale until
+   * the next render) — so it's computed inline from the same array the
+   * setPurchases updater just built, rather than re-reading state.
+   */
   const markPurchased = (orderId: string, orderItemId: string, actualUnitPriceINR: number, purchaseReference?: string) => {
     setPurchases((prev) => {
       const existing = prev.find((p) => p.orderId === orderId && p.orderItemId === orderItemId)
       const now = new Date().toISOString()
 
-      if (existing) {
-        return prev.map((p) =>
-          p.id === existing.id
-            ? {
-                ...p,
-                status: "purchased",
-                actualUnitPriceINR,
-                purchaseReference,
-                purchasedBy: currentUser.name,
-                purchasedAt: now,
-                issueNote: undefined,
-              }
-            : p
+      let updated: Purchase[] = existing
+        ? prev.map((p) =>
+            p.id === existing.id
+              ? {
+                  ...p,
+                  status: "purchased" as PurchaseStatus,
+                  actualUnitPriceINR,
+                  purchaseReference,
+                  purchasedBy: currentUser.name,
+                  purchasedAt: now,
+                  issueNote: undefined,
+                }
+              : p
+          )
+        : [
+            ...prev,
+            {
+              id: makeId("pur"),
+              orderId,
+              orderItemId,
+              status: "purchased" as PurchaseStatus,
+              enteredQueueAt: now,
+              actualUnitPriceINR,
+              purchaseReference,
+              purchasedBy: currentUser.name,
+              purchasedAt: now,
+            },
+          ]
+
+      const order = orders.find((o) => o.id === orderId)
+      if (order && order.stage === "Ordered") {
+        const allPurchased = order.items.every(
+          (item) => updated.find((p) => p.orderId === orderId && p.orderItemId === item.id)?.status === "purchased"
         )
+        if (allPurchased) {
+          setOrders((prevOrders) =>
+            prevOrders.map((o) => (o.id === orderId && o.stage === "Ordered" ? withStageChange(o, "Quality check") : o))
+          )
+
+          // The order is entering QC right now — every one of its purchase
+          // lines needs to actually show up in the QC queue, not just have
+          // order.stage say "Quality check". Only touch lines that haven't
+          // already entered QC on their own (defensive/idempotent).
+          updated = updated.map((p) =>
+            p.orderId === orderId && !p.enteredQcAt
+              ? { ...p, enteredQcAt: now, qcStatus: "pending" as QCStatus, qcPhotoCount: p.qcPhotoCount ?? 0 }
+              : p
+          )
+        }
       }
 
-      return [
-        ...prev,
-        {
-          id: makeId("pur"),
-          orderId,
-          orderItemId,
-          status: "purchased",
-          enteredQueueAt: now,
-          actualUnitPriceINR,
-          purchaseReference,
-          purchasedBy: currentUser.name,
-          purchasedAt: now,
-        },
-      ]
+      return updated
     })
   }
 
@@ -1424,6 +1647,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * identical, from the very next render, to one that was seeded
    * pre-confirmed. `slaBreached` only applies to still-open requests;
    * confirmed/declined are resolved and never breach regardless of age.
+   * `allItemsQuoted`/`totalQuote` are the multi-item equivalent of
+   * purchaseGateForOrder's "every item cleared" check — gates
+   * confirmRequest the same way that gate blocks an order entering QC.
    */
   const requestLines = useMemo<RequestLine[]>(() => {
     return requests.map((r) => {
@@ -1431,18 +1657,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       const staffName = STAFF_DIRECTORY.find((s) => s.id === r.assignedStaffId)?.name ?? "Unassigned"
       const linkedOrder = orders.find((o) => o.linkedRequestId === r.id)
       const isOpen = r.status === "sent_for_review" || r.status === "quoted"
+      const allItemsQuoted = r.items.length > 0 && r.items.every((i) => i.quote !== undefined)
 
       return {
         id: r.id,
         customerName: r.customerName,
-        link: r.link,
-        note: r.note,
-        screenshotUrl: r.screenshotUrl,
-        sourceDomain: r.sourceDomain,
+        items: r.items,
         status: r.status,
         submittedAt: r.submittedAt,
-        quote: r.quote,
-        quoteHistory: r.quoteHistory,
         assignedStaffId: r.assignedStaffId,
         assignedStaffName: staffName,
         chatThreadId: r.chatThreadId,
@@ -1450,6 +1672,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         ageLabel: formatAge(ageHours),
         slaBreached: isOpen && ageHours > REQUEST_SLA_HOURS,
         linkedOrderId: linkedOrder?.id,
+        allItemsQuoted,
+        totalQuote: allItemsQuoted ? r.items.reduce((sum, i) => sum + (i.quote ?? 0), 0) : undefined,
       }
     })
   }, [requests, orders])
@@ -1463,46 +1687,60 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const canCloseRequestLine = () => permissions.canCloseRequests
 
   /**
-   * Always appends to quoteHistory rather than overwriting — the
-   * revision history panel on the request detail page depends on every
-   * edit being retained, not just the latest number. Moves
-   * sent_for_review → quoted on the first quote; leaves status alone on
-   * a re-quote of an already-quoted request.
+   * Quotes ONE item on a request, not the whole request at once —
+   * mirrors how markPurchased only ever ticks off one order item at a
+   * time. Always appends to that item's own quoteHistory rather than
+   * overwriting it, so the revision history panel on the request detail
+   * page can show every edit, not just the latest number. Status only
+   * flips sent_for_review → "quoted" once EVERY item has a quote — the
+   * same all-must-clear gate purchaseGateForOrder uses before an order
+   * can enter Quality check. Re-quoting an item that's already quoted
+   * (while the request is still "quoted" overall) is allowed and just
+   * appends another quoteHistory entry for that item.
    */
-  const setQuote = (requestId: string, amount: number) => {
+  const setQuote = (requestId: string, itemId: string, amount: number) => {
     if (!Number.isFinite(amount) || amount <= 0) return
     const now = new Date().toISOString()
     setRequests((prev) =>
       prev.map((r) => {
         if (r.id !== requestId) return r
         if (r.status !== "sent_for_review" && r.status !== "quoted") return r
+
         const entry: QuoteHistoryEntry = { amount, by: currentUser.name, at: now }
+        const updatedItems = r.items.map((item) =>
+          item.id === itemId ? { ...item, quote: amount, quoteHistory: [...item.quoteHistory, entry] } : item
+        )
+        const allQuoted = updatedItems.every((i) => i.quote !== undefined)
+
         return {
           ...r,
-          quote: amount,
-          quoteHistory: [...r.quoteHistory, entry],
-          status: "quoted",
+          items: updatedItems,
+          status: allQuoted ? "quoted" : r.status,
         }
       })
     )
   }
 
   /**
-   * The only place a Channel 3 order is created. Mints a fresh order id,
-   * builds a single OrderItem from the request's link/note, and sets
-   * linkedRequestId — that field is what requestLines' reverse-join
-   * reads to populate linkedOrderId on every subsequent render. Refuses
-   * silently if the request has no quote yet or isn't in a confirmable
-   * state, since there's no structured price to seed the order with
-   * otherwise.
+   * The only place a Channel 3 order is created. Maps EVERY item on the
+   * request into its own OrderItem — a 3-product request produces a
+   * real 3-item order, which then flows through
+   * purchaseLines/qcLines/packLines exactly like any other multi-item
+   * order, since those were built item-array-aware from the start.
+   * Refuses if any item is still unquoted — status should never be
+   * "quoted" while that's true (setQuote enforces it), but this is a
+   * defensive re-check so a partial order is never built.
    */
   const confirmRequest = (requestId: string) => {
     const request = requests.find((r) => r.id === requestId)
-    if (!request || request.status !== "quoted" || request.quote === undefined) return
+    if (!request || request.status !== "quoted") return
+    const allQuoted = request.items.every((i) => i.quote !== undefined)
+    if (!allQuoted) return
 
     const newOrderId = `WD-${1000 + orders.length + 1}`
     const now = new Date().toISOString()
     const siteId = SITES[0].id // no site signal on a Channel 3 request yet — defaults to the first hub
+    const totalValue = request.items.reduce((sum, i) => sum + (i.quote ?? 0), 0)
 
     const newOrder: Order = {
       id: newOrderId,
@@ -1512,17 +1750,17 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       siteId,
       placedAt: now,
       stageEnteredAt: now,
-      totalValue: request.quote,
+      totalValue,
       delayed: false,
       isManualQuote: true,
       linkedRequestId: request.id,
-      items: [{
-        id: "i1",
-        title: request.note.length > 60 ? `${request.note.slice(0, 57)}...` : request.note,
+      items: request.items.map((item, i) => ({
+        id: `i${i + 1}`,
+        title: item.note.length > 60 ? `${item.note.slice(0, 57)}...` : item.note,
         quantity: 1,
-        requestLink: request.link,
-        unitPrice: request.quote,
-      }],
+        requestLink: item.link,
+        unitPrice: item.quote,
+      })),
       stageHistory: [{ stage: "Ordered", at: now, by: currentUser.name }],
       internalNotes: [],
     }
@@ -1545,14 +1783,17 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * in this local layer, so this just gives a domain-based verdict
    * consistent with what scrape-health tracks, without mutating state.
    * A real build would attempt extraction and, on success, redirect the
-   * request into the Channel 2 flow instead of staying Channel 3.
+   * request into the Channel 2 flow instead of staying Channel 3. Uses
+   * the first item's domain as a stand-in signal since a request can now
+   * have several different source domains across its items.
    */
   const retryScrape = (requestId: string): { success: boolean; message: string } => {
     const request = requests.find((r) => r.id === requestId)
     if (!request) return { success: false, message: "Request not found." }
+    const domain = request.items[0]?.sourceDomain ?? "this source"
     return {
       success: false,
-      message: `${request.sourceDomain} still has no working extractor configured — this request stays a manual quote for now.`,
+      message: `${domain} still has no working extractor configured — this request stays a manual quote for now.`,
     }
   }
 
@@ -1597,6 +1838,22 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     )
   }
 
+  // -- Dev utilities -------------------------------------------------
+
+  /**
+   * Wipes all four persisted slices back to the original seed data —
+   * both in React state and in localStorage (usePersistentState's save
+   * effect will re-persist these fresh values on the next tick). Handy
+   * during testing since there's no real "reset the database" button
+   * yet. Not exposed in production UI unless you wire it up somewhere.
+   */
+  const resetToSeedData = () => {
+    setOrders(INITIAL_ORDERS)
+    setPurchases(INITIAL_PURCHASES)
+    setRequests(INITIAL_REQUESTS)
+    setChatThreads(INITIAL_CHAT_THREADS)
+  }
+
   const value: AdminDataContextValue = {
     role,
     setRole,
@@ -1606,7 +1863,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     staffDirectory: STAFF_DIRECTORY,
     orders,
     visibleOrders,
-    purchases,               
+    purchases,
     getOrder,
     advanceStage,
     rollbackStage,
@@ -1661,6 +1918,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     sendChatMessage,
     markThreadRead,
     markSentViaWhatsApp,
+    resetToSeedData,
   }
 
   return <AdminDataContext.Provider value={value}>{children}</AdminDataContext.Provider>

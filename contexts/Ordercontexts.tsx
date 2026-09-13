@@ -18,6 +18,22 @@
  * of product instead of a flat placeholder swatch. For production, replace
  * each with the real product photo URL from your catalog/CDN.
  *
+ * `sellerName` / `sellerType` / `storeUrl` (per item):
+ * WishDrop sources each product independently, so a single order can bundle
+ * items bought from different stores AND items sourced from individual
+ * sellers/boutiques (Channel 3-style manual requests) side by side.
+ *   - sellerType: 'store'      → a real storefront (Amazon, Fabindia, a
+ *                                 branded boutique site, etc.) — `storeUrl`
+ *                                 is usually present.
+ *   - sellerType: 'individual' → sourced from a person directly (an
+ *                                 Instagram seller, a tailor, a small
+ *                                 independent maker) — `storeUrl` is often
+ *                                 absent or just a profile link.
+ * All three fields are OPTIONAL — `itemSourceLabel()` below falls back to
+ * a generic "WishDrop partner store" label when they're not set, so older
+ * seed rows and any order you add later still render fine without you
+ * having to backfill every item.
+ *
  * `recipient` / `timeline` (added for the Track Order detail page):
  * Both are OPTIONAL on Order. If you don't set them, `getOrderRecipient()`
  * and `getOrderTimeline()` synthesize sensible values from the order's
@@ -32,12 +48,24 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 
 export type OrderStatus = 'Processing' | 'Quality Check' | 'Shipped' | 'Delivered' | 'Cancelled'
 
+// Who/where a given item was sourced from. 'store' = a real storefront
+// (Amazon, a brand's own site, a boutique's webstore). 'individual' = a
+// person sourced directly — an Instagram seller, a tailor, a maker with
+// no storefront of their own.
+export type SellerType = 'store' | 'individual'
+
 export type OrderItem = {
   name: string
   variant?: string // e.g. "Size UK 9" or "Color: Black" — omit if not applicable
   qty: number
   unitPrice: number
   image: string // product photo URL shown as the item thumbnail
+  /** Display name of the store or person this item was sourced from */
+  sellerName?: string
+  /** 'store' | 'individual' — drives the badge/icon next to sellerName */
+  sellerType?: SellerType
+  /** Storefront or profile link, if there is one */
+  storeUrl?: string
 }
 
 export type OrderRecipient = {
@@ -69,6 +97,14 @@ export type Order = {
   estimatedDelivery?: string // e.g. "Sep 4 – Sep 6"
   recipient?: OrderRecipient // optional — falls back via getOrderRecipient()
   timeline?: TimelineEvent[] // optional — falls back via getOrderTimeline()
+  /**
+   * Optional — this page is normally "my orders for the one logged-in
+   * customer", so it's usually omitted here. Set when a consumer of this
+   * data (e.g. AdminDataContext, which shows orders across MANY
+   * customers) needs a distinct name per order. Falls back via
+   * getOrderCustomerName() below.
+   */
+  customerName?: string
 }
 
 export const FILTERS: Array<OrderStatus | 'All'> = [
@@ -105,6 +141,36 @@ export function itemMeta(item: OrderItem) {
   return [item.variant, `Qty: ${item.qty}`].filter(Boolean).join(' · ')
 }
 
+// "Fabindia" / "Sourced from @priya_designs" style line shown under an
+// item's title. Falls back to a generic label so items without seller
+// info (or older seed rows) still render something sensible.
+export function itemSourceLabel(item: OrderItem): string {
+  if (!item.sellerName) return 'WishDrop partner store'
+  return item.sellerType === 'individual' ? `Sourced from ${item.sellerName}` : item.sellerName
+}
+
+// True once an order's items came from 2+ distinct sellers — lets the
+// order card show a "Multiple sellers" pill instead of a single store name.
+export function hasMultipleSources(order: Order): boolean {
+  const distinct = new Set(order.items.map((it) => it.sellerName ?? 'WishDrop partner store'))
+  return distinct.size > 1
+}
+
+// Distinct seller names across an order's items, in first-seen order —
+// handy for a "Sourced from Fabindia, Etsy +1 more" summary line.
+export function orderSellerNames(order: Order): string[] {
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const it of order.items) {
+    const name = it.sellerName ?? 'WishDrop partner store'
+    if (!seen.has(name)) {
+      seen.add(name)
+      names.push(name)
+    }
+  }
+  return names
+}
+
 // Maps an order's status to its index in SHIPPING_FLOW (Ordered, Quality
 // Check, Shipped, Delivered). Returns -1 for Cancelled, since a cancelled
 // order has no progress to show on the stepper.
@@ -133,6 +199,15 @@ export function getTodayLabel(): string {
 // order has no explicit `recipient` set.
 export function getOrderRecipient(order: Order): OrderRecipient {
   return order.recipient ?? { name: 'Customer', city: 'Colombo', country: 'Sri Lanka' }
+}
+
+// Who the order belongs to. On this page every order is implicitly "the
+// current customer", so `customerName` is usually unset — falls back to
+// the recipient's name (if set) and finally to a generic label. Consumers
+// that show orders across many customers (e.g. the admin panel) should set
+// `customerName` explicitly per order rather than relying on this fallback.
+export function getOrderCustomerName(order: Order): string {
+  return order.customerName ?? order.recipient?.name ?? 'Customer'
 }
 
 // Newest-first list of tracking events for the track page's timeline. Uses
@@ -211,12 +286,23 @@ function productImage(keywords: string, lock: number) {
 //   - Quality Check WITHOUT a note (order #10479) — the note banner is
 //     conditional on `note` being present, not just on status.
 //   - A 4-item order (#10470) — the card only shows the first 3 thumbnails
-//     (`items.slice(0, 3)`), so this exercises that overflow.
+//     (`items.slice(0, 3)`), so this exercises that overflow. It also mixes
+//     3 different sellers across those 4 items, to exercise
+//     hasMultipleSources()/orderSellerNames() with more than 2 distinct.
 //   - A very long product name (#10461) — wrapping/truncation check.
 //   - Cancelled with qty > 1 (#10450) — cancellation isn't only ever qty 1.
+//   - Multi-item orders (#10495, #10480, #10471, #10470, #10469, #10466,
+//     #10455, #10447) deliberately mix `sellerType: 'store'` and
+//     `sellerType: 'individual'` items on the SAME order, to exercise the
+//     "different persons and stores" case end-to-end.
 //   - Enough rows (18) to exercise pagination across multiple pages at
 //     PAGE_SIZE = 4.
-const MOCK_ORDERS: Order[] = [
+// Exported (not just used internally) so other parts of the app — notably
+// AdminDataContext.tsx — can treat this array as the single source of
+// truth for order data and derive their own view of it, instead of each
+// context hand-maintaining its own duplicate seed list that can drift out
+// of sync.
+export const MOCK_ORDERS: Order[] = [
   // Processing — single product, quantity 1
   {
     id: 'WD-10499',
@@ -224,7 +310,15 @@ const MOCK_ORDERS: Order[] = [
     status: 'Processing',
     currency: 'INR',
     items: [
-      { name: 'Ceramic coffee mug set', qty: 1, unitPrice: 2450, image: productImage('coffee,mug', 1) },
+      {
+        name: 'Ceramic coffee mug set',
+        qty: 1,
+        unitPrice: 2450,
+        image: productImage('coffee,mug', 1),
+        sellerName: 'Amazon.in',
+        sellerType: 'store',
+        storeUrl: 'https://www.amazon.in',
+      },
     ],
   },
   // Processing — single product, quantity > 1
@@ -240,18 +334,37 @@ const MOCK_ORDERS: Order[] = [
         qty: 2,
         unitPrice: 5400,
         image: productImage('bedsheet,linen', 2),
+        sellerName: 'Fabindia',
+        sellerType: 'store',
+        storeUrl: 'https://www.fabindia.com',
       },
     ],
   },
-  // Processing — multiple products, mixed quantities
+  // Processing — multiple products, DIFFERENT sellers (one store, one individual)
   {
     id: 'WD-10495',
     date: 'Sep 05, 2026',
     status: 'Processing',
     currency: 'INR',
     items: [
-      { name: 'Spiral notebook', qty: 3, unitPrice: 220, image: productImage('notebook,stationery', 3) },
-      { name: 'Gel pen pack', qty: 1, unitPrice: 350, image: productImage('pen,stationery', 4) },
+      {
+        name: 'Spiral notebook',
+        qty: 3,
+        unitPrice: 220,
+        image: productImage('notebook,stationery', 3),
+        sellerName: 'Flipkart — Classmate Store',
+        sellerType: 'store',
+        storeUrl: 'https://www.flipkart.com',
+      },
+      {
+        name: 'Hand-lettered gel pen set',
+        qty: 1,
+        unitPrice: 350,
+        image: productImage('pen,stationery', 4),
+        sellerName: '@inkandquill.studio',
+        sellerType: 'individual',
+        storeUrl: 'https://instagram.com/inkandquill.studio',
+      },
     ],
   },
   // Quality Check — single product, quantity 1, with note
@@ -290,10 +403,13 @@ const MOCK_ORDERS: Order[] = [
         qty: 1,
         unitPrice: 8499,
         image: productImage('running,shoes', 5),
+        sellerName: 'Nike.com',
+        sellerType: 'store',
+        storeUrl: 'https://www.nike.com',
       },
     ],
   },
-  // Quality Check — multiple products, with note
+  // Quality Check — multiple products, DIFFERENT sellers, with note
   {
     id: 'WD-10480',
     date: 'Sep 03, 2026',
@@ -301,8 +417,23 @@ const MOCK_ORDERS: Order[] = [
     currency: 'LKR',
     note: 'Both items are being inspected together before they’re packed for shipping.',
     items: [
-      { name: 'Aviator sunglasses', qty: 1, unitPrice: 4200, image: productImage('sunglasses', 6) },
-      { name: 'Leather wallet', qty: 1, unitPrice: 5600, image: productImage('leather,wallet', 7) },
+      {
+        name: 'Aviator sunglasses',
+        qty: 1,
+        unitPrice: 4200,
+        image: productImage('sunglasses', 6),
+        sellerName: 'Ray-Ban.com',
+        sellerType: 'store',
+        storeUrl: 'https://www.ray-ban.com',
+      },
+      {
+        name: 'Hand-stitched leather wallet',
+        qty: 1,
+        unitPrice: 5600,
+        image: productImage('leather,wallet', 7),
+        sellerName: 'Arun — leather craftsman',
+        sellerType: 'individual',
+      },
     ],
   },
   // Quality Check — no note (edge case: banner should not render)
@@ -318,6 +449,9 @@ const MOCK_ORDERS: Order[] = [
         qty: 1,
         unitPrice: 2900,
         image: productImage('yoga,mat', 8),
+        sellerName: 'Decathlon',
+        sellerType: 'store',
+        storeUrl: 'https://www.decathlon.in',
       },
     ],
   },
@@ -334,6 +468,9 @@ const MOCK_ORDERS: Order[] = [
         qty: 3,
         unitPrice: 1450,
         image: productImage('candle', 9),
+        sellerName: '@wickandwillow.candles',
+        sellerType: 'individual',
+        storeUrl: 'https://instagram.com/wickandwillow.candles',
       },
     ],
   },
@@ -346,9 +483,19 @@ const MOCK_ORDERS: Order[] = [
     carrier: 'DHL Express',
     trackingNumber: '1Z999AA10123456784',
     estimatedDelivery: 'Sep 4 – Sep 6',
-    items: [{ name: 'LED desk lamp', qty: 1, unitPrice: 3100, image: productImage('desklamp', 10) }],
+    items: [
+      {
+        name: 'LED desk lamp',
+        qty: 1,
+        unitPrice: 3100,
+        image: productImage('desklamp', 10),
+        sellerName: 'Amazon.in',
+        sellerType: 'store',
+        storeUrl: 'https://www.amazon.in',
+      },
+    ],
   },
-  // Shipped — multiple products, quantity 1 each
+  // Shipped — multiple products, THREE different sellers (2 stores + 1 individual)
   {
     id: 'WD-10471',
     date: 'Aug 29, 2026',
@@ -358,18 +505,38 @@ const MOCK_ORDERS: Order[] = [
     trackingNumber: '7712 4498 3320',
     estimatedDelivery: 'Sep 3 – Sep 5',
     items: [
-      { name: 'Baseball cap', qty: 1, unitPrice: 3200, image: productImage('baseballcap', 11) },
-      { name: 'Over-ear headphones', qty: 1, unitPrice: 18900, image: productImage('headphones', 12) },
+      {
+        name: 'Baseball cap',
+        qty: 1,
+        unitPrice: 3200,
+        image: productImage('baseballcap', 11),
+        sellerName: 'New Era Cap Co.',
+        sellerType: 'store',
+        storeUrl: 'https://www.neweracap.com',
+      },
+      {
+        name: 'Over-ear headphones',
+        qty: 1,
+        unitPrice: 18900,
+        image: productImage('headphones', 12),
+        sellerName: 'Flipkart — AudioTech',
+        sellerType: 'store',
+        storeUrl: 'https://www.flipkart.com',
+      },
       {
         name: 'Fleece hoodie',
         variant: 'Size L',
         qty: 1,
         unitPrice: 6350,
         image: productImage('hoodie,sweatshirt', 13),
+        sellerName: '@thread.and.thrift',
+        sellerType: 'individual',
+        storeUrl: 'https://instagram.com/thread.and.thrift',
       },
     ],
   },
-  // Shipped — 4 products (thumbnail-overflow edge case: only 3 show)
+  // Shipped — 4 products, THREE different sellers (thumbnail-overflow edge
+  // case: card only shows 3 thumbnails, but seller mix still spans all 4)
   {
     id: 'WD-10470',
     date: 'Aug 28, 2026',
@@ -379,13 +546,44 @@ const MOCK_ORDERS: Order[] = [
     trackingNumber: '1Z999AA10123456700',
     estimatedDelivery: 'Sep 2 – Sep 4',
     items: [
-      { name: 'Kitchen organizer tray', qty: 1, unitPrice: 2200, image: productImage('kitchen,tray', 14) },
-      { name: 'Bamboo cutting board', qty: 1, unitPrice: 1650, image: productImage('cuttingboard', 15) },
-      { name: 'Cotton dish towels', qty: 2, unitPrice: 450, image: productImage('dishtowel,kitchen', 16) },
-      { name: 'Wall spice rack', qty: 1, unitPrice: 1980, image: productImage('spices,rack', 17) },
+      {
+        name: 'Kitchen organizer tray',
+        qty: 1,
+        unitPrice: 2200,
+        image: productImage('kitchen,tray', 14),
+        sellerName: 'Amazon.in',
+        sellerType: 'store',
+        storeUrl: 'https://www.amazon.in',
+      },
+      {
+        name: 'Bamboo cutting board',
+        qty: 1,
+        unitPrice: 1650,
+        image: productImage('cuttingboard', 15),
+        sellerName: 'Bamboo & Co. — woodworker',
+        sellerType: 'individual',
+      },
+      {
+        name: 'Cotton dish towels',
+        qty: 2,
+        unitPrice: 450,
+        image: productImage('dishtowel,kitchen', 16),
+        sellerName: 'Fabindia',
+        sellerType: 'store',
+        storeUrl: 'https://www.fabindia.com',
+      },
+      {
+        name: 'Wall spice rack',
+        qty: 1,
+        unitPrice: 1980,
+        image: productImage('spices,rack', 17),
+        sellerName: '@homeandhearth.crafts',
+        sellerType: 'individual',
+        storeUrl: 'https://instagram.com/homeandhearth.crafts',
+      },
     ],
   },
-  // Processing — multiple products, mixed quantities (variant present)
+  // Processing — multiple products, DIFFERENT sellers (variant present)
   {
     id: 'WD-10469',
     date: 'Aug 26, 2026',
@@ -398,19 +596,46 @@ const MOCK_ORDERS: Order[] = [
         qty: 2,
         unitPrice: 1800,
         image: productImage('phonecase,smartphone', 18),
+        sellerName: 'Amazon.in',
+        sellerType: 'store',
+        storeUrl: 'https://www.amazon.in',
       },
-      { name: 'Screen protector', qty: 1, unitPrice: 950, image: productImage('smartphone,glass', 19) },
+      {
+        name: 'Screen protector',
+        qty: 1,
+        unitPrice: 950,
+        image: productImage('smartphone,glass', 19),
+        sellerName: 'Flipkart — MobileGuard',
+        sellerType: 'store',
+        storeUrl: 'https://www.flipkart.com',
+      },
     ],
   },
-  // Delivered — multiple products, quantity 1 each
+  // Delivered — multiple products, DIFFERENT sellers
   {
     id: 'WD-10466',
     date: 'Aug 23, 2026',
     status: 'Delivered',
     currency: 'LKR',
     items: [
-      { name: 'Desk organizer tray', qty: 1, unitPrice: 2800, image: productImage('deskorganizer', 20) },
-      { name: 'Bluetooth mini speaker', qty: 1, unitPrice: 7900, image: productImage('speaker,bluetooth', 21) },
+      {
+        name: 'Desk organizer tray',
+        qty: 1,
+        unitPrice: 2800,
+        image: productImage('deskorganizer', 20),
+        sellerName: 'IKEA',
+        sellerType: 'store',
+        storeUrl: 'https://www.ikea.com',
+      },
+      {
+        name: 'Bluetooth mini speaker',
+        qty: 1,
+        unitPrice: 7900,
+        image: productImage('speaker,bluetooth', 21),
+        sellerName: 'Flipkart — SoundWave',
+        sellerType: 'store',
+        storeUrl: 'https://www.flipkart.com',
+      },
     ],
   },
   // Delivered — single product, quantity 1
@@ -426,6 +651,9 @@ const MOCK_ORDERS: Order[] = [
         qty: 1,
         unitPrice: 12990,
         image: productImage('backpack', 22),
+        sellerName: 'Wildcraft',
+        sellerType: 'store',
+        storeUrl: 'https://www.wildcraft.com',
       },
     ],
   },
@@ -442,6 +670,9 @@ const MOCK_ORDERS: Order[] = [
         qty: 1,
         unitPrice: 3450,
         image: productImage('waterbottle,steel', 23),
+        sellerName: '@ecoware.india',
+        sellerType: 'individual',
+        storeUrl: 'https://instagram.com/ecoware.india',
       },
     ],
   },
@@ -452,18 +683,42 @@ const MOCK_ORDERS: Order[] = [
     status: 'Cancelled',
     currency: 'INR',
     items: [
-      { name: 'Skincare starter set', qty: 1, unitPrice: 6750, image: productImage('skincare,cosmetics', 24) },
+      {
+        name: 'Skincare starter set',
+        qty: 1,
+        unitPrice: 6750,
+        image: productImage('skincare,cosmetics', 24),
+        sellerName: 'Nykaa',
+        sellerType: 'store',
+        storeUrl: 'https://www.nykaa.com',
+      },
     ],
   },
-  // Cancelled — multiple products
+  // Cancelled — multiple products, DIFFERENT sellers
   {
     id: 'WD-10455',
     date: 'Aug 12, 2026',
     status: 'Cancelled',
     currency: 'LKR',
     items: [
-      { name: 'Desk lamp', qty: 1, unitPrice: 2600, image: productImage('desklamp', 25) },
-      { name: 'Extension cord', qty: 1, unitPrice: 1100, image: productImage('extensioncord,cable', 26) },
+      {
+        name: 'Desk lamp',
+        qty: 1,
+        unitPrice: 2600,
+        image: productImage('desklamp', 25),
+        sellerName: 'Amazon.in',
+        sellerType: 'store',
+        storeUrl: 'https://www.amazon.in',
+      },
+      {
+        name: 'Extension cord',
+        qty: 1,
+        unitPrice: 1100,
+        image: productImage('extensioncord,cable', 26),
+        sellerName: 'Flipkart — PowerPlus',
+        sellerType: 'store',
+        storeUrl: 'https://www.flipkart.com',
+      },
     ],
   },
   // Cancelled — single product, quantity > 1 (cancellation isn't only qty 1)
@@ -479,19 +734,46 @@ const MOCK_ORDERS: Order[] = [
         qty: 2,
         unitPrice: 1250,
         image: productImage('waterbottle', 27),
+        sellerName: 'Milton',
+        sellerType: 'store',
+        storeUrl: 'https://www.milton.in',
       },
     ],
   },
-  // Delivered — multiple products, mixed quantities
+  // Delivered — multiple products, mixed quantities, DIFFERENT sellers
   {
     id: 'WD-10447',
     date: 'Aug 05, 2026',
     status: 'Delivered',
     currency: 'LKR',
     items: [
-      { name: 'Notebook set', qty: 2, unitPrice: 480, image: productImage('notebook,stationery', 28) },
-      { name: 'Highlighters', qty: 1, unitPrice: 650, image: productImage('highlighter,markers', 29) },
-      { name: 'Sticky notes', qty: 3, unitPrice: 210, image: productImage('stickynotes', 30) },
+      {
+        name: 'Notebook set',
+        qty: 2,
+        unitPrice: 480,
+        image: productImage('notebook,stationery', 28),
+        sellerName: 'Flipkart — Classmate Store',
+        sellerType: 'store',
+        storeUrl: 'https://www.flipkart.com',
+      },
+      {
+        name: 'Highlighters',
+        qty: 1,
+        unitPrice: 650,
+        image: productImage('highlighter,markers', 29),
+        sellerName: 'Amazon.in',
+        sellerType: 'store',
+        storeUrl: 'https://www.amazon.in',
+      },
+      {
+        name: 'Hand-painted sticky notes',
+        qty: 3,
+        unitPrice: 210,
+        image: productImage('stickynotes', 30),
+        sellerName: '@paperandpetal.co',
+        sellerType: 'individual',
+        storeUrl: 'https://instagram.com/paperandpetal.co',
+      },
     ],
   },
 ]

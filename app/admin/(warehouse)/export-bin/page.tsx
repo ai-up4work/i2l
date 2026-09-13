@@ -2,7 +2,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import Link from "next/link"
 import {
   Archive,
   Inbox,
@@ -21,19 +21,14 @@ import type { ExportBinLine } from "@/types/admin"
 // packed" sets Order.packedAt, and leaves the instant markPickedUp is
 // called below — which is also what makes it appear on /admin/in-transit.
 //
-// Previously this page kept its own local MOCK_EXPORT_BIN array in
-// useState, entirely disconnected from Orders/Purchases/Pack & label —
-// "picked up" here didn't write anywhere real, so In transit never saw
-// it. Now `visibleExportBinLines` is derived straight from
-// AdminDataContext's orders (see ExportBinLine in types/admin.ts), and
-// markPickedUp is the same mutation Pack & label's sibling pages use, so
-// a pickup recorded here shows up on In transit immediately and vanishes
-// from this queue on the very next render — no separate "event feed"
-// needed.
-//
-// "Print manifest" has no backend concept yet (no PDF/manifest endpoint
-// exists), so it stays a local, cosmetic confirmation — it doesn't touch
-// order data and there's nothing to keep in sync.
+// ROW BEHAVIOR: clicking a row is now the "move to next stage" action
+// itself — it calls markPickedUp for that single order using whichever
+// courier is currently selected in the toolbar, the same as the bulk
+// button does for a whole selection. It no longer navigates to the order
+// detail page; that's still one click away via the order number, which
+// is its own separate link so it doesn't also trigger a pickup. The
+// checkbox + bulk "Mark picked up" bar stay exactly as they were, for
+// handing off several orders to the same courier at once.
 
 function formatAge(hours: number): string {
   if (hours < 1) return "<1h"
@@ -46,7 +41,6 @@ function formatAge(hours: number): string {
 const COURIERS = ["Domex", "Pronto"] as const
 
 export default function ExportBinPage() {
-  const router = useRouter()
   const { visibleExportBinLines, canActOnExportBinLine, markPickedUp, sites, currentUser, permissions } = useAdminData()
 
   const [query, setQuery] = useState("")
@@ -95,6 +89,23 @@ export default function ExportBinPage() {
     setTimeout(() => setJustPickedUp([]), 4000)
   }
 
+  // Single-row equivalent of handlePickup — fired by clicking the row
+  // itself. Uses the same bulkCourier value the toolbar dropdown
+  // controls, so a row click and a bulk pickup always assign the same
+  // courier without asking twice. Also clears that row out of any
+  // in-progress selection, since it's no longer sitting in the bin.
+  const handleSinglePickup = (orderId: string) => {
+    markPickedUp(orderId, bulkCourier)
+    setJustPickedUp([orderId])
+    setSelected((prev) => {
+      if (!prev.has(orderId)) return prev
+      const next = new Set(prev)
+      next.delete(orderId)
+      return next
+    })
+    setTimeout(() => setJustPickedUp([]), 4000)
+  }
+
   const handlePrintManifest = () => {
     if (selected.size === 0) return
     setManifestPrinted(true)
@@ -121,7 +132,9 @@ export default function ExportBinPage() {
             <div>
               <h1 className="font-display text-3xl font-semibold text-ink">Export bin</h1>
               <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Packed and labeled orders staged for courier pickup at {scopeLabel}.
+                Packed and labeled orders staged for courier pickup at {scopeLabel}. Click a row to hand it off to{" "}
+                <span className="font-medium text-ink/70">{bulkCourier}</span> — pick a different courier below first
+                if needed.
               </p>
             </div>
           </div>
@@ -172,7 +185,7 @@ export default function ExportBinPage() {
           )}
         </div>
 
-        {/* ── Bulk action bar ── */}
+        {/* ── Bulk action bar — also sets the courier used by row clicks ── */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-xs font-medium text-ink/50">
             <input
@@ -199,9 +212,8 @@ export default function ExportBinPage() {
             <select
               value={bulkCourier}
               onChange={(e) => setBulkCourier(e.target.value as (typeof COURIERS)[number])}
-              disabled={selected.size === 0}
-              title="Courier to assign for pickup"
-              className="rounded-xl border border-ink/10 bg-white px-2.5 py-2 text-xs font-medium text-ink/70 outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15 disabled:opacity-40"
+              title="Courier assigned to row clicks and bulk pickup"
+              className="rounded-xl border border-ink/10 bg-white px-2.5 py-2 text-xs font-medium text-ink/70 outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
             >
               {COURIERS.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -215,7 +227,7 @@ export default function ExportBinPage() {
               className="inline-flex items-center gap-1.5 rounded-xl bg-teal-deep px-3.5 py-2 text-xs font-semibold text-parchment transition-colors hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/15"
             >
               <Truck size={14} />
-              Mark picked up
+              Mark picked up ({selected.size || 0})
             </button>
           </div>
         </div>
@@ -248,8 +260,9 @@ export default function ExportBinPage() {
                 line={line}
                 canAct={canActOnExportBinLine(line)}
                 selected={selected.has(line.id)}
+                courier={bulkCourier}
                 onToggleSelect={() => toggleSelect(line.id)}
-                onOpen={() => router.push(`/admin/orders/${line.orderId}`)}
+                onRowClick={() => handleSinglePickup(line.orderId)}
               />
             ))
           )}
@@ -263,20 +276,32 @@ function ExportBinRow({
   line,
   canAct,
   selected,
+  courier,
   onToggleSelect,
-  onOpen,
+  onRowClick,
 }: {
   line: ExportBinLine
   canAct: boolean
   selected: boolean
+  courier: string
   onToggleSelect: () => void
-  onOpen: () => void
+  onRowClick: () => void
 }) {
   return (
     <div
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-parchment/40 sm:grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr] ${
+      role={canAct ? "button" : undefined}
+      tabIndex={canAct ? 0 : undefined}
+      title={canAct ? `Mark picked up by ${courier}` : undefined}
+      onClick={() => canAct && onRowClick()}
+      onKeyDown={(e) => {
+        if (canAct && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault()
+          onRowClick()
+        }
+      }}
+      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 outline-none transition-colors last:border-b-0 sm:grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr] ${
         selected ? "bg-teal/[0.05]" : ""
-      }`}
+      } ${canAct ? "cursor-pointer hover:bg-teal/[0.06] focus-visible:bg-teal/[0.1]" : ""}`}
     >
       <span onClick={(e) => e.stopPropagation()}>
         <input
@@ -288,11 +313,16 @@ function ExportBinRow({
         />
       </span>
 
-      <button type="button" onClick={onOpen} className="min-w-0 text-left">
-        <span className="block truncate text-sm font-semibold text-ink hover:underline">{line.orderNumber}</span>
+      <span className="min-w-0" onClick={(e) => e.stopPropagation()}>
+        <Link
+          href={`/admin/orders/${line.orderId}`}
+          className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
+        >
+          {line.orderNumber}
+        </Link>
         <span className="block truncate text-xs text-ink/45">{line.customerName}</span>
         {!canAct && <span className="block text-[11px] text-ink/35">View only — different site</span>}
-      </button>
+      </span>
 
       <span className="hidden truncate text-sm text-ink/70 sm:block">{line.destination}</span>
 

@@ -449,11 +449,15 @@ export interface InTransitLine {
  * Lightweight directory entry — just enough to label an "assigned to"
  * dropdown and resolve an id back to a display name. Distinct from
  * CurrentUser (which is "who am I logged in as right now").
+ * `siteId` is only meaningful for warehouse entries — sales/manager
+ * aren't site-scoped, same convention as CurrentUser.siteId.
  */
 export interface StaffMember {
   id: string
   name: string
   role: Role
+  /** Only meaningful for Warehouse — mirrors CurrentUser.siteId */
+  siteId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -486,21 +490,33 @@ export interface QuoteHistoryEntry {
   at: string // ISO
 }
 
-export interface Request {
+/**
+ * One product ask within a request — its own link, note, screenshot, and
+ * quote/quoteHistory. A request is an array of these instead of a single
+ * link/note/quote triple, the same way Order.items is an array instead
+ * of special-casing a single-product order. `id` is stable and local to
+ * the request (e.g. "ri1", "ri2"), used to target one item for setQuote.
+ */
+export interface RequestItemAsk {
   id: string
-  customerName: string
   /** The link/URL the customer submitted (Instagram post, boutique site, etc.) */
   link: string
-  /** Customer's free-text note describing what they want */
+  /** Customer's free-text note describing what they want, for this one item */
   note: string
   screenshotUrl?: string
   /** Hostname of `link`, e.g. "instagram.com" — used for a quick source pill */
   sourceDomain: string
-  status: RequestStatus
-  submittedAt: string // ISO
-  /** Present once a human has priced it */
+  /** Present once a human has priced this specific item */
   quote?: number
   quoteHistory: QuoteHistoryEntry[]
+}
+
+export interface Request {
+  id: string
+  customerName: string
+  items: RequestItemAsk[]
+  status: RequestStatus
+  submittedAt: string // ISO
   /** Staff member currently working this request */
   assignedStaffId?: string
   /** 1:1 with a ChatThread — this is how a request and its conversation stay linked */
@@ -545,14 +561,9 @@ export interface ChatThread {
 export interface RequestLine {
   id: string
   customerName: string
-  link: string
-  note: string
-  screenshotUrl?: string
-  sourceDomain: string
+  items: RequestItemAsk[]
   status: RequestStatus
   submittedAt: string
-  quote?: number
-  quoteHistory: QuoteHistoryEntry[]
   assignedStaffId?: string
   assignedStaffName: string
   chatThreadId: string
@@ -562,12 +573,8 @@ export interface RequestLine {
   slaBreached: boolean
   /** Present once this request has been confirmed — the Channel 3 order it became */
   linkedOrderId?: string
-}
-
-export interface StaffMember {
-  id: string
-  name: string
-  role: Role
-  /** Only meaningful for Warehouse — mirrors CurrentUser.siteId */
-  siteId?: string
+  /** True once every item on the request has a quote — gates confirmRequest, same shape as the purchase-gate that blocks an order entering QC until every item is purchased */
+  allItemsQuoted: boolean
+  /** Sum of every item's quote — only meaningful once allItemsQuoted is true */
+  totalQuote?: number
 }

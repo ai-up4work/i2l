@@ -2,7 +2,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import Link from "next/link"
 import {
   CheckCircle2,
   Inbox,
@@ -21,18 +21,13 @@ import { DELIVERY_STATUS_LABEL, type DeliveryStatus, type InTransitLine } from "
 // pipeline stage from "Shipped" to "Delivered" (see markDelivered in
 // AdminDataContext).
 //
-// Previously this page kept its own local MOCK_IN_TRANSIT array in
-// useState, entirely disconnected from Orders/Export bin — a pickup
-// recorded on Export bin never appeared here, and "Mark delivered" just
-// deleted the row locally instead of touching the real order. Now
-// `visibleInTransitLines` is derived straight from AdminDataContext's
-// orders (see InTransitLine in types/admin.ts: one row per order with
-// pickedUpAt set and deliveredAt unset), and markDelivered is the same
-// mutation that finally sets Order.deliveredAt and advances the stage —
-// so a delivery recorded here is reflected on Orders and Pack & label's
-// history immediately, and the row disappears from this queue on the
-// very next render because it no longer matches the "not yet delivered"
-// filter.
+// ROW BEHAVIOR: clicking a row calls markDelivered for that single order
+// immediately, same as the bulk "Mark delivered" button does for a whole
+// selection — it does NOT navigate to the order detail page. The order
+// number is its own separate link (stopPropagation'd) for anyone who
+// still wants to open the order itself. Checkbox + bulk bar are
+// unchanged, for delivering several orders from the same courier run at
+// once.
 
 function formatAge(hours: number): string {
   if (hours < 1) return "<1h"
@@ -61,7 +56,6 @@ const STATUS_TABS: { key: "all" | DeliveryStatus; label: string }[] = [
 ]
 
 export default function InTransitPage() {
-  const router = useRouter()
   const { visibleInTransitLines, canActOnInTransitLine, markDelivered, sites, currentUser, permissions } = useAdminData()
 
   const [query, setQuery] = useState("")
@@ -127,6 +121,20 @@ export default function InTransitPage() {
     setTimeout(() => setJustDelivered([]), 4000)
   }
 
+  // Single-row equivalent — fired by clicking the row itself, instead of
+  // navigating to the order page.
+  const handleSingleDeliver = (orderId: string) => {
+    markDelivered(orderId)
+    setJustDelivered([orderId])
+    setSelected((prev) => {
+      if (!prev.has(orderId)) return prev
+      const next = new Set(prev)
+      next.delete(orderId)
+      return next
+    })
+    setTimeout(() => setJustDelivered([]), 4000)
+  }
+
   const actionableFiltered = filtered.filter(canActOnInTransitLine)
   const allVisibleSelected = actionableFiltered.length > 0 && actionableFiltered.every((l) => selected.has(l.id))
   const overdueCount = counts.overdue ?? 0
@@ -147,7 +155,8 @@ export default function InTransitPage() {
             <div>
               <h1 className="font-display text-3xl font-semibold text-ink">In transit</h1>
               <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Orders handed off to a courier from {scopeLabel}, en route to the customer.
+                Orders handed off to a courier from {scopeLabel}, en route to the customer. Click a row to mark it
+                delivered.
               </p>
             </div>
           </div>
@@ -240,7 +249,7 @@ export default function InTransitPage() {
             className="inline-flex items-center gap-1.5 rounded-xl bg-teal-deep px-3.5 py-2 text-xs font-semibold text-parchment transition-colors hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/15"
           >
             <CheckCircle2 size={14} />
-            Mark delivered
+            Mark delivered ({selected.size || 0})
           </button>
         </div>
 
@@ -282,7 +291,7 @@ export default function InTransitPage() {
                 canAct={canActOnInTransitLine(line)}
                 selected={selected.has(line.id)}
                 onToggleSelect={() => toggleSelect(line.id)}
-                onOpen={() => router.push(`/admin/orders/${line.orderId}`)}
+                onRowClick={() => handleSingleDeliver(line.orderId)}
               />
             ))
           )}
@@ -297,13 +306,13 @@ function InTransitRow({
   canAct,
   selected,
   onToggleSelect,
-  onOpen,
+  onRowClick,
 }: {
   line: InTransitLine
   canAct: boolean
   selected: boolean
   onToggleSelect: () => void
-  onOpen: () => void
+  onRowClick: () => void
 }) {
   const status = line.deliveryStatus
   const deliveryLabel =
@@ -313,9 +322,19 @@ function InTransitRow({
 
   return (
     <div
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-parchment/40 sm:grid-cols-[auto_1.1fr_1fr_0.9fr_0.8fr_0.9fr] ${
+      role={canAct ? "button" : undefined}
+      tabIndex={canAct ? 0 : undefined}
+      title={canAct ? "Mark delivered" : undefined}
+      onClick={() => canAct && onRowClick()}
+      onKeyDown={(e) => {
+        if (canAct && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault()
+          onRowClick()
+        }
+      }}
+      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 outline-none transition-colors last:border-b-0 sm:grid-cols-[auto_1.1fr_1fr_0.9fr_0.8fr_0.9fr] ${
         selected ? "bg-teal/[0.05]" : ""
-      }`}
+      } ${canAct ? "cursor-pointer hover:bg-teal/[0.06] focus-visible:bg-teal/[0.1]" : ""}`}
     >
       <span onClick={(e) => e.stopPropagation()}>
         <input
@@ -327,11 +346,16 @@ function InTransitRow({
         />
       </span>
 
-      <button type="button" onClick={onOpen} className="min-w-0 text-left">
-        <span className="block truncate text-sm font-semibold text-ink hover:underline">{line.orderNumber}</span>
+      <span className="min-w-0" onClick={(e) => e.stopPropagation()}>
+        <Link
+          href={`/admin/orders/${line.orderId}`}
+          className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
+        >
+          {line.orderNumber}
+        </Link>
         <span className="block truncate text-xs text-ink/45">{line.customerName}</span>
         {!canAct && <span className="block text-[11px] text-ink/35">View only — different site</span>}
-      </button>
+      </span>
 
       <span className="hidden items-center gap-1.5 truncate text-sm text-ink/70 sm:flex">
         <MapPinned size={13} className="flex-none text-ink/30" />
