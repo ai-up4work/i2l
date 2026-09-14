@@ -129,6 +129,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
             product_snapshot_id: snapshotId,
             quantity: line.qty,
             selected_options: line.product.selectedOptions ?? null,
+            source: line.product.source ?? 'link',
           },
           { onConflict: 'user_id,product_snapshot_id' },
         )
@@ -183,7 +184,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from('cart_items')
         .select(
-          'quantity, selected_options, added_at, product_snapshots(url, site, title, image_url, currency, price)',
+          'quantity, selected_options, added_at, source, product_snapshots(url, site, title, image_url, currency, price)',
         )
         .eq('user_id', user.id)
 
@@ -201,7 +202,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
             currencyCode: row.product_snapshots.currency,
             sourcePrice: row.product_snapshots.price != null ? String(row.product_snapshots.price) : null,
             selectedOptions: row.selected_options ?? undefined,
-            source: 'link' as const,
+            // Was hardcoded to 'link' here — cart_items now has a real
+            // source column (see wishdrop-cart-items-source-column.sql)
+            // to read back instead. Rows written before that migration
+            // still have source = null, hence the 'link' fallback (the
+            // same default this always used, just now only applied to
+            // genuinely unknown/pre-migration rows instead of everything).
+            source: (row.source as 'catalogue' | 'link' | null) ?? 'link',
           },
           qty: row.quantity,
           addedAt: new Date(row.added_at).getTime(),

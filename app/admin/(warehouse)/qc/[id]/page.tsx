@@ -60,13 +60,31 @@ const STATUS_TONE_FOR: Record<QCStatus, StatusTone> = {
 export default function QCDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
-  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto } = useAdminData()
-  const line = getQcLine(params.id)
+  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading } = useAdminData()
+  // qcLines[].id is `${orderUuid}:${itemUuid}` (see AdminDataContext's
+  // purchaseLines/qcLines derivation) — the colon can arrive
+  // percent-encoded depending on how it was navigated to, exactly like
+  // purchases/[PurchaseId]/page.tsx already accounts for with the same
+  // id shape. This page never did, which is why a line that
+  // demonstrably exists in the list (same qcLines array) could still
+  // fail to be found here.
+  const qcLineId = decodeURIComponent(params.id)
+  const line = getQcLine(qcLineId)
 
   const [status, setStatus] = useState<QCStatus>(line?.status ?? "pending")
   const [note, setNote] = useState(line?.note ?? "")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  if (dataLoading) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-2xl px-6 pb-20 pt-8">
+          <div className="h-40 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+        </div>
+      </div>
+    )
+  }
 
   if (!line) {
     return (

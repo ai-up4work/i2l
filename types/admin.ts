@@ -248,6 +248,8 @@ export interface PurchaseLine {
   customerName: string
   siteId: string
   channel: Channel
+  /** Per-ITEM source, distinct from `channel` (which is per-ORDER — see lib/supabase/orders-admin.ts's file header on why a mixed cart's order-level channel can't reflect every item). Derived from whether this item has a requestLink: a pasted/scraped link, or a genuine catalogue listing. Only meaningful for channel 1/2 orders — a channel 3 item is always 'link' (it always has one) but should be labeled "Manual request" from `channel` instead; see ItemChannelLabel in the Purchases page. */
+  itemSource: 'catalogue' | 'link'
   productTitle: string
   variant?: string
   productImage: string

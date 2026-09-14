@@ -447,6 +447,7 @@ export interface Database {
           quantity: number
           selected_options: Json | null
           added_at: string
+          source: string | null
         }
         Insert: {
           id?: string
@@ -455,6 +456,7 @@ export interface Database {
           quantity?: number
           selected_options?: Json | null
           added_at?: string
+          source?: string | null
         }
         Update: Partial<Database['public']['Tables']['cart_items']['Insert']>
         Relationships: []

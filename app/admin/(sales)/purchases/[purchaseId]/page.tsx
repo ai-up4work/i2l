@@ -81,7 +81,7 @@ function inr(n: number) {
 export default function PurchaseDetailPage() {
   const params = useParams<{ PurchaseId: string }>()
   const router = useRouter()
-  const { getPurchaseLine, canActOnPurchaseLine, markPurchased, flagUnavailable } = useAdminData()
+  const { getPurchaseLine, canActOnPurchaseLine, markPurchased, flagUnavailable, dataLoading } = useAdminData()
 
   const purchaseId = decodeURIComponent(params.PurchaseId)
   const line = getPurchaseLine(purchaseId)
@@ -89,6 +89,16 @@ export default function PurchaseDetailPage() {
   const [actualPrice, setActualPrice] = useState(line?.quotedUnitPriceINR?.toString() ?? "")
   const [issueNote, setIssueNote] = useState(line?.issueNote ?? "")
   const [mode, setMode] = useState<"idle" | "confirming_purchase" | "confirming_issue">("idle")
+
+  if (dataLoading) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment">
+        <div className="mx-auto max-w-3xl px-6 py-16">
+          <div className="h-40 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+        </div>
+      </div>
+    )
+  }
 
   if (!line) {
     return (

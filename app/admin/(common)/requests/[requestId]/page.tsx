@@ -42,6 +42,7 @@ export default function RequestDetailPage() {
     reassignRequest,
     retryScrape,
     staffDirectory,
+    dataLoading,
   } = useAdminData()
 
   // Per-item quote drafts, keyed by RequestItemAsk.id — a request can
@@ -80,6 +81,16 @@ export default function RequestDetailPage() {
   )
 
   if (currentUser.role === "warehouse") return null
+
+  if (dataLoading) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment">
+        <div className="mx-auto max-w-3xl px-6 py-16">
+          <div className="h-40 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+        </div>
+      </div>
+    )
+  }
 
   if (!request) {
     return (

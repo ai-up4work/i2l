@@ -68,6 +68,7 @@ export default function PackLabelDetailPage() {
     generateLabel,
     packOrder,
     sites,
+    dataLoading,
   } = useAdminData()
 
   const line = getPackLine(orderId)
@@ -89,6 +90,16 @@ export default function PackLabelDetailPage() {
       return { item, purchase, qc }
     })
   }, [order, purchaseLines, qcLines])
+
+  if (dataLoading) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-2xl px-6 py-20">
+          <div className="h-40 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+        </div>
+      </div>
+    )
+  }
 
   if (!line || !order) {
     return (

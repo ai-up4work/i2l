@@ -298,6 +298,7 @@ export async function confirmRequestReal(
     quantity: 1,
     unit_price: quote,
     request_link: link,
+    seller_type: 'individual',
   })
   if (itemError) return { ok: false, error: itemError.message }
 

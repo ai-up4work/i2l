@@ -7,6 +7,12 @@ import Image from "next/image"
 import { ChevronRight, Inbox, Layers, Search, SearchX, ShoppingBag, Store } from "lucide-react"
 
 import { STATUS_LABEL, CHANNEL_LABEL } from "@/data/purchases/data"
+
+/** Per-item label: channel 3 is always "Manual request" (unambiguous, never mixed with other channels in one order). Channel 1/2 uses the item's OWN source instead of the order's — see PurchaseLine.itemSource's doc comment for why a mixed cart's order-level channel can't be trusted per item. */
+function itemSourceLabel(line: { channel: number; itemSource: "catalogue" | "link" }): string {
+  if (line.channel === 3) return CHANNEL_LABEL[3]
+  return line.itemSource === "catalogue" ? "Affiliated store" : "Scraped link"
+}
 import type { PurchaseLine, PurchaseStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass } from "@/components/admin/seller/shared"
@@ -329,7 +335,7 @@ function PurchaseRow({
           <Store size={12} className="flex-none text-ink/30" />
           <span className="truncate">{line.sellerName}</span>
         </span>
-        <span className="truncate text-xs text-ink/35">{CHANNEL_LABEL[line.channel]}</span>
+        <span className="truncate text-xs text-ink/35">{itemSourceLabel(line)}</span>
       </span>
 
       <span className="hidden justify-self-end text-sm text-ink/55 sm:block">{line.quantity}</span>

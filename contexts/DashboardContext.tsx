@@ -67,6 +67,8 @@ export type CartOrderLine = {
   image: string
   /** 'catalogue' = added from an affiliated store listing (Channel 1); 'link' = added via a pasted product link that scraped successfully (Channel 2). Determines the resulting order's channel — see confirmCartOrder below. */
   source?: 'catalogue' | 'link'
+  /** CartProduct.site — the affiliated store's slug for a catalogue item, or the scraper's SiteId (e.g. 'amazon', 'flipkart') for a link item. Written to order_items.seller_name so Purchases/QC/etc. show a real seller instead of "Unassigned seller". */
+  site?: string | null
 }
 
 export type ConfirmResult = { ok: boolean; error?: string }
@@ -152,6 +154,26 @@ function sourceDomainFor(url: string): string {
   } catch {
     return 'unknown'
   }
+}
+
+/**
+ * CartProduct.site -> a real seller name for order_items.seller_name:
+ * a domain ("flipkart.com") is shown as-is, a bare slug/platform id
+ * ("flipkart", "fabindia-store") is title-cased. Same logic as the cart
+ * page's own cleanSiteLabel (app/account/cart/page.tsx) — duplicated
+ * rather than imported since that file also has page-specific JSX this
+ * context shouldn't depend on; keep the two in sync if the format ever
+ * changes.
+ */
+function cleanSiteLabel(site: string): string {
+  const trimmed = site.trim().replace(/^www\./i, '')
+  if (trimmed.includes('.')) return trimmed
+  return trimmed
+    .replace(/[-_]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 /**
@@ -269,11 +291,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     const supabase = createClient()
     try {
       if (draft.unitPrice > 0) {
+        const domain = sourceDomainFor(draft.url)
         const snapshotId = await ensureProductSnapshot(supabase, {
           id: draft.url || draft.name,
           title: draft.name,
           image: draft.image,
-          site: null,
+          site: domain,
           price: null,
         })
         const orderId = await createOrderWithRetry(supabase, {
@@ -288,6 +311,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           title: draft.name,
           quantity: draft.qty,
           unit_price: draft.unitPrice,
+          seller_name: cleanSiteLabel(domain),
+          seller_type: 'store',
+          // Always a pasted link on this path (there's no catalogue
+          // variant of confirmRequest) — request_link, not store_url. See
+          // the cart-checkout item builder below for the split's purpose.
+          request_link: draft.url || null,
         })
         if (itemError) throw itemError
       } else {
@@ -393,15 +422,36 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
               id: line.url || line.name,
               title: line.name,
               image: line.image,
-              site: null,
+              site: line.site ?? null,
               price: null,
             })
+            const sellerName = line.site ? cleanSiteLabel(line.site) : undefined
+            const isCatalogue = line.source === 'catalogue'
             return {
               order_id: orderId,
               product_snapshot_id: snapshotId,
               title: line.name,
               quantity: line.qty,
               unit_price: line.unitPriceLKR,
+              seller_name: sellerName ?? null,
+              // Both catalogue and successfully-scraped-link items are
+              // real storefronts, not an individual seller reached only
+              // through manual chat — 'individual' is reserved for
+              // Channel 3 (see confirmRequestReal in
+              // lib/supabase/requests-admin.ts), which never goes
+              // through this cart-checkout path at all.
+              seller_type: 'store',
+              // Split by origin, not just "the URL" — store_url is the
+              // storefront a catalogue listing belongs to; request_link is
+              // the specific link a customer pasted. This distinction is
+              // what lets the admin Purchases page show the right source
+              // per ITEM (Affiliated store vs Scraped link) even when one
+              // cart/order mixes both — order.channel alone can't do that,
+              // since it's a single value for the whole order. See
+              // AdminDataContext's purchaseLines (itemSource) and
+              // components/admin/purchases's per-item label.
+              store_url: isCatalogue ? line.url || null : null,
+              request_link: isCatalogue ? null : line.url || null,
             }
           }),
         )

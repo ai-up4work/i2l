@@ -143,12 +143,23 @@ export default function OrderDetailPage() {
     canAdvanceStage,
     reassignSite,
     addInternalNote,
+    dataLoading,
   } = useAdminData()
 
   const order = getOrder(orderId)
   const [noteDraft, setNoteDraft] = useState("")
   const [advanceError, setAdvanceError] = useState<string | null>(null)
   const [rollbackError, setRollbackError] = useState<string | null>(null)
+
+  if (dataLoading) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-3xl px-6 py-16 lg:px-10">
+          <div className="h-48 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+        </div>
+      </div>
+    )
+  }
 
   if (!order) {
     return (

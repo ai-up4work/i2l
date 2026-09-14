@@ -480,6 +480,7 @@ function CartPageContent() {
         unitPriceLKR: option.actualTotalLKR,
         image: line.product.image ?? '',
         source: line.product.source ?? 'link',
+        site: line.product.site,
       }
     })
 

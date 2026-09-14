@@ -69,8 +69,9 @@ export default function ScrapeHealthPage() {
   const maxVolume = Math.max(...topDomains.map((d) => d.requests30d), 1)
 
   return (
-    <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
-      <header className="max-w-xl">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
+        <header className="max-w-xl">
         <h1 className="font-display text-3xl text-ink">Scrape health</h1>
         <p className="mt-2 text-sm leading-relaxed text-ink/60">
           Every link the scraper can&rsquo;t parse falls back to a manual request, and we log the
@@ -297,6 +298,7 @@ export default function ScrapeHealthPage() {
           )
         })}
       </div>
+    </div>
     </div>
   )
 }

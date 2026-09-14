@@ -852,6 +852,8 @@ interface AdminDataContextValue {
   permissions: Permissions
   sites: Site[]
   staffDirectory: StaffMember[]
+  /** True until the first real Supabase fetch (orders+purchases, requests+chat) resolves. Every page that looks up a specific order/purchase/QC/pack/request line by id from a route param MUST check this before concluding "not found" — on first render after a hard navigation/reload, orders/purchases/requests/chatThreads are still empty placeholders (see REAL DATA ADAPTERS), so an id lookup against them will always miss until this flips to false. */
+  dataLoading: boolean
   orders: Order[]
   visibleOrders: Order[]
   getOrder: (id: string) => Order | undefined
@@ -987,6 +989,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // is needed for these.
   const [requests, setRequests] = useState<Request[]>(INITIAL_REQUESTS)
   const [chatThreads, setChatThreads] = useState<ChatThread[]>(INITIAL_CHAT_THREADS)
+  const [requestsLoading, setRequestsLoading] = useState(true)
   // Request.id -> the request's real `requests.user_id` — needed only by
   // confirmRequest below (creating the Channel 3 order requires the
   // customer's real auth uid), and not otherwise part of the Request
@@ -994,6 +997,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const requestUserIdByRequestId = useRef<Map<string, string>>(new Map())
 
   const loadRealRequests = useCallback(async () => {
+    setRequestsLoading(true)
     const [realRequests, realThreads] = await Promise.all([fetchAdminRequests(), fetchAdminChatThreads()])
     requestUserIdByRequestId.current = new Map(realRequests.map((r) => [r.id, r.userId]))
     setRequests(
@@ -1024,6 +1028,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         })),
       })),
     )
+    setRequestsLoading(false)
   }, [])
 
   useEffect(() => {
@@ -1266,6 +1271,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           customerName: order.customerName,
           siteId: order.siteId,
           channel: order.channel,
+          itemSource: item.requestLink ? "link" : "catalogue",
           productTitle: item.title,
           variant: item.variant,
           productImage: item.productImage ?? FALLBACK_PRODUCT_IMAGE,
@@ -2011,6 +2017,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     permissions,
     sites: SITES,
     staffDirectory: STAFF_DIRECTORY,
+    dataLoading: ordersLoading || requestsLoading,
     orders,
     visibleOrders,
     purchases,
