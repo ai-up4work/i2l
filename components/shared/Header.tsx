@@ -19,6 +19,7 @@ import {
 import BrandMark from "@/components/shared/BrandMark"
 import AirmailStripe, { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
 import { useAuth, type AuthUser } from "@/contexts/AuthContext"
+import { useChat } from "@/contexts/ChatContext"
 import { useCart } from "@/contexts/Cartcontext"
 import { useWishlist } from "@/contexts/Wishlistcontext"
 import { useNotifications, type NotificationCategory } from "@/contexts/Notificationcontext"
@@ -140,6 +141,7 @@ export default function Header({
   const { isAuthenticated, user, loading: authLoading, login, logout } = useAuth()
   const cart = useCart()
   const wishlist = useWishlist()
+  const { handle } = useChat()
   const isAccount = variant === "account"
   const router = useRouter()
 
@@ -581,8 +583,15 @@ export default function Header({
                   className={`${pillButtonClass} lg:px-3`}
                 >
                   <Avatar user={user} sizeClass="h-9 w-9 lg:h-9 lg:w-9" />
-                  <span className="hidden sm:inline text-[13px] font-semibold max-w-[9rem] truncate">
-                    {user.name}
+                  <span className="hidden sm:flex flex-col items-start min-w-0">
+                    <span className="text-[13px] font-semibold max-w-[9rem] truncate leading-tight">
+                      {user.name}
+                    </span>
+                    {handle && (
+                      <span className="text-[11px] font-medium text-ink/45 max-w-[9rem] truncate leading-tight">
+                        {handle}
+                      </span>
+                    )}
                   </span>
                 </button>
               ) : (

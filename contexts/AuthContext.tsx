@@ -11,6 +11,11 @@ export interface AuthUser {
   email: string
   imageUrl?: string
   phoneVerified?: boolean
+  // Sourced from profiles.chat_handle, not auth user_metadata — see
+  // hydrateAuthUser below. null means "no handle set yet" (distinct from
+  // undefined/not-yet-loaded, which callers won't see since we always
+  // resolve this before calling applyUser).
+  chatHandle: string | null
 }
 
 interface AuthContextValue {
@@ -28,6 +33,11 @@ interface AuthContextValue {
   resetPassword: (email: string) => Promise<{ error: string | null }>
   requestPhoneVerification: (phone: string) => Promise<{ error: string | null }>
   verifyPhone: (phone: string, token: string) => Promise<{ error: string | null }>
+  // Re-reads just chat_handle from profiles and merges it into the current
+  // user. Lets other parts of the app (e.g. the profile page, right after a
+  // successful handle update) refresh without waiting for a full auth
+  // round trip, a remount, or a token refresh to pick it up.
+  refreshChatHandle: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -57,7 +67,10 @@ function writeCachedUser(user: AuthUser | null) {
   }
 }
 
-function toAuthUser(user: User | null): AuthUser | null {
+// Everything we can derive from the Supabase auth user alone, before the
+// profiles.chat_handle lookup. Kept separate from AuthUser so it's obvious
+// chatHandle always comes from a second source.
+function toBaseAuthUser(user: User | null): Omit<AuthUser, "chatHandle"> | null {
   if (!user) return null
   const meta = user.user_metadata ?? {}
   return {
@@ -71,13 +84,9 @@ function toAuthUser(user: User | null): AuthUser | null {
 
 // Field-by-field comparison of the derived AuthUser. Supabase re-fires
 // onAuthStateChange on tab focus / token refresh even when the underlying
-// user hasn't changed, and toAuthUser() builds a brand-new object each
+// user hasn't changed, and hydrateAuthUser() builds a brand-new object each
 // time — without this check, every consumer of `user` (and any effect
 // that depends on it) would re-run on every tab-focus event.
-//
-// chat_handle is intentionally NOT part of AuthUser anymore — profiles.
-// chat_handle is the single source of truth, and ChatContext reads it
-// directly from the profiles table instead of trusting auth metadata.
 function sameAuthUser(a: AuthUser | null, b: AuthUser | null): boolean {
   if (a === b) return true
   if (!a || !b) return false
@@ -86,7 +95,8 @@ function sameAuthUser(a: AuthUser | null, b: AuthUser | null): boolean {
     a.name === b.name &&
     a.email === b.email &&
     a.imageUrl === b.imageUrl &&
-    a.phoneVerified === b.phoneVerified
+    a.phoneVerified === b.phoneVerified &&
+    a.chatHandle === b.chatHandle
   )
 }
 
@@ -106,6 +116,33 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     writeCachedUser(next)
   }
 
+  // chat_handle lives only in profiles.chat_handle (not in auth
+  // user_metadata), so building a full AuthUser always costs one extra
+  // round trip alongside whatever auth call produced the raw User.
+  const fetchChatHandle = async (userId: string): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("chat_handle")
+      .eq("id", userId)
+      .maybeSingle()
+    if (error) {
+      console.error("[auth] failed to load chat_handle", error)
+      return null
+    }
+    return data?.chat_handle ?? null
+  }
+
+  // The single place a raw Supabase auth User becomes a full AuthUser.
+  // Every code path that produces a user (initial load, auth state change,
+  // sign up, phone verify) goes through this so chat_handle is never
+  // missing on the object consumers read.
+  const hydrateAuthUser = async (authUser: User | null): Promise<AuthUser | null> => {
+    const base = toBaseAuthUser(authUser)
+    if (!base) return null
+    const chatHandle = await fetchChatHandle(base.id)
+    return { ...base, chatHandle }
+  }
+
   useEffect(() => {
     const cached = readCachedUser()
     if (cached) {
@@ -115,17 +152,21 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
+      const next = await hydrateAuthUser(data.user)
       if (cancelled) return
-      applyUser(toAuthUser(data.user))
+      applyUser(next)
       setLoading(false)
     })
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      applyUser(toAuthUser(session?.user ?? null))
-      setLoading(false)
+      hydrateAuthUser(session?.user ?? null).then((next) => {
+        if (cancelled) return
+        applyUser(next)
+        setLoading(false)
+      })
     })
 
     return () => {
@@ -146,7 +187,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       password,
       options: { data: { full_name: fullName } },
     })
-    if (!error && data.session) applyUser(toAuthUser(data.session.user))
+    if (!error && data.session) applyUser(await hydrateAuthUser(data.session.user))
     return { error: error?.message ?? null, sessionCreated: !!data.session }
   }
 
@@ -173,7 +214,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.verifyOtp({ phone, token, type: "phone_change" })
     if (!error) {
       const { data } = await supabase.auth.getUser()
-      applyUser(toAuthUser(data.user))
+      applyUser(await hydrateAuthUser(data.user))
       if (data.user) {
         const { error: profileError } = await supabase
           .from("profiles")
@@ -183,6 +224,12 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     return { error: error?.message ?? null }
+  }
+
+  const refreshChatHandle = async () => {
+    if (!user) return
+    const chatHandle = await fetchChatHandle(user.id)
+    applyUser({ ...user, chatHandle })
   }
 
   return (
@@ -198,6 +245,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         requestPhoneVerification,
         verifyPhone,
+        refreshChatHandle,
       }}
     >
       {children}
