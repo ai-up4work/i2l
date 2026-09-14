@@ -1,7 +1,7 @@
 // app/admin/(common)/chat/page.tsx
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCheck, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -116,6 +116,17 @@ import AttachmentMedia from '@/components/chat/AttachmentMedia'
 // the scrollable messages div itself) tells the browser it's allowed to
 // constrain their height, so overflow-y-auto actually takes effect and
 // the composer stays pinned at the bottom, visible.
+//
+// SUSPENSE BOUNDARY (added):
+// This page calls useSearchParams() (see selectedId's initializer and
+// handleSelect below) to keep the open thread in sync with ?thread=<id>
+// in the URL. useSearchParams() opts a component out of static
+// prerendering and requires a <Suspense> boundary around whatever reads
+// it, or `next build` fails during prerendering of this route with an
+// opaque, minified error ("Error occurred prerendering page
+// /admin/chat"). The actual page logic lives in AdminChatPageInner
+// (unchanged); the default export below just wraps it in Suspense so
+// the build can prerender a fallback instead of erroring.
 // ---------------------------------------------------------------------------
 
 type ThreadRow = {
@@ -245,7 +256,7 @@ function Avatar({
   )
 }
 
-export default function AdminChatPage() {
+function AdminChatPageInner() {
   const supabaseRef = useRef(createClient())
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -899,5 +910,17 @@ export default function AdminChatPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function AdminChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full w-full items-center justify-center text-ink/50">Loading…</div>
+      }
+    >
+      <AdminChatPageInner />
+    </Suspense>
   )
 }
