@@ -4,6 +4,15 @@ let browserPromise: Promise<Browser> | null = null
 
 const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_EXECUTION_ENV)
 
+// When set, ALL environments (serverless and local/Docker alike) connect
+// to this remote CDP endpoint instead of launching/bundling a local
+// Chromium binary at all. This is what actually fixes "Playwright browser
+// executable not found" in production — no local binary is ever touched.
+// Takes priority over IS_SERVERLESS below.
+const BROWSERLESS_API_KEY = process.env.BROWSERLESS_API_KEY
+const BROWSERLESS_WS_ENDPOINT =
+  process.env.BROWSERLESS_WS_ENDPOINT || 'wss://chrome.browserless.io'
+
 async function getBrowser(): Promise<Browser> {
   // Reuse existing browser if active and connected
   if (browserPromise) {
@@ -15,7 +24,14 @@ async function getBrowser(): Promise<Browser> {
   }
 
   browserPromise = (async () => {
-    if (IS_SERVERLESS) {
+    if (BROWSERLESS_API_KEY) {
+      // Remote browser — no local binary ever touched, works identically
+      // in serverless and Docker/local. playwright-core (no bundled
+      // browsers) is sufficient since nothing is launched locally.
+      const { chromium } = await import('playwright-core')
+      const wsEndpoint = `${BROWSERLESS_WS_ENDPOINT}?token=${BROWSERLESS_API_KEY}`
+      return chromium.connect(wsEndpoint, { timeout: 30000 })
+    } else if (IS_SERVERLESS) {
       // Serverless environment: use sparticuz + playwright-core
       const { chromium: playwright } = await import('playwright-core')
       const chromium = (await import('@sparticuz/chromium')).default

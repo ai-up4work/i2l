@@ -59,12 +59,13 @@ import {
   REQUIRES_RENDER_FOR_VARIANTS as EBAY_REQUIRES_RENDER_FOR_VARIANTS,
   consumeEbayMeta,
 } from '@/lib/scrape/extractors/ebay'
+import { parseFirstCry, SITE_ID as FIRSTCRY_SITE_ID } from './extractors/firstcry'
 // The five platforms below have no dedicated extractor — each is a thin
 // wrapper around the shared OG-tag-only fallback path (see
 // extractors/og-only.ts's doc comment for exactly what that does and
 // doesn't cover). Build a real extractor for any of these the moment it
 // needs variant pickers, MRP, or rating data that OG tags don't carry.
-import { SITE_ID as FIRSTCRY_SITE_ID, parseFirstCry } from './extractors/firstcry'
+import { consumeFirstCryMeta } from './extractors/firstcry'
 import { SITE_ID as NYKAA_SITE_ID, parseNykaa } from './extractors/nykaa'
 import { SITE_ID as HOPSCOTCH_SITE_ID, parseHopscotch } from './extractors/hopscotch'
 import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq } from './extractors/tataCliq'
@@ -704,7 +705,7 @@ async function primeCookies(
 // size/color pickers) only exists after client-side hydration. See
 // STATIC_CONTENT_SUFFICIENT below, which is what actually routes Ajio
 // into this tier despite its static fetch technically "succeeding".
-const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio'])
+const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID])
 
 // Optional per-site selector to wait for before grabbing page.content(),
 // so the render tier doesn't snapshot the page before the bit we
@@ -712,6 +713,11 @@ const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio'])
 const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
   meesho: 'h1, [class*="PriceContainer"]',
   ajio: 'h1.prod-name, div.prod-sp',
+  // Angular Universal SSR's shell for this component is a bare
+  // <app-productdetail-rvp></app-productdetail-rvp> with nothing inside
+  // until hydration — the price node is the cheapest confirmed signal
+  // that real content has landed (see extractors/firstcry.ts header).
+  [FIRSTCRY_SITE_ID]: 'span.h1-name, span.prod-price',
 }
 
 // Per-site check for whether a successful (200 OK, not blocked, not
@@ -727,6 +733,12 @@ const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
 // has actually hydrated.
 const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolean>> = {
   [AJIO_SITE_ID]: (html) => html.includes('class="prod-sp"') || html.includes('class="prod-name"'),
+  // Confirmed against two real, fully-SSR'd FirstCry PDPs: both markers
+  // are present whenever SSR actually succeeded. When SSR is skipped,
+  // the response is just the bare <app-productdetail-rvp> wrapper with
+  // neither marker present — see extractors/firstcry.ts's file header
+  // for the full writeup of when/why this happens.
+  [FIRSTCRY_SITE_ID]: (html) => html.includes('class="h1-name"') && html.includes('prod-price'),
 }
 
 // ---------- Per-site last-resort fallback registry ----------
@@ -1480,8 +1492,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const ebayMeta = consumeEbayMeta(parsed)
   const ajioMeta = consumeAjioMeta(parsed)
   const jiomartMeta = consumeJioMartMeta(parsed)
-  const snapdealMeta = consumeSnapdealMeta(parsed)
-
+  const firstCryMeta = consumeFirstCryMeta(parsed)
   const result: ScrapeResult = { url, site, source, ...parsed }
   if (error) result.warning = error
   if (ogOnly) result.ogOnly = true
@@ -1493,6 +1504,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (amazonGridWarning) {
     result.warning = (result.warning ? result.warning + ' | ' : '') + amazonGridWarning
   }
+  
   if (amazonUnavailable) {
     result.unavailable = true
   }
@@ -1532,12 +1544,13 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (jiomartMeta.unavailable) {
     result.unavailable = true
   }
-  if (snapdealMeta.warning) {
-    result.warning = (result.warning ? result.warning + ' | ' : '') + snapdealMeta.warning
+  if (firstCryMeta.warning) {
+    result.warning = (result.warning ? result.warning + ' | ' : '') + firstCryMeta.warning
   }
-  if (snapdealMeta.unavailable) {
+  if (firstCryMeta.unavailable) {
     result.unavailable = true
   }
+  
 
   if (!result.title) {
     result.warning =

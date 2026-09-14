@@ -264,7 +264,7 @@ export const affiliatedStores: AffiliatedStore[] = [
 
   // ── Local sellers (direct catalog / WhatsApp order flow) ─────────────────
   {
-    platform: 'santhiya-fashions',
+    platform: 'Shopify', // Shopify-powered storefront, but the platform slug is the store's own name
     name: 'Santhiya Fashions',
     logo: '/store-icon/santhiya-fashions.png',
     country: 'India',
