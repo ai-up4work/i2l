@@ -109,9 +109,9 @@ function getGroups(role: Role): Group[] {
       label: "Sourcing",
       items: [
         { label: "Sellers", href: "/admin/sellers", icon: Users, roles: ["manager", "sales"] },
-        { label: "Catalogues", href: "/admin/catalogues", icon: BookOpen, roles: ["manager", "sales"] },
-        { label: "Collections", href: "/admin/collections", icon: Layers, roles: ["manager", "sales"] },
-        { label: "Discounts", href: "/admin/discounts", icon: Percent, roles: ["manager", "sales"] },
+        // { label: "Catalogues", href: "/admin/catalogues", icon: BookOpen, roles: ["manager", "sales"] },
+        // { label: "Collections", href: "/admin/collections", icon: Layers, roles: ["manager", "sales"] },
+        // { label: "Discounts", href: "/admin/discounts", icon: Percent, roles: ["manager", "sales"] },
         { label: "Scrape health", href: "/admin/scrape-health", icon: ClipboardList, roles: ["manager", "sales"] },
       ],
     },
