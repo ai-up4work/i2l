@@ -75,7 +75,7 @@ function StoreRow({ store }: { store: AffiliatedStore }) {
   // send clicks there instead of the internal /stores/[platform] catalog
   // page. Local sellers have no external site, so they keep the internal
   // route.
-  const href = store.url ?? `/stores/${store.platform}`
+  const href = `/stores/${store.platform}`
   const isExternal = Boolean(store.url)
 
   return (

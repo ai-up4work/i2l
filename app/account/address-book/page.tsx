@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { Plus, MapPin, Pencil, Trash2, Star, Loader2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
@@ -13,6 +14,8 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog'
+
+const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
 export type Address = {
   id: string
@@ -61,6 +64,9 @@ function formatAddress(address: Address): string {
     .join(', ')
 }
 
+const inputClass =
+  'w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-ink/35 transition-colors focus:border-teal-deep focus:outline-none focus:ring-2 focus:ring-teal/20'
+
 function AddressCard({
   address,
   onEdit,
@@ -75,13 +81,13 @@ function AddressCard({
   return (
     <div className="relative rounded-2xl border border-ink/10 bg-card p-5">
       {address.isDefault && (
-        <span className="absolute right-5 top-5 rounded-full bg-teal/12 px-2.5 py-1 text-[11px] font-semibold text-teal-deep">
+        <span className="absolute right-5 top-5 rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-semibold text-teal-deep">
           Default
         </span>
       )}
 
       <div className="flex items-start gap-3 pr-20">
-        <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-ink/5 text-ink/45">
+        <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-ink/[0.05] text-ink/45">
           <MapPin size={16} strokeWidth={1.8} />
         </span>
         <div className="min-w-0">
@@ -91,7 +97,7 @@ function AddressCard({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-4 border-t border-ink/5 pt-3.5 pl-12 text-sm font-semibold">
+      <div className="mt-4 flex items-center gap-4 border-t border-ink/[0.06] pt-3.5 pl-12 text-sm font-semibold">
         <button
           type="button"
           onClick={onEdit}
@@ -125,16 +131,17 @@ function AddressCard({
 
 function EmptyState({ onAddAddress }: { onAddAddress: () => void }) {
   return (
-    <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 px-6 py-16 text-center">
-      <span className="grid size-12 place-items-center rounded-full bg-ink/5 text-ink/35">
+    <div className="mx-auto mt-6 flex max-w-2xl flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 px-6 py-16 text-center">
+      <span className="grid size-12 place-items-center rounded-full bg-teal/10 text-teal-deep/40">
         <MapPin size={20} strokeWidth={1.8} />
       </span>
       <p className="text-sm text-ink/55">You haven&apos;t saved any addresses yet.</p>
       <button
         type="button"
         onClick={onAddAddress}
-        className="mt-1 text-sm font-semibold text-teal-deep underline underline-offset-2 hover:text-indigo-deep"
+        className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
       >
+        <Plus size={14} strokeWidth={2} />
         Add your first address
       </button>
     </div>
@@ -149,6 +156,25 @@ const emptyForm = {
   city: '',
   postalCode: '',
   country: 'Sri Lanka',
+}
+
+function AddressBookSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl px-6 pb-16 lg:px-10" aria-hidden="true">
+      <div className="mt-10 flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <div className="h-6 w-40 animate-pulse rounded bg-ink/[0.06]" />
+          <div className="h-4 w-56 animate-pulse rounded bg-ink/[0.06]" />
+        </div>
+        <div className="h-11 w-40 animate-pulse rounded-full bg-ink/[0.06]" />
+      </div>
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="h-[168px] w-full animate-pulse rounded-2xl bg-ink/[0.04]" />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export default function AddressBookPage() {
@@ -296,29 +322,43 @@ export default function AddressBookPage() {
 
   const hasAddresses = addresses.length > 0
 
+  if (loading) {
+    return <AddressBookSkeleton />
+  }
+
   return (
-    <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-display text-3xl text-ink">My Address Book</h1>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: EASE_OUT_EXPO }}
+      className="mx-auto max-w-6xl px-6 pb-16 lg:px-10"
+    >
+      <div className="mt-10 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-xl text-ink sm:text-2xl">My Address Book</h1>
+          <p className="mt-1 text-[13px] text-ink/40">
+            Manage the addresses your orders ship to.
+          </p>
+        </div>
         <button
           type="button"
           onClick={openAddDialog}
-          className="flex items-center gap-2 rounded-lg bg-ink px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-ink/90"
+          className="flex items-center gap-2 rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
         >
           <Plus size={16} strokeWidth={2} />
           Add new address
         </button>
       </div>
 
-      {error && <p className="mt-4 text-sm font-medium text-red-600">{error}</p>}
+      {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
 
-      {loading ? (
-        <div className="mt-16 flex flex-col items-center gap-2 text-ink/50">
-          <Loader2 size={22} className="animate-spin" />
-          <p className="text-sm">Loading your addresses…</p>
-        </div>
-      ) : hasAddresses ? (
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+      {hasAddresses ? (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.05, ease: EASE_OUT_EXPO }}
+          className="mt-8 grid gap-4 sm:grid-cols-2"
+        >
           {addresses.map((address) => (
             <AddressCard
               key={address.id}
@@ -328,7 +368,7 @@ export default function AddressBookPage() {
               onSetDefault={address.isDefault ? undefined : () => handleSetDefault(address.id)}
             />
           ))}
-        </div>
+        </motion.div>
       ) : (
         <EmptyState onAddAddress={openAddDialog} />
       )}
@@ -336,7 +376,9 @@ export default function AddressBookPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit address' : 'Add a new address'}</DialogTitle>
+            <DialogTitle className="font-display text-lg text-ink">
+              {editingId ? 'Edit address' : 'Add a new address'}
+            </DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -345,27 +387,27 @@ export default function AddressBookPage() {
               placeholder="Full name"
               value={form.fullName}
               onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-              className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+              className={inputClass}
             />
             <input
               required
               placeholder="Phone"
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+              className={inputClass}
             />
             <input
               required
               placeholder="Address line 1"
               value={form.line1}
               onChange={(e) => setForm((f) => ({ ...f, line1: e.target.value }))}
-              className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+              className={inputClass}
             />
             <input
               placeholder="Address line 2 (optional)"
               value={form.line2}
               onChange={(e) => setForm((f) => ({ ...f, line2: e.target.value }))}
-              className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+              className={inputClass}
             />
             <div className="grid grid-cols-2 gap-3">
               <input
@@ -373,34 +415,32 @@ export default function AddressBookPage() {
                 placeholder="City"
                 value={form.city}
                 onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
-                className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+                className={inputClass}
               />
               <input
                 placeholder="Postal code"
                 value={form.postalCode}
                 onChange={(e) => setForm((f) => ({ ...f, postalCode: e.target.value }))}
-                className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+                className={inputClass}
               />
             </div>
             <input
               placeholder="Country"
               value={form.country}
               onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
-              className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+              className={inputClass}
             />
 
-            {formError && <p className="text-sm font-medium text-red-600">{formError}</p>}
+            {formError && <p className="text-sm font-semibold text-red-600">{formError}</p>}
 
             <DialogFooter>
-              <DialogClose asChild>
-                <button type="button" className="rounded-xl px-4 py-2.5 text-sm font-semibold text-ink/60">
-                  Cancel
-                </button>
+              <DialogClose className="rounded-full px-4 py-2.5 text-sm font-semibold text-ink/50 transition-colors hover:bg-ink/[0.06] hover:text-ink">
+                Cancel
               </DialogClose>
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-xl bg-teal px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-deep disabled:opacity-60"
+                className="rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add address'}
               </button>
@@ -408,6 +448,6 @@ export default function AddressBookPage() {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </motion.div>
   )
 }
