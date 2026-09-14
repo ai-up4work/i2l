@@ -10,8 +10,148 @@ const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_EXECUTION_EN
 // executable not found" in production — no local binary is ever touched.
 // Takes priority over IS_SERVERLESS below.
 const BROWSERLESS_API_KEY = process.env.BROWSERLESS_API_KEY
+
+// IMPORTANT: `chrome.browserless.io` (the old default here) is Browserless's
+// DEDICATED/ENTERPRISE fleet host as of their current docs — connecting to
+// it on a normal Cloud-Unit account doesn't error, it just hangs until the
+// connect timeout fires, which looks identical to a network problem. Normal
+// accounts need a *regional shared-fleet* host (e.g. production-sfo) and an
+// explicit CDP path. Override via BROWSERLESS_WS_ENDPOINT if your account is
+// on a different region or is a genuine dedicated fleet.
+// See: https://docs.browserless.io/overview/connection-urls
 const BROWSERLESS_WS_ENDPOINT =
-  process.env.BROWSERLESS_WS_ENDPOINT || 'wss://chrome.browserless.io'
+  process.env.BROWSERLESS_WS_ENDPOINT || 'wss://production-sfo.browserless.io/chromium'
+
+// How long to wait for a single connect attempt, and how many attempts to
+// make before giving up on Browserless entirely for this call.
+//
+// NOTE: a "timeout" here is NOT necessarily a network/config problem — if
+// your account is at its concurrency limit, Browserless queues the
+// connection server-side ("queues up to twice your concurrency limit")
+// rather than rejecting it outright, and it may sit queued for a while
+// before a session frees up. A short timeout makes a queued-but-otherwise-
+// fine request look identical to a genuinely broken endpoint. Default is
+// intentionally generous to give the queue a chance to drain; tighten it
+// back down once you've confirmed you're not hitting concurrency limits.
+const BROWSERLESS_CONNECT_TIMEOUT_MS = Number(process.env.BROWSERLESS_CONNECT_TIMEOUT_MS) || 45000
+const BROWSERLESS_CONNECT_MAX_ATTEMPTS = Number(process.env.BROWSERLESS_CONNECT_MAX_ATTEMPTS) || 2
+
+async function connectToBrowserless(): Promise<Browser> {
+  const { chromium } = await import('playwright-core')
+  const separator = BROWSERLESS_WS_ENDPOINT.includes('?') ? '&' : '?'
+  const wsEndpoint = `${BROWSERLESS_WS_ENDPOINT}${separator}token=${BROWSERLESS_API_KEY}`
+
+  let lastErr: unknown
+  for (let attempt = 0; attempt < BROWSERLESS_CONNECT_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await chromium.connect(wsEndpoint, { timeout: BROWSERLESS_CONNECT_TIMEOUT_MS })
+    } catch (e) {
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      // A timeout at this stage is consistent with being queued behind
+      // your plan's concurrency limit rather than a broken connection —
+      // said explicitly here so it doesn't get misread as a dead endpoint
+      // when it's actually a "buy more concurrency, or send fewer
+      // simultaneous scrapes" problem.
+      if (/timeout/i.test(msg)) {
+        console.warn(
+          `[browser-fetch] Browserless connect attempt ${attempt + 1}/${BROWSERLESS_CONNECT_MAX_ATTEMPTS} timed out after ${BROWSERLESS_CONNECT_TIMEOUT_MS}ms. If Browserless's dashboard shows this request as received, this is very likely your account's concurrency limit — the request was queued, not lost. Check the request's status code in the dashboard (429 = over limit, 408 = Browserless's own queue timeout) rather than treating this as a network/config bug.`
+        )
+      }
+      if (attempt < BROWSERLESS_CONNECT_MAX_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 + attempt * 1500))
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+}
+
+// Local/non-serverless launch. Two sub-cases:
+//
+//   - Windows dev machine: default to `channel: 'chrome'` (or `msedge` if
+//     you set LOCAL_BROWSER_CHANNEL=msedge) so Playwright drives your
+//     already-installed system browser instead of needing its own
+//     ~300MB Chromium download via `playwright install`. Zero-download,
+//     but only safe because a Windows dev box almost always has Chrome
+//     or Edge already installed.
+//   - Any other non-serverless environment (Docker/Linux container, a
+//     plain Linux VM, CI): do NOT default to a system channel — a bare
+//     Linux image essentially never has Chrome/Edge preinstalled, so
+//     `channel: 'chrome'` there fails with "unable to find browser
+//     executable" instead of the download-missing error it's meant to
+//     avoid. These environments still need Playwright's own bundled
+//     binary, i.e. `playwright install --with-deps chromium` (or the
+//     other browsers you use) baked into the image/build step.
+//
+// Override in either direction with LOCAL_BROWSER_CHANNEL:
+//   - set to 'chrome' or 'msedge' to force a system-channel launch
+//     anywhere (including Linux, if you know the browser is present)
+//   - set to 'none' to force Playwright's own bundled binary even on
+//     Windows (e.g. if you deliberately want a pinned Chromium version
+//     rather than whatever Chrome build happens to be installed)
+async function launchLocalBrowser(): Promise<Browser> {
+  if (IS_SERVERLESS) {
+    // Serverless environment: use sparticuz + playwright-core
+    const { chromium: playwright } = await import('playwright-core')
+    const chromium = (await import('@sparticuz/chromium')).default
+
+    return playwright.launch({
+      args: [...chromium.args, '--disable-blink-features=AutomationControlled'],
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    })
+  }
+
+  const { chromium } = await import('playwright')
+
+  const override = process.env.LOCAL_BROWSER_CHANNEL // 'chrome' | 'msedge' | 'none' | undefined
+  const isWindowsDev = process.platform === 'win32'
+
+  let channel: 'chrome' | 'msedge' | undefined
+  if (override === 'chrome' || override === 'msedge') {
+    channel = override
+  } else if (override !== 'none' && isWindowsDev) {
+    channel = 'chrome'
+  }
+
+  try {
+    return await chromium.launch({
+      ...(channel ? { channel } : {}),
+      headless: true,
+      args: [
+        '--headless=new',
+        '--disable-blink-features=AutomationControlled',
+        '--no-sandbox',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-component-extensions-with-background-pages',
+      ],
+    })
+  } catch (e) {
+    // If a system-channel launch fails (e.g. Chrome genuinely isn't
+    // installed despite being on Windows), fall back to Playwright's own
+    // bundled binary rather than failing outright — this only helps if
+    // `playwright install` has actually been run at some point; if not,
+    // the resulting error is the same "executable doesn't exist" message
+    // as before, which is the correct signal to run that command.
+    if (channel) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(
+        `[browser-fetch] Launch via channel "${channel}" failed (${msg}). Falling back to Playwright's bundled Chromium — if that also fails, run \`pnpm exec playwright install chromium\`.`
+      )
+      return chromium.launch({
+        headless: true,
+        args: [
+          '--headless=new',
+          '--disable-blink-features=AutomationControlled',
+          '--no-sandbox',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-component-extensions-with-background-pages',
+        ],
+      })
+    }
+    throw e
+  }
+}
 
 async function getBrowser(): Promise<Browser> {
   // Reuse existing browser if active and connected
@@ -25,36 +165,25 @@ async function getBrowser(): Promise<Browser> {
 
   browserPromise = (async () => {
     if (BROWSERLESS_API_KEY) {
-      // Remote browser — no local binary ever touched, works identically
-      // in serverless and Docker/local. playwright-core (no bundled
-      // browsers) is sufficient since nothing is launched locally.
-      const { chromium } = await import('playwright-core')
-      const wsEndpoint = `${BROWSERLESS_WS_ENDPOINT}?token=${BROWSERLESS_API_KEY}`
-      return chromium.connect(wsEndpoint, { timeout: 30000 })
-    } else if (IS_SERVERLESS) {
-      // Serverless environment: use sparticuz + playwright-core
-      const { chromium: playwright } = await import('playwright-core')
-      const chromium = (await import('@sparticuz/chromium')).default
-
-      return playwright.launch({
-        args: [...chromium.args, '--disable-blink-features=AutomationControlled'],
-        executablePath: await chromium.executablePath(),
-        headless: true,
-      })
-    } else {
-      // Node.js server / Docker / Local dev environment
-      const { chromium } = await import('playwright')
-      return chromium.launch({
-        headless: true,
-        args: [
-          '--headless=new',
-          '--disable-blink-features=AutomationControlled',
-          '--no-sandbox',
-          '--disable-features=IsolateOrigins,site-per-process',
-          '--disable-component-extensions-with-background-pages',
-        ],
-      })
+      try {
+        return await connectToBrowserless()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Don't let a bad token, wrong region, or Browserless outage take
+        // down every render-tier scrape — fall back to a locally launched
+        // browser (same path used when BROWSERLESS_API_KEY isn't set at
+        // all) so the request can still succeed. This is a real, loggable
+        // problem worth fixing (it means the "no local binary ever
+        // touched" guarantee isn't holding), so it's surfaced loudly here
+        // rather than silently swallowed.
+        console.error(
+          `[browser-fetch] Browserless connect failed after ${BROWSERLESS_CONNECT_MAX_ATTEMPTS} attempt(s) via ${BROWSERLESS_WS_ENDPOINT} (${msg}). Falling back to a locally launched browser. ` +
+            `Check: (1) BROWSERLESS_API_KEY is valid and unexpired, (2) BROWSERLESS_WS_ENDPOINT matches your account's actual region/fleet — 'chrome.browserless.io' is the dedicated-fleet host and will hang, not error, if your account isn't on a dedicated fleet, (3) you haven't hit your plan's concurrency limit.`
+        )
+        return await launchLocalBrowser()
+      }
     }
+    return launchLocalBrowser()
   })()
 
   return browserPromise
