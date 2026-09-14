@@ -1,329 +1,426 @@
-'use client'
+// app/admin/orders/[orderId]/page.tsx
+"use client"
 
-import { useEffect, useState, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquareText, Send } from 'lucide-react'
-import { useAdminData } from '@/contexts/AdminDataContext'
-import { StatusPill } from '@/components/admin/warehouse/status-pill'
-import {
-  fetchAdminOrder,
-  fetchOrderStageHistory,
-  fetchOrderInternalNotes,
-  fetchSites,
-  setOrderStage,
-  setOrderDelayed,
-  reassignOrderSite,
-  addInternalNote,
-  STAGE_ORDER,
-  STAGE_LABEL,
-  CHANNEL_LABEL,
-  type AdminOrder,
-  type StageHistoryEvent,
-  type InternalNote,
-  type DbOrderStage,
-} from '@/lib/supabase/orders-admin'
+import { useState } from "react"
+import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
+import { ArrowLeft, ChevronRight, MessageSquare, PencilLine } from "lucide-react"
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
+import { STAGE_ORDER, CHANNEL_LABEL, type OrderStage } from "@/types/admin"
+import type { StatusTone } from "@/components/admin/warehouse/status-pill"
+import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
+
+// Order detail — restyled to match the card language now shared with
+// /admin/orders and the customer-facing "My Orders" page: a left-edge
+// status accent on the header card, the item image stack in place of a
+// plain text block, and small item thumbnails in the items list instead
+// of text-only rows. Backed by the same useAdminData() store the list
+// page and Purchases read from, so nothing here is a local copy —
+// editing stage/site/notes here is reflected everywhere else
+// immediately.
+//
+// The Advance/Roll back buttons are the OVERRIDE tool, gated on
+// canOverrideOrderStage (Manager only) — not canMutateOrderStage, which
+// still governs the real per-stage actions on QC/Pack & label/Export
+// bin/In transit for Warehouse-at-own-site + Manager-anywhere. A
+// Warehouse user opening this page sees the stage pips and history as
+// read-only, with a note pointing them to the actual queue action.
+
+const TONE_PILL: Record<StatusTone, string> = {
+  teal: "bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25",
+  amber: "bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30",
+  rose: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200",
+}
+const TONE_DOT: Record<StatusTone, string> = {
+  teal: "bg-teal-deep",
+  amber: "bg-gold-deep",
+  rose: "bg-rose-600",
+}
+const INK_PILL = "bg-ink/[0.04] text-ink/60 ring-1 ring-inset ring-ink/10"
+const INK_DOT = "bg-ink/30"
+
+const FALLBACK_PRODUCT_IMAGE =
+  "https://images.pexels.com/photos/5632402/pexels-photo-5632402.jpeg?auto=compress&cs=tinysrgb&w=400&h=400&fit=crop"
+
+function Pill({ tone, children }: { tone: StatusTone | "ink"; children: React.ReactNode }) {
+  const pillClass = tone === "ink" ? INK_PILL : TONE_PILL[tone]
+  const dotClass = tone === "ink" ? INK_DOT : TONE_DOT[tone]
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${pillClass}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
+      {children}
+    </span>
+  )
 }
 
-export default function AdminOrderDetailPage() {
-  const params = useParams<{ orderId: string }>()
+function DelayedPill() {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-rose-600" />
+      Delayed
+    </span>
+  )
+}
+
+const CHANNEL_TONE: Record<1 | 2 | 3, StatusTone | "ink"> = { 1: "teal", 2: "ink", 3: "amber" }
+const STAGE_TONE: Record<OrderStage, StatusTone | "ink"> = {
+  "Ordered": "ink",
+  "Quality check": "amber",
+  "Shipped": "teal",
+  "Delivered": "teal",
+}
+
+// Same accent rule as the list page — delayed always reads as rose,
+// otherwise the stage tone. Kept in sync deliberately so a card looks
+// like the same order whether you're scanning the list or looking at
+// its detail page.
+function orderAccent(stage: OrderStage, delayed: boolean): string {
+  if (delayed) return "border-l-rose-500"
+  switch (stage) {
+    case "Ordered":
+      return "border-l-ink/15"
+    case "Quality check":
+      return "border-l-gold-deep"
+    case "Shipped":
+    case "Delivered":
+      return "border-l-teal-deep"
+  }
+}
+
+function StagePips({ current }: { current: OrderStage }) {
+  const currentIdx = STAGE_ORDER.indexOf(current)
+  return (
+    <div className="flex items-center">
+      {STAGE_ORDER.map((stage, i) => {
+        const done = i < currentIdx
+        const active = i === currentIdx
+        return (
+          <div key={stage} className="flex flex-1 items-center last:flex-none">
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={`grid h-7 w-7 place-items-center rounded-full text-xs font-semibold ${
+                  active
+                    ? "bg-teal-deep text-white"
+                    : done
+                    ? "bg-teal/15 text-teal-deep"
+                    : "bg-ink/[0.05] text-ink/35"
+                }`}
+              >
+                {i + 1}
+              </div>
+              <span className={`text-[11px] font-medium ${active ? "text-ink" : "text-ink/45"}`}>{stage}</span>
+            </div>
+            {i < STAGE_ORDER.length - 1 && (
+              <div className={`mx-2 h-px flex-1 ${done ? "bg-teal-deep/40" : "bg-ink/10"}`} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-ink/10 bg-card p-5">
+      <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
+      <div className="mt-4">{children}</div>
+    </section>
+  )
+}
+
+export default function OrderDetailPage() {
+  const { orderId } = useParams<{ orderId: string }>()
   const router = useRouter()
-  const { currentUser, permissions } = useAdminData()
+  const {
+    getOrder,
+    sites,
+    currentUser,
+    permissions,
+    advanceStage,
+    rollbackStage,
+    canAdvanceStage,
+    reassignSite,
+    addInternalNote,
+  } = useAdminData()
 
-  const [order, setOrder] = useState<AdminOrder | null>(null)
-  const [history, setHistory] = useState<StageHistoryEvent[]>([])
-  const [notes, setNotes] = useState<InternalNote[]>([])
-  const [sites, setSites] = useState<{ id: string; name: string }[]>([])
-  const [loading, setLoading] = useState(true)
-  const [noteDraft, setNoteDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const load = useCallback(async () => {
-    const [o, s] = await Promise.all([fetchAdminOrder(params.orderId), fetchSites()])
-    setOrder(o)
-    setSites(s)
-    if (o) {
-      const [h, n] = await Promise.all([fetchOrderStageHistory(o.id), fetchOrderInternalNotes(o.id)])
-      setHistory(h)
-      setNotes(n)
-    }
-    setLoading(false)
-  }, [params.orderId])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  const canMutate =
-    permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || order?.siteId === currentUser.siteId)
-
-  async function handleStageChange(stage: DbOrderStage) {
-    if (!order) return
-    setBusy(true)
-    const res = await setOrderStage(order.id, stage, currentUser.id)
-    setBusy(false)
-    if (res.ok) load()
-    else alert(res.error ?? 'Could not update stage')
-  }
-
-  async function handleDelayedToggle() {
-    if (!order) return
-    setBusy(true)
-    const res = await setOrderDelayed(order.id, !order.delayed)
-    setBusy(false)
-    if (res.ok) load()
-  }
-
-  async function handleReassign(siteId: string) {
-    if (!order) return
-    setBusy(true)
-    const res = await reassignOrderSite(order.id, siteId, currentUser.id)
-    setBusy(false)
-    if (res.ok) load()
-  }
-
-  async function handleAddNote() {
-    if (!order || !noteDraft.trim()) return
-    setBusy(true)
-    const res = await addInternalNote(order.id, currentUser.id, noteDraft.trim())
-    setBusy(false)
-    if (res.ok) {
-      setNoteDraft('')
-      load()
-    }
-  }
-
-  if (loading) {
-    return <div className="h-64 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
-  }
+  const order = getOrder(orderId)
+  const [noteDraft, setNoteDraft] = useState("")
+  const [advanceError, setAdvanceError] = useState<string | null>(null)
+  const [rollbackError, setRollbackError] = useState<string | null>(null)
 
   if (!order) {
     return (
-      <div className="rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-16 text-center">
-        <p className="font-body text-sm text-ink/50">Order not found.</p>
-        <Link href="/admin/orders" className="mt-3 inline-block font-body text-sm text-teal-deep underline">
-          Back to orders
-        </Link>
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center lg:px-10">
+          <p className="text-sm text-ink/50">Order {orderId} not found.</p>
+          <button
+            type="button"
+            onClick={() => router.push("/admin/orders")}
+            className="mt-3 text-sm font-medium text-teal-deep hover:underline"
+          >
+            Back to orders
+          </button>
+        </div>
       </div>
     )
   }
 
-  const stageIdx = STAGE_ORDER.indexOf(order.stage as DbOrderStage)
+  const canOverride = permissions.canOverrideOrderStage
+  const canAddNote =
+    permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || order.siteId === currentUser.siteId)
+
+  const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
+  const stageIdx = STAGE_ORDER.indexOf(order.stage)
+  const advanceCheck = canAdvanceStage(order.id)
+  const accent = orderAccent(order.stage, order.delayed)
+
+  const handleAdvance = () => {
+    const result = advanceStage(order.id)
+    setAdvanceError(result.allowed ? null : result.reason ?? "This order can't advance yet.")
+  }
+
+  const handleRollback = () => {
+    const result = rollbackStage(order.id)
+    setRollbackError(result.allowed ? null : result.reason ?? "This order can't roll back.")
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <button
-        onClick={() => router.push('/admin/orders')}
-        className="inline-flex w-fit items-center gap-1.5 font-body text-sm text-ink/50 hover:text-ink"
-      >
-        <ArrowLeft size={14} /> Back to orders
-      </button>
+    <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+      <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
+        <button
+          type="button"
+          onClick={() => router.push("/admin/orders")}
+          className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-ink/50 hover:text-ink"
+        >
+          <ArrowLeft size={15} />
+          Back to Orders
+        </button>
 
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-ink/10 bg-card p-6">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-mono text-xl font-semibold text-ink">{order.displayId}</h1>
-            <StatusPill label={CHANNEL_LABEL[order.channel]} tone={order.channel === 3 ? 'amber' : 'teal'} />
-            {order.delayed && <StatusPill label="Delayed" tone="rose" />}
-          </div>
-          <p className="mt-1 font-body text-sm text-ink/65">{order.customerName} · {order.customerEmail}</p>
-          <p className="mt-0.5 font-body text-xs text-ink/40">
-            Placed {formatDateTime(order.createdAt)} · {order.siteName ?? 'No site assigned'}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="font-display text-2xl font-semibold text-ink">
-            {order.currency} {order.totalValue.toLocaleString()}
-          </p>
-          <p className="mt-1 font-body text-xs text-ink/40">Current stage: {STAGE_LABEL[order.stage as DbOrderStage] ?? order.stage}</p>
-        </div>
-      </div>
-
-      {/* Stage stepper */}
-      <div className="rounded-2xl border border-ink/10 bg-card p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-base font-semibold text-ink">Pipeline stage</h2>
-          {order.stage !== 'delivered' && canMutate && (
-            <div className="flex items-center gap-2">
-              <button
-                disabled={busy || stageIdx <= 0}
-                onClick={() => handleStageChange(STAGE_ORDER[stageIdx - 1])}
-                className="inline-flex items-center gap-1 rounded-full border border-ink/15 px-3 py-1.5 font-body text-xs font-semibold text-ink disabled:opacity-30"
-              >
-                <ChevronLeft size={13} /> Roll back
-              </button>
-              <button
-                disabled={busy || stageIdx >= STAGE_ORDER.length - 1}
-                onClick={() => handleStageChange(STAGE_ORDER[stageIdx + 1])}
-                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 font-body text-xs font-semibold text-parchment disabled:opacity-30"
-              >
-                Advance <ChevronRight size={13} />
-              </button>
+        {/* ── Header card — accent + image stack, matches the list/customer card language ── */}
+        <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${accent}`}>
+          <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center">
+            <div className="h-28 w-full flex-none sm:w-56">
+              <AnimatedItemCardStack items={order.items} className="h-full" />
             </div>
-          )}
-        </div>
-        <div className="mt-4 flex items-center gap-1">
-          {STAGE_ORDER.map((s, i) => (
-            <div key={s} className="flex flex-1 items-center gap-1">
-              <div className="flex flex-col items-center gap-1.5">
-                <div
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    i <= stageIdx ? 'bg-teal-deep' : 'bg-ink/15'
-                  }`}
-                />
-                <span className={`whitespace-nowrap font-body text-[10px] ${i <= stageIdx ? 'text-ink/70' : 'text-ink/30'}`}>
-                  {STAGE_LABEL[s]}
-                </span>
-              </div>
-              {i < STAGE_ORDER.length - 1 && (
-                <div className={`h-px flex-1 ${i < stageIdx ? 'bg-teal-deep' : 'bg-ink/10'}`} />
-              )}
-            </div>
-          ))}
-        </div>
 
-        {canMutate && (
-          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-ink/10 pt-4">
-            <label className="flex items-center gap-2 font-body text-xs text-ink/60">
-              <input type="checkbox" checked={order.delayed} onChange={handleDelayedToggle} disabled={busy} />
-              Flag as delayed
-            </label>
-            {permissions.canReassignSite && sites.length > 0 && (
-              <label className="flex items-center gap-2 font-body text-xs text-ink/60">
-                Site
-                <select
-                  value={order.siteId ?? ''}
-                  onChange={(e) => handleReassign(e.target.value)}
-                  disabled={busy}
-                  className="rounded-lg border border-ink/15 bg-parchment px-2 py-1 font-body text-xs text-ink"
-                >
-                  <option value="" disabled>
-                    Unassigned
-                  </option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
-        {/* Items */}
-        <div className="rounded-2xl border border-ink/10 bg-card p-6">
-          <h2 className="font-display text-base font-semibold text-ink">Items</h2>
-          <div className="mt-4 flex flex-col divide-y divide-ink/10">
-            {order.items.map((item) => (
-              <div key={item.id} className="flex items-center gap-4 py-3">
-                {item.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.image} alt="" className="h-14 w-14 flex-none rounded-lg object-cover" />
-                ) : (
-                  <div className="h-14 w-14 flex-none rounded-lg bg-parchment" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-body text-sm font-medium text-ink">{item.title}</p>
-                  <p className="font-body text-xs text-ink/45">
-                    {[item.variant, `Qty: ${item.quantity}`].filter(Boolean).join(' · ')}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <h1 className="font-display text-2xl text-ink">{order.id}</h1>
+                    {order.delayed && <DelayedPill />}
+                  </div>
+                  <p className="mt-1.5 text-sm text-ink/55">
+                    {order.customerName} <span className="text-ink/25">·</span> {siteName}{" "}
+                    <span className="text-ink/25">·</span> placed {formatAge(hoursSince(order.placedAt))} ago
                   </p>
-                  {order.channel === 3 && item.requestLink && (
-                    <a href={item.requestLink} target="_blank" rel="noreferrer" className="font-body text-xs text-teal-deep underline">
-                      Original request link
-                    </a>
-                  )}
-                  {item.sellerName && (
-                    <p className="font-body text-xs text-ink/40">
-                      {item.sellerName}
-                      {item.storeUrl && ' · storefront'}
-                    </p>
-                  )}
-                </div>
-                <p className="flex-none font-body text-sm font-semibold text-ink">
-                  {order.currency} {item.unitPrice.toLocaleString()}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {order.recipient && (
-            <div className="mt-4 rounded-xl bg-parchment/60 p-4">
-              <p className="font-body text-xs font-semibold uppercase tracking-wide text-ink/35">Delivering to</p>
-              <p className="mt-1 font-body text-sm text-ink/70">
-                {order.recipient.name} — {order.recipient.city}, {order.recipient.country}
-              </p>
-            </div>
-          )}
-
-          {order.chatThreadId && (
-            <Link
-              href={`/admin/chat?thread=${order.chatThreadId}`}
-              className="mt-4 inline-flex items-center gap-1.5 font-body text-xs font-semibold text-teal-deep"
-            >
-              <MessageSquareText size={13} /> Open linked chat thread
-            </Link>
-          )}
-        </div>
-
-        {/* Stage history + internal notes */}
-        <div className="flex flex-col gap-6">
-          <div className="rounded-2xl border border-ink/10 bg-card p-6">
-            <h2 className="font-display text-base font-semibold text-ink">Stage history</h2>
-            <div className="mt-4 flex flex-col gap-3">
-              {history.length === 0 && <p className="font-body text-xs text-ink/40">No transitions logged yet.</p>}
-              {history.map((h) => (
-                <div key={h.id} className="flex items-start gap-3">
-                  <div className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-teal-deep" />
-                  <div>
-                    <p className="font-body text-sm text-ink">
-                      {STAGE_LABEL[h.stage as DbOrderStage] ?? h.stage}
-                      <span className="ml-2 font-body text-xs text-ink/40">
-                        {formatDateTime(h.at)} · {h.byStaffName ?? 'System'}
-                      </span>
-                    </p>
-                    {h.note && <p className="mt-0.5 font-body text-xs text-ink/50">{h.note}</p>}
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <Pill tone={CHANNEL_TONE[order.channel]}>
+                      Ch. {order.channel} · {CHANNEL_LABEL[order.channel]}
+                    </Pill>
+                    {order.isManualQuote && <Pill tone="amber">Manual quote</Pill>}
+                    <Pill tone={STAGE_TONE[order.stage]}>{order.stage}</Pill>
                   </div>
                 </div>
-              ))}
+
+                <div className="text-right">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total</p>
+                  <p className="mt-0.5 font-display text-xl text-ink">₹{order.totalValue.toLocaleString("en-IN")}</p>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-card p-6">
-            <h2 className="font-display text-base font-semibold text-ink">Internal notes</h2>
-            <p className="mt-1 font-body text-xs text-ink/40">Ops-only — never shown to the customer.</p>
-            <div className="mt-4 flex gap-2">
-              <input
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                placeholder="Add a note…"
-                className="flex-1 rounded-xl border border-ink/15 bg-parchment px-3 py-2 font-body text-sm text-ink outline-none focus:border-teal"
-              />
-              <button
-                onClick={handleAddNote}
-                disabled={busy || !noteDraft.trim()}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-ink px-3 py-2 font-body text-xs font-semibold text-parchment disabled:opacity-40"
-              >
-                <Send size={13} />
-              </button>
-            </div>
-            <div className="mt-4 flex flex-col gap-3">
-              {notes.length === 0 && <p className="font-body text-xs text-ink/40">No internal notes yet.</p>}
-              {notes.map((n) => (
-                <div key={n.id} className="rounded-lg bg-parchment/60 p-3">
-                  <p className="font-body text-sm text-ink/75">{n.text}</p>
-                  <p className="mt-1 font-body text-[11px] text-ink/40">
-                    {n.staffName ?? 'Staff'} · {formatDateTime(n.at)}
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Main column */}
+          <div className="space-y-6 lg:col-span-2">
+            {/* Stage control */}
+            <SectionCard title="Pipeline stage">
+              <StagePips current={order.stage} />
+
+              {canOverride ? (
+                <div className="mt-5 border-t border-ink/[0.06] pt-4">
+                  <p className="mb-3 text-xs text-ink/40">
+                    Manager override — normally this order advances on its own via Quality check, Pack &amp; label, and In transit.
                   </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRollback}
+                      disabled={stageIdx <= 0}
+                      className="rounded-xl border border-ink/10 px-3.5 py-1.5 text-sm font-medium text-ink/60 hover:bg-ink/[0.04] hover:text-ink disabled:opacity-40"
+                    >
+                      ← Roll back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAdvance}
+                      disabled={stageIdx >= STAGE_ORDER.length - 1 || !advanceCheck.allowed}
+                      title={!advanceCheck.allowed ? advanceCheck.reason : undefined}
+                      className="rounded-xl bg-teal-deep px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-teal disabled:opacity-40"
+                    >
+                      Advance →
+                    </button>
+                  </div>
+                  {stageIdx < STAGE_ORDER.length - 1 && !advanceCheck.allowed && (
+                    <p className="mt-2 text-xs text-rose-600">{advanceCheck.reason}</p>
+                  )}
+                  {advanceError && advanceError !== advanceCheck.reason && (
+                    <p className="mt-2 text-xs text-rose-600">{advanceError}</p>
+                  )}
+                  {rollbackError && <p className="mt-2 text-xs text-rose-600">{rollbackError}</p>}
                 </div>
-              ))}
-            </div>
+              ) : (
+                <p className="mt-5 border-t border-ink/[0.06] pt-4 text-sm text-ink/40">
+                  This order moves forward automatically as it clears Purchases, Quality check, Pack &amp; label, and In
+                  transit — only a manager can directly override its stage from here.
+                </p>
+              )}
+
+              {permissions.canReassignSite && (
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink/[0.06] pt-4">
+                  <label className="text-sm text-ink/55">Reassign site</label>
+                  <select
+                    value={order.siteId}
+                    onChange={(e) => reassignSite(order.id, e.target.value)}
+                    className="rounded-lg border border-ink/10 bg-card px-2.5 py-1.5 text-sm text-ink outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+                  >
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-ink/40">Restarts QC at the new site if mid-QC.</span>
+                </div>
+              )}
+            </SectionCard>
+
+            {/* Items — channel-aware, now with a thumbnail per row */}
+            <SectionCard title="Items">
+              <ul className="space-y-2.5">
+                {order.items.map((item) => (
+                  <li key={item.id} className="flex gap-3 rounded-xl border border-ink/[0.06] bg-parchment/40 p-3.5 text-sm">
+                    <img
+                      src={item.productImage ?? FALLBACK_PRODUCT_IMAGE}
+                      alt={item.title}
+                      className="h-14 w-14 flex-none rounded-lg bg-ink/5 object-contain"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-ink">{item.title}</span>
+                        <span className="shrink-0 text-ink/40">×{item.quantity}</span>
+                      </div>
+                      {item.variant && <p className="mt-1 text-xs text-ink/50">{item.variant}</p>}
+                      {item.sku && <p className="mt-1 text-xs text-ink/45">Catalog SKU: {item.sku}</p>}
+                      {item.sourceSnapshot && (
+                        <p className="mt-1 text-xs text-ink/45">Source snapshot: {item.sourceSnapshot}</p>
+                      )}
+                      {item.requestLink && (
+                        <p className="mt-1 text-xs text-ink/45">
+                          Original request link: <span className="underline">{item.requestLink}</span>
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="/admin/purchases"
+                className="mt-3 inline-block text-xs font-semibold text-teal-deep hover:underline"
+              >
+                Manage purchasing for these items →
+              </Link>
+            </SectionCard>
+
+            {/* Stage history — timeline */}
+            <SectionCard title="Stage history">
+              <ol className="space-y-4">
+                {order.stageHistory.map((ev, i) => (
+                  <li key={i} className="relative pl-5">
+                    <span className="absolute left-0 top-1.5 h-2 w-2 rounded-full bg-teal-deep/70" />
+                    {i < order.stageHistory.length - 1 && (
+                      <span className="absolute left-[3px] top-3.5 h-[calc(100%+0.5rem)] w-px bg-ink/10" />
+                    )}
+                    <p className="text-sm font-medium text-ink">{ev.stage}</p>
+                    <p className="text-xs text-ink/40">
+                      {new Date(ev.at).toLocaleString()} · {ev.by}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </SectionCard>
+          </div>
+
+          {/* Side column */}
+          <div className="space-y-6">
+            {/* Linked chat thread */}
+            <SectionCard title="Chat thread">
+              {order.linkedRequestId ? (
+                <Link
+                  href={`/admin/chat?requestId=${order.linkedRequestId}`}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-teal/10 px-3.5 py-2 text-sm font-medium text-teal-deep hover:bg-teal/15"
+                >
+                  <MessageSquare size={14} />
+                  Open thread for {order.linkedRequestId}
+                  <ChevronRight size={14} className="text-teal-deep/50" />
+                </Link>
+              ) : (
+                <p className="text-sm text-ink/35">No linked request for this order.</p>
+              )}
+            </SectionCard>
+
+            {/* Internal notes — never customer-visible, never fed into chat.
+                Amber tint matches the "manual quote" pill — both mark things
+                a human wrote/priced by hand rather than the system. */}
+            <section className="rounded-2xl border border-gold/30 bg-gold/[0.06] p-5">
+              <h2 className="flex items-center gap-1.5 font-display text-base font-semibold text-ink">
+                <PencilLine size={15} className="text-gold-deep" />
+                Internal notes
+              </h2>
+              <p className="mb-3.5 mt-1 text-xs text-ink/45">Ops-only. Never shown to the customer.</p>
+
+              <ul className="mb-3.5 space-y-2">
+                {order.internalNotes.map((n) => (
+                  <li key={n.id} className="rounded-xl bg-card/80 p-3 text-sm">
+                    <p className="text-ink/80">{n.body}</p>
+                    <p className="mt-1 text-xs text-ink/40">
+                      {n.author} · {new Date(n.at).toLocaleString()}
+                    </p>
+                  </li>
+                ))}
+                {order.internalNotes.length === 0 && (
+                  <li className="text-sm text-ink/35">No internal notes yet.</li>
+                )}
+              </ul>
+
+              <div className="space-y-2">
+                <textarea
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  rows={2}
+                  placeholder="Add a note for ops…"
+                  disabled={!canAddNote}
+                  className="w-full resize-none rounded-lg border border-ink/10 bg-card px-3 py-2 text-sm text-ink placeholder:text-ink/35 outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15 disabled:opacity-60"
+                />
+                {canAddNote ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addInternalNote(order.id, noteDraft)
+                      setNoteDraft("")
+                    }}
+                    disabled={!noteDraft.trim()}
+                    className="rounded-xl bg-teal-deep px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-teal disabled:opacity-40"
+                  >
+                    Add note
+                  </button>
+                ) : (
+                  <p className="text-xs text-ink/40">This order belongs to a different site — you can view notes but not add one.</p>
+                )}
+              </div>
+            </section>
           </div>
         </div>
       </div>

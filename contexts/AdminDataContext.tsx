@@ -92,7 +92,7 @@
 // confirmRequest) funnels through.
 "use client"
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import type {
   Role,
   Channel,
@@ -136,19 +136,11 @@ import {
 } from "@/types/admin"
 
 // ---------------------------------------------------------------------
-// Single source of truth: pull the customer-facing order data in and
-// derive everything admin needs from it, instead of duplicating a
-// second hardcoded order list here.
+// Orders/purchases now come from lib/supabase/orders-admin.ts (real
+// Supabase data) via the adapter functions above, not from
+// contexts/Ordercontexts.tsx's customer-facing mock — see the "REAL DATA
+// ADAPTERS" header comment for the full story.
 // ---------------------------------------------------------------------
-import {
-  MOCK_ORDERS as CUSTOMER_ORDERS,
-  orderTotal,
-  shippingStepIndex,
-  getOrderCustomerName,
-  type Order as CustomerOrder,
-  type OrderItem as CustomerOrderItem,
-  type OrderStatus as CustomerOrderStatus,
-} from "@/contexts/Ordercontexts"
 
 /* ------------------------------------------------------------------ */
 /* Time helpers — exported because every order-facing page needs "how */
@@ -280,34 +272,19 @@ function usePersistentState<T>(key: string, initial: T) {
 /* Reference data                                                      */
 /* ------------------------------------------------------------------ */
 
-// Real UUIDs — NOT arbitrary. These must match data/wishdrop-seed-staff-sites.sql
-// exactly, because contexts/AdminDataContext.tsx's SITES/MOCK_USERS/STAFF_DIRECTORY
-// ids are now written into real `orders.site_id`, `order_internal_notes.staff_id`
-// (NOT NULL, FK to staff_accounts), and `order_stage_history.by_staff_id` (FK to
-// staff_accounts) by lib/supabase/orders-admin.ts. The old "site_colombo"/"u_mgr_1"
-// style ids weren't even valid UUID syntax, so any write using them failed outright
-// (invalid input syntax for type uuid) before it could even hit the FK constraint.
-// Run the seed script against your Supabase project once before using any admin
-// action that writes (advance/rollback stage, add a note, pass QC, etc.) — until
-// then, reads work fine but writes will error.
 const SITES: Site[] = [
-  { id: 'e166db30-47fe-466d-b5ee-2f600300c50f', name: 'Colombo Hub', location: 'Colombo, LK' },
-  { id: '925ea5ba-e910-4d7b-a351-13b06cda235f', name: 'Kandy Hub', location: 'Kandy, LK' },
-  { id: 'ef990cda-4177-419d-967a-f9e966bf389e', name: 'Galle Hub', location: 'Galle, LK' },
+  { id: "site_colombo", name: "Colombo Hub", location: "Colombo, LK" },
+  { id: "site_kandy", name: "Kandy Hub", location: "Kandy, LK" },
+  { id: "site_galle", name: "Galle Hub", location: "Galle, LK" },
 ]
 
 // One mock logged-in user per role. RoleSwitcher flips `role`, and
 // currentUser is derived from this map — switching to Warehouse always
 // hands you a user already scoped to a site, same as production.
 const MOCK_USERS: Record<Role, CurrentUser> = {
-  manager: { id: '20910cf1-6c79-4891-b7b0-15fcf8fd636a', name: 'Amara Perera', role: 'manager' },
-  sales: { id: '857f794e-d28d-4800-b17e-4b1393461dda', name: 'Nadia Fernando', role: 'sales' },
-  warehouse: {
-    id: '00af059b-624d-4b31-9956-ed1c0feff14e',
-    name: 'Kasun Silva',
-    role: 'warehouse',
-    siteId: 'e166db30-47fe-466d-b5ee-2f600300c50f',
-  },
+  manager: { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
+  sales: { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
+  warehouse: { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
 }
 
 // Reference roster for the reassign-request dropdown AND the Reports
@@ -316,13 +293,13 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
 // meaningful for warehouse entries — sales/manager aren't site-scoped,
 // same convention as CurrentUser.siteId.
 const STAFF_DIRECTORY: StaffMember[] = [
-  { id: '857f794e-d28d-4800-b17e-4b1393461dda', name: 'Nadia Fernando', role: 'sales' },
-  { id: 'e03e6489-a4d4-43ca-a43c-d415403ce80c', name: 'Ruvindi Jayasekara', role: 'sales' },
-  { id: '20910cf1-6c79-4891-b7b0-15fcf8fd636a', name: 'Amara Perera', role: 'manager' },
-  { id: '00af059b-624d-4b31-9956-ed1c0feff14e', name: 'Kasun Silva', role: 'warehouse', siteId: 'e166db30-47fe-466d-b5ee-2f600300c50f' },
-  { id: '6e37890f-346f-4a55-a779-8320765a452d', name: 'Dimuthu Rajapaksha', role: 'warehouse', siteId: '925ea5ba-e910-4d7b-a351-13b06cda235f' },
-  { id: '3ed33c0b-b888-4660-9360-418f36e556ac', name: 'Harshani Weerasinghe', role: 'warehouse', siteId: 'ef990cda-4177-419d-967a-f9e966bf389e' },
-  { id: '12f50202-9165-4dd3-accf-6116137ce9c1', name: 'Pasan Gunathilaka', role: 'warehouse', siteId: 'e166db30-47fe-466d-b5ee-2f600300c50f' },
+  { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
+  { id: "u_sales_2", name: "Ruvindi Jayasekara", role: "sales" },
+  { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
+  { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
+  { id: "u_wh_2", name: "Dimuthu Rajapaksha", role: "warehouse", siteId: "site_kandy" },
+  { id: "u_wh_3", name: "Harshani Weerasinghe", role: "warehouse", siteId: "site_galle" },
+  { id: "u_wh_4", name: "Pasan Gunathilaka", role: "warehouse", siteId: "site_colombo" },
 ]
 
 const ROLE_PERMISSIONS: Record<Role, Permissions> = {
@@ -368,321 +345,250 @@ const ROLE_PERMISSIONS: Record<Role, Permissions> = {
 /* history + ages are all synthesized below, not hand-written per order. */
 /* ------------------------------------------------------------------ */
 
-type OrderSeed = {
-  id: string
-  customerName: string
-  channel: Channel
-  stage: OrderStage
-  siteId: string
-  placedHoursAgo: number
-  stageEnteredHoursAgo: number
-  totalValue: number
-  delayed?: boolean
-  isManualQuote?: boolean
-  linkedRequestId?: string
-  items: OrderItem[]
-  internalNotes?: { body: string; author: string; hoursAgo: number }[]
-  destination?: string
-  handlingNote?: string
-  packedHoursAgo?: number
-  packageWeightKg?: number
-  packageDimensionsCm?: PackageDimensionsCm
-  labelGeneratedHoursAgo?: number
-  labelRef?: string
-  courier?: string
-  trackingRef?: string
-  pickedUpHoursAgo?: number
-  etaHours?: number
-  deliveredHoursAgo?: number
+/* ------------------------------------------------------------------ */
+/* REAL DATA ADAPTERS                                                   */
+/*                                                                       */
+/* This used to be where `orders`/`purchases` got seeded from a         */
+/* hand-derived mock (SEEDS, PURCHASE_SEEDS, built from customer-facing */
+/* MOCK_ORDERS). That's gone — orders/purchases are now fetched live    */
+/* from Supabase (see lib/supabase/orders-admin.ts, the same real data  */
+/* layer the customer-facing "My Orders" page reads). The functions     */
+/* below only convert that real data into this file's existing          */
+/* Order/Purchase shapes, so every derived view below (qcLines,         */
+/* packLines, exportBinLines, inTransitLines, purchaseLines,            */
+/* requestLines) and every PAGE THAT READS THEM keeps working exactly   */
+/* as it always has — none of that changes, and neither does any page.  */
+/*                                                                       */
+/* GRANULARITY NOTE: the real `purchases` table has no per-item column  */
+/* (no order_item_id) — purchase/QC/pack progress is tracked per ORDER  */
+/* in the real schema, not per line item the way this mock models it.  */
+/* mapAdminOrderToPurchases() below synthesizes one Purchase per item,  */
+/* all sharing the SAME order-level real status, so every item on an    */
+/* order necessarily moves together in reality — this file's per-item   */
+/* UI (checkboxes, individual "mark purchased", etc.) still renders and */
+/* behaves exactly as before, it's just representing "the whole order"  */
+/* rather than truly independent per-item state, because that's the    */
+/* most the real database can express today. Flag if independent        */
+/* per-item purchase tracking becomes a real requirement — it needs a   */
+/* schema change (an order_item_id column on `purchases`), not a code   */
+/* change here.                                                          */
+/*                                                                       */
+/* STAGE MAPPING: the real `orders.stage` Postgres enum has exactly 5    */
+/* values (ordered / quality_check / shipped / delivered / cancelled) — */
+/* Cancelled has no admin equivalent yet (same limitation this file      */
+/* always had) and is filtered out below, same as before. The finer      */
+/* packedAt/pickedUpAt/deliveredAt/qcStatus fields this file's warehouse */
+/* queues actually derive their membership from are recovered from       */
+/* AdminOrder.substage (a tracked marker — see orders-admin.ts's file    */
+/* header for why that's an internal-note marker and not a real column) */
+/* plus the real carrier/tracking_number columns for courier info.       */
+/* ------------------------------------------------------------------ */
+
+import {
+  fetchAdminOrders as fetchRealAdminOrders,
+  fetchAdminOrder as fetchRealAdminOrder,
+  fetchOrderStageHistory,
+  fetchOrderInternalNotes,
+  fetchPurchases as fetchRealPurchases,
+  fetchOrderPackageDetails,
+  setOrderStage as realSetOrderStage,
+  setOrderDelayed as realSetOrderDelayed,
+  reassignOrderSite as realReassignOrderSite,
+  addInternalNote as realAddInternalNote,
+  setWarehouseSubstage as realSetWarehouseSubstage,
+  packOrderReal as realPackOrder,
+  setOrderPackageDetails as realSetOrderPackageDetails,
+  setOrderShipping as realSetOrderShipping,
+  confirmDelivery as realConfirmDelivery,
+  upsertPurchaseForOrder as realUpsertPurchaseForOrder,
+  type AdminOrder,
+  type AdminOrderItem,
+  type AdminPurchase,
+  type DbOrderStage,
+} from "@/lib/supabase/orders-admin"
+
+import {
+  fetchAdminRequests,
+  fetchAdminChatThreads,
+  setRequestQuote as realSetRequestQuote,
+  declineRequestReal,
+  reassignRequestReal,
+  confirmRequestReal,
+  sendAdminChatMessage,
+  markThreadReadReal,
+  markSentViaWhatsAppReal,
+} from "@/lib/supabase/requests-admin"
+
+function mapDbStageToOrderStage(stage: DbOrderStage): OrderStage | null {
+  switch (stage) {
+    case "ordered":
+      return "Ordered"
+    case "quality_check":
+      return "Quality check"
+    case "shipped":
+      return "Shipped"
+    case "delivered":
+      return "Delivered"
+    case "cancelled":
+      return null // no admin equivalent yet, same limitation this file always had
+  }
 }
 
-const ACTORS = ["Amara Perera", "Kasun Silva", "Nadia Fernando", "System"]
-
-// Fallback names for admin-side attribution — orderContexts.tsx models a
-// single logged-in customer's order history, so most of its orders don't
-// carry a customerName of their own. Used only when an order has neither
-// an explicit `customerName` nor a `recipient.name` set.
-const SAMPLE_CUSTOMER_NAMES = [
-  "Ishara Jayasuriya", "Ruwan Dissanayake", "Sithara Wickramasinghe", "Dilshan Rathnayake",
-  "Hasini Fernando", "Chamath Wijesinghe", "Anusha Gunawardena", "Tharindu Bandara",
-  "Malsha Peiris", "Nuwan Karunaratne", "Yasodha Silva", "Roshan Amarasekara",
-  "Kavindi Ranasinghe", "Buddhika Herath", "Oshadi Mendis", "Lahiru Jayawardena",
-  "Priyanka Silva", "Ishara Fonseka",
-]
-
-/** Customer-facing 'store' | 'individual' → admin's 'feed' | 'manual'. */
-function mapSellerType(t?: CustomerOrderItem["sellerType"]): SellerType {
-  return t === "individual" ? "manual" : "feed"
+/** Reverse of the above, for writing a real stage change from the coarse Manager-override controls. */
+function mapOrderStageToDbStage(stage: OrderStage): DbOrderStage {
+  switch (stage) {
+    case "Ordered":
+      return "ordered"
+    case "Quality check":
+      return "quality_check"
+    case "Shipped":
+      return "shipped"
+    case "Delivered":
+      return "delivered"
+  }
 }
 
-/** One customer-facing OrderItem → one admin OrderItem, `i1`/`i2`/... ids per order. */
-function mapCustomerItemToAdminItem(item: CustomerOrderItem, index: number): OrderItem {
-  const sellerType = mapSellerType(item.sellerType)
+function mapAdminItemToOrderItem(item: AdminOrderItem): OrderItem {
+  const sellerType: SellerType = item.sellerType === "individual" ? "manual" : "feed"
   return {
-    id: `i${index + 1}`,
-    title: item.name,
-    quantity: item.qty,
-    unitPrice: item.unitPrice,
+    id: item.id,
+    title: item.title,
+    quantity: item.quantity,
+    requestLink: item.requestLink,
     variant: item.variant,
+    unitPrice: item.unitPrice,
     productImage: item.image,
     sellerName: item.sellerName,
     sellerType,
-    // Admin's type only allows storeUrl on feed (storefront) items, never manual/individual ones.
     storeUrl: sellerType === "feed" ? item.storeUrl : undefined,
   }
 }
 
-/** Customer-facing status → admin pipeline stage. Cancelled has no admin equivalent yet — see file-header note. */
-function mapCustomerStatusToStage(status: CustomerOrderStatus): OrderStage | null {
-  switch (status) {
-    case "Processing":
-      return "Ordered"
-    case "Quality Check":
-      return "Quality check"
-    case "Shipped":
-      return "Shipped"
-    case "Delivered":
-      return "Delivered"
-    case "Cancelled":
-      return null
-    default:
-      return null
-  }
-}
-
 /**
- * Admin's Channel (1 affiliated store / 2 scraped link / 3 manual
- * request) is order-level, but sellers are now tracked per-ITEM on the
- * customer side. Inferred as: any individually-sourced item → 3 (manual
- * request, same as a Channel-3 order today); otherwise every item having
- * a storeUrl → 1 (affiliated store); otherwise → 2 (scraped link).
+ * Real AdminOrder + its (separately-fetched) stage history/notes -> this
+ * file's Order shape. Returns null for a cancelled order (filtered out,
+ * same as the old derivation always did).
  */
-function inferChannel(items: OrderItem[]): Channel {
-  if (items.some((i) => i.sellerType === "manual")) return 3
-  if (items.length > 0 && items.every((i) => !!i.storeUrl)) return 1
-  return 2
-}
-
-/**
- * The core adapter: one customer-facing Order → one admin OrderSeed (or
- * `null` for Cancelled, which admin's pipeline doesn't model). Hours-ago
- * values are computed from the customer order's real `date` field so
- * ages stay consistent with what a customer would see on their own
- * order history; `stageEnteredHoursAgo` is a proportion of that based on
- * how far along the shipping flow the order's status implies.
- */
-function deriveOrderSeedFromCustomerOrder(order: CustomerOrder, index: number): OrderSeed | null {
-  const stage = mapCustomerStatusToStage(order.status)
+function mapToOrder(
+  o: AdminOrder,
+  stageHistory: Awaited<ReturnType<typeof fetchOrderStageHistory>>,
+  internalNotes: Awaited<ReturnType<typeof fetchOrderInternalNotes>>,
+  packageDetails: Awaited<ReturnType<typeof fetchOrderPackageDetails>>,
+): Order | null {
+  const stage = mapDbStageToOrderStage(o.stage)
   if (stage === null) return null
 
-  const placedHoursAgo = Math.max(hoursSince(new Date(order.date).toISOString()), 2)
-  const stepIdx = Math.max(shippingStepIndex(order.status), 0)
-  // Roughly: freshly Processing orders "entered their stage" at placement;
-  // orders further along entered their current stage more recently.
-  const stageFraction = [1, 0.55, 0.28, 0.08][stepIdx] ?? 1
-  const stageEnteredHoursAgo = Math.max(placedHoursAgo * stageFraction, 0.5)
-
-  const items = order.items.map(mapCustomerItemToAdminItem)
-  const channel = inferChannel(items)
-  const siteId = SITES[index % SITES.length].id
-  const threshold = STAGE_AGE_THRESHOLD_HOURS[stage]
-  const customerName =
-    getOrderCustomerName(order) !== "Customer"
-      ? getOrderCustomerName(order)
-      : SAMPLE_CUSTOMER_NAMES[index % SAMPLE_CUSTOMER_NAMES.length]
-
-  const seed: OrderSeed = {
-    id: order.id,
-    customerName,
-    channel,
-    stage,
-    siteId,
-    placedHoursAgo,
-    stageEnteredHoursAgo,
-    totalValue: orderTotal(order),
-    delayed: stageEnteredHoursAgo > threshold,
-    isManualQuote: channel === 3,
-    items,
-    destination: order.recipient ? `${order.recipient.city}, ${order.recipient.country}` : undefined,
-  }
-
-  if (stage === "Shipped" || stage === "Delivered") {
-    seed.packedHoursAgo = stageEnteredHoursAgo
-    seed.labelGeneratedHoursAgo = stageEnteredHoursAgo
-    seed.labelRef = order.trackingNumber
-    seed.courier = order.carrier
-    seed.trackingRef = order.trackingNumber
-    seed.pickedUpHoursAgo = Math.max(stageEnteredHoursAgo - 2, 0.5)
-    seed.etaHours = 24
-  }
-  if (stage === "Delivered") {
-    seed.deliveredHoursAgo = stageEnteredHoursAgo
-  }
-
-  return seed
-}
-
-const SEEDS: OrderSeed[] = CUSTOMER_ORDERS.map(deriveOrderSeedFromCustomerOrder).filter(
-  (s): s is OrderSeed => s !== null
-)
-
-function buildOrder(seed: OrderSeed): Order {
-  const placedAt = isoHoursAgo(seed.placedHoursAgo)
-  const stageEnteredAt = isoHoursAgo(seed.stageEnteredHoursAgo)
-  const stageIdx = STAGE_ORDER.indexOf(seed.stage)
-  const span = seed.placedHoursAgo - seed.stageEnteredHoursAgo
-
-  const stageHistory: StageHistoryEvent[] = STAGE_ORDER.slice(0, stageIdx + 1).map((stage, i) => {
-    if (i === stageIdx) {
-      return { stage, at: stageEnteredAt, by: ACTORS[i % ACTORS.length] }
-    }
-    const hoursAgoAtThisStage = seed.placedHoursAgo - (span * i) / Math.max(stageIdx, 1)
-    return { stage, at: isoHoursAgo(hoursAgoAtThisStage), by: ACTORS[i % ACTORS.length] }
-  })
-
-  const internalNotes: InternalNote[] = (seed.internalNotes ?? []).map((n, i) => ({
-    id: `${seed.id}-note-${i}`,
-    body: n.body,
-    author: n.author,
-    at: isoHoursAgo(n.hoursAgo),
-  }))
+  // Packing is the real transition point that flips stage from
+  // 'quality_check' to 'shipped' (see packOrder below, mirroring the
+  // original mock's own withStageChange(o, "Shipped") inside packOrder) —
+  // so any order already at 'shipped' or 'delivered' has necessarily
+  // been packed.
+  const packedAt = o.stage === "shipped" || o.stage === "delivered" ? o.stageEnteredAt : undefined
+  const pickedUpAt = o.substage === "in_transit" || o.stage === "delivered" ? o.stageEnteredAt : undefined
+  const deliveredAt = o.stage === "delivered" ? o.stageEnteredAt : undefined
 
   return {
-    id: seed.id,
-    customerName: seed.customerName,
-    channel: seed.channel,
-    stage: seed.stage,
-    siteId: seed.siteId,
-    placedAt,
-    stageEnteredAt,
-    totalValue: seed.totalValue,
-    delayed: seed.delayed ?? false,
-    isManualQuote: seed.isManualQuote ?? false,
-    items: seed.items,
-    stageHistory,
-    internalNotes,
-    linkedRequestId: seed.linkedRequestId,
-    destination: seed.destination,
-    handlingNote: seed.handlingNote,
-    packedAt: seed.packedHoursAgo !== undefined ? isoHoursAgo(seed.packedHoursAgo) : undefined,
-    packageWeightKg: seed.packageWeightKg,
-    packageDimensionsCm: seed.packageDimensionsCm,
-    labelGeneratedAt: seed.labelGeneratedHoursAgo !== undefined ? isoHoursAgo(seed.labelGeneratedHoursAgo) : undefined,
-    labelRef: seed.labelRef,
-    courier: seed.courier,
-    trackingRef: seed.trackingRef,
-    pickedUpAt: seed.pickedUpHoursAgo !== undefined ? isoHoursAgo(seed.pickedUpHoursAgo) : undefined,
-    etaHours: seed.etaHours,
-    deliveredAt: seed.deliveredHoursAgo !== undefined ? isoHoursAgo(seed.deliveredHoursAgo) : undefined,
+    id: o.displayId,
+    customerName: o.customerName,
+    channel: o.channel,
+    stage,
+    siteId: o.siteId ?? "",
+    placedAt: o.createdAt,
+    stageEnteredAt: o.stageEnteredAt,
+    totalValue: o.totalValue,
+    delayed: o.delayed,
+    isManualQuote: o.channel === 3,
+    items: o.items.map(mapAdminItemToOrderItem),
+    stageHistory: stageHistory.map((h) => ({
+      stage: (mapDbStageToOrderStage(h.stage as DbOrderStage) ?? "Ordered") as OrderStage,
+      at: h.at,
+      by: h.byStaffName ?? "System",
+    })),
+    internalNotes: internalNotes.map((n) => ({
+      id: n.id,
+      body: n.text,
+      author: n.staffName ?? "Staff",
+      at: n.at,
+    })),
+    linkedRequestId: undefined,
+    destination: o.recipient ? `${o.recipient.city}, ${o.recipient.country}` : undefined,
+    handlingNote: undefined,
+    packedAt,
+    packageWeightKg: packageDetails?.weightKg,
+    packageDimensionsCm:
+      packageDetails?.lengthCm && packageDetails?.widthCm && packageDetails?.heightCm
+        ? { length: packageDetails.lengthCm, width: packageDetails.widthCm, height: packageDetails.heightCm }
+        : undefined,
+    labelGeneratedAt: packageDetails?.labelRef ? packedAt : undefined,
+    labelRef: packageDetails?.labelRef,
+    courier: o.carrier,
+    trackingRef: o.trackingNumber,
+    pickedUpAt,
+    etaHours: pickedUpAt ? IN_TRANSIT_DEFAULT_ETA_HOURS : undefined,
+    deliveredAt,
   }
-}
-
-const INITIAL_ORDERS: Order[] = SEEDS.map(buildOrder)
-
-/* ------------------------------------------------------------------ */
-/* Seed purchases — one per (orderId, orderItemId), SYNTHESIZED from the */
-/* derived SEEDS above rather than hand-written, so an order's purchase/  */
-/* QC state always matches whatever stage orderContexts.tsx says it's in. */
-/* ------------------------------------------------------------------ */
-
-type PurchaseSeed = {
-  id: string
-  orderId: string
-  orderItemId: string
-  status: PurchaseStatus
-  enteredQueueHoursAgo: number
-  actualUnitPriceINR?: number
-  purchaseReference?: string
-  purchasedBy?: string
-  purchasedAtHoursAgo?: number
-  issueNote?: string
-  enteredQcHoursAgo?: number
-  qcStatus?: QCStatus
-  qcNote?: string
-  qcPhotoCount?: number
-  qcResolvedHoursAgo?: number
 }
 
 /**
- * Infers a plausible Purchase row for one item on a derived order seed:
- *   - "Ordered" stage      → still needs_purchase.
- *   - "Quality check" stage → purchased, sitting in QC as "pending"
- *     (matches admin's own auto-advance behavior: an order only reaches
- *     Quality check once every item is purchased — see markPurchased).
- *   - "Shipped"/"Delivered" → purchased AND already QC-"passed" (an
- *     order can't reach Pack & label without every item passing QC).
+ * One real order -> N synthesized Purchase rows (one per item, all
+ * sharing the order's real purchase/QC status — see GRANULARITY NOTE
+ * above). `realPurchase` is this order's row from the real `purchases`
+ * table, if one exists yet (it won't for an order still at 'ordered').
  */
-function synthesizePurchaseSeed(order: OrderSeed, item: OrderItem): PurchaseSeed {
-  const id = `pur_${order.id}_${item.id}`
-  const fallbackUnitPrice = Math.round(order.totalValue / Math.max(order.items.length, 1))
-  const unitPrice = item.unitPrice ?? fallbackUnitPrice
+function mapToPurchases(o: AdminOrder, realPurchase: AdminPurchase | undefined): Purchase[] {
+  const now = new Date().toISOString()
+  const fallbackUnitPrice = Math.round(o.totalValue / Math.max(o.items.length, 1))
 
-  if (order.stage === "Ordered") {
-    return { id, orderId: order.id, orderItemId: item.id, status: "needs_purchase", enteredQueueHoursAgo: order.placedHoursAgo }
-  }
-
-  const purchasedHoursAgo = Math.max(order.stageEnteredHoursAgo + 3, 1)
-
-  if (order.stage === "Quality check") {
-    return {
-      id,
-      orderId: order.id,
+  // Ordered, nothing purchased yet.
+  if (o.stage === "ordered") {
+    return o.items.map((item) => ({
+      id: `${o.id}:${item.id}`,
+      orderId: o.displayId,
       orderItemId: item.id,
-      status: "purchased",
-      enteredQueueHoursAgo: order.placedHoursAgo,
-      actualUnitPriceINR: unitPrice,
-      purchaseReference: `${order.id}-${item.id}`,
-      purchasedBy: "System",
-      purchasedAtHoursAgo: purchasedHoursAgo,
-      enteredQcHoursAgo: order.stageEnteredHoursAgo,
-      qcStatus: "pending",
-      qcPhotoCount: 0,
-    }
+      status: "needs_purchase" as PurchaseStatus,
+      enteredQueueAt: o.createdAt,
+    }))
   }
 
-  // Shipped or Delivered — fully purchased and already QC-passed.
-  return {
-    id,
-    orderId: order.id,
+  const purchasedAt = realPurchase?.createdAt ?? o.stageEnteredAt
+  const purchaseReference = realPurchase?.receiptRef ?? undefined
+
+  // Flagged: a QC-flagged order stays 'quality_check' + delayed, with no
+  // 'qc_passed' substage set yet — see submitQcResult below for the write.
+  const isFlagged = o.stage === "quality_check" && o.delayed && o.substage !== "qc_passed"
+
+  const qcStatus: QCStatus | undefined =
+    o.stage === "shipped" || o.stage === "delivered" || o.substage === "qc_passed"
+      ? "passed"
+      : isFlagged
+        ? "flagged"
+        : o.stage === "quality_check"
+          ? "pending"
+          : undefined
+
+  const flaggedNote = isFlagged
+    ? [...(o.items.length ? [] : [])] // placeholder, real note text pulled by the QC page itself via internal notes
+    : undefined
+
+  return o.items.map((item) => ({
+    id: `${o.id}:${item.id}`,
+    orderId: o.displayId,
     orderItemId: item.id,
-    status: "purchased",
-    enteredQueueHoursAgo: order.placedHoursAgo,
-    actualUnitPriceINR: unitPrice,
-    purchaseReference: `${order.id}-${item.id}`,
-    purchasedBy: "System",
-    purchasedAtHoursAgo: purchasedHoursAgo,
-    enteredQcHoursAgo: Math.max(purchasedHoursAgo - 2, 0.5),
-    qcStatus: "passed",
-    qcPhotoCount: 1,
-    qcResolvedHoursAgo: order.stageEnteredHoursAgo,
-  }
+    status: "purchased" as PurchaseStatus,
+    enteredQueueAt: o.createdAt,
+    actualUnitPriceINR: item.unitPrice ?? fallbackUnitPrice,
+    purchaseReference,
+    purchasedAt,
+    enteredQcAt: o.stage === "quality_check" || o.stage === "shipped" || o.stage === "delivered" ? o.stageEnteredAt : undefined,
+    qcStatus,
+    qcPhotoCount: 0,
+    qcResolvedAt: qcStatus === "passed" ? o.stageEnteredAt : undefined,
+    issueNote: flaggedNote ? "See order's internal notes for the QC flag reason." : undefined,
+  }))
 }
 
-const PURCHASE_SEEDS: PurchaseSeed[] = SEEDS.flatMap((order) =>
-  order.items.map((item) => synthesizePurchaseSeed(order, item))
-)
-
-function buildPurchase(seed: PurchaseSeed): Purchase {
-  return {
-    id: seed.id,
-    orderId: seed.orderId,
-    orderItemId: seed.orderItemId,
-    status: seed.status,
-    enteredQueueAt: isoHoursAgo(seed.enteredQueueHoursAgo),
-    actualUnitPriceINR: seed.actualUnitPriceINR,
-    purchaseReference: seed.purchaseReference,
-    purchasedBy: seed.purchasedBy,
-    purchasedAt: seed.purchasedAtHoursAgo !== undefined ? isoHoursAgo(seed.purchasedAtHoursAgo) : undefined,
-    issueNote: seed.issueNote,
-    enteredQcAt: seed.enteredQcHoursAgo !== undefined ? isoHoursAgo(seed.enteredQcHoursAgo) : undefined,
-    qcStatus: seed.qcStatus,
-    qcNote: seed.qcNote,
-    qcPhotoCount: seed.qcPhotoCount,
-    qcResolvedAt: seed.qcResolvedHoursAgo !== undefined ? isoHoursAgo(seed.qcResolvedHoursAgo) : undefined,
-  }
-}
-
-const INITIAL_PURCHASES: Purchase[] = PURCHASE_SEEDS.map(buildPurchase)
+const INITIAL_ORDERS: Order[] = []
+const INITIAL_PURCHASES: Purchase[] = []
 
 /* ------------------------------------------------------------------ */
 /* Seed requests (Channel 3) + chat threads.                            */
@@ -928,8 +834,12 @@ function buildChatThread(threadId: string, customerName: string): ChatThread {
   }
 }
 
-const INITIAL_REQUESTS: Request[] = REQUEST_SEEDS.map(buildRequest)
-const INITIAL_CHAT_THREADS: ChatThread[] = REQUEST_SEEDS.map((r) => buildChatThread(r.chatThreadId, r.customerName))
+// REQUEST_SEEDS/buildRequest/buildChatThread above are now unused for
+// initial state (kept only because they're harmless and still exercise
+// the same shape) — requests/chat are fetched live from Supabase in the
+// provider below (see loadRealRequests), same as orders/purchases.
+const INITIAL_REQUESTS: Request[] = []
+const INITIAL_CHAT_THREADS: ChatThread[] = []
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
@@ -1019,10 +929,106 @@ const AdminDataContext = createContext<AdminDataContextValue | undefined>(undefi
 
 export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>("manager")
-  const [orders, setOrders] = usePersistentState<Order[]>("orders", INITIAL_ORDERS)
-  const [purchases, setPurchases] = usePersistentState<Purchase[]>("purchases", INITIAL_PURCHASES)
-  const [requests, setRequests] = usePersistentState<Request[]>("requests", INITIAL_REQUESTS)
-  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>("chatThreads", INITIAL_CHAT_THREADS)
+
+  // Orders/purchases: real data, fetched on mount from Supabase — see
+  // "REAL DATA ADAPTERS" above. Deliberately NOT usePersistentState:
+  // that hook's localStorage layer would just cache a stale copy next to
+  // the live database, and the two would silently drift. requests/chat
+  // stay on usePersistentState below since they're still local mock data
+  // (Channel 3 intake / support chat aren't wired to Supabase yet).
+  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
+  const [purchases, setPurchases] = useState<Purchase[]>(INITIAL_PURCHASES)
+  const [ordersLoading, setOrdersLoading] = useState(true)
+  // Every page-facing id (Order.id, PurchaseLine.orderId, etc.) is the
+  // human-facing display_id ("WD-238491"), matching what this file has
+  // always shown — but every real write needs the row's actual uuid.
+  // This ref is the one place that lookup happens, kept in sync every
+  // time orders are (re)fetched below.
+  const realOrderIdByDisplayId = useRef<Map<string, string>>(new Map())
+
+  const loadRealOrders = useCallback(async () => {
+    setOrdersLoading(true)
+    const [adminOrders, realPurchases] = await Promise.all([fetchRealAdminOrders(), fetchRealPurchases()])
+
+    realOrderIdByDisplayId.current = new Map(adminOrders.map((o) => [o.displayId, o.id]))
+    const purchaseByOrderId = new Map(realPurchases.map((p) => [p.orderId, p]))
+
+    const [histories, notesLists, packageDetailsList] = await Promise.all([
+      Promise.all(adminOrders.map((o) => fetchOrderStageHistory(o.id))),
+      Promise.all(adminOrders.map((o) => fetchOrderInternalNotes(o.id))),
+      Promise.all(adminOrders.map((o) => fetchOrderPackageDetails(o.id))),
+    ])
+
+    const nextOrders: Order[] = []
+    const nextPurchases: Purchase[] = []
+    adminOrders.forEach((o, i) => {
+      const mapped = mapToOrder(o, histories[i], notesLists[i], packageDetailsList[i])
+      if (mapped) {
+        nextOrders.push(mapped)
+        nextPurchases.push(...mapToPurchases(o, purchaseByOrderId.get(o.id)))
+      }
+    })
+
+    setOrders(nextOrders)
+    setPurchases(nextPurchases)
+    setOrdersLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadRealOrders()
+  }, [loadRealOrders])
+
+  // Requests/chat: also real now — see "REAL DATA ADAPTERS" comment
+  // further up for why orders/purchases aren't usePersistentState; same
+  // reasoning applies here. Unlike Order.id (which is the display_id,
+  // needing realOrderIdByDisplayId to resolve back to a uuid), Request.id
+  // and ChatThread.id ARE already the real row uuid — requests/threads
+  // never had a separate human-facing display number — so no lookup map
+  // is needed for these.
+  const [requests, setRequests] = useState<Request[]>(INITIAL_REQUESTS)
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>(INITIAL_CHAT_THREADS)
+  // Request.id -> the request's real `requests.user_id` — needed only by
+  // confirmRequest below (creating the Channel 3 order requires the
+  // customer's real auth uid), and not otherwise part of the Request
+  // type, so it's tracked here rather than added as a page-visible field.
+  const requestUserIdByRequestId = useRef<Map<string, string>>(new Map())
+
+  const loadRealRequests = useCallback(async () => {
+    const [realRequests, realThreads] = await Promise.all([fetchAdminRequests(), fetchAdminChatThreads()])
+    requestUserIdByRequestId.current = new Map(realRequests.map((r) => [r.id, r.userId]))
+    setRequests(
+      realRequests.map((r) => ({
+        id: r.id,
+        customerName: r.customerName,
+        items: r.items,
+        status: r.status,
+        submittedAt: r.submittedAt,
+        assignedStaffId: r.assignedStaffId,
+        chatThreadId: r.chatThreadId,
+      })),
+    )
+    setChatThreads(
+      realThreads.map((t) => ({
+        id: t.id,
+        customerName: t.customerName,
+        requestId: t.requestId,
+        lastActivity: t.lastActivity,
+        unread: t.unread,
+        messages: t.messages.map((m) => ({
+          id: m.id,
+          threadId: m.threadId,
+          sender: m.sender,
+          body: m.body,
+          at: m.at,
+          sentViaWhatsApp: m.sentViaWhatsApp,
+        })),
+      })),
+    )
+  }, [])
+
+  useEffect(() => {
+    loadRealRequests()
+  }, [loadRealRequests])
 
   const currentUser = MOCK_USERS[role]
   const permissions = ROLE_PERMISSIONS[role]
@@ -1035,6 +1041,20 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   }, [orders, permissions.ordersScopedToOwnSite, currentUser.siteId])
 
   const getOrder = (id: string) => orders.find((o) => o.id === id)
+
+  /** Every mutator below needs the real row uuid, not the display_id ("WD-...") this file's UI/URLs use. */
+  const resolveRealId = (displayId: string): string | undefined => realOrderIdByDisplayId.current.get(displayId)
+
+  /** Real write for a coarse stage change (Manager override controls / packOrder / markDelivered) — fired best-effort, doesn't block the optimistic local update above it. */
+  function persistStageChange(displayId: string, stage: OrderStage) {
+    const realId = resolveRealId(displayId)
+    if (!realId) return
+    if (stage === "Delivered") {
+      realConfirmDelivery(realId, "warehouse", currentUser.id)
+    } else {
+      realSetOrderStage(realId, mapOrderStageToDbStage(stage), currentUser.id)
+    }
+  }
 
   const withStageTransition = (order: Order, targetStage: OrderStage): Order => {
     const now = new Date().toISOString()
@@ -1138,6 +1158,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const check = canSetStage(order, stage)
     if (!check.allowed) return check
     setOrders((prev) => prev.map((o) => (o.id === orderId ? withStageChange(o, stage) : o)))
+    persistStageChange(orderId, stage)
     return { allowed: true }
   }
 
@@ -1152,6 +1173,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const check = canSetStage(order, target)
     if (!check.allowed) return check
     setOrders((prev) => prev.map((o) => (o.id === orderId ? withStageChange(o, target) : o)))
+    persistStageChange(orderId, target)
     return { allowed: true }
   }
 
@@ -1163,6 +1185,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const idx = STAGE_ORDER.indexOf(order.stage)
     if (idx <= 0) return { allowed: false, reason: "Already at the first stage." }
     setOrders((prev) => prev.map((o) => (o.id === orderId ? withStageChange(o, STAGE_ORDER[idx - 1]) : o)))
+    persistStageChange(orderId, STAGE_ORDER[idx - 1])
     return { allowed: true }
   }
 
@@ -1190,15 +1213,24 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return { ...p, enteredQcAt: undefined, qcStatus: undefined, qcNote: undefined, qcPhotoCount: 0 }
       })
     )
+    const realId = resolveRealId(orderId)
+    if (realId) realReassignOrderSite(realId, siteId, currentUser.id)
   }
 
   const toggleDelayed = (orderId: string) => {
+    const wasDelayed = orders.find((o) => o.id === orderId)?.delayed ?? false
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, delayed: !o.delayed } : o)))
+    const realId = resolveRealId(orderId)
+    if (realId) realSetOrderDelayed(realId, !wasDelayed)
   }
 
   const bulkFlagDelayed = (orderIds: string[]) => {
     const idSet = new Set(orderIds)
     setOrders((prev) => prev.map((o) => (idSet.has(o.id) ? { ...o, delayed: true } : o)))
+    orderIds.forEach((id) => {
+      const realId = resolveRealId(id)
+      if (realId) realSetOrderDelayed(realId, true)
+    })
   }
 
   const addInternalNote = (orderId: string, body: string) => {
@@ -1215,6 +1247,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return { ...o, internalNotes: [...o.internalNotes, note] }
       })
     )
+    const realId = resolveRealId(orderId)
+    if (realId) realAddInternalNote(realId, currentUser.id, body.trim())
   }
 
   // -- Purchases -----------------------------------------------------
@@ -1336,6 +1370,22 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
               ? { ...p, enteredQcAt: now, qcStatus: "pending" as QCStatus, qcPhotoCount: p.qcPhotoCount ?? 0 }
               : p
           )
+
+          // Real write: the real `purchases` table is order-level (see
+          // orders-admin.ts header), so "every item purchased" is the
+          // moment that record is worth writing — matches this function's
+          // own auto-advance logic above exactly.
+          const realId = resolveRealId(orderId)
+          if (realId) {
+            realUpsertPurchaseForOrder(realId, {
+              channel: order.channel,
+              sourceStore: order.items[0]?.sellerName ?? "Unknown store",
+              amount: order.totalValue,
+              status: "purchased",
+              receiptRef: purchaseReference,
+            })
+            realSetOrderStage(realId, "quality_check", currentUser.id, "All items purchased")
+          }
         }
       }
 
@@ -1367,6 +1417,22 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         },
       ]
     })
+
+    // Real write: the closest real equivalent to "unavailable" is a
+    // failed purchase (real purchase_status has pending/purchased/failed,
+    // no "unavailable") — see orders-admin.ts header for why this file's
+    // per-item flag maps onto one order-level real row.
+    const order = orders.find((o) => o.id === orderId)
+    const realId = resolveRealId(orderId)
+    if (realId && order) {
+      realUpsertPurchaseForOrder(realId, {
+        channel: order.channel,
+        sourceStore: order.items.find((i) => i.id === orderItemId)?.sellerName ?? "Unknown store",
+        amount: order.totalValue,
+        status: "failed",
+        failReason: issueNote.trim(),
+      })
+    }
   }
 
   // -- Quality check ---------------------------------------------------
@@ -1417,6 +1483,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const canActOnQcLine = (line: QCLine) =>
     permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || line.siteId === currentUser.siteId)
 
+  // receiveAtQc/addQcPhoto stay LOCAL-ONLY — there's no real column for
+  // "arrived at QC" timing or a photo count (see orders-admin.ts header),
+  // and neither is load-bearing business state (submitQcResult below,
+  // which IS wired to a real write, is what actually matters). Flag if
+  // QC photo evidence needs to become real; it'd need a small table.
   const receiveAtQc = (purchaseId: string) => {
     setPurchases((prev) =>
       prev.map((p) =>
@@ -1444,6 +1515,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       )
     )
 
+    const realId = resolveRealId(purchase.orderId)
+
     if (status === "flagged") {
       const trimmed = note.trim()
       if (trimmed) {
@@ -1459,7 +1532,17 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
             return { ...o, delayed: true, internalNotes: [...o.internalNotes, qcNote] }
           })
         )
+        if (realId) {
+          realAddInternalNote(realId, currentUser.id, `QC flagged: ${trimmed}`)
+          realSetOrderDelayed(realId, true)
+        }
       }
+    } else if (status === "passed" && realId) {
+      // Real write: 'quality_check' stays the real DB stage — passing QC
+      // is tracked as a substage marker (qc_passed), not an enum change.
+      // See orders-admin.ts header for why (packOrder below is what
+      // actually flips the real stage to 'shipped').
+      realSetWarehouseSubstage(realId, "qc_passed", currentUser.id, note.trim() || "Passed QC")
     }
   }
 
@@ -1534,6 +1617,16 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           : o
       )
     )
+    const realId = resolveRealId(orderId)
+    if (realId) {
+      realSetOrderPackageDetails(realId, currentUser.id, {
+        weightKg,
+        lengthCm: dimensionsCm.length,
+        widthCm: dimensionsCm.width,
+        heightCm: dimensionsCm.height,
+        labelRef: ref,
+      })
+    }
     return ref
   }
 
@@ -1544,6 +1637,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return { ...withStageChange(o, "Shipped"), packedAt: new Date().toISOString() }
       })
     )
+    const realId = resolveRealId(orderId)
+    if (realId) realPackOrder(realId, currentUser.id)
   }
 
   // -- Export bin ----------------------------------------------------
@@ -1598,6 +1693,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           : o
       )
     )
+    const realId = resolveRealId(orderId)
+    if (realId) {
+      // Real stage stays 'shipped' (already set at packing) — pickup is
+      // tracked as a substage marker plus the real carrier/tracking
+      // columns, same fields the customer's Track Order page reads.
+      realSetWarehouseSubstage(realId, "in_transit", currentUser.id, `Picked up by ${courier}`)
+      realSetOrderShipping(realId, { carrier: courier, trackingNumber: trackingRef })
+    }
   }
 
   // -- In transit ------------------------------------------------------
@@ -1651,6 +1754,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return { ...withStageChange(o, "Delivered"), deliveredAt: new Date().toISOString() }
       })
     )
+    const realId = resolveRealId(orderId)
+    if (realId) realConfirmDelivery(realId, "warehouse", currentUser.id)
   }
 
   // -- Requests (Channel 3) ---------------------------------------------
@@ -1734,6 +1839,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         }
       })
     )
+    // Real write: the real `requests` row is single-item (see
+    // requests-admin.ts header), so quoting its one synthesized item IS
+    // quoting the whole request — matches this function's own
+    // allQuoted-flips-status logic above exactly.
+    realSetRequestQuote(requestId, amount, currentUser.id)
   }
 
   /**
@@ -1782,15 +1892,33 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
     setOrders((prev) => [...prev, newOrder])
     setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: "confirmed" } : r)))
+
+    // Real write: creates the actual channel=3 `orders` row (the only
+    // place that happens) and flips the real request to 'confirmed'.
+    // Fire-and-forget like every other mutator here, but this one also
+    // refreshes real orders afterward so the freshly created order
+    // (with its real display_id, which won't match the locally-guessed
+    // newOrderId above) shows up correctly instead of the app carrying
+    // two different ids for the same order.
+    const userId = requestUserIdByRequestId.current.get(requestId)
+    const firstItem = request.items[0]
+    if (userId && firstItem) {
+      confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue).then((res) => {
+        if (res.ok) loadRealOrders()
+        else console.error('[confirmRequest] real write failed', res.error)
+      })
+    }
   }
 
   /** Terminal, whether it's a Sales decline (unavailable/declined by customer) or a Manager close. */
   const declineRequest = (requestId: string) => {
     setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: "declined" } : r)))
+    declineRequestReal(requestId)
   }
 
   const reassignRequest = (requestId: string, staffId: string) => {
     setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, assignedStaffId: staffId } : r)))
+    reassignRequestReal(requestId, staffId)
   }
 
   /**
@@ -1836,10 +1964,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return { ...t, messages: [...t.messages, message], lastActivity: now, unread: false }
       })
     )
+    const thread = chatThreads.find((t) => t.id === threadId)
+    sendAdminChatMessage(threadId, currentUser.name, trimmed, thread?.requestId)
   }
 
   const markThreadRead = (threadId: string) => {
     setChatThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, unread: false } : t)))
+    markThreadReadReal(threadId)
   }
 
   /** Marks a specific message as sent via the manual wa.me deep link — the page itself is responsible for actually opening that link. */
@@ -1851,6 +1982,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           : { ...t, messages: t.messages.map((m) => (m.id === messageId ? { ...m, sentViaWhatsApp: true } : m)) }
       )
     )
+    markSentViaWhatsAppReal(messageId)
   }
 
   // -- Dev utilities -------------------------------------------------
@@ -1863,10 +1995,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * yet. Not exposed in production UI unless you wire it up somewhere.
    */
   const resetToSeedData = () => {
-    setOrders(INITIAL_ORDERS)
-    setPurchases(INITIAL_PURCHASES)
-    setRequests(INITIAL_REQUESTS)
-    setChatThreads(INITIAL_CHAT_THREADS)
+    // orders/purchases/requests/chat are all real now — "reset" means
+    // refetch from Supabase, not reload a local seed array
+    // (INITIAL_ORDERS/INITIAL_PURCHASES/INITIAL_REQUESTS/
+    // INITIAL_CHAT_THREADS are just empty placeholders now, see the REAL
+    // DATA ADAPTERS section).
+    loadRealOrders()
+    loadRealRequests()
   }
 
   const value: AdminDataContextValue = {

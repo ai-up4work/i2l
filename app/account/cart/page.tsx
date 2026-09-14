@@ -479,6 +479,7 @@ function CartPageContent() {
         qty: line.qty,
         unitPriceLKR: option.actualTotalLKR,
         image: line.product.image ?? '',
+        source: line.product.source ?? 'link',
       }
     })
 

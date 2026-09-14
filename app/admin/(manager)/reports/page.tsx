@@ -118,7 +118,7 @@ export default function ReportsPage() {
   if (currentUser.role !== "manager") return null
 
   return (
-    <div className="min-h-screen bg-parchment font-body text-ink">
+    <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
         {/* ── Header ── */}
         <div className="flex items-start gap-4">

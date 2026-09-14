@@ -16,18 +16,32 @@
  */
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight, CheckCircle2, PackageSearch } from 'lucide-react'
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  PackageSearch,
+  X,
+  Info,
+  Store,
+  User,
+  Receipt,
+} from 'lucide-react'
 import {
   OrdersProvider,
   useOrders,
   orderTotal,
   itemMeta,
+  itemSourceLabel,
+  hasMultipleSources,
   FILTERS,
   SHIPPING_FLOW,
   STATUS_BADGE,
   type Order,
+  type OrderItem,
 } from '@/contexts/Ordercontexts'
 import { ItemImageStack } from '@/components/dashboard/ItemImageStack'
 
@@ -139,10 +153,7 @@ function OrdersPageContent() {
         {/* Order list */}
         <div className="mt-6 space-y-4">
           {loading ? (
-            <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-12 text-center">
-              <PackageSearch size={36} strokeWidth={1.2} className="animate-pulse text-ink/25" />
-              <p className="text-sm text-ink/50">Loading your orders…</p>
-            </div>
+            Array.from({ length: PAGE_SIZE }).map((_, i) => <OrderCardSkeleton key={i} />)
           ) : pageOrders.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-12 text-center">
               <PackageSearch size={36} strokeWidth={1.2} className="text-ink/25" />
@@ -156,7 +167,7 @@ function OrdersPageContent() {
         </div>
 
         {/* Pagination */}
-        {filtered.length > 0 && (
+        {!loading && filtered.length > 0 && (
           <div className="mt-6 flex items-center justify-between text-sm">
             <span className="text-ink/60">
               Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of{' '}
@@ -200,6 +211,7 @@ function OrdersPageContent() {
 
 function OrderCard({ order }: { order: Order }) {
   const router = useRouter()
+  const [showBreakdown, setShowBreakdown] = useState(false)
   const isMultiItem = order.items.length > 1
   const primary = order.items[0]
   const currentStepIndex = order.status === 'Shipped' ? 2 : order.status === 'Delivered' ? 3 : -1
@@ -255,6 +267,7 @@ function OrderCard({ order }: { order: Order }) {
               <div className="text-xs text-ink/60">
                 Total {order.currency} {orderTotal(order).toLocaleString()}
               </div>
+              <BreakdownTrigger onClick={() => setShowBreakdown(true)} />
             </div>
           </div>
         ) : (
@@ -273,7 +286,7 @@ function OrderCard({ order }: { order: Order }) {
                 <div className="font-medium">
                   {order.currency} {orderTotal(order).toLocaleString()}
                 </div>
-                <div className="text-[11px] text-ink/50">+ WishDrop delivery</div>
+                <BreakdownTrigger onClick={() => setShowBreakdown(true)} />
               </div>
             </div>
           </div>
@@ -344,7 +357,7 @@ function OrderCard({ order }: { order: Order }) {
               <div className="font-medium">
                 {order.currency} {orderTotal(order).toLocaleString()}
               </div>
-              <div className="text-[11px] text-ink/50">+ WishDrop delivery</div>
+              <BreakdownTrigger onClick={() => setShowBreakdown(true)} />
             </div>
           </div>
 
@@ -362,6 +375,244 @@ function OrderCard({ order }: { order: Order }) {
           {/* Actions — pinned to the bottom of the column */}
           <div className="mt-auto flex gap-2 pt-5">
             <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} />
+          </div>
+        </div>
+      </div>
+
+      {showBreakdown && (
+        <OrderPriceBreakdownOverlay order={order} onClose={() => setShowBreakdown(false)} />
+      )}
+    </div>
+  )
+}
+
+// Small underlined text trigger that opens the price breakdown overlay.
+// Shares the same slot the old static "+ WishDrop delivery" caption used
+// to occupy, so it doesn't add any extra vertical space to the card.
+function BreakdownTrigger({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-teal-deep underline decoration-teal-deep/30 underline-offset-2 transition-colors hover:decoration-teal-deep"
+    >
+      <Receipt size={11} className="flex-none" />
+      Price breakdown
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------
+// Full order price breakdown — every item, its seller/source, qty ×
+// unit price, and the order total. Modeled on the cart's
+// PriceBreakdownOverlay (same sheet-on-mobile / dialog-on-desktop shell,
+// same scroll-lock + Escape-to-close behavior), but scoped to a whole
+// order's item list rather than one cart line with dual delivery
+// pricing — Order has no per-item delivery/tax/discount fields, only
+// qty * unitPrice per item (see orderTotal in Ordercontexts.tsx), so
+// there's no economy/express comparison to show here. The card's
+// "+ WishDrop delivery" caption was always just a label, not a stored
+// fee, so this overlay states that plainly rather than inventing a
+// number.
+// ---------------------------------------------------------------------
+function OrderPriceBreakdownOverlay({ order, onClose }: { order: Order; onClose: () => void }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onClose])
+
+  const total = orderTotal(order)
+  const multiSource = hasMultipleSources(order)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-card p-5 shadow-[0_8px_30px_rgba(32,36,43,0.15)] sm:max-h-[80vh] sm:w-full sm:max-w-md sm:rounded-2xl sm:p-6"
+        style={{ border: '1px solid rgba(32, 36, 43, 0.08)' }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Price breakdown for order ${order.id}`}
+      >
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-ink/10 sm:hidden" />
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">Order #{order.id}</p>
+            <p className="mt-0.5 text-xs text-ink/50">
+              {order.items.length} item{order.items.length > 1 ? 's' : ''} · {order.date}
+              {multiSource && ' · Multiple sellers'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close price breakdown"
+            className="grid h-8 w-8 flex-none place-items-center rounded-md text-ink/40 transition-colors hover:bg-ink/[0.08] hover:text-ink/70"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Line items */}
+        <div className="mt-4 space-y-3">
+          {order.items.map((item, i) => (
+            <OrderBreakdownLine key={i} item={item} currency={order.currency} />
+          ))}
+        </div>
+
+        {/* Totals */}
+        <div className="mt-4 space-y-1.5 border-t border-ink/10 pt-3 text-sm">
+          <div className="flex items-center justify-between text-ink/70">
+            <span>Items subtotal</span>
+            <span>
+              {order.currency} {total.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-ink/70">
+            <span>WishDrop delivery</span>
+            <span className="text-ink/50">Included</span>
+          </div>
+          <div className="flex items-center justify-between border-t border-ink/10 pt-2 text-base font-semibold text-ink">
+            <span>Order total</span>
+            <span>
+              {order.currency} {total.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* Shipping reference, when there is one */}
+        {(order.carrier || order.trackingNumber) && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-ink/[0.04] px-3 py-2.5 text-xs text-ink/60">
+            <Info size={12} className="mt-0.5 flex-none" />
+            <span>
+              {order.carrier ?? 'Carrier'}
+              {order.trackingNumber ? ` · ${order.trackingNumber}` : ''}
+              {order.estimatedDelivery ? ` · Est. ${order.estimatedDelivery}` : ''}
+            </span>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-full border border-ink/15 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/[0.04]"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// One item row inside the breakdown overlay: thumbnail, name, variant,
+// seller/source (with a store-vs-individual icon via sellerType), and
+// its line total (qty * unitPrice), mirroring itemMeta()/itemSourceLabel()
+// used elsewhere on the card so the wording stays consistent.
+function OrderBreakdownLine({ item, currency }: { item: OrderItem; currency: Order['currency'] }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="h-14 w-14 flex-none overflow-hidden rounded-xl border border-ink/10 bg-white">
+        <img src={item.image} alt="" className="h-full w-full object-cover" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-sm font-medium text-ink">{item.name}</p>
+        <div className="mt-1 flex items-center gap-1.5 text-xs text-ink/50">
+          {item.sellerType === 'individual' ? (
+            <User size={11} className="flex-none" />
+          ) : (
+            <Store size={11} className="flex-none" />
+          )}
+          <span className="truncate">{itemSourceLabel(item)}</span>
+        </div>
+        <p className="mt-1 text-xs text-ink/50">{itemMeta(item)}</p>
+      </div>
+      <div className="flex-none text-right">
+        <p className="text-sm font-medium text-ink">
+          {currency} {(item.qty * item.unitPrice).toLocaleString()}
+        </p>
+        <p className="text-[11px] text-ink/40">
+          {currency} {item.unitPrice.toLocaleString()} × {item.qty}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------
+// Skeleton card shown while orders are loading. Mirrors OrderCard's own
+// two-layout structure (stacked mobile / row desktop) so the page
+// doesn't jump when the real cards swap in — same paddings, same image
+// rail width, same action-row height. bg-ink/10 blocks stand in for
+// text/images; the outer border-l-ink/10 accent stays neutral since we
+// don't know the order's status yet.
+// ---------------------------------------------------------------------
+function OrderCardSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-ink/10 border-l-4 border-l-ink/10 bg-card animate-pulse">
+      {/* Mobile / tablet */}
+      <div className="p-5 lg:hidden">
+        <div className="flex items-start justify-between">
+          <div className="space-y-2">
+            <div className="h-3 w-24 rounded bg-ink/10" />
+            <div className="h-2.5 w-16 rounded bg-ink/10" />
+          </div>
+          <div className="h-6 w-20 rounded-full bg-ink/10" />
+        </div>
+        <div className="mt-4 flex items-center gap-4">
+          <div className="h-16 w-16 flex-none rounded-xl bg-ink/10" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3.5 w-3/4 rounded bg-ink/10" />
+            <div className="h-2.5 w-1/2 rounded bg-ink/10" />
+          </div>
+          <div className="space-y-2 text-right">
+            <div className="ml-auto h-3.5 w-16 rounded bg-ink/10" />
+            <div className="ml-auto h-2.5 w-20 rounded bg-ink/10" />
+          </div>
+        </div>
+        <div className="mt-5 flex gap-2">
+          <div className="h-10 flex-1 rounded-xl bg-ink/10" />
+          <div className="h-10 flex-1 rounded-xl bg-ink/10" />
+        </div>
+      </div>
+
+      {/* Desktop */}
+      <div className="hidden gap-5 p-5 lg:flex">
+        <div className="w-44 flex-none self-stretch rounded-xl bg-ink/10" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-start justify-between">
+            <div className="space-y-2">
+              <div className="h-3 w-28 rounded bg-ink/10" />
+              <div className="h-2.5 w-16 rounded bg-ink/10" />
+            </div>
+            <div className="h-6 w-20 rounded-full bg-ink/10" />
+          </div>
+          <div className="mt-4 flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <div className="h-3.5 w-40 rounded bg-ink/10" />
+              <div className="h-2.5 w-28 rounded bg-ink/10" />
+            </div>
+            <div className="space-y-2 text-right">
+              <div className="ml-auto h-3.5 w-16 rounded bg-ink/10" />
+              <div className="ml-auto h-2.5 w-20 rounded bg-ink/10" />
+            </div>
+          </div>
+          <div className="mt-auto flex gap-2 pt-5">
+            <div className="h-10 w-28 rounded-xl bg-ink/10" />
+            <div className="h-10 w-28 rounded-xl bg-ink/10" />
           </div>
         </div>
       </div>
@@ -445,7 +696,14 @@ function OrderCardActions({
       </>
     )
   }
-  return <PrimaryButton onClick={onGoToTracking}>Track Order</PrimaryButton>
+  // Unpaid / Processing / any future status not explicitly handled above —
+  // still needs a way into the full order record, not just tracking.
+  return (
+    <>
+      <PrimaryButton onClick={onGoToTracking}>Track Order</PrimaryButton>
+      <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
+    </>
+  )
 }
 
 function PrimaryButton({

@@ -1221,7 +1221,7 @@ export default function SellerFormClient({
   // ---- Not found (EDIT mode, bad slug) ----
   if (!isNew && !seller) {
     return (
-      <div className="min-h-screen bg-parchment font-body text-ink">
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
         <div className="mx-auto max-w-2xl px-6 pb-20 pt-8 text-center lg:px-10">
           <p className="mt-16 text-sm text-ink/50">
             No seller found. It may have been removed.
@@ -1810,7 +1810,7 @@ export default function SellerFormClient({
   )
 
   return (
-    <div className="min-h-screen bg-parchment font-body text-ink">
+    <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-24 pt-10 lg:px-10">
         <button
           type="button"

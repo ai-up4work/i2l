@@ -11,6 +11,8 @@ import { rateToLKR } from '@/lib/currency-config'
 import { useAuth } from './AuthContext'
 import { createClient } from '@/lib/supabase/client'
 import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
+import { sendChatMessage } from '@/lib/supabase/chat'
+import type { OgMetadata } from '@/lib/og-lookup'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const emptyDraft: Draft = {
@@ -63,6 +65,8 @@ export type CartOrderLine = {
   qty: number
   unitPriceLKR: number
   image: string
+  /** 'catalogue' = added from an affiliated store listing (Channel 1); 'link' = added via a pasted product link that scraped successfully (Channel 2). Determines the resulting order's channel — see confirmCartOrder below. */
+  source?: 'catalogue' | 'link'
 }
 
 export type ConfirmResult = { ok: boolean; error?: string }
@@ -150,6 +154,23 @@ function sourceDomainFor(url: string): string {
   }
 }
 
+/**
+ * Client-side call to /api/og-lookup — the fallback used when a link
+ * can't be priced (see confirmRequest's unpriced branch below), so a
+ * Channel 3 request still gets a real product photo/title instead of a
+ * blank card. Never throws; returns all-null metadata on any failure,
+ * same as the API route itself.
+ */
+async function fetchOgMetadataClient(url: string): Promise<OgMetadata> {
+  try {
+    const res = await fetch(`/api/og-lookup?url=${encodeURIComponent(url)}`)
+    if (!res.ok) return { title: null, image: null, description: null }
+    return (await res.json()) as OgMetadata
+  } catch {
+    return { title: null, image: null, description: null }
+  }
+}
+
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user } = useAuth()
@@ -229,17 +250,19 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   // price is already known:
   //   - Priced (scraped successfully, or hand-entered in ItemInfoModal):
   //     Channel 2 — goes straight to a real order, no admin quote needed,
-  //     since there's nothing left to price.
-  //   - Unpriced: Channel 3 — the link couldn't be priced automatically,
-  //     so this becomes a `requests` row for Sales & Purchase to quote by
-  //     hand (plus the chat_thread it's required to reference).
-  //
-  // KNOWN GAP: a Channel 3 request has nowhere good to land yet — there's
-  // no "my pending requests" list page, so this still routes to
-  // /account/orders like the priced path, where it simply won't appear
-  // (it isn't an order yet). Surfacing pending requests needs either a
-  // small new page or extending Order's status union in Ordercontexts.tsx
-  // — flagged, not solved here.
+  //     since there's nothing left to price. Lands on Orders Hub.
+  //   - Unpriced: Channel 3 — the link couldn't be priced automatically
+  //     (no extractor matched, or the site blocked scraping — Instagram
+  //     posts and heavily bot-protected sites are the classic case). This
+  //     creates a `requests` row for Sales & Purchase to quote by hand,
+  //     its own dedicated `chat_threads` row, and an initial message
+  //     seeding that thread with the link, an Open Graph-fetched photo/
+  //     title (see fetchOgMetadataClient), and the customer's note —
+  //     tagged to the request via chat_messages.request_id. Lands on
+  //     /account/messages, where that thread is now the most recently
+  //     active one and surfaces immediately (see
+  //     getMostRecentOrGeneralThread in lib/supabase/chat.ts) — this is
+  //     the "start a chat so the customer can continue" requirement.
   const confirmRequest = useCallback(async (): Promise<ConfirmResult> => {
     if (!user) return { ok: false, error: 'You need to be signed in to confirm a request.' }
 
@@ -268,6 +291,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         })
         if (itemError) throw itemError
       } else {
+        // Channel 3 — couldn't be priced automatically (no extractor
+        // matched, or the site blocked scraping outright — Instagram
+        // posts and heavily bot-protected boutique sites are the classic
+        // case). Try to at least get a real product photo/title via the
+        // page's own Open Graph tags before handing this to a human, so
+        // Sales & Purchase — and the customer's own chat — see an actual
+        // picture of the item instead of a blank card.
+        const hasRealImage = draft.image && draft.image !== productImage[0]
+        const og = hasRealImage ? null : await fetchOgMetadataClient(draft.url)
+        const screenshotUrl = hasRealImage ? draft.image : (og?.image ?? undefined)
+        const displayTitle = draft.name.trim() || og?.title || draft.url
+
         const { data: thread, error: threadError } = await supabase
           .from('chat_threads')
           .insert({ user_id: user.id })
@@ -275,19 +310,50 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           .single()
         if (threadError) throw threadError
 
-        const { error: requestError } = await supabase.from('requests').insert({
-          user_id: user.id,
-          link: draft.url,
-          note: draft.name,
-          source_domain: sourceDomainFor(draft.url),
-          chat_thread_id: thread.id,
-        })
+        const { data: newRequest, error: requestError } = await supabase
+          .from('requests')
+          .insert({
+            user_id: user.id,
+            link: draft.url,
+            note: draft.name,
+            screenshot_url: screenshotUrl ?? null,
+            source_domain: sourceDomainFor(draft.url),
+            chat_thread_id: thread.id,
+          })
+          .select('id')
+          .single()
         if (requestError) throw requestError
+
+        // Links the thread back to the request (chat_threads.request_id)
+        // — requests.chat_thread_id already points the other way; this
+        // completes the pair so the admin thread list can show which
+        // request a conversation belongs to.
+        await supabase.from('chat_threads').update({ request_id: newRequest.id }).eq('id', thread.id)
+
+        // Seeds the conversation with the link/photo/note as the first
+        // message, tagged to this request, so both the customer's own
+        // chat view and the admin's /admin/chat immediately show full
+        // context instead of an empty thread — "start a chat so the
+        // customer can continue" is this message existing at all.
+        await sendChatMessage(supabase, {
+          threadId: thread.id,
+          sender: 'customer',
+          senderName: user.name,
+          text: `I'd like to order this: ${displayTitle}\n${draft.url}`,
+          attachmentUrl: screenshotUrl ?? null,
+          requestId: newRequest.id,
+        })
       }
 
       clearPersistedDraft()
       setActiveTab('Requested')
-      router.push(pathForView('ordersHub'))
+      // Priced path made a real order — Orders Hub is where it lives.
+      // Unpriced path made a request + chat thread, not an order yet —
+      // send the customer straight to their chat, where the message just
+      // seeded above (link, photo, note) is now the most recently active
+      // thread and surfaces immediately (see getMostRecentOrGeneralThread
+      // in lib/supabase/chat.ts).
+      router.push(draft.unitPrice > 0 ? pathForView('ordersHub') : '/account/messages')
       return { ok: true }
     } catch (err) {
       console.error('[dashboard] failed to confirm request', err)
@@ -295,9 +361,16 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }
   }, [draft, user, router])
 
-  // See confirmRequest above for the general shape. Cart checkout is
-  // always priced (every line came from a real listing already shown at
-  // a price), so this is always Channel 2 — no unpriced branch needed.
+  // See confirmRequest above for the general shape. Channel is derived
+  // from where each line came from (CartOrderLine.source, set by the cart
+  // page from CartProduct.source): an order made up ENTIRELY of catalogue
+  // listings is Channel 1 (affiliated store); an order containing even
+  // one pasted-link item is Channel 2 (scraped link) — mirrors the real
+  // `orders.channel` column, which is per-order, not per-item, so a mixed
+  // cart has to pick one. Every line here is always priced already (both
+  // sources only reach the cart once a real price is known), so there's
+  // no unpriced/Channel-3 branch on this path — Channel 3 only happens
+  // via confirmRequest above, before anything reaches the cart.
   const confirmCartOrder = useCallback(
     async (lines: CartOrderLine[]): Promise<ConfirmResult> => {
       if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
@@ -306,9 +379,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const supabase = createClient()
       try {
         const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
+        const channel: 1 | 2 = lines.every((line) => line.source === 'catalogue') ? 1 : 2
         const orderId = await createOrderWithRetry(supabase, {
           user_id: user.id,
-          channel: 2,
+          channel,
           currency: 'LKR',
           total_value: total,
         })

@@ -17,6 +17,7 @@ import {
   subscribeToThreadMessages,
   uploadChatAttachment,
 } from '@/lib/supabase/chat'
+import { deriveHandle } from '@/contexts/ChatContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,20 @@ import AttachmentMedia from '@/components/chat/AttachmentMedia'
 // Sender identity: looks up staff_accounts by the logged-in user's id
 // for a real name, falling back to their email. Not gated by role yet —
 // same open caveat as every other /api/admin/** route in this codebase.
+//
+// Customer handle: profiles.chat_handle is the single source of truth
+// (see ChatContext/AuthContext — auth user_metadata.chat_handle was
+// retired). Pulled in the same profile lookup as full_name/email below.
+// When a customer has never set one, `deriveHandle(name)` — imported
+// straight from ChatContext instead of re-implemented here — produces
+// the exact same fallback the customer's own chat UI shows, so admin
+// and customer never disagree about which handle is "theirs".
+//
+// Customer avatar: profiles.avatar_url, pulled in the same lookup as
+// full_name/email/chat_handle above. Rendered via the small <Avatar>
+// helper below, which falls back to the existing colored-initials
+// circle whenever avatar_url is null/empty/fails to load — nothing
+// downstream needs to null-check it, the fallback lives in one place.
 //
 // Selected thread lives in the URL (?thread=<id>), not just component
 // state — a hard refresh, a shared link, or browser back/forward should
@@ -110,7 +125,7 @@ type ThreadRow = {
   order_id: string | null
   last_activity: string
   unread: boolean
-  profiles: { full_name: string; email: string } | null
+  profiles: { full_name: string; email: string; chat_handle: string | null; avatar_url: string | null } | null
 }
 
 type ThreadListItem = ThreadRow & {
@@ -124,7 +139,13 @@ type ThreadListItem = ThreadRow & {
 // objects (a real PostgrestResponse vs. a bare `{ data: [], error: null }`
 // literal), TS can fail to unify `data`'s array element type and
 // silently degrade it to `never` for everything read from it downstream.
-type ProfileLookupRow = { id: string; full_name: string; email: string }
+type ProfileLookupRow = {
+  id: string
+  full_name: string
+  email: string
+  chat_handle: string | null
+  avatar_url: string | null
+}
 
 const AVATAR_COLORS = ['bg-teal-deep', 'bg-indigo', 'bg-gold-deep', 'bg-teal', 'bg-indigo-deep', 'bg-ink/60']
 const PREVIEW_MESSAGE_LIMIT = 500 // recent messages fetched across all threads to derive previews
@@ -135,6 +156,16 @@ function initialsFor(name: string) {
   const first = parts[0]?.[0] ?? ''
   const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : ''
   return (first + last).toUpperCase()
+}
+
+// profiles.chat_handle is stored without a leading "@" — this is the one
+// place that convention is enforced on display, so a value saved with or
+// without the symbol (e.g. from a future admin edit tool, or old data)
+// still renders consistently as "@handle" and never "@@handle".
+function displayHandle(row: { full_name: string; email: string; chat_handle: string | null } | null | undefined) {
+  if (!row) return ''
+  const raw = row.chat_handle?.trim() || deriveHandle(row.full_name || row.email || 'Customer')
+  return raw.startsWith('@') ? raw : `@${raw}`
 }
 
 function formatTime(iso: string) {
@@ -168,6 +199,50 @@ function threadLabel(t: ThreadRow) {
   if (t.request_id) return 'Request thread'
   if (t.order_id) return 'Order thread'
   return null
+}
+
+// Small avatar primitive: renders the customer's real photo when
+// avatar_url is present, otherwise falls back to the existing colored-
+// initials circle. `onError` clears a locally-tracked "broken" flag so
+// a dead/expired URL (revoked storage link, deleted file, etc.) drops
+// back to initials instead of showing a broken-image icon — this is
+// the one place that fallback logic lives, so callers just pass
+// whatever avatar_url they have and never need to null-check it.
+function Avatar({
+  name,
+  avatarUrl,
+  colorClass,
+  sizeClass = 'h-10 w-10',
+  textClass = 'text-sm',
+}: {
+  name: string
+  avatarUrl?: string | null
+  colorClass: string
+  sizeClass?: string
+  textClass?: string
+}) {
+  const [broken, setBroken] = useState(false)
+  const showImage = Boolean(avatarUrl) && !broken
+
+  if (showImage) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={avatarUrl ?? undefined}
+        alt={name}
+        onError={() => setBroken(true)}
+        className={`flex-none rounded-full object-cover ${sizeClass}`}
+      />
+    )
+  }
+
+  return (
+    <span
+      className={`grid flex-none place-items-center rounded-full font-semibold text-white ${colorClass} ${sizeClass} ${textClass}`}
+    >
+      {initialsFor(name)}
+    </span>
+  )
 }
 
 export default function AdminChatPage() {
@@ -252,13 +327,21 @@ export default function AdminChatPage() {
     let profilesError: unknown = null
 
     if (userIds.length > 0) {
-      const res = await supabase.from('profiles').select('id, full_name, email').in('id', userIds)
+      const res = await supabase
+        .from('profiles')
+        .select('id, full_name, email, chat_handle, avatar_url')
+        .in('id', userIds)
       profileRows = res.data ?? []
       profilesError = res.error
     }
 
     if (profilesError) console.error('[admin chat] failed to load customer profiles', profilesError)
-    const profileById = new Map(profileRows.map((p) => [p.id, { full_name: p.full_name, email: p.email }]))
+    const profileById = new Map(
+      profileRows.map((p) => [
+        p.id,
+        { full_name: p.full_name, email: p.email, chat_handle: p.chat_handle, avatar_url: p.avatar_url },
+      ]),
+    )
 
     const latestByThread = new Map<string, ChatMessageRow>()
     for (const m of (recentMessages ?? []) as ChatMessageRow[]) {
@@ -433,7 +516,7 @@ export default function AdminChatPage() {
       if (pendingFiles.length === 0) {
         const row = await sendChatMessage(supabase, {
           threadId: selectedId,
-          sender: 'ops',
+          sender: 'staff',
           senderName: staffName,
           text: firstText,
         })
@@ -443,7 +526,7 @@ export default function AdminChatPage() {
           const url = await uploadChatAttachment(supabase, selectedId, pendingFiles[i])
           const row = await sendChatMessage(supabase, {
             threadId: selectedId,
-            sender: 'ops',
+            sender: 'staff',
             senderName: staffName,
             text: i === 0 ? firstText : '',
             attachmentUrl: url,
@@ -565,11 +648,13 @@ export default function AdminChatPage() {
                     isSelected ? 'border-teal-deep bg-teal/10' : 'border-ink/10 bg-parchment/50 hover:bg-parchment/70'
                   }`}
                 >
-                  <span
-                    className={`grid h-10 w-10 flex-none place-items-center rounded-full text-sm font-semibold text-white ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}
-                  >
-                    {initialsFor(name)}
-                  </span>
+                  <Avatar
+                    name={name}
+                    avatarUrl={t.profiles?.avatar_url}
+                    colorClass={AVATAR_COLORS[i % AVATAR_COLORS.length]}
+                    sizeClass="h-10 w-10"
+                    textClass="text-sm"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
                       <p className="truncate text-[13px] font-medium text-ink">{name}</p>
@@ -609,15 +694,20 @@ export default function AdminChatPage() {
         {selectedThread ? (
           <>
             <div className="flex flex-none items-center gap-3 bg-parchment px-4 py-2.5">
-              <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-teal-deep text-xs font-semibold text-white">
-                {initialsFor(selectedThread.profiles?.full_name ?? selectedThread.profiles?.email ?? 'Customer')}
-              </span>
+              <Avatar
+                name={selectedThread.profiles?.full_name ?? selectedThread.profiles?.email ?? 'Customer'}
+                avatarUrl={selectedThread.profiles?.avatar_url}
+                colorClass="bg-teal-deep"
+                sizeClass="h-10 w-10"
+                textClass="text-xs"
+              />
               <div>
                 <p className="text-[15px] font-medium text-ink">
                   {selectedThread.profiles?.full_name ?? selectedThread.profiles?.email ?? 'Customer'}
                 </p>
                 <p className="text-xs text-ink/50">
-                  {selectedThread.profiles?.email}
+                  {displayHandle(selectedThread.profiles)}
+                  {selectedThread.profiles?.email ? ` · ${selectedThread.profiles.email}` : ''}
                   {threadLabel(selectedThread) ? ` · ${threadLabel(selectedThread)}` : ''}
                 </p>
               </div>

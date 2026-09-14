@@ -530,11 +530,11 @@ export async function setOrderStage(
   return { ok: true }
 }
 
-/** Export Bin -> In-Transit: the one queue move that's also a real enum change ('quality_check' -> 'shipped'). */
-export async function exportOrderToTransit(orderId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await setOrderStage(orderId, 'shipped', staffId, 'Exported — courier pickup')
+/** Pack & Label "Mark packed": the real enum change ('quality_check' -> 'shipped') — matches the original UI's own packOrder, which flips stage the moment an order is packed, not when a courier later picks it up. */
+export async function packOrderReal(orderId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await setOrderStage(orderId, 'shipped', staffId, 'Packed & labeled')
   if (!res.ok) return res
-  return setWarehouseSubstage(orderId, 'in_transit', staffId)
+  return setWarehouseSubstage(orderId, 'packed', staffId)
 }
 
 export async function setOrderDelayed(orderId: string, delayed: boolean): Promise<{ ok: boolean; error?: string }> {
@@ -745,6 +745,46 @@ export async function fetchPurchase(id: string): Promise<AdminPurchase | null> {
     }
   }
   return mapRowToPurchase(row, orderById)
+}
+
+/**
+ * Creates the order's `purchases` row if none exists yet, or updates the
+ * existing one — used by AdminDataContext's markPurchased/flagUnavailable,
+ * which (in the original per-item mock) could fire before any Purchase
+ * record existed. The real `purchases` table is order-level (see file
+ * header), so this always targets "the" purchase for the order, not a
+ * specific item.
+ */
+export async function upsertPurchaseForOrder(
+  orderId: string,
+  fields: { channel: Channel; sourceStore: string; amount: number; status: 'pending' | 'purchased' | 'failed'; receiptRef?: string; failReason?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { data: existing } = await supabase.from('purchases').select('id').eq('order_id', orderId).maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('purchases')
+      .update({
+        status: fields.status,
+        amount: fields.amount,
+        receipt_ref: fields.receiptRef ?? null,
+        fail_reason: fields.failReason ?? null,
+      })
+      .eq('id', existing.id)
+    return error ? { ok: false, error: error.message } : { ok: true }
+  }
+
+  const { error } = await supabase.from('purchases').insert({
+    order_id: orderId,
+    channel: fields.channel,
+    source_store: fields.sourceStore,
+    amount: fields.amount,
+    status: fields.status,
+    receipt_ref: fields.receiptRef ?? null,
+    fail_reason: fields.failReason ?? null,
+  })
+  return error ? { ok: false, error: error.message } : { ok: true }
 }
 
 export async function markPurchasePurchased(id: string, receiptRef: string): Promise<{ ok: boolean; error?: string }> {

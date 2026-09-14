@@ -1,4 +1,3 @@
-// contexts/ChatContext.tsx
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -8,7 +7,7 @@ import {
   type ChatMessageRow,
   type ChatSender,
   buildReplyBody,
-  getOrCreateGeneralThread,
+  getMostRecentOrGeneralThread,
   inferAttachmentKind,
   fetchThreadMessages,
   markThreadRead,
@@ -58,7 +57,7 @@ function rowToMessage(row: ChatMessageRow): ChatMessage {
     text,
     createdAt: new Date(row.created_at).getTime(),
     attachment: row.attachment_url ? { url: row.attachment_url, kind: inferAttachmentKind(row.attachment_url) } : null,
-    replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'ops' : 'customer', text: quoted } : null,
+    replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'staff' : 'customer', text: quoted } : null,
   }
 }
 
@@ -86,43 +85,7 @@ function writeLastReadAt(threadId: string, ts: number) {
   }
 }
 
-// TEMPORARY WORKAROUND, not a real fix — some customers currently have
-// more than one "general" thread (no request_id/order_id) on file, which
-// makes getOrCreateGeneralThread's internal `.single()` lookup throw
-// PGRST116 ("multiple rows returned") instead of resolving. Until that
-// dedup happens server-side (or getOrCreateGeneralThread itself is
-// changed to tolerate/collapse duplicates), catch that specific failure
-// here and fall back to picking the most recently active matching
-// thread directly, so the customer isn't left with a broken chat.
-// Delete this fallback once the underlying duplicate-thread rows are
-// cleaned up and/or getOrCreateGeneralThread is hardened against races
-// that create them (e.g. two tabs, or a Strict-Mode double effect,
-// racing an insert-if-missing at the same time).
-async function resolveGeneralThreadId(supabase: ReturnType<typeof createClient>, userId: string): Promise<string> {
-  try {
-    return await getOrCreateGeneralThread(supabase, userId)
-  } catch (err) {
-    const isMultipleRows =
-      typeof err === 'object' && err !== null && 'code' in err && (err as { code?: string }).code === 'PGRST116'
-    if (!isMultipleRows) throw err
 
-    console.warn('[chat] user has multiple general threads — falling back to most recent one', { userId })
-    const { data, error } = await supabase
-      .from('chat_threads')
-      .select('id')
-      .eq('user_id', userId)
-      .is('request_id', null)
-      .is('order_id', null)
-      .order('last_activity', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (error) throw error
-    if (!data) throw err // no general thread at all — surface the original error, something else is wrong
-
-    return data.id
-  }
-}
 
 type SendOptions = {
   replyTo?: ReplyPreview | null
@@ -142,6 +105,7 @@ interface ChatContextValue {
   markRead: () => void
   isLocked: boolean
   handle: string | null
+  refreshHandle: () => Promise<void>
   getWhatsAppLink: (prefillText?: string) => string
 }
 
@@ -149,7 +113,13 @@ const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
-  const handle = user ? user.chatHandle ?? deriveHandle(user.name) : null
+
+  // chat_handle lives only in profiles.chat_handle now (single source of
+  // truth — see AuthContext, which no longer carries chatHandle at all).
+  // Falls back to deriveHandle(user.name) until the row loads, or forever
+  // if the user has never set a handle.
+  const [profileHandle, setProfileHandle] = useState<string | null>(null)
+  const handle = user ? profileHandle ?? deriveHandle(user.name) : null
 
   const [isOpen, setIsOpen] = useState(false)
   const [threadId, setThreadId] = useState<string | null>(null)
@@ -159,6 +129,52 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [sendError, setSendError] = useState<string | null>(null)
 
   const supabaseRef = useRef(createClient())
+
+  // Load (or clear) this user's chat_handle from profiles whenever the
+  // signed-in user changes. Keyed on user?.id, same reasoning as the
+  // thread-loading effect below: AuthContext can emit a value-equal but
+  // new `user` object on tab focus/token refresh, and keying on the
+  // object would re-fire this on every one of those.
+  useEffect(() => {
+    if (!user) {
+      setProfileHandle(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabaseRef.current
+        .from('profiles')
+        .select('chat_handle')
+        .eq('id', user.id)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) {
+        console.error('[chat] failed to load chat_handle', error)
+        return
+      }
+      setProfileHandle(data?.chat_handle ?? null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+
+  // Lets other parts of the app (e.g. the profile page, right after a
+  // successful handle update) tell ChatContext to re-read profiles
+  // instead of waiting for a remount or a user.id change to pick it up.
+  const refreshHandle = useCallback(async () => {
+    if (!user) return
+    const { data, error } = await supabaseRef.current
+      .from('profiles')
+      .select('chat_handle')
+      .eq('id', user.id)
+      .maybeSingle()
+    if (error) {
+      console.error('[chat] failed to refresh chat_handle', error)
+      return
+    }
+    setProfileHandle(data?.chat_handle ?? null)
+  }, [user])
 
   // Resolve (or create) this customer's general support thread and load
   // its history once we know who's logged in.
@@ -178,7 +194,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
     ;(async () => {
       try {
-        const id = await resolveGeneralThreadId(supabaseRef.current, user.id)
+        const id = await getMostRecentOrGeneralThread(supabaseRef.current, user.id)
         if (cancelled) return
         setThreadId(id)
         setLastReadAt(readLastReadAt(id))
@@ -257,7 +273,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [threadId])
 
   const unreadCount = useMemo(
-    () => messages.filter((m) => m.sender === 'ops' && m.createdAt > lastReadAt).length,
+    () => messages.filter((m) => m.sender === 'staff' && m.createdAt > lastReadAt).length,
     [messages, lastReadAt],
   )
 
@@ -276,6 +292,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     markRead,
     isLocked: !isAuthenticated,
     handle,
+    refreshHandle,
     getWhatsAppLink,
   }
 

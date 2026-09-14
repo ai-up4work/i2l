@@ -42,7 +42,7 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 
-export type ChatSender = 'customer' | 'ops'
+export type ChatSender = 'customer' | 'staff'
 
 export type ChatMessageRow = Database['public']['Tables']['chat_messages']['Row']
 export type ChatThreadRow = Database['public']['Tables']['chat_threads']['Row']
@@ -102,11 +102,10 @@ export async function uploadChatAttachment(
 }
 
 /** Finds this user's general support thread (no request/order attached),
- * creating it on first contact. Per-request threads are created
- * separately at request-submission time (see DashboardContext's
- * confirmRequest) and are surfaced only in the admin console, not here —
- * the floating widget and /account/messages are the general-support
- * line, not a per-request inbox. */
+ * creating it on first contact. Used as the guaranteed fallback by
+ * getMostRecentOrGeneralThread below when the user has no thread at all
+ * yet. Per-request threads are created separately at request-submission
+ * time (see DashboardContext's confirmRequest). */
 export async function getOrCreateGeneralThread(supabase: SupabaseClient, userId: string): Promise<string> {
   const { data: existing, error: findError } = await supabase
     .from('chat_threads')
@@ -127,6 +126,36 @@ export async function getOrCreateGeneralThread(supabase: SupabaseClient, userId:
   return created.id
 }
 
+/**
+ * The thread the customer-facing chat view (floating widget,
+ * /account/messages) actually loads: whichever of the user's threads
+ * was active most recently, general or request-linked. This is what
+ * makes a freshly created Channel 3 request (see DashboardContext's
+ * confirmRequest) show up as "the chat" the moment the customer lands
+ * on /account/messages — its thread's last_activity is newer than the
+ * general thread's, so it naturally surfaces first, no thread-switching
+ * UI needed. Falls back to the general thread (creating it if this is a
+ * first-time visitor with no threads at all).
+ *
+ * This also replaces the old resolveGeneralThreadId's "multiple general
+ * threads" workaround (see git history) — ordering by last_activity and
+ * taking the top row can never throw PGRST116 the way a filtered
+ * `.single()` lookup could, so that whole failure mode is gone, not just
+ * caught.
+ */
+export async function getMostRecentOrGeneralThread(supabase: SupabaseClient, userId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('chat_threads')
+    .select('id')
+    .eq('user_id', userId)
+    .order('last_activity', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  if (data) return data.id
+  return getOrCreateGeneralThread(supabase, userId)
+}
+
 export async function fetchThreadMessages(supabase: SupabaseClient, threadId: string): Promise<ChatMessageRow[]> {
   const { data, error } = await supabase
     .from('chat_messages')
@@ -141,7 +170,15 @@ export async function fetchThreadMessages(supabase: SupabaseClient, threadId: st
  * flag when the sender is the customer — see the module doc comment). */
 export async function sendChatMessage(
   supabase: SupabaseClient,
-  params: { threadId: string; sender: ChatSender; senderName: string; text: string; attachmentUrl?: string | null },
+  params: {
+    threadId: string
+    sender: ChatSender
+    senderName: string
+    text: string
+    attachmentUrl?: string | null
+    /** Tags this message to a Channel 3 request (chat_messages.request_id) — shown as a visible tag in the admin chat view (see wishdrop-admin-route-specs.md's /admin/chat spec). Used for the initial message a request is created with, and for any staff/customer follow-up while that request is still open. */
+    requestId?: string | null
+  },
 ): Promise<ChatMessageRow> {
   const { data, error } = await supabase
     .from('chat_messages')
@@ -151,6 +188,7 @@ export async function sendChatMessage(
       sender_name: params.senderName,
       text: params.text || null,
       attachment_url: params.attachmentUrl ?? null,
+      request_id: params.requestId ?? null,
     })
     .select('*')
     .single()

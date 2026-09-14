@@ -10,28 +10,13 @@ export interface AuthUser {
   name: string
   email: string
   imageUrl?: string
-  chatHandle?: string
-  /** Whether the user has verified their phone number. Drives things
-   *  like the account WelcomeBanner's "Verify your phone" CTA — once
-   *  true, that banner should stop showing regardless of dismiss state. */
   phoneVerified?: boolean
 }
 
 interface AuthContextValue {
   user: AuthUser | null
   isAuthenticated: boolean
-  /** True until the initial session check completes AND there's no cached
-   *  user to render optimistically. If a cached user exists from a
-   *  previous session, we render it immediately and this is false right
-   *  away — the background check below will correct it silently if it
-   *  turns out to be stale. Gate skeleton UI on this, not on `user === null`. */
   loading: boolean
-  /**
-   * Kept as a no-arg function so existing call sites (Header's account CTA,
-   * ChatPanel/messages pages' "Log in to chat" buttons) don't need to
-   * change — real auth needs a credentials form, so this just routes to
-   * /auth/login instead of instantly authenticating like the old mock did.
-   */
   login: () => void
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signUp: (
@@ -40,21 +25,13 @@ interface AuthContextValue {
     fullName: string,
   ) => Promise<{ error: string | null; sessionCreated: boolean }>
   logout: () => Promise<void>
-  /** Sends a password-reset email. No dedicated /forgot-password route
-   *  exists yet — callers show an inline "check your email" state instead. */
   resetPassword: (email: string) => Promise<{ error: string | null }>
-  /** Sends an OTP to the given phone number via Supabase phone auth. */
   requestPhoneVerification: (phone: string) => Promise<{ error: string | null }>
-  /** Verifies the OTP and flips phoneVerified to true on success. */
   verifyPhone: (phone: string, token: string) => Promise<{ error: string | null }>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-// Cached copy of the derived AuthUser (not the Supabase session/tokens —
-// those stay in Supabase's own storage). This is purely so the header can
-// paint the right name/avatar on the very first render instead of flashing
-// a logged-out state while getUser() round-trips.
 const CACHE_KEY = "wishdrop:auth-user-cache:v1"
 
 function readCachedUser(): AuthUser | null {
@@ -76,8 +53,7 @@ function writeCachedUser(user: AuthUser | null) {
       window.localStorage.removeItem(CACHE_KEY)
     }
   } catch {
-    // Ignore quota errors / privacy modes that block localStorage — the
-    // cache is a pure optimization, never a source of truth.
+    // Ignore quota errors / privacy modes that block localStorage.
   }
 }
 
@@ -89,31 +65,48 @@ function toAuthUser(user: User | null): AuthUser | null {
     name: meta.full_name ?? user.email?.split("@")[0] ?? "Customer",
     email: user.email ?? "",
     imageUrl: meta.avatar_url,
-    chatHandle: meta.chat_handle,
     phoneVerified: Boolean(user.phone_confirmed_at),
   }
+}
+
+// Field-by-field comparison of the derived AuthUser. Supabase re-fires
+// onAuthStateChange on tab focus / token refresh even when the underlying
+// user hasn't changed, and toAuthUser() builds a brand-new object each
+// time — without this check, every consumer of `user` (and any effect
+// that depends on it) would re-run on every tab-focus event.
+//
+// chat_handle is intentionally NOT part of AuthUser anymore — profiles.
+// chat_handle is the single source of truth, and ChatContext reads it
+// directly from the profiles table instead of trusting auth metadata.
+function sameAuthUser(a: AuthUser | null, b: AuthUser | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.email === b.email &&
+    a.imageUrl === b.imageUrl &&
+    a.phoneVerified === b.phoneVerified
+  )
 }
 
 export default function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const supabase = createClient()
 
-  // Seed from cache so a returning user sees their name/avatar immediately,
-  // before the real session check resolves. readCachedUser() returns null
-  // during SSR (no window), so this doesn't cause a hydration mismatch —
-  // both server and first client render start from null, then the client
-  // synchronously upgrades to the cached value on mount.
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Only replaces the `user` reference when something actually changed,
+  // so components/effects keyed on `user` (object identity) don't fire
+  // on routine session refreshes. Always writes the cache though, since
+  // that's cheap and keeps it fresh regardless.
   const applyUser = (next: AuthUser | null) => {
-    setUser(next)
+    setUser((prev) => (sameAuthUser(prev, next) ? prev : next))
     writeCachedUser(next)
   }
 
   useEffect(() => {
-    // Hydrate from cache first (client-only), so there's no flash of a
-    // "guest" state on repeat visits while the network check is in flight.
     const cached = readCachedUser()
     if (cached) {
       setUser(cached)
@@ -154,16 +147,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       options: { data: { full_name: fullName } },
     })
     if (!error && data.session) applyUser(toAuthUser(data.session.user))
-    // Supabase only returns a session immediately when email confirmation
-    // is disabled in the project's auth settings. If confirmation is
-    // required, data.session is null and the caller should show a
-    // "check your email" state instead of assuming the user is logged in.
     return { error: error?.message ?? null, sessionCreated: !!data.session }
   }
 
   const logout = async () => {
-    // Clear the local view immediately so the header doesn't sit on the
-    // old name/avatar while signOut() round-trips.
     applyUser(null)
     await supabase.auth.signOut()
     router.push("/")
@@ -187,13 +174,6 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     if (!error) {
       const { data } = await supabase.auth.getUser()
       applyUser(toAuthUser(data.user))
-      // Keep profiles.phone/phone_verified in sync — this is what the
-      // WhatsApp chat panel and anything else outside Supabase Auth
-      // itself (which only knows about auth.users.phone_confirmed_at)
-      // actually reads. Best-effort: if this write fails, auth-level
-      // verification still succeeded and phoneVerified above is still
-      // correct, so we don't surface this as an error to the customer —
-      // just log it so it doesn't disappear silently.
       if (data.user) {
         const { error: profileError } = await supabase
           .from("profiles")
