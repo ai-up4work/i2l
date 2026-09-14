@@ -34,7 +34,7 @@ export default function StoresPage() {
           {/* Login-aware CTA — this page is public, but starting a request isn't.
               Sends anonymous visitors to login first, then back to the add-request flow. */}
           <Link
-            href="/login?redirect=/account/requests/new"
+            href="/auth/login?redirect=/account/requests/new"
             className="group flex items-center justify-center gap-2 rounded-xl bg-teal px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors duration-200 hover:bg-teal-deep"
           >
             <LinkIcon size={16} />

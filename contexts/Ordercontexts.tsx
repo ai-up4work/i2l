@@ -47,6 +47,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAuth } from './AuthContext'
 import { createClient } from '@/lib/supabase/client'
+import { mapStageToCustomerStatus } from '@/lib/supabase/orders-admin'
 
 export type OrderStatus = 'Processing' | 'Quality Check' | 'Shipped' | 'Delivered' | 'Cancelled'
 
@@ -800,30 +801,15 @@ export const MOCK_ORDERS: Order[] = [
 // hand-inserted rows).
 const FALLBACK_ITEM_IMAGE = 'https://loremflickr.com/200/200/package?lock=0'
 
-// Maps the DB's `orders.stage` enum to this file's own OrderStatus/
-// SHIPPING_FLOW vocabulary. README's stated pipeline is
-// `Ordered -> Quality check -> Shipped -> Delivered`, and SHIPPING_FLOW
-// above already uses those exact 4 labels — 'ordered' is shown as
-// "Processing" in the OrderStatus/badge vocabulary specifically (matching
-// the original mock's distinction between the two: the list/badge says
-// "Processing", the timeline's first step says "Ordered"). There is no
-// "Cancelled" concept in the real schema (no such column on `orders`) —
-// that FILTERS/STATUS_BADGE entry simply won't match anything real until
-// a cancellation flow exists. Anything unrecognized falls back to a
-// title-cased version of the raw value rather than throwing, since the
-// exact full enum wasn't available when this was written.
-function mapStageToOrderStatus(stage: string): OrderStatus {
-  const normalized = stage.toLowerCase()
-  if (normalized === 'ordered') return 'Processing'
-  if (normalized.includes('quality')) return 'Quality Check'
-  if (normalized === 'shipped') return 'Shipped'
-  if (normalized === 'delivered') return 'Delivered'
-  // Best-effort fallback — title-case the raw value so a future/unknown
-  // stage still renders as *something* readable instead of crashing the
-  // union type. Not a real member of OrderStatus, but every consumer here
-  // only switches on known values and falls through to a default case.
-  return (stage.charAt(0).toUpperCase() + stage.slice(1).replace(/_/g, ' ')) as OrderStatus
-}
+// Maps the DB's `orders.stage` value to this file's own OrderStatus/
+// SHIPPING_FLOW vocabulary. This bucketing logic now lives in
+// lib/supabase/orders-admin.ts (mapStageToCustomerStatus) since the admin
+// panel's QC/pack-label/export-bin/in-transit/shipped queues use a richer
+// real stage vocabulary than this file's 4-value OrderStatus — keeping the
+// mapping in one shared place means "My Orders" and every admin queue
+// always agree on what a given real stage means. See that file for the
+// full stage list and the reasoning per-stage.
+const mapStageToOrderStatus = mapStageToCustomerStatus
 
 type OrderRow = {
   id: string

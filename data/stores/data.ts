@@ -8,13 +8,6 @@
 // `ALL_STORES`/`Store` shape, and components/dashboard/data.ts re-exports
 // from here for existing call sites. Don't duplicate any of this
 // elsewhere — add new stores/products here only.
-//
-// This file is ALSO the source of truth for the scraper QA tool's test
-// case list (app/demo/scraper-qa). To add a platform to that tool, set
-// `sampleProductUrl` + `sampleProductLabel` (and `scraperSite` only if it
-// differs from `platform`) on that store's entry below — see
-// `scraperTestLinks` at the bottom of this file. Don't maintain a
-// separate preset-links array anywhere else.
 
 import type { CSSProperties } from 'react'
 import { productImage, random } from '@/lib/mock-assets'
@@ -58,28 +51,6 @@ export type AffiliatedStore = {
   tags?: string[]
   /** Only set for storeType: 'local'. See StoreBuildType above. */
   buildType?: StoreBuildType
-
-  // ── QA-tool only (app/demo/scraper-qa) ──────────────────────────────────
-  /**
-   * The site identifier the scraper's `ScrapeResult.site` actually returns
-   * for this platform, when it differs from `platform` (e.g. tata-cliq's
-   * slug is 'tata-cliq' but the scraper literal is 'tataCliq'; the two
-   * local sellers used to exercise the Shopify/WooCommerce code paths
-   * report 'shopify'/'woocommerce' rather than their own platform slug).
-   * Falls back to `platform` when omitted — see `scraperTestLinks` below.
-   */
-  scraperSite?: string
-  /**
-   * A real, live product-page URL used by the scraper QA tool as this
-   * platform's test case. Only set on platforms actually exercised there.
-   * Must be paired with `sampleProductLabel`.
-   */
-  sampleProductUrl?: string
-  /**
-   * Short product label shown next to the platform in the QA tool's test
-   * case list. Required alongside sampleProductUrl.
-   */
-  sampleProductLabel?: string
 }
 
 // Platform → logo path map, served from /public/logos. Kept alongside
@@ -114,9 +85,6 @@ export const affiliatedStores: AffiliatedStore[] = [
       'India’s largest baby & kids store, with a wide range of clothing, toys, and essentials for newborns and toddlers.',
     categories: ['Baby & Kids', 'Clothing', 'Toys', 'Essentials'],
     storeType: 'marketplace',
-    sampleProductUrl:
-      'https://www.firstcry.com/babyoye/babyoye-interlock-knit-100-cotton-with-eco-jiva-finish-full-sleeves-floral-and-animal-printed-onesies-pack-of-5-green-peach-white-and-pink/24045357/product-detail',
-    sampleProductLabel: 'Solid Mesh Woven and Sleeveless Party Gown',
   },
   {
     platform: 'flipkart',
@@ -128,13 +96,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "India's largest online marketplace — fashion, electronics, home, and more.",
     categories: ['Fashion', 'Electronics', 'Home', 'Beauty'],
     storeType: 'marketplace',
-    // NOTE: this URL was previously mislabeled as "iPhone 16 (Black, 128GB)" —
-    // the pid/listing is actually the Hirvanti Fashion kurta/palazzo/dupatta
-    // set (see the raw response panel in the QA tool, or /extractors/flipkart.ts
-    // conversation history). Label corrected to match what actually loads.
-    sampleProductUrl:
-      'https://www.flipkart.com/hirvanti-fashion-women-kurta-palazzo-dupatta-set/p/itma16998712bd40?pid=ETHHNQWGKV85JY2D&lid=LSTETHHNQWGKV85JY2DH7RLUH&marketplace=FLIPKART&store=clo%2Fcfv%2Fitg%2Ftys&srno=b_1_1&otracker=browse&fm=organic&iid=en_DIMRSdSJ8rGz01s5Pj3iFprDwN2FvREYilYnaTHJQW7eX6sTmwIetQX6F4yZ8Q58bcKbShOThGh39YCpvxQ5-fLR97jDkjjZ_ApNKGWQj8XwDv6ho9S0FaFwZOHRGkVF&ppt=None&ppn=None&ssid=zycvby6lsw0000001787930303370&ov_redirect=true',
-    sampleProductLabel: 'Women Silk Blend Kurta Palazzo Dupatta Set',
   },
   {
     platform: 'meesho',
@@ -146,9 +107,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: 'India’s social commerce platform for small businesses and entrepreneurs, offering a wide range of products.',
     categories: ['Fashion', 'Home', 'Beauty', 'Electronics'],
     storeType: 'marketplace',
-    sampleProductUrl:
-      'https://www.meesho.com/best-daily-wear-georgette-printed-saree-with-full-saree-lace-border-with-running-unstitched-blouse-piece-fancy-womens-designer-saree-most-trending-sari-bollywood-saree-georgette-ki-sadi-daily-use-sadi-nai-design-of-sadi-fancy-saree-naye-design-of-saree-poonam-saree-new-arrival-latest-sari/p/2g3inh',
-    sampleProductLabel: 'Silk Printed Daily Wear Saree',
   },
   {
     platform: 'amazon',
@@ -160,9 +118,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "The world's largest catalog — books, electronics, home goods, and exclusive US-only releases.",
     categories: ['Electronics', 'Books', 'Home', 'Toys'],
     storeType: 'marketplace',
-    sampleProductUrl:
-      'https://www.amazon.com/Hanes-Ecosmart-Fleece-Full-zip-Sweatshirt/dp/B0DJFJKDP1',
-    sampleProductLabel: "Hanes Men's EcoSmart Fleece Hoodie",
   },
   {
     platform: 'myntra',
@@ -174,9 +129,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "India's leading fashion marketplace — apparel, footwear, and beauty from hundreds of brands.",
     categories: ['Fashion', 'Beauty', 'Footwear'],
     storeType: 'marketplace',
-    sampleProductUrl:
-      'https://www.myntra.com/sports-shoes/hrx+by+hrithik+roshan/hrx-by-hrithik-roshan-men-textile-running-non-marking-shoes/37742061/buy',
-    sampleProductLabel: 'HRX Running Shoes',
   },
   {
     platform: 'tata-cliq',
@@ -188,9 +140,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "A premium multi-brand marketplace for fashion, electronics, and lifestyle — Tata's answer to luxury e-commerce.",
     categories: ['Fashion', 'Electronics', 'Beauty'],
     storeType: 'marketplace',
-    scraperSite: 'tataCliq', // slug is 'tata-cliq'; scraper's ScrapeResult.site returns 'tataCliq'
-    sampleProductUrl: 'https://www.tatacliq.com/mabish-multicolored-printed-top/p-mp000000024095540',
-    sampleProductLabel: 'Mabish',
   },
   {
     platform: 'nykaa',
@@ -202,9 +151,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "India's largest beauty and wellness marketplace, with makeup, skincare, and fragrance from global brands.",
     categories: ['Beauty', 'Wellness', 'Fashion'],
     storeType: 'marketplace',
-    sampleProductUrl:
-      'https://www.nykaa.com/livon-serum-for-dry-unruly-hair-50ml/p/355622?productId=355622&pps=19',
-    sampleProductLabel: 'Hair Serum for Women for Dry and Rough Hair',
   },
   {
     platform: 'ajio',
@@ -216,9 +162,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "Reliance's fashion marketplace — trending apparel, footwear, and accessories across price points.",
     categories: ['Fashion', 'Footwear', 'Accessories'],
     storeType: 'marketplace',
-    sampleProductUrl:
-      'https://www.ajio.com/u-s-polo-assn-men-brand-print-slim-fit-crew-neck-t-shirt/p/469815474_black?',
-    sampleProductLabel: 'U.S. Polo Assn. Crew Neck T-Shirt',
   },
   {
     platform: 'hopscotch',
@@ -230,8 +173,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: "India's go-to marketplace for baby and kids' fashion, toys, and essentials.",
     categories: ['Baby & Kids', 'Fashion', 'Toys'],
     storeType: 'marketplace',
-    sampleProductUrl: `https://www.hopscotch.in/product/1319830/girl's-peach-party-dresses`,
-    sampleProductLabel: 'Ruffled Bow Applique Dress',
   },
     {
     platform: 'ebay',
@@ -243,8 +184,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: 'The original global marketplace — new, used, and rare finds, from electronics to collectibles.',
     categories: ['Electronics', 'Collectibles', 'Fashion'],
     storeType: 'marketplace',
-    sampleProductUrl: 'https://www.ebay.com/itm/366055212799?var=635850429733',
-    sampleProductLabel: 'Wireless Bluetooth Earbuds',
   },
   {
     platform: 'aliexpress',
@@ -256,10 +195,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: 'Massive catalog direct from manufacturers — electronics, gadgets, home goods, and fashion at low prices.',
     categories: ['Electronics', 'Gadgets', 'Home', 'Fashion'],
     storeType: 'marketplace',
-    scraperSite: 'Aliexpress', // preserving original preset-link casing (capital A)
-    sampleProductUrl:
-      'https://www.aliexpress.com/item/1005010090865518.html?spm=a2g0o.productlist.main.3.2bd5fyb2fyb2AP&algo_pvid=c33373f1-7604-4220-ade3-7adc7652e0a0&algo_exp_id=c33373f1-7604-4220-ade3-7adc7652e0a0-2&pdp_ext_f=%7B%22order%22%3A%221215%22%2C%22spu_best_type%22%3A%22price%22%2C%22eval%22%3A%221%22%2C%22fromPage%22%3A%22search%22%7D&pdp_npi=6%40dis%21LKR%2119803.98%219843.34%21%21%21360.89%21179.38%21%402140cf5017893760822927147e115f%2112000052306071265%21sea%21LK%210%21ABX%211%210%21n_tag%3A-29910%3Bd%3Aef17001a%3Bm03_new_user%3A-29895%3BpisId%3A5000000216878933&curPageLogUid=DnaE0SYHPS97&utparam-url=scene%3Asearch%7Cquery_from%3A%7Cx_object_id%3A1005010090865518%7C_p_origin_prod%3A',
-    sampleProductLabel: `Talenza Women's Plush Pullover Fashion Solid Loose High Street Sweaters Vintage Chic Strapless Autumn Casual Female Pullovers`,
   },
 
   // ── Local sellers (direct catalog / WhatsApp order flow) ─────────────────
@@ -283,13 +218,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     shipping: 'Free shipping above ₹1,999, international shipping available',
     payment: 'COD',
     tags: ['Kurtis', 'Salwar sets', 'Ethnic wear'],
-    // shopify.com is the platform's own marketing site, not a store — this
-    // Shopify-powered storefront is the real QA case for the Shopify code
-    // path (JSON-API fetch, see ShopifyProductView / parsers.ts).
-    scraperSite: 'shopify',
-    sampleProductUrl:
-      'https://santhiyafashions.com/products/orange-and-royal-blue-color-premium-raw-silk-cotton-salwar-set-with-lining-and-pocket-hl053',
-    sampleProductLabel: "Men's Wool Runners",
   },
   {
     platform: 'perfect-collections',
@@ -376,11 +304,6 @@ export const affiliatedStores: AffiliatedStore[] = [
     shipping: 'Ships island-wide',
     payment: 'COD',
     tags: ['Streetwear', 'Unisex', 'Local brand'],
-    // This WooCommerce-powered storefront is the real QA case for the
-    // WooCommerce code path (Store API fetch, see WooCommerceProductView).
-    scraperSite: 'woocommerce',
-    sampleProductUrl: 'https://bedapper.lk/product/mens-regular-fit-textured-short-sleeve-shirt-2/',
-    sampleProductLabel: 'Nike Air Max 270',
   },
   {
     platform: 'old-money',
@@ -781,29 +704,3 @@ export const ALPHABET = [
   '#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K',
   'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 ]
-
-// ─── Scraper QA test links (derived) ────────────────────────────────────────
-// Single source of truth for app/demo/scraper-qa's test-case list. To add
-// a new platform to the QA tool, set `sampleProductUrl` + `sampleProductLabel`
-// (and `scraperSite` only if it differs from `platform`) on that store's
-// entry in `affiliatedStores` above — don't add entries here directly, and
-// don't maintain a separate preset-links array in the QA client.
-
-export type ScraperTestLink = {
-  site: string
-  label: string
-  product: string
-  url: string
-}
-
-export const scraperTestLinks: ScraperTestLink[] = affiliatedStores
-  .filter(
-    (s): s is AffiliatedStore & { sampleProductUrl: string; sampleProductLabel: string } =>
-      !!s.sampleProductUrl && !!s.sampleProductLabel,
-  )
-  .map((s) => ({
-    site: s.scraperSite ?? s.platform,
-    label: s.name,
-    product: s.sampleProductLabel,
-    url: s.sampleProductUrl,
-  }))

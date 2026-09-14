@@ -131,10 +131,6 @@ export function SpecRow({ result }: { result: ScrapeResult }) {
             : 'via ScraperAPI'
     )
   }
-  // No dedicated extractor for this platform — result came entirely from
-  // the generic embedded-state/JSON-LD/OG-meta fallback chain. See
-  // ScrapeResult.ogOnly's doc comment in parsers.ts.
-  if (result.ogOnly) specs.push('parsed from Open Graph tags only — no dedicated extractor')
   if (result.seller) specs.push(`Sold by ${result.seller}`)
   if (!specs.length) return null
 

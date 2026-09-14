@@ -59,16 +59,6 @@ import {
   REQUIRES_RENDER_FOR_VARIANTS as EBAY_REQUIRES_RENDER_FOR_VARIANTS,
   consumeEbayMeta,
 } from '@/lib/scrape/extractors/ebay'
-// The five platforms below have no dedicated extractor — each is a thin
-// wrapper around the shared OG-tag-only fallback path (see
-// extractors/og-only.ts's doc comment for exactly what that does and
-// doesn't cover). Build a real extractor for any of these the moment it
-// needs variant pickers, MRP, or rating data that OG tags don't carry.
-import { SITE_ID as FIRSTCRY_SITE_ID, parseFirstCry } from './extractors/firstcry'
-import { SITE_ID as NYKAA_SITE_ID, parseNykaa } from './extractors/nykaa'
-import { SITE_ID as HOPSCOTCH_SITE_ID, parseHopscotch } from './extractors/hopscotch'
-import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq } from './extractors/tataCliq'
-import { SITE_ID as ALIEXPRESS_SITE_ID, parseAliExpress } from './extractors/aliexpress'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -97,17 +87,6 @@ export type ScrapeResult = {
   // TLS-fingerprint-matching fetch). See LAST_RESORT_FALLBACK below.
   source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
-  /**
-   * True when `site` is one of the OG-only platforms (see
-   * extractors/og-only.ts) — meaning this result came ENTIRELY from the
-   * generic embedded-state/JSON-LD/OG-meta fallback chain in
-   * parseHtml() below, not from a real per-site extractor that
-   * inspected this page's DOM. No `variants`, MRP, or rating data will
-   * ever be present on a result with this flag set. Surfaced in the QA
-   * tool's SpecRow so a reviewer isn't misled into thinking a missing
-   * field is a bug rather than an expected limitation of this tier.
-   */
-  ogOnly?: boolean
   _priceSource?: 'meta_description'
   mpn?: string | null
   gtin?: string | null
@@ -127,6 +106,9 @@ export type ScrapeResult = {
   variantsNote?: string | null
 }
 
+// Nykaa and TataCliq have been removed entirely (see ScraperQaClient's
+// preset list and this module's site-handling below) — no host mapping,
+// no parser, no dedicated view. Re-add here first if either comes back.
 export type SiteId =
   | 'amazon'
   | 'flipkart'
@@ -136,11 +118,6 @@ export type SiteId =
   | 'ajio'
   | 'snapdeal'
   | 'jiomart'
-  | 'firstcry'
-  | 'nykaa'
-  | 'hopscotch'
-  | 'tataCliq'
-  | 'Aliexpress'
   | 'shopify'
   | 'woocommerce'
   | 'generic'
@@ -237,14 +214,6 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   [AJIO_SITE_ID, AJIO_SITE_ID],
   [SNAPDEAL_SITE_ID, SNAPDEAL_SITE_ID],
   [JIOMART_SITE_ID, JIOMART_SITE_ID],
-  // OG-only platforms — see extractors/og-only.ts. Needles are lowercase
-  // substrings matched against the lowercased hostname (detectSite
-  // below), independent of each SITE_ID constant's own casing.
-  ['firstcry', FIRSTCRY_SITE_ID],
-  ['nykaa', NYKAA_SITE_ID],
-  ['hopscotch', HOPSCOTCH_SITE_ID],
-  ['tatacliq', TATACLIQ_SITE_ID],
-  ['aliexpress', ALIEXPRESS_SITE_ID],
 ]
 
 const SHOPIFY_PRODUCT_PATH_RE = /\/products\/([^/?#]+)/i
@@ -757,29 +726,29 @@ const LAST_RESORT_FALLBACK: Partial<
     SiteId,
     {
       configured: () => boolean
-      fetch: (
-        url: string,
-        opts?: { signal?: AbortSignal }
-      ) => Promise<{ html: string | null; error: string | null }>
-      source: "scraperapi" | "fingerprint_fetch"
+      fetch: (url: string, opts?: { signal?: AbortSignal }) => Promise<{ html: string | null; error: string | null }>
+      source: 'scraperapi' | 'fingerprint_fetch'
     }
   >
-> = {}
-
-if (MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK) {
-  LAST_RESORT_FALLBACK[MEESHO_SITE_ID] = {
-    configured: meeshoScraperApiConfigured,
-    fetch: fetchMeeshoViaScraperApi,
-    source: "scraperapi",
-  }
-}
-
-if (AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK) {
-  LAST_RESORT_FALLBACK[AJIO_SITE_ID] = {
-    configured: ajioTlsFingerprintConfigured,
-    fetch: fetchAjioViaTlsFingerprint,
-    source: "fingerprint_fetch",
-  }
+> = {
+  ...(MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK
+    ? {
+        [MEESHO_SITE_ID]: {
+          configured: meeshoScraperApiConfigured,
+          fetch: fetchMeeshoViaScraperApi,
+          source: 'scraperapi',
+        },
+      }
+    : {}),
+  ...(AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK
+    ? {
+        [AJIO_SITE_ID]: {
+          configured: ajioTlsFingerprintConfigured,
+          fetch: fetchAjioViaTlsFingerprint,
+          source: 'fingerprint_fetch',
+        },
+      }
+    : {}),
 }
 
 // ---------------------------------------------------------------------
@@ -1300,15 +1269,7 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
 // have their own dedicated extractor module (./extractors/*.ts) — split
 // out because each has enough site-specific logic (variant swatches,
 // availability detection, grid-layout edge cases) to be worth testing in
-// isolation.
-//
-// FirstCry, Nykaa, Hopscotch, Tata CLiQ, and AliExpress do NOT have a
-// dedicated extractor — each is wired to the shared makeOgOnlyParser()
-// factory in extractors/og-only.ts, which relies entirely on the generic
-// embedded-state/JSON-LD/OG-meta fallback chain in parseHtml() below (no
-// site-specific DOM selectors). See that file's doc comment for exactly
-// what that does and doesn't cover, and ScrapeResult.ogOnly above for how
-// this gets surfaced to the QA tool.
+// isolation. (Nykaa and TataCliq have been removed entirely.)
 //
 // eBay's entry here (parseEbay/SITE_PARSERS.ebay) is now the FALLBACK
 // path only — used when EBAY_APP_ID/EBAY_CERT_ID aren't configured. See
@@ -1339,11 +1300,6 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   [AJIO_SITE_ID]: parseAjio,
   [JIOMART_SITE_ID]: parseJioMart,
   [SNAPDEAL_SITE_ID]: parseSnapdeal,
-  [FIRSTCRY_SITE_ID]: parseFirstCry,
-  [NYKAA_SITE_ID]: parseNykaa,
-  [HOPSCOTCH_SITE_ID]: parseHopscotch,
-  [TATACLIQ_SITE_ID]: parseTataCliq,
-  [ALIEXPRESS_SITE_ID]: parseAliExpress,
 }
 
 const SKIP_STRUCTURED_FALLBACK = new Set<SiteId>(
@@ -1470,11 +1426,6 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   delete (parsed as any)._flipkartWarning
   const flipkartUnavailable = (parsed as any)._flipkartUnavailable
   delete (parsed as any)._flipkartUnavailable
-  // Consumed the same way as the per-site *Warning/*Unavailable flags
-  // above — set by makeOgOnlyParser() in extractors/og-only.ts for the
-  // five OG-only platforms, and surfaced as ScrapeResult.ogOnly.
-  const ogOnly = (parsed as any)._ogOnly
-  delete (parsed as any)._ogOnly
   const meeshoMeta = consumeMeeshoMeta(parsed)
   const myntraMeta = consumeMyntraMeta(parsed)
   const ebayMeta = consumeEbayMeta(parsed)
@@ -1484,7 +1435,6 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
 
   const result: ScrapeResult = { url, site, source, ...parsed }
   if (error) result.warning = error
-  if (ogOnly) result.ogOnly = true
 
   if (priceSource === 'meta_description') {
     result.warning = (result.warning ? result.warning + ' | ' : '') +

@@ -1,38 +1,27 @@
-import Link from 'next/link'
-import { ArrowLeft, Construction } from 'lucide-react'
+import MarketplaceGuide from '@/components/shared/MarketplaceGuide'
 
 export const metadata = {
-  title: 'Mercari | Buyandship',
-  description: 'Buy from Mercari Japan with built-in forwarding.',
+  title: 'Buying from Mercari | WishDrop',
+  description: "A guide to sourcing Mercari listings through WishDrop's concierge buying service.",
 }
 
-export default function Page() {
+export default function MercariGuidePage() {
   return (
-    <main className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-start justify-center px-6 py-24">
-      <div className="mb-6 flex items-center gap-2 rounded-full border border-ink/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
-        <Construction size={14} className="text-rust" />
-        Mock page
-      </div>
-
-      <h1 className="font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-        Mercari
-      </h1>
-
-      <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">
-        Buy from Mercari Japan with built-in forwarding.
-      </p>
-
-      <p className="mt-2 font-mono text-xs text-ink/40">
-        /shopping/marketplaces/mercari
-      </p>
-
-      <Link
-        href="/"
-        className="mt-10 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-paper transition-colors hover:bg-blue-deep"
-      >
-        <ArrowLeft size={15} />
-        Back to home
-      </Link>
-    </main>
+    <MarketplaceGuide
+      name="Mercari"
+      tagline="A peer-to-peer marketplace known for fashion, collectibles, and hobby finds."
+      description="Mercari listings are sold by individual users rather than registered stores, so photos and descriptions are the best guide to real condition. Since listings can sell out quickly, we recommend requesting an item as soon as you've decided, and having a backup option in mind in case it's no longer available by the time we process your request."
+      bestFor={[
+        'Fashion, streetwear, and secondhand designer pieces',
+        'Anime, gaming, and pop-culture collectibles',
+        'One-off or limited-availability finds',
+      ]}
+      tips={[
+        'Message the seller through Mercari first if you have condition questions — we purchase the listing as-is.',
+        'Because stock is often single-unit, requests are first-come, first-served and may sell out before purchase.',
+        'Read all listing photos carefully; secondhand items are quality-checked against the listing, not against "like new" assumptions.',
+      ]}
+      storeHref="/stores"
+    />
   )
 }

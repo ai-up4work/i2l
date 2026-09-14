@@ -30,19 +30,84 @@ import JioMartProductView from './platforms/JioMartProductView'
 import SnapdealProductView from './platforms/SnapdealProductView'
 import ShopifyProductView from './platforms/Shopifyproductview'
 import WooCommerceProductView from './platforms/Woocommerceproductview'
-import FirstCryProductView from './platforms/FirstCryProductView'
-import NykaaProductView from './platforms/NykaaProductView'
-import HopscotchProductView from './platforms/HopscotchProductView'
-import TataCliqProductView from './platforms/TataCliqProductView'
-import AliExpressProductView from './platforms/AliExpressProductView'
-// PRESET_LINKS used to be a hardcoded array maintained by hand in this
-// file. It's now derived from data/stores/data.ts's `affiliatedStores` —
-// see `scraperTestLinks` there. To add a platform to this QA tool, set
-// `sampleProductUrl` + `sampleProductLabel` on that store's entry in
-// affiliatedStores; don't add a preset link here directly.
-import { scraperTestLinks as PRESET_LINKS, type ScraperTestLink as PresetLink } from '@/data/stores/data'
 
 //
+
+
+// ---------- Predefined platform/product links ----------
+type PresetLink = {
+  site: string
+  label: string
+  product: string
+  url: string
+}
+
+const PRESET_LINKS: PresetLink[] = [
+  {
+    site: 'amazon',
+    label: 'Amazon',
+    product: "Hanes Men's EcoSmart Fleece Hoodie",
+    url: 'https://www.amazon.com/Hanes-Ecosmart-Fleece-Full-zip-Sweatshirt/dp/B0DJFJKDP1',
+  },
+  {
+    site: 'flipkart',
+    label: 'Flipkart',
+    // NOTE: this URL was previously mislabeled as "iPhone 16 (Black, 128GB)" —
+    // the pid/listing is actually the Hirvanti Fashion kurta/palazzo/dupatta
+    // set (see the raw response panel below, or /extractors/flipkart.ts
+    // conversation history). Label corrected to match what actually loads.
+    product: 'Women Silk Blend Kurta Palazzo Dupatta Set',
+    url: 'https://www.flipkart.com/hirvanti-fashion-women-kurta-palazzo-dupatta-set/p/itma16998712bd40?pid=ETHHNQWGKV85JY2D&lid=LSTETHHNQWGKV85JY2DH7RLUH&marketplace=FLIPKART&store=clo%2Fcfv%2Fitg%2Ftys&srno=b_1_1&otracker=browse&fm=organic&iid=en_DIMRSdSJ8rGz01s5Pj3iFprDwN2FvREYilYnaTHJQW7eX6sTmwIetQX6F4yZ8Q58bcKbShOThGh39YCpvxQ5-fLR97jDkjjZ_ApNKGWQj8XwDv6ho9S0FaFwZOHRGkVF&ppt=None&ppn=None&ssid=zycvby6lsw0000001787930303370&ov_redirect=true',
+  },
+  {
+    site: 'meesho',
+    label: 'Meesho',
+    product: 'Silk Printed Daily Wear Saree',
+    url: 'https://www.meesho.com/best-daily-wear-georgette-printed-saree-with-full-saree-lace-border-with-running-unstitched-blouse-piece-fancy-womens-designer-saree-most-trending-sari-bollywood-saree-georgette-ki-sadi-daily-use-sadi-nai-design-of-sadi-fancy-saree-naye-design-of-saree-poonam-saree-new-arrival-latest-sari/p/2g3inh',
+  },
+  {
+    site: 'ebay',
+    label: 'eBay',
+    product: 'Wireless Bluetooth Earbuds',
+    url: 'https://www.ebay.com/itm/366055212799?var=635850429733',
+  },
+  {
+    site: 'myntra',
+    label: 'Myntra',
+    product: 'HRX Running Shoes',
+    url: 'https://www.myntra.com/sports-shoes/hrx+by+hrithik+roshan/hrx-by-hrithik-roshan-men-textile-running-non-marking-shoes/37742061/buy',
+  },
+  {
+    site: 'ajio',
+    label: 'Ajio',
+    product: 'U.S. Polo Assn. Crew Neck T-Shirt',
+    url: 'https://www.ajio.com/u-s-polo-assn-men-brand-print-slim-fit-crew-neck-t-shirt/p/469815474_black?',
+  },
+  {
+    site: 'jiomart',
+    label: 'JioMart',
+    product: 'boAt BassHeads 100 Earphones',
+    url: 'https://www.jiomart.com/product/boat-bassheads-100-inear-wired-earphones-with-hawk-inspired-design-integrated-multifunction-control-super-extra-bass-instant-voice-assistant-black-mfqi0p-7617338',
+  },
+  {
+    site: 'shopify',
+    label: 'Shopify',
+    // shopify.com is the platform's own marketing site, not a store — it
+    // has no real product at that path, and its URL shape (/product/,
+    // singular) doesn't even match Shopify's actual storefront convention
+    // (/products/{handle}, plural — see SHOPIFY_PRODUCT_PATH_RE in
+    // parsers.ts). Allbirds is a real, well-known Shopify-powered store,
+    // so this actually exercises the new detection + JSON-API fetch path.
+    product: "Men's Wool Runners",
+    url: 'https://santhiyafashions.com/products/orange-and-royal-blue-color-premium-raw-silk-cotton-salwar-set-with-lining-and-pocket-hl053',
+  },
+  {
+    site: 'woocommerce',
+    label: 'WooCommerce',
+    product: 'Nike Air Max 270',
+    url: 'https://bedapper.lk/product/mens-regular-fit-textured-short-sleeve-shirt-2/'
+  }
+]
 
 // ---------- QA review state (per test case) ----------
 type TestStatus = 'untested' | 'pass' | 'fail'
@@ -310,13 +375,16 @@ function fmtPrice(amount: string | null | undefined, currency: string | null | u
  * buildStoreVariantDimensions) are always linkless by design — their one
  * API call already returns every variant's price/stock, so there's
  * nothing left to re-fetch by "selecting" a tile — and render the same
- * way: visible, informational, non-clickable.
+ * way: visible, informational, non-clickable. (In practice, Shopify and
+ * WooCommerce results get their own dedicated ShopifyProductView /
+ * WooCommerceProductView below instead of reaching this generic picker
+ * at all — see the render branches further down — but the same
+ * linkless-by-design tiles appear inside those components too.)
  *
- * This is now only used by the last-resort fallback below (a truly
- * unrecognized `site` value). Every known platform — Amazon, Flipkart,
- * Meesho, Myntra, eBay, Ajio, JioMart, Snapdeal, Shopify, WooCommerce,
- * FirstCry, Nykaa, Hopscotch, Tata CLiQ, and AliExpress — has its own
- * dedicated view under ./platforms instead. */
+ * This generic picker is used for every site that doesn't have its own
+ * look-alike layout. Amazon, Flipkart, Meesho, Myntra, eBay, Ajio,
+ * JioMart, Snapdeal, Shopify, and WooCommerce results all get their own
+ * dedicated platform views instead. */
 function VariantPicker({
   variants,
   onSelect,
@@ -591,14 +659,6 @@ export default function ScraperQaClient() {
   const isSnapdealResult = !!result && !result.error && result.site === 'snapdeal'
   const isShopifyResult = !!result && !result.error && result.site === 'shopify'
   const isWooCommerceResult = !!result && !result.error && result.site === 'woocommerce'
-  // Newer look-alike views — see ./platforms/shared.tsx for the reusable
-  // building blocks these five use, and the note on each platform file
-  // about the exact ScrapeResult.site casing it matches.
-  const isFirstCryResult = !!result && !result.error && result.site === 'firstcry'
-  const isNykaaResult = !!result && !result.error && result.site === 'nykaa'
-  const isHopscotchResult = !!result && !result.error && result.site === 'hopscotch'
-  const isTataCliqResult = !!result && !result.error && result.site === 'tataCliq'
-  const isAliExpressResult = !!result && !result.error && result.site === 'Aliexpress'
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-16 pt-8 lg:px-10">
@@ -851,14 +911,15 @@ export default function ScraperQaClient() {
               </div>
             )}
 
-            {/* Every recognized platform gets its own look-alike layout so
-                a reviewer can eyeball a match against the real site
-                (Shopify/WooCommerce's views use the app's own design
-                tokens rather than imitating a fake storefront skin — see
-                those components' doc comments — but still replace this
-                generic layout the same way the others do). Only a true
-                `generic` result (a genuinely unrecognized site) falls
-                through to the plain layout below. */}
+            {/* Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart,
+                Snapdeal, Shopify, and WooCommerce results each get their
+                own look-alike layout so a reviewer can eyeball a match
+                against the real site (Shopify/WooCommerce's views use
+                the app's own design tokens rather than imitating a fake
+                storefront skin — see those components' doc comments —
+                but still replace this generic layout the same way the
+                others do). Only a true `generic` result (an
+                unrecognized site) falls through to the layout below. */}
             {isAmazonResult ? (
               <AmazonProductView result={result} onSelectVariant={(url) => runLookup(url)} />
             ) : isFlipkartResult ? (
@@ -879,16 +940,6 @@ export default function ScraperQaClient() {
               <ShopifyProductView result={result} onSelectVariant={(url) => runLookup(url)} />
             ) : isWooCommerceResult ? (
               <WooCommerceProductView result={result} onSelectVariant={(url) => runLookup(url)} />
-            ) : isFirstCryResult ? (
-              <FirstCryProductView result={result} onSelectVariant={(url) => runLookup(url)} />
-            ) : isNykaaResult ? (
-              <NykaaProductView result={result} onSelectVariant={(url) => runLookup(url)} />
-            ) : isHopscotchResult ? (
-              <HopscotchProductView result={result} onSelectVariant={(url) => runLookup(url)} />
-            ) : isTataCliqResult ? (
-              <TataCliqProductView result={result} onSelectVariant={(url) => runLookup(url)} />
-            ) : isAliExpressResult ? (
-              <AliExpressProductView result={result} onSelectVariant={(url) => runLookup(url)} />
             ) : (
               <div className="grid gap-8 sm:grid-cols-2">
                 <ImageStrip images={result.images ?? []} alt={result.title ?? 'Product image'} />

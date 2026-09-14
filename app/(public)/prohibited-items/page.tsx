@@ -1,6 +1,9 @@
-'use client'
-
 import { AlertCircle } from 'lucide-react'
+
+export const metadata = {
+  title: 'Prohibited Items | WishDrop',
+  description: 'Products WishDrop cannot purchase, import, or ship on your behalf, by category.',
+}
 
 type Item = {
   title: string

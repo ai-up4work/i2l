@@ -11,15 +11,15 @@ const socialLinks = [
 const columns = [
   {
     heading: 'About WishDROP',
-    links: [{label: 'About us', href: 'about'}, {label: 'Privacy policy', href: 'privacy'}, {label: 'Taxation', href: 'taxation'}],
+    links: [{label: 'About us', href: '/about'}, {label: 'Privacy policy', href: '/privacy'}, {label: 'Taxation', href: '/taxation'}],
   },
   {
     heading: 'Shipping supports',
-    links: [{label: 'Overseas warehouses', href: '/warehouses'}, {label: 'Prohibited items', href: 'prohibited-items'}, {label: 'Tutorials', href: 'tutorials'}],
+    links: [{label: 'Our facilities', href: '/warehouses'}, {label: 'Prohibited items', href: '/prohibited-items'}, {label: 'Shopping guides', href: '/shopping-guides'}],
   },
   {
     heading: 'Help',
-    links: [{label: 'Refund policy', href: 'refund-policy'}, {label: 'Contact us', href: 'contact'}],
+    links: [{label: 'Refund policy', href: '/refund-policy'}, {label: 'Contact us', href: '/contact'}],
   },
 ]
 

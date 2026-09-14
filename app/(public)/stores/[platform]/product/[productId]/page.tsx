@@ -158,6 +158,38 @@ function SpecRow({ product }: { product: StoreProduct }) {
   )
 }
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ platform: string; productId: string }>
+}) {
+  const { platform, productId } = await params
+
+  const store = await fetchAffiliatedStore(platform)
+  if (!store) return {}
+
+  try {
+    const product = await fetchStoreProduct(platform, productId)
+    if (!product) return {}
+
+    const description =
+      product.description?.slice(0, 155) ||
+      `Buy ${product.name} from ${store.name} on WishDrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
+
+    return {
+      title: `${product.name} | ${store.name} | WishDrop`,
+      description,
+      openGraph: {
+        title: product.name,
+        description,
+        images: product.image ? [{ url: product.image }] : undefined,
+      },
+    }
+  } catch {
+    return {}
+  }
+}
+
 export default async function ProductDetailPage({
   params,
 }: {

@@ -1,394 +1,95 @@
-// app/admin/export-bin/page.tsx
-"use client"
+'use client'
 
-import { useMemo, useState } from "react"
-import Link from "next/link"
-import {
-  Archive,
-  Inbox,
-  PackageCheck,
-  Printer,
-  Search,
-  SearchX,
-  Truck,
-} from "lucide-react"
+import { useEffect, useState } from 'react'
+import { PackageCheck } from 'lucide-react'
+import { useAdminData } from '@/contexts/AdminDataContext'
+import { StatusPill } from '@/components/admin/warehouse/status-pill'
+import { fetchOrdersByQueue, setWarehouseSubstage, exportOrderToTransit, type AdminOrder } from '@/lib/supabase/orders-admin'
 
-import { useAdminData } from "@/contexts/AdminDataContext"
-import type { ExportBinLine } from "@/types/admin"
-
-// Export bin: everything that's been packed and labeled, staged for
-// courier pickup. An order lands here the instant Pack & label's "Mark
-// packed" sets Order.packedAt, and leaves the instant markPickedUp is
-// called below — which is also what makes it appear on /admin/in-transit.
-//
-// ROW BEHAVIOR: clicking a row is now the "move to next stage" action
-// itself — it calls markPickedUp for that single order using whichever
-// courier is currently selected in the toolbar, the same as the bulk
-// button does for a whole selection. It no longer navigates to the order
-// detail page; that's still one click away via the order number, which
-// is its own separate link so it doesn't also trigger a pickup. The
-// checkbox + bulk "Mark picked up" bar stay exactly as they were, for
-// handing off several orders to the same courier at once.
-
-function formatAge(hours: number): string {
-  if (hours < 1) return "<1h"
-  if (hours < 24) return `${Math.floor(hours)}h`
-  const days = Math.floor(hours / 24)
-  const remHours = Math.floor(hours % 24)
-  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`
-}
-
-const COURIERS = ["Domex", "Pronto"] as const
-
+// Staging view of packed orders ('packed') queued for the next outbound
+// export batch. "Pull one back" rolls it to 'qc_passed' (re-open for
+// re-pack) rather than deleting anything — matches the route spec's note
+// on handling an order that needs pulling before export.
 export default function ExportBinPage() {
-  const { visibleExportBinLines, canActOnExportBinLine, markPickedUp, sites, currentUser, permissions } = useAdminData()
+  const { currentUser, permissions } = useAdminData()
+  const [orders, setOrders] = useState<AdminOrder[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState<string | null>(null)
 
-  const [query, setQuery] = useState("")
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [bulkCourier, setBulkCourier] = useState<(typeof COURIERS)[number]>("Domex")
-  const [manifestPrinted, setManifestPrinted] = useState(false)
-  const [justPickedUp, setJustPickedUp] = useState<string[]>([])
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return [...visibleExportBinLines]
-      .filter((o) => {
-        if (!q) return true
-        return o.orderNumber.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q)
-      })
-      .sort((a, b) => b.packedAgeHours - a.packedAgeHours)
-  }, [visibleExportBinLines, query])
-
-  const hasAnyFilter = query.trim() !== ""
-  const clearFilters = () => setQuery("")
-
-  const toggleSelect = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+  async function load() {
+    const siteId = permissions.ordersScopedToOwnSite ? currentUser.siteId : undefined
+    const o = await fetchOrdersByQueue('export-bin', siteId)
+    setOrders(o)
+    setLoading(false)
   }
 
-  const toggleSelectAllVisible = () => {
-    setSelected((prev) => {
-      const actionable = filtered.filter(canActOnExportBinLine)
-      const allVisibleSelected = actionable.every((o) => prev.has(o.id))
-      const next = new Set(prev)
-      actionable.forEach((o) => (allVisibleSelected ? next.delete(o.id) : next.add(o.id)))
-      return next
-    })
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser.siteId, permissions.ordersScopedToOwnSite])
+
+  async function handlePull(order: AdminOrder) {
+    setBusyId(order.id)
+    await setWarehouseSubstage(order.id, 'qc_passed', currentUser.id, 'Pulled from export bin for re-pack')
+    await load()
+    setBusyId(null)
   }
 
-  const handlePickup = () => {
-    if (selected.size === 0) return
-    const ids = Array.from(selected)
-    ids.forEach((orderId) => markPickedUp(orderId, bulkCourier))
-    setJustPickedUp(ids)
-    setSelected(new Set())
-    setTimeout(() => setJustPickedUp([]), 4000)
+  async function handleExport(order: AdminOrder) {
+    setBusyId(order.id)
+    await exportOrderToTransit(order.id, currentUser.id)
+    await load()
+    setBusyId(null)
   }
-
-  // Single-row equivalent of handlePickup — fired by clicking the row
-  // itself. Uses the same bulkCourier value the toolbar dropdown
-  // controls, so a row click and a bulk pickup always assign the same
-  // courier without asking twice. Also clears that row out of any
-  // in-progress selection, since it's no longer sitting in the bin.
-  const handleSinglePickup = (orderId: string) => {
-    markPickedUp(orderId, bulkCourier)
-    setJustPickedUp([orderId])
-    setSelected((prev) => {
-      if (!prev.has(orderId)) return prev
-      const next = new Set(prev)
-      next.delete(orderId)
-      return next
-    })
-    setTimeout(() => setJustPickedUp([]), 4000)
-  }
-
-  const handlePrintManifest = () => {
-    if (selected.size === 0) return
-    setManifestPrinted(true)
-    setTimeout(() => setManifestPrinted(false), 2500)
-  }
-
-  const totalWeight = filtered.reduce((sum, o) => sum + (o.weightKg ?? 0), 0)
-  const actionableFiltered = filtered.filter(canActOnExportBinLine)
-  const allVisibleSelected = actionableFiltered.length > 0 && actionableFiltered.every((o) => selected.has(o.id))
-
-  const scopeLabel = permissions.ordersScopedToOwnSite
-    ? sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
-    : "all sites"
 
   return (
-    <div className="min-h-screen bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
-        {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-white text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
-              <Archive size={22} strokeWidth={1.75} />
-            </div>
-            <div>
-              <h1 className="font-display text-3xl font-semibold text-ink">Export bin</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Packed and labeled orders staged for courier pickup at {scopeLabel}. Click a row to hand it off to{" "}
-                <span className="font-medium text-ink/70">{bulkCourier}</span> — pick a different courier below first
-                if needed.
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-ink/10 bg-white px-5 py-3 text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">In bin</p>
-            <p className="mt-0.5 font-display text-xl text-ink">
-              {visibleExportBinLines.length}{" "}
-              <span className="text-sm font-normal text-ink/40">· {totalWeight.toFixed(1)} kg</span>
-            </p>
-          </div>
-        </div>
-
-        {/* ── Confirmation banners ── */}
-        {justPickedUp.length > 0 && (
-          <div className="mt-6 flex items-center gap-2.5 rounded-2xl border border-teal/25 bg-teal/[0.08] px-4 py-3 text-sm font-medium text-teal-deep">
-            <Truck size={16} />
-            {justPickedUp.length} order{justPickedUp.length === 1 ? "" : "s"} handed off to courier — now in transit.
-          </div>
-        )}
-        {manifestPrinted && (
-          <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-ink/10 bg-white px-4 py-3 text-sm font-medium text-ink/70">
-            <Printer size={16} />
-            Manifest sent to printer for {selected.size} order{selected.size === 1 ? "" : "s"}.
-          </div>
-        )}
-
-        {/* ── Filters ── */}
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full sm:w-72">
-            <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search order or customer"
-              className="w-full rounded-full border border-ink/10 bg-white py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
-            />
-          </div>
-          {hasAnyFilter && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-
-        {/* ── Bulk action bar — also sets the courier used by row clicks ── */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-xs font-medium text-ink/50">
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={toggleSelectAllVisible}
-              disabled={actionableFiltered.length === 0}
-              className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
-            />
-            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-          </label>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrintManifest}
-              disabled={selected.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-ink/10 bg-white px-3.5 py-2 text-xs font-semibold text-ink/70 transition-colors hover:bg-ink/[0.03] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Printer size={14} />
-              Print manifest
-            </button>
-
-            <select
-              value={bulkCourier}
-              onChange={(e) => setBulkCourier(e.target.value as (typeof COURIERS)[number])}
-              title="Courier assigned to row clicks and bulk pickup"
-              className="rounded-xl border border-ink/10 bg-white px-2.5 py-2 text-xs font-medium text-ink/70 outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
-            >
-              {COURIERS.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-
-            <button
-              type="button"
-              onClick={handlePickup}
-              disabled={selected.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-teal-deep px-3.5 py-2 text-xs font-semibold text-parchment transition-colors hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/15"
-            >
-              <Truck size={14} />
-              Mark picked up ({selected.size || 0})
-            </button>
-          </div>
-        </div>
-
-        <p className="mt-3 text-xs font-medium text-ink/40">
-          {filtered.length} of {visibleExportBinLines.length} orders
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="font-display text-2xl font-semibold text-ink">Export Bin</h1>
+        <p className="mt-1 font-body text-sm text-ink/55">
+          {loading ? 'Loading…' : `${orders.length} order${orders.length === 1 ? '' : 's'}`} packed and staged for
+          the next outbound batch.
         </p>
-
-        {/* ── List ── */}
-        <div className="mt-3 overflow-hidden rounded-2xl border border-ink/10 bg-white">
-          <div className="sticky top-0 z-10 hidden grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr] gap-2 border-b border-ink/10 bg-parchment/60 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
-            <span />
-            <span>Order</span>
-            <span>Destination</span>
-            <span>Label</span>
-            <span>Weight</span>
-            <span className="text-right">Packed</span>
-          </div>
-
-          {filtered.length === 0 ? (
-            <EmptyState
-              hasAnyFilter={hasAnyFilter}
-              isEmptyOverall={visibleExportBinLines.length === 0}
-              onClearFilters={clearFilters}
-            />
-          ) : (
-            filtered.map((line) => (
-              <ExportBinRow
-                key={line.id}
-                line={line}
-                canAct={canActOnExportBinLine(line)}
-                selected={selected.has(line.id)}
-                courier={bulkCourier}
-                onToggleSelect={() => toggleSelect(line.id)}
-                onRowClick={() => handleSinglePickup(line.orderId)}
-              />
-            ))
-          )}
-        </div>
       </div>
+
+      {loading ? (
+        <div className="h-40 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+      ) : orders.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-ink/15 bg-card px-8 py-16 text-center">
+          <PackageCheck className="mx-auto text-ink/20" size={28} />
+          <p className="mt-3 font-body text-sm text-ink/50">Nothing staged for export right now.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {orders.map((order) => (
+            <div key={order.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-ink/10 bg-card p-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold text-ink">{order.displayId}</span>
+                  <StatusPill label="Packed" tone="amber" />
+                </div>
+                <p className="mt-1 truncate font-body text-sm text-ink/60">{order.customerName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={busyId === order.id}
+                  onClick={() => handlePull(order)}
+                  className="rounded-full border border-ink/15 px-3 py-1.5 font-body text-xs font-semibold text-ink/60 disabled:opacity-40"
+                >
+                  Pull back
+                </button>
+                <button
+                  disabled={busyId === order.id}
+                  onClick={() => handleExport(order)}
+                  className="rounded-full bg-ink px-3 py-1.5 font-body text-xs font-semibold text-parchment disabled:opacity-40"
+                >
+                  Mark exported
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
-}
-
-function ExportBinRow({
-  line,
-  canAct,
-  selected,
-  courier,
-  onToggleSelect,
-  onRowClick,
-}: {
-  line: ExportBinLine
-  canAct: boolean
-  selected: boolean
-  courier: string
-  onToggleSelect: () => void
-  onRowClick: () => void
-}) {
-  return (
-    <div
-      role={canAct ? "button" : undefined}
-      tabIndex={canAct ? 0 : undefined}
-      title={canAct ? `Mark picked up by ${courier}` : undefined}
-      onClick={() => canAct && onRowClick()}
-      onKeyDown={(e) => {
-        if (canAct && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault()
-          onRowClick()
-        }
-      }}
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 outline-none transition-colors last:border-b-0 sm:grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr] ${
-        selected ? "bg-teal/[0.05]" : ""
-      } ${canAct ? "cursor-pointer hover:bg-teal/[0.06] focus-visible:bg-teal/[0.1]" : ""}`}
-    >
-      <span onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={selected}
-          disabled={!canAct}
-          onChange={onToggleSelect}
-          className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
-        />
-      </span>
-
-      <span className="min-w-0" onClick={(e) => e.stopPropagation()}>
-        <Link
-          href={`/admin/orders/${line.orderId}`}
-          className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
-        >
-          {line.orderNumber}
-        </Link>
-        <span className="block truncate text-xs text-ink/45">{line.customerName}</span>
-        {!canAct && <span className="block text-[11px] text-ink/35">View only — different site</span>}
-      </span>
-
-      <span className="hidden truncate text-sm text-ink/70 sm:block">{line.destination}</span>
-
-      <span className="hidden truncate sm:block">
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
-          <PackageCheck size={12} />
-          {line.labelRef ?? "No label"}
-        </span>
-      </span>
-
-      <span className="hidden text-sm text-ink/50 sm:block">
-        {line.weightKg != null ? `${line.weightKg.toFixed(1)} kg` : "—"}
-      </span>
-
-      <span className="hidden justify-self-end text-sm text-ink/50 sm:block">{line.packedAgeLabel} ago</span>
-
-      {/* mobile summary */}
-      <span className="col-span-3 flex items-center justify-between gap-2 pl-7 sm:hidden">
-        <span className="text-xs text-ink/45">{line.destination}</span>
-        <span className="text-xs text-ink/40">{line.packedAgeLabel} ago</span>
-      </span>
-    </div>
-  )
-}
-
-function EmptyState({
-  hasAnyFilter,
-  isEmptyOverall,
-  onClearFilters,
-}: {
-  hasAnyFilter: boolean
-  isEmptyOverall: boolean
-  onClearFilters: () => void
-}) {
-  if (isEmptyOverall) {
-    return (
-      <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-        <Inbox size={22} className="text-ink/25" />
-        <div>
-          <p className="text-sm font-semibold text-ink/70">The export bin is empty</p>
-          <p className="mt-1 max-w-xs text-xs text-ink/45">
-            Orders show up here once they&apos;ve been packed and labeled on Pack &amp; label.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (hasAnyFilter) {
-    return (
-      <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-        <SearchX size={22} className="text-ink/25" />
-        <div>
-          <p className="text-sm font-semibold text-ink/70">Nothing matches this filter</p>
-          <p className="mt-1 text-xs text-ink/45">Try a different search term.</p>
-        </div>
-        <button
-          type="button"
-          onClick={onClearFilters}
-          className="mt-1 text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
-        >
-          Clear filters
-        </button>
-      </div>
-    )
-  }
-
-  return null
 }

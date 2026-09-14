@@ -1,170 +1,103 @@
-// app/admin/(warehouse)/warehouse-dashboard/page.tsx
-"use client"
+'use client'
 
-import { useEffect, useMemo } from "react"
-import { useRouter } from "next/navigation"
-import { Activity, Archive, Boxes, ClipboardCheck, Clock, Flag, PackageCheck, Truck } from "lucide-react"
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Archive, Boxes, ClipboardCheck, Clock, Flag, PackageCheck, Truck } from 'lucide-react'
+import { useAdminData } from '@/contexts/AdminDataContext'
+import { QueueCard, StatCard } from '@/components/admin/dashboard/shared'
+import { fetchAdminOrders, getAdminQueue, isStageAgeBreached, type AdminOrder, type AdminQueue } from '@/lib/supabase/orders-admin'
 
-import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
-import { panelClass } from "@/components/admin/seller/shared"
-import {
-  AttentionList,
-  QueueCard,
-  StatCard,
-  isOverThreshold,
-  type AttentionItem,
-} from "@/components/admin/dashboard/shared"
-
-// Warehouse dashboard — operational, scoped to the logged-in Warehouse
-// user's own site (same scoping every other warehouse queue page uses):
-// what's sitting in each queue right now, and what needs eyes on it
-// today. A direct visit by a non-Warehouse role bounces back through
-// the role-based redirector at /admin/dashboard rather than showing
-// this page's site-scoped data to someone it doesn't belong to.
-
+// This site's own queue at a glance — real counts, server-side filtered
+// to the logged-in Warehouse account's site (or all sites, for a
+// Manager previewing this view).
 export default function WarehouseDashboardPage() {
   const router = useRouter()
-  const {
-    currentUser,
-    sites,
-    visibleOrders,
-    visibleQcLines,
-    visiblePackLines,
-    visibleExportBinLines,
-    visibleInTransitLines,
-  } = useAdminData()
+  const { currentUser, permissions } = useAdminData()
+  const [orders, setOrders] = useState<AdminOrder[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (currentUser.role !== "warehouse") router.replace("/admin/dashboard")
-  }, [currentUser.role, router])
+    const siteId = permissions.ordersScopedToOwnSite ? currentUser.siteId : undefined
+    fetchAdminOrders({ siteId }).then((o) => {
+      setOrders(o)
+      setLoading(false)
+    })
+  }, [currentUser.siteId, permissions.ordersScopedToOwnSite])
 
-  const siteName = sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
-
-  const qcPending = visibleQcLines.filter((l) => l.status === "pending").length
-  const qcFlagged = visibleQcLines.filter((l) => l.status === "flagged").length
-  const packAwaiting = visiblePackLines.filter((l) => l.status === "awaiting_pack").length
-  const exportBinCount = visibleExportBinLines.length
-  const inTransitCount = visibleInTransitLines.length
-  const inTransitOverdue = visibleInTransitLines.filter((l) => l.deliveryStatus === "overdue").length
-  const breachedOrders = visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
-  const delayedOrders = visibleOrders.filter((o) => o.delayed).length
-
-  const attention = useMemo<AttentionItem[]>(() => {
-    const items: AttentionItem[] = []
-
-    for (const l of visibleQcLines.filter((l) => l.status === "flagged")) {
-      items.push({
-        key: `qc-${l.id}`,
-        title: l.productTitle,
-        subtitle: `${l.orderNumber} · ${l.customerName}`,
-        meta: "QC flagged",
-        href: `/admin/qc/${l.id}`,
-        tone: "rose",
-      })
-    }
-    for (const l of visibleInTransitLines.filter((l) => l.deliveryStatus === "overdue")) {
-      items.push({
-        key: `transit-${l.id}`,
-        title: l.orderNumber,
-        subtitle: `${l.destination} · ${l.courier}`,
-        meta: `${formatAge(Math.abs(l.etaRemainingHours))} overdue`,
-        href: `/admin/orders/${l.orderId}`,
-        tone: "rose",
-      })
-    }
-    for (const o of visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt)))) {
-      items.push({
-        key: `order-${o.id}`,
-        title: o.id,
-        subtitle: `${o.customerName} · ${o.stage}`,
-        meta: `${formatAge(hoursSince(o.stageEnteredAt))} in stage`,
-        href: `/admin/orders/${o.id}`,
-        tone: "amber",
-      })
-    }
-    return items.slice(0, 8)
-  }, [visibleQcLines, visibleInTransitLines, visibleOrders])
-
-  // Guard comes AFTER every hook above so hook call order never changes
-  // between renders, even as currentUser.role flips via the role switcher.
-  if (currentUser.role !== "warehouse") return null
+  const queueCount = (queue: Exclude<AdminQueue, null>) =>
+    orders.filter((o) => getAdminQueue(o.stage, o.substage) === queue).length
+  const delayedCount = orders.filter((o) => o.delayed || isStageAgeBreached(o.stage, o.stageEnteredAt)).length
 
   return (
-    <div className="min-h-screen bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1560px] px-6 pb-24 pt-10 lg:px-10">
-        {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
-              <Boxes size={22} strokeWidth={1.75} />
-            </div>
-            <div>
-              <h1 className="font-display text-3xl text-ink">Good to see you, {currentUser.name.split(" ")[0]}</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Here&rsquo;s what&rsquo;s moving through {siteName} right now.
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="font-display text-2xl font-semibold text-ink">Warehouse dashboard</h1>
+        <p className="mt-1 font-body text-sm text-ink/55">
+          {currentUser.siteId ? 'Your site\u2019s queues' : 'All sites'} — {loading ? 'loading…' : `${orders.length} active orders`}.
+        </p>
+      </div>
 
-        {/* ── Stat strip ── */}
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon={<ClipboardCheck size={15} />} label="Needs inspection" value={qcPending} />
-          <StatCard icon={<Flag size={15} />} label="QC flagged" value={qcFlagged} tone={qcFlagged > 0 ? "warning" : "default"} />
-          <StatCard icon={<Clock size={15} />} label="Over SLA" value={breachedOrders} tone={breachedOrders > 0 ? "warning" : "default"} />
-          <StatCard icon={<Activity size={15} />} label="Delayed" value={delayedOrders} tone={delayedOrders > 0 ? "warning" : "default"} />
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={<Boxes size={16} />} label="Active orders" value={loading ? '—' : orders.length} />
+        <StatCard
+          icon={<Clock size={16} />}
+          label="Delayed / SLA breach"
+          value={loading ? '—' : delayedCount}
+          tone={delayedCount > 0 ? 'warning' : 'default'}
+        />
+        <StatCard icon={<ClipboardCheck size={16} />} label="In QC" value={loading ? '—' : queueCount('qc')} />
+        <StatCard icon={<PackageCheck size={16} />} label="Delivered" value={loading ? '—' : orders.filter((o) => o.stage === 'delivered').length} />
+      </div>
 
-        {/* ── Queue cards ── */}
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <QueueCard
-            icon={<ClipboardCheck size={20} strokeWidth={1.75} />}
-            label="Quality check"
-            description="Items arrived on-site, waiting on inspection."
-            count={qcPending}
-            countLabel="pending"
-            flagCount={qcFlagged}
-            flagLabel="flagged"
-            onOpen={() => router.push("/admin/qc")}
-          />
-          <QueueCard
-            icon={<PackageCheck size={20} strokeWidth={1.75} />}
-            label="Pack & label"
-            description="Passed QC, waiting to be boxed and labeled."
-            count={packAwaiting}
-            countLabel="awaiting pack"
-            onOpen={() => router.push("/admin/pack-label")}
-          />
-          <QueueCard
-            icon={<Archive size={20} strokeWidth={1.75} />}
-            label="Export bin"
-            description="Packed and labeled, staged for courier pickup."
-            count={exportBinCount}
-            countLabel="in bin"
-            onOpen={() => router.push("/admin/export-bin")}
-          />
-          <QueueCard
-            icon={<Truck size={20} strokeWidth={1.75} />}
-            label="In transit"
-            description="Handed off to a courier, en route to the customer."
-            count={inTransitCount}
-            countLabel="en route"
-            flagCount={inTransitOverdue}
-            flagLabel="overdue"
-            onOpen={() => router.push("/admin/in-transit")}
-          />
-        </div>
-
-        {/* ── Needs attention ── */}
-        <div className={`mt-8 overflow-hidden ${panelClass}`}>
-          <div className="flex items-center justify-between border-b border-ink/10 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-ink/70">Needs attention</h2>
-            <span className="text-xs text-ink/40">{attention.length} item{attention.length === 1 ? "" : "s"}</span>
-          </div>
-          <div className="px-4">
-            <AttentionList items={attention} emptyLabel="Nothing flagged, overdue, or over SLA right now." />
-          </div>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <QueueCard
+          icon={<ClipboardCheck size={18} />}
+          label="Quality Check"
+          description="Orders awaiting inspection against what was ordered."
+          count={loading ? 0 : queueCount('qc')}
+          countLabel="waiting"
+          onOpen={() => router.push('/admin/qc')}
+        />
+        <QueueCard
+          icon={<Archive size={18} />}
+          label="Pack & Label"
+          description="Passed QC, waiting to be packed and labeled."
+          count={loading ? 0 : queueCount('pack-label')}
+          countLabel="waiting"
+          onOpen={() => router.push('/admin/pack-label')}
+        />
+        <QueueCard
+          icon={<Boxes size={18} />}
+          label="Export Bin"
+          description="Packed and staged for the next outbound batch."
+          count={loading ? 0 : queueCount('export-bin')}
+          countLabel="staged"
+          onOpen={() => router.push('/admin/export-bin')}
+        />
+        <QueueCard
+          icon={<Truck size={18} />}
+          label="In Transit"
+          description="Currently crossing the border."
+          count={loading ? 0 : queueCount('in-transit')}
+          countLabel="in transit"
+          onOpen={() => router.push('/admin/in-transit')}
+        />
+        <QueueCard
+          icon={<PackageCheck size={18} />}
+          label="Shipped"
+          description="Arrived, awaiting delivery confirmation."
+          count={loading ? 0 : queueCount('shipped')}
+          countLabel="awaiting confirmation"
+          onOpen={() => router.push('/admin/shipped')}
+        />
+        <QueueCard
+          icon={<Flag size={18} />}
+          label="Delayed / aged"
+          description="Sitting longer than this stage's normal threshold."
+          count={loading ? 0 : delayedCount}
+          countLabel="flagged"
+          onOpen={() => router.push('/admin/orders')}
+        />
       </div>
     </div>
   )

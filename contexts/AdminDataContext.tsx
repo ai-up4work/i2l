@@ -280,19 +280,34 @@ function usePersistentState<T>(key: string, initial: T) {
 /* Reference data                                                      */
 /* ------------------------------------------------------------------ */
 
+// Real UUIDs — NOT arbitrary. These must match data/wishdrop-seed-staff-sites.sql
+// exactly, because contexts/AdminDataContext.tsx's SITES/MOCK_USERS/STAFF_DIRECTORY
+// ids are now written into real `orders.site_id`, `order_internal_notes.staff_id`
+// (NOT NULL, FK to staff_accounts), and `order_stage_history.by_staff_id` (FK to
+// staff_accounts) by lib/supabase/orders-admin.ts. The old "site_colombo"/"u_mgr_1"
+// style ids weren't even valid UUID syntax, so any write using them failed outright
+// (invalid input syntax for type uuid) before it could even hit the FK constraint.
+// Run the seed script against your Supabase project once before using any admin
+// action that writes (advance/rollback stage, add a note, pass QC, etc.) — until
+// then, reads work fine but writes will error.
 const SITES: Site[] = [
-  { id: "site_colombo", name: "Colombo Hub", location: "Colombo, LK" },
-  { id: "site_kandy", name: "Kandy Hub", location: "Kandy, LK" },
-  { id: "site_galle", name: "Galle Hub", location: "Galle, LK" },
+  { id: 'e166db30-47fe-466d-b5ee-2f600300c50f', name: 'Colombo Hub', location: 'Colombo, LK' },
+  { id: '925ea5ba-e910-4d7b-a351-13b06cda235f', name: 'Kandy Hub', location: 'Kandy, LK' },
+  { id: 'ef990cda-4177-419d-967a-f9e966bf389e', name: 'Galle Hub', location: 'Galle, LK' },
 ]
 
 // One mock logged-in user per role. RoleSwitcher flips `role`, and
 // currentUser is derived from this map — switching to Warehouse always
 // hands you a user already scoped to a site, same as production.
 const MOCK_USERS: Record<Role, CurrentUser> = {
-  manager: { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
-  sales: { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
-  warehouse: { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
+  manager: { id: '20910cf1-6c79-4891-b7b0-15fcf8fd636a', name: 'Amara Perera', role: 'manager' },
+  sales: { id: '857f794e-d28d-4800-b17e-4b1393461dda', name: 'Nadia Fernando', role: 'sales' },
+  warehouse: {
+    id: '00af059b-624d-4b31-9956-ed1c0feff14e',
+    name: 'Kasun Silva',
+    role: 'warehouse',
+    siteId: 'e166db30-47fe-466d-b5ee-2f600300c50f',
+  },
 }
 
 // Reference roster for the reassign-request dropdown AND the Reports
@@ -301,13 +316,13 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
 // meaningful for warehouse entries — sales/manager aren't site-scoped,
 // same convention as CurrentUser.siteId.
 const STAFF_DIRECTORY: StaffMember[] = [
-  { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
-  { id: "u_sales_2", name: "Ruvindi Jayasekara", role: "sales" },
-  { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
-  { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
-  { id: "u_wh_2", name: "Dimuthu Rajapaksha", role: "warehouse", siteId: "site_kandy" },
-  { id: "u_wh_3", name: "Harshani Weerasinghe", role: "warehouse", siteId: "site_galle" },
-  { id: "u_wh_4", name: "Pasan Gunathilaka", role: "warehouse", siteId: "site_colombo" },
+  { id: '857f794e-d28d-4800-b17e-4b1393461dda', name: 'Nadia Fernando', role: 'sales' },
+  { id: 'e03e6489-a4d4-43ca-a43c-d415403ce80c', name: 'Ruvindi Jayasekara', role: 'sales' },
+  { id: '20910cf1-6c79-4891-b7b0-15fcf8fd636a', name: 'Amara Perera', role: 'manager' },
+  { id: '00af059b-624d-4b31-9956-ed1c0feff14e', name: 'Kasun Silva', role: 'warehouse', siteId: 'e166db30-47fe-466d-b5ee-2f600300c50f' },
+  { id: '6e37890f-346f-4a55-a779-8320765a452d', name: 'Dimuthu Rajapaksha', role: 'warehouse', siteId: '925ea5ba-e910-4d7b-a351-13b06cda235f' },
+  { id: '3ed33c0b-b888-4660-9360-418f36e556ac', name: 'Harshani Weerasinghe', role: 'warehouse', siteId: 'ef990cda-4177-419d-967a-f9e966bf389e' },
+  { id: '12f50202-9165-4dd3-accf-6116137ce9c1', name: 'Pasan Gunathilaka', role: 'warehouse', siteId: 'e166db30-47fe-466d-b5ee-2f600300c50f' },
 ]
 
 const ROLE_PERMISSIONS: Record<Role, Permissions> = {
