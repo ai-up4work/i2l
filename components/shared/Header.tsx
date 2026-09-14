@@ -32,6 +32,8 @@ import {
   SlideOverPanel,
 } from "@/components/shared/HeaderPanels"
 import { OUTER_H, INNER_H, LEFT_NOTCH, NOTCH_GAP } from "@/components/shared/headerMetrics"
+import Image from "next/image"
+
 
 interface NavItem { name: string; desc: string; href: string }
 interface NavLink {
@@ -68,7 +70,7 @@ const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep/60 focus-visible:ring-offset-2 focus-visible:ring-offset-parchment"
 
 const pillButtonClass =
-  `flex items-center gap-2 rounded-xl px-3 py-1.5 text-ink/70 transition-colors duration-200 hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none lg:py-2 ${focusRing}`
+  `flex items-center gap-2 rounded-xl px-3 py-1 text-ink/70 transition-colors duration-200 hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none lg:py-1 ${focusRing}`
 
 const iconPillButtonClass =
   `flex h-9 w-9 lg:h-10 lg:w-10 items-center justify-center rounded-xl text-ink/60 transition-colors duration-200 hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none ${focusRing}`
@@ -109,10 +111,12 @@ function getInitials(name?: string) {
 function Avatar({ user, sizeClass }: { user: AuthUser; sizeClass: string }) {
   if (user.imageUrl) {
     return (
-      <img
+      <Image
         src={user.imageUrl}
         alt={user.name}
-        className={`${sizeClass} flex-none rounded-full object-cover ring-1 ring-ink/10`}
+        width={32}
+        height={32}
+        className={`${sizeClass} flex-none rounded-full object-cover ring-1 ml-4 md:ml-0 ring-ink/10`}
       />
     )
   }
@@ -528,7 +532,7 @@ export default function Header({
                   onClick={goToAccountHome}
                   className={`relative ${mobileIconQuietClass}`}
                 >
-                  <Avatar user={user} sizeClass="h-6 w-6" />
+                  <Avatar user={user} sizeClass="h-9 w-9" />
                 </button>
               ) : (
                 <button
@@ -576,7 +580,7 @@ export default function Header({
                   onClick={() => router.push("/account/")}
                   className={`${pillButtonClass} lg:px-3`}
                 >
-                  <Avatar user={user} sizeClass="h-6 w-6 lg:h-7 lg:w-7" />
+                  <Avatar user={user} sizeClass="h-9 w-9 lg:h-9 lg:w-9" />
                   <span className="hidden sm:inline text-[13px] font-semibold max-w-[9rem] truncate">
                     {user.name}
                   </span>
