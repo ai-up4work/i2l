@@ -1,145 +1,40 @@
+// contexts/ChatContext.tsx
 'use client'
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { putAttachmentBlob } from '@/lib/chat/attachmentDb'
+import { createClient } from '@/lib/supabase/client'
+import {
+  type ChatMessageRow,
+  type ChatSender,
+  buildReplyBody,
+  getOrCreateGeneralThread,
+  inferAttachmentKind,
+  fetchThreadMessages,
+  markThreadRead,
+  parseReplyBody,
+  sendChatMessage,
+  subscribeToThreadMessages,
+  uploadChatAttachment,
+} from '@/lib/supabase/chat'
 
-export type ChatAttachment = {
-  id: string
-  type: 'image' | 'video'
-  // In-memory only. Populated right after a file is picked (object URL)
-  // so the sender sees an instant preview. NEVER persisted — reload or
-  // cross-tab reads get '' here and must resolve the blob from
-  // IndexedDB (see AttachmentMedia / useAttachmentUrl).
-  url: string
-  name: string
-}
-
-export type ReplyPreview = {
-  id: string
-  sender: 'customer' | 'ops'
-  text: string
-  attachmentType?: 'image' | 'video' | null
-}
-
+// Real UI-facing message shape. `attachment` is singular (one URL,
+// matching chat_messages.attachment_url exactly) — see lib/supabase/chat.ts
+// for why this replaced the old plural `attachments` array. `replyTo` is
+// derived by parsing the stored quote prefix out of `text`, not a
+// separate column — same file, same reasoning.
+export type ChatAttachment = { url: string; kind: 'image' | 'video' }
+export type ReplyPreview = { id: string; sender: ChatSender; text: string }
 export type ChatMessage = {
   id: string
-  sender: 'customer' | 'ops'
+  sender: ChatSender
   text: string
   createdAt: number
-  requestId?: string | null
-  attachments?: ChatAttachment[]
-  replyTo?: ReplyPreview | null
+  attachment: ChatAttachment | null
+  replyTo: ReplyPreview | null
 }
 
-const STORAGE_PREFIX = 'wishdrop_platform_chat_v2'
-const LAST_READ_PREFIX = 'wishdrop_platform_chat_last_read_v1'
-const DISPLAY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94755354830' // fallback for dev
-
-// Attachments themselves live in IndexedDB now (see lib/chat/attachmentDb.ts).
-// This cap just guards against pathologically large picks.
-export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024 // 8MB
-
-export function uid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36)
-}
-
-export function storageKeyFor(userId: string) {
-  return `${STORAGE_PREFIX}:${userId}`
-}
-
-export function lastReadKeyFor(userId: string) {
-  return `${LAST_READ_PREFIX}:${userId}`
-}
-
-// Strip in-memory attachment urls before writing to localStorage — only
-// the IndexedDB pointer (id/type/name) should ever be persisted there.
-function forStorage(message: ChatMessage): ChatMessage {
-  if (!message.attachments || message.attachments.length === 0) return message
-  return {
-    ...message,
-    attachments: message.attachments.map((a) => ({ ...a, url: '' })),
-  }
-}
-
-export function readAllMessages(userId: string): ChatMessage[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(storageKeyFor(userId))
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-export function appendMessage(message: ChatMessage, userId: string): ChatMessage[] {
-  const next = [...readAllMessages(userId), forStorage(message)]
-  try {
-    localStorage.setItem(storageKeyFor(userId), JSON.stringify(next))
-  } catch {
-    // Storage full/blocked — caller's own state still has the message,
-    // it just won't persist or cross-tab sync. Attachments themselves
-    // are in IndexedDB regardless, so this is now just message text/metadata.
-  }
-  return next
-}
-
-// Admin-only: strip one attachment out of an already-sent message and
-// re-persist the thread. The client-facing ChatPanel has no equivalent —
-// customers can't delete images once sent, only ops/admin can moderate
-// what's shown. Note: this only removes the pointer from the message
-// list, the underlying blob is left as an orphan in IndexedDB (same
-// tradeoff forStorage already accepts elsewhere).
-export function removeAttachmentFromMessage(
-  userId: string,
-  messageId: string,
-  attachmentId: string
-): ChatMessage[] {
-  const all = readAllMessages(userId)
-  const next = all.map((m) => {
-    if (m.id !== messageId) return m
-    const attachments = (m.attachments ?? []).filter((a) => a.id !== attachmentId)
-    return { ...m, attachments }
-  })
-  try {
-    localStorage.setItem(storageKeyFor(userId), JSON.stringify(next))
-  } catch {
-    // Storage full/blocked — caller's own state still updates locally.
-  }
-  return next
-}
-
-function readLastReadAt(userId: string): number {
-  if (typeof window === 'undefined') return 0
-  try {
-    const raw = localStorage.getItem(lastReadKeyFor(userId))
-    return raw ? Number(raw) || 0 : 0
-  } catch {
-    return 0
-  }
-}
-
-function writeLastReadAt(ts: number, userId: string) {
-  try {
-    localStorage.setItem(lastReadKeyFor(userId), String(ts))
-  } catch {
-    // Non-fatal.
-  }
-}
-
-function withinDisplayWindow(messages: ChatMessage[]): ChatMessage[] {
-  const cutoff = Date.now() - DISPLAY_WINDOW_MS
-  return messages.filter((m) => m.createdAt >= cutoff)
-}
 
 export function deriveHandle(name: string) {
   const first = name.trim().split(/\s+/)[0] ?? name
@@ -155,51 +50,83 @@ export function buildWhatsAppLink(handle: string | null, prefillText?: string) {
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`
 }
 
-// Snapshot a message into the compact quote shown above a reply.
-export function toReplyPreview(message: ChatMessage): ReplyPreview {
+function rowToMessage(row: ChatMessageRow): ChatMessage {
+  const { quoted, text } = parseReplyBody(row.text ?? '')
   return {
-    id: message.id,
-    sender: message.sender,
-    text: message.text.slice(0, 160),
-    attachmentType: message.attachments?.[0]?.type ?? null,
+    id: row.id,
+    sender: row.sender as ChatSender,
+    text,
+    createdAt: new Date(row.created_at).getTime(),
+    attachment: row.attachment_url ? { url: row.attachment_url, kind: inferAttachmentKind(row.attachment_url) } : null,
+    replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'ops' : 'customer', text: quoted } : null,
   }
 }
 
-// File -> attachment. The blob is written straight to IndexedDB; only
-// a lightweight pointer (id/type/name) plus a throwaway object URL for
-// this session's own preview is kept in memory.
-export function fileToAttachment(file: File): Promise<ChatAttachment> {
-  return new Promise((resolve, reject) => {
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      reject(new Error(`${file.name} is larger than 8MB`))
-      return
-    }
-    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-      reject(new Error(`${file.name} isn't an image or video`))
-      return
-    }
-    const type: ChatAttachment['type'] = file.type.startsWith('video/') ? 'video' : 'image'
-    const id = uid()
-    putAttachmentBlob({ id, type, name: file.name, blob: file, createdAt: Date.now() })
-      .then(() => {
-        resolve({ id, type, name: file.name, url: URL.createObjectURL(file) })
-      })
-      .catch((err) => reject(err instanceof Error ? err : new Error('Failed to store attachment')))
-  })
+// Purely a per-device "have I seen the latest ops reply" marker, NOT the
+// conversation itself — that's entirely server-side now. Losing this key
+// just means one stale unread badge on a new device, not lost messages.
+function lastReadKey(threadId: string) {
+  return `wishdrop:chat:lastReadAt:${threadId}`
+}
+
+function readLastReadAt(threadId: string): number {
+  if (typeof window === 'undefined') return 0
+  try {
+    return Number(localStorage.getItem(lastReadKey(threadId))) || 0
+  } catch {
+    return 0
+  }
+}
+
+function writeLastReadAt(threadId: string, ts: number) {
+  try {
+    localStorage.setItem(lastReadKey(threadId), String(ts))
+  } catch {
+    // non-fatal
+  }
+}
+
+// TEMPORARY WORKAROUND, not a real fix — some customers currently have
+// more than one "general" thread (no request_id/order_id) on file, which
+// makes getOrCreateGeneralThread's internal `.single()` lookup throw
+// PGRST116 ("multiple rows returned") instead of resolving. Until that
+// dedup happens server-side (or getOrCreateGeneralThread itself is
+// changed to tolerate/collapse duplicates), catch that specific failure
+// here and fall back to picking the most recently active matching
+// thread directly, so the customer isn't left with a broken chat.
+// Delete this fallback once the underlying duplicate-thread rows are
+// cleaned up and/or getOrCreateGeneralThread is hardened against races
+// that create them (e.g. two tabs, or a Strict-Mode double effect,
+// racing an insert-if-missing at the same time).
+async function resolveGeneralThreadId(supabase: ReturnType<typeof createClient>, userId: string): Promise<string> {
+  try {
+    return await getOrCreateGeneralThread(supabase, userId)
+  } catch (err) {
+    const isMultipleRows =
+      typeof err === 'object' && err !== null && 'code' in err && (err as { code?: string }).code === 'PGRST116'
+    if (!isMultipleRows) throw err
+
+    console.warn('[chat] user has multiple general threads — falling back to most recent one', { userId })
+    const { data, error } = await supabase
+      .from('chat_threads')
+      .select('id')
+      .eq('user_id', userId)
+      .is('request_id', null)
+      .is('order_id', null)
+      .order('last_activity', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) throw err // no general thread at all — surface the original error, something else is wrong
+
+    return data.id
+  }
 }
 
 type SendOptions = {
-  requestId?: string | null
   replyTo?: ReplyPreview | null
-  attachments?: ChatAttachment[]
-}
-
-// Old callers pass a plain requestId string/null as the 2nd arg; new
-// callers pass an options object. Normalize so both keep working.
-function normalizeSendArg(arg?: string | null | SendOptions): SendOptions {
-  if (arg == null) return {}
-  if (typeof arg === 'string') return { requestId: arg }
-  return arg
+  files?: File[]
 }
 
 interface ChatContextValue {
@@ -208,8 +135,9 @@ interface ChatContextValue {
   closeChat: () => void
   toggleChat: () => void
   messages: ChatMessage[]
-  sendMessage: (text: string, options?: string | null | SendOptions) => void
-  sendOpsMessage: (text: string, options?: string | null | SendOptions) => void
+  sending: boolean
+  sendError: string | null
+  sendMessage: (text: string, options?: SendOptions) => Promise<void>
   unreadCount: number
   markRead: () => void
   isLocked: boolean
@@ -221,103 +149,119 @@ const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
-  const userId = user?.email ?? null
-
   const handle = user ? user.chatHandle ?? deriveHandle(user.name) : null
 
   const [isOpen, setIsOpen] = useState(false)
-  const [allMessages, setAllMessages] = useState<ChatMessage[]>([])
+  const [threadId, setThreadId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [lastReadAt, setLastReadAt] = useState(0)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
 
+  const supabaseRef = useRef(createClient())
+
+  // Resolve (or create) this customer's general support thread and load
+  // its history once we know who's logged in.
+  //
+  // Keyed on `user?.id` (a primitive), not `user` (an object). If
+  // useAuth()'s `user` isn't a stable reference across renders, keying
+  // on the object itself re-fires this effect on every render — each
+  // run re-hits resolveGeneralThreadId, which is what was spamming the
+  // "multiple general threads" warning repeatedly for the same user.
+  // Keying on the id avoids that regardless of upstream memoization.
   useEffect(() => {
-    if (!userId) {
-      setAllMessages([])
-      setLastReadAt(0)
+    if (!user) {
+      setThreadId(null)
+      setMessages([])
       return
     }
-    setAllMessages(readAllMessages(userId))
-    setLastReadAt(readLastReadAt(userId))
-  }, [userId])
-
-  useEffect(() => {
-    if (!userId) return
-    const key = storageKeyFor(userId)
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === key) setAllMessages(readAllMessages(userId))
+    let cancelled = false
+    ;(async () => {
+      try {
+        const id = await resolveGeneralThreadId(supabaseRef.current, user.id)
+        if (cancelled) return
+        setThreadId(id)
+        setLastReadAt(readLastReadAt(id))
+        const rows = await fetchThreadMessages(supabaseRef.current, id)
+        if (!cancelled) setMessages(rows.map(rowToMessage))
+      } catch (err) {
+        console.error('[chat] failed to load thread', err)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [userId])
+  }, [user?.id])
 
-  const appendAndSetLocal = useCallback(
-    (message: ChatMessage) => {
-      if (!userId) return
-      // Keep the full (attachment-url-bearing) message in local state for
-      // instant preview; only the persisted copy has urls stripped.
-      setAllMessages((prev) => [...prev, message])
-      appendMessage(message, userId)
-    },
-    [userId]
-  )
+  // Realtime: append anything new (from either side) that arrives while
+  // this thread is open, deduping against our own optimistic inserts.
+  useEffect(() => {
+    if (!threadId) return
+    const unsubscribe = subscribeToThreadMessages(supabaseRef.current, threadId, (row) => {
+      setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
+    })
+    return unsubscribe
+  }, [threadId])
 
   const sendMessage = useCallback(
-    (text: string, arg?: string | null | SendOptions) => {
-      const options = normalizeSendArg(arg)
+    async (text: string, options?: SendOptions) => {
       const trimmed = text.trim()
-      const attachments = options.attachments ?? []
-      if (!trimmed && attachments.length === 0) return
-      if (!userId) return
-      appendAndSetLocal({
-        id: uid(),
-        sender: 'customer',
-        text: trimmed,
-        createdAt: Date.now(),
-        requestId: options.requestId ?? null,
-        replyTo: options.replyTo ?? null,
-        attachments,
-      })
-    },
-    [appendAndSetLocal, userId]
-  )
+      const files = options?.files ?? []
+      if (!trimmed && files.length === 0) return
+      if (!threadId || !user) return
 
-  const sendOpsMessage = useCallback(
-    (text: string, arg?: string | null | SendOptions) => {
-      const options = normalizeSendArg(arg)
-      const trimmed = text.trim()
-      const attachments = options.attachments ?? []
-      if (!trimmed && attachments.length === 0) return
-      if (!userId) return
-      appendAndSetLocal({
-        id: uid(),
-        sender: 'ops',
-        text: trimmed,
-        createdAt: Date.now(),
-        requestId: options.requestId ?? null,
-        replyTo: options.replyTo ?? null,
-        attachments,
-      })
+      setSending(true)
+      setSendError(null)
+      try {
+        const senderName = user.name
+        const firstText = options?.replyTo ? buildReplyBody(options.replyTo.text, trimmed) : trimmed
+
+        if (files.length === 0) {
+          const row = await sendChatMessage(supabaseRef.current, {
+            threadId,
+            sender: 'customer',
+            senderName,
+            text: firstText,
+          })
+          setMessages((prev) => [...prev, rowToMessage(row)])
+        } else {
+          for (let i = 0; i < files.length; i++) {
+            const url = await uploadChatAttachment(supabaseRef.current, threadId, files[i])
+            const row = await sendChatMessage(supabaseRef.current, {
+              threadId,
+              sender: 'customer',
+              senderName,
+              text: i === 0 ? firstText : '',
+              attachmentUrl: url,
+            })
+            setMessages((prev) => [...prev, rowToMessage(row)])
+          }
+        }
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : 'Failed to send. Please try again.')
+      } finally {
+        setSending(false)
+      }
     },
-    [appendAndSetLocal, userId]
+    [threadId, user],
   )
 
   const markRead = useCallback(() => {
-    if (!userId) return
+    if (!threadId) return
     const now = Date.now()
     setLastReadAt(now)
-    writeLastReadAt(now, userId)
-  }, [userId])
-
-  const messages = useMemo(() => withinDisplayWindow(allMessages), [allMessages])
+    writeLastReadAt(threadId, now)
+    markThreadRead(supabaseRef.current, threadId).catch(() => {
+      // Non-fatal — worst case the admin badge stays lit a bit longer.
+    })
+  }, [threadId])
 
   const unreadCount = useMemo(
     () => messages.filter((m) => m.sender === 'ops' && m.createdAt > lastReadAt).length,
-    [messages, lastReadAt]
+    [messages, lastReadAt],
   )
 
-  const getWhatsAppLink = useCallback(
-    (prefillText?: string) => buildWhatsAppLink(handle, prefillText),
-    [handle]
-  )
+  const getWhatsAppLink = useCallback((prefillText?: string) => buildWhatsAppLink(handle, prefillText), [handle])
 
   const value: ChatContextValue = {
     isOpen,
@@ -325,8 +269,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     closeChat: () => setIsOpen(false),
     toggleChat: () => setIsOpen((v) => !v),
     messages,
+    sending,
+    sendError,
     sendMessage,
-    sendOpsMessage,
     unreadCount,
     markRead,
     isLocked: !isAuthenticated,

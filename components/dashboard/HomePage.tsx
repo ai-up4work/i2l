@@ -220,6 +220,19 @@ function RailRow({
   )
 }
 
+// Skeleton tile shown while useAffiliatedStores() is still fetching from
+// Supabase. Matches SuggestedStoreTile's box dimensions (h-16 w-16 logo +
+// a short label line) so the grid doesn't visibly jump in size once real
+// tiles swap in.
+function StoreTileSkeleton() {
+  return (
+    <div className="flex flex-col items-center gap-1.5 px-1 py-2">
+      <div className="h-16 w-16 animate-pulse rounded-xl bg-ink/8" />
+      <div className="h-2.5 w-10 animate-pulse rounded bg-ink/8" />
+    </div>
+  )
+}
+
 // Single store tile inside SuggestedStoresCard — logo + name, clickable
 // straight through to that store's page. Mirrors the logo-rendering rules
 // from ShopMegaMenu's StoreRow (square/object-cover for local sellers'
@@ -232,11 +245,21 @@ function RailRow({
 // instead of clashing squares of wildly different value. A small gold
 // dot marks `isNew` stores — the one place this card borrows the accent
 // color, and it's tied to real data rather than decoration.
+//
+// ROUTING: this card only ever shows local/affiliated stores (see
+// `affiliatedOnly` in SuggestedStoresCard below), so in practice
+// `isExternal` is always false here. It's still computed the same way
+// as ShopMegaMenu's StoreRow — keyed off `storeType`, not just whether
+// `url` happens to be populated on the record — so this tile stays
+// correct on its own terms even if it's ever reused for a mixed list.
 function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
   const isLocal = store.storeType === 'local'
+  const isExternal = !isLocal && Boolean(store.url)
+  const href = isExternal ? store.url! : `/stores/${store.platform}`
   return (
     <a
-      href={`/stores/${store.platform}`}
+      href={href}
+      {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       className="group flex min-w-0 flex-col items-center gap-1.5 rounded-xl px-1 py-2 text-center transition-colors duration-150 hover:bg-ink/[0.03]"
     >
       <span className="relative">
@@ -283,13 +306,25 @@ function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
 // wrapper in HomePage below), since the row-fitting math is meaningless
 // on mobile — there's no left column to match on a single-column layout.
 //
-// How the fit works: after each render, compare this card's actual
-// rendered height (via `cardRef`) against `targetHeight`. If there's
-// room for at least half a row more, add one row (`STORE_GRID_COLS`
-// tiles) and let the effect re-run on the next render; if there's a
-// full row too many, remove one. This converges within a few renders
-// (bounded by the catalog size) without ever hardcoding a row height —
-// the row height itself is read from a rendered tile via `gridRef`.
+// STORE SOURCE: "Stores for you" is specifically about sellers where
+// pricing is already pre-confirmed with us (see the "No link needed —
+// pricing already confirmed" copy below) — that only applies to our
+// local/affiliated sellers, never third-party marketplaces like Amazon
+// or Flipkart, where we have no pricing arrangement. So this card
+// filters `stores` down to `storeType === 'local'` up front, before any
+// of the isNew-ordering or row-fitting logic runs.
+//
+// LOADING STATE: useAffiliatedStores() seeds `stores` with just
+// marketplaceStores and flips `loading` to false only once the Supabase
+// `sellers` query resolves (see hooks/useAffiliatedStores.ts) — so on
+// first paint `affiliatedOnly` is genuinely empty (marketplaceStores has
+// no `local` entries), not just "not yet fetched". Without a loading
+// branch this card would render zero tiles and a `mt-auto` button
+// floating at the bottom of an otherwise-empty box until the DB round
+// trip finishes, which reads as broken rather than loading. Skeleton
+// tiles fill that gap; the row-fitting effect below is skipped entirely
+// while `loading` is true, since there'd be no real tile to measure a
+// row height from and affiliatedOnly.length is 0 anyway.
 function SuggestedStoresCard({
   targetHeight,
   onBrowseStores,
@@ -297,24 +332,39 @@ function SuggestedStoresCard({
   targetHeight: number
   onBrowseStores?: () => void
 }) {
-  // isNew stores surfaced first (most relevant to highlight), backfilled
-  // with the rest of the catalog. Stable order — only recomputes when the
-  // fetched `stores` array itself changes (i.e. once, when the fetch
-  // resolves) — so the grid doesn't jump around as rows are added/removed
-  // while fitting to targetHeight.
-  const { stores } = useAffiliatedStores()
-  const orderedStores = useMemo<AffiliatedStore[]>(
-    () => [...stores.filter((s) => s.isNew), ...stores.filter((s) => !s.isNew)],
+  const { stores, loading } = useAffiliatedStores()
+
+  // Local/affiliated sellers only — marketplaces are excluded here (see
+  // note above). Filtered before the isNew split so `orderedStores` below
+  // never contains a marketplace entry regardless of its isNew flag.
+  const affiliatedOnly = useMemo(
+    () => stores.filter((s) => s.storeType === 'local'),
     [stores],
   )
 
-  const [storesCount, setStoresCount] = useState(Math.min(STORE_GRID_COLS * 2, orderedStores.length))
+  // isNew stores surfaced first (most relevant to highlight), backfilled
+  // with the rest of the affiliated catalog. Stable order — only
+  // recomputes when `affiliatedOnly` itself changes (i.e. once, when the
+  // fetch resolves) — so the grid doesn't jump around as rows are
+  // added/removed while fitting to targetHeight.
+  const orderedStores = useMemo<AffiliatedStore[]>(
+    () => [...affiliatedOnly.filter((s) => s.isNew), ...affiliatedOnly.filter((s) => !s.isNew)],
+    [affiliatedOnly],
+  )
+
+  // Seeded at a flat 2 rows rather than `Math.min(STORE_GRID_COLS * 2,
+  // orderedStores.length)` — at mount `orderedStores.length` is 0 (only
+  // marketplaces are loaded initially), so clamping against it here would
+  // start the count at 0 and rely entirely on the fit-effect's `diff`
+  // branch to climb back up later. Slicing in `visibleStores` below
+  // already clamps safely if storesCount ever exceeds the real list.
+  const [storesCount, setStoresCount] = useState(STORE_GRID_COLS * 2)
 
   const cardRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
-    if (!targetHeight || !cardRef.current) return
+    if (loading || !targetHeight || !cardRef.current) return
 
     const actualHeight = cardRef.current.getBoundingClientRect().height
     const diff = targetHeight - actualHeight
@@ -332,7 +382,7 @@ function SuggestedStoresCard({
     } else if (diff < -rowHeight / 2 && storesCount > STORE_GRID_COLS) {
       setStoresCount((count) => Math.max(STORE_GRID_COLS, count - STORE_GRID_COLS))
     }
-  }, [targetHeight, storesCount, orderedStores.length])
+  }, [loading, targetHeight, storesCount, orderedStores.length])
 
   const visibleStores = orderedStores.slice(0, storesCount)
 
@@ -355,17 +405,18 @@ function SuggestedStoresCard({
       <p className="mt-1 text-xs text-ink/55">No link needed — pricing already confirmed.</p>
 
       <div ref={gridRef} className="mt-4 grid grid-cols-4 gap-x-1 gap-y-2 overflow-hidden">
-        {visibleStores.map((store) => (
-          <SuggestedStoreTile key={store.platform} store={store} />
-        ))}
+        {loading
+          ? Array.from({ length: STORE_GRID_COLS * 2 }).map((_, i) => <StoreTileSkeleton key={i} />)
+          : visibleStores.map((store) => <SuggestedStoreTile key={store.platform} store={store} />)}
       </div>
 
       <button
         type="button"
         onClick={onBrowseStores}
-        className="mt-auto flex w-full items-center justify-center gap-1 rounded-full bg-teal/8 py-2.5 text-xs font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/14"
+        disabled={loading}
+        className="mt-auto flex w-full items-center justify-center gap-1 rounded-full bg-teal/8 py-2.5 text-xs font-semibold text-teal-deep transition-colors duration-150 hover:bg-teal/14 disabled:opacity-50"
       >
-        View all {stores.length} stores
+        {loading ? 'Loading stores…' : `View all ${affiliatedOnly.length} stores`}
         <ChevronRight size={13} />
       </button>
     </div>

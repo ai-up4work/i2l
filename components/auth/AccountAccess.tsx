@@ -5,7 +5,6 @@ import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, User as UserIcon } from 'lu
 import { useRouter, useSearchParams } from 'next/navigation'
 import BrandMark from '@/components/shared/BrandMark'
 import { useAuth } from '@/contexts/AuthContext'
-import OnboardingExperience from './OnboardingExperience'
 
 type Mode = 'login' | 'register'
 
@@ -26,18 +25,16 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Distinct UI states that replace the old localStorage "account ready" screen:
-  const [justRegistered, setJustRegistered] = useState(false) // real session, show onboarding
   const [confirmationSent, setConfirmationSent] = useState(false) // Supabase requires email confirmation first
   const [resetSent, setResetSent] = useState(false)
 
-  // Already logged in and landing on this page directly (not mid-flow) —
-  // send them straight to where they were headed instead of showing a form.
+  // Already logged in and landing on this page — send them straight to
+  // where they were headed instead of showing the form.
   useEffect(() => {
-    if (isAuthenticated && !justRegistered) {
+    if (isAuthenticated) {
       router.replace(redirect)
     }
-  }, [isAuthenticated, justRegistered, redirect, router])
+  }, [isAuthenticated, redirect, router])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -55,13 +52,23 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
       if (mode === 'login') {
         const { error: signInError } = await signIn(email, password)
         if (signInError) throw new Error(signInError)
-        router.push(redirect)
+        // FIX: signInWithPassword() writes the session cookie
+        // asynchronously via document.cookie. router.push() right after
+        // can outrace that write, so the very next request (the /account
+        // navigation) hits middleware/server components before the
+        // cookie is actually readable — result: it looks like login
+        // "didn't lead to the account page" even though the client-side
+        // session is fine. router.refresh() BEFORE push forces this page
+        // to re-fetch its own server data first, which reliably waits
+        // out the cookie write; only then do we navigate.
         router.refresh()
+        router.push(redirect)
       } else {
         const { error: signUpError, sessionCreated } = await signUp(email, password, name.trim())
         if (signUpError) throw new Error(signUpError)
         if (sessionCreated) {
-          setJustRegistered(true)
+          router.refresh()
+          router.push(redirect)
         } else {
           setConfirmationSent(true)
         }
@@ -87,8 +94,6 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
       setLoading(false)
     }
   }
-
-  if (justRegistered) return <OnboardingExperience />
 
   if (confirmationSent) {
     return (

@@ -32,11 +32,7 @@ export interface StoreProduct {
   id: string;
   handle: string; // used to build /stores/[platform]/product/[handle]
   storeSlug: string;
-  /** Real inventory quantity, when the upstream feed exposes one. Absent
-   *  (not defaulted to 0) when unknown — e.g. Shopify's public storefront
-   *  endpoints never expose real stock quantities, only per-variant
-   *  `available` booleans, so Shopify-backed products simply omit this. */
-  stockCount?: number;
+  stockCount: number | null; // null = unknown, not zero
   name: string;
   image: string;
   images: string[];

@@ -12,39 +12,27 @@ import {
 } from 'react'
 
 /**
- * Trimmed, serializable snapshot — same rationale as CartProduct: only what
- * the recently-viewed rail/page actually renders, so it survives fine in
- * localStorage. Price/title are a snapshot taken at view time, refreshed
- * whenever the product is viewed again (see markViewed) so nothing goes
- * stale for a shopper mid-session.
- *
- * NOTE: unlike Cart/Wishlist, this context is intentionally LOCAL-ONLY —
- * it never reads or writes Supabase, for any user, logged in or not. There
- * is no `recently_viewed` sync here (the table may still exist for future
- * use, but this provider doesn't touch it). Browsing history is treated as
- * ephemeral, device-local state rather than something to carry across
- * devices or accounts — which also sidesteps the account-switch data-leak
- * concern that Cart/Wishlist have to guard against explicitly, since
- * there's no per-user identity involved here at all.
+ * Deliberately minimal — just enough to re-fetch the real product later.
+ * NO title/price/image/discount here anymore. Those are always looked up
+ * live (see hooks/useLiveProductData.ts) so the Recently Viewed page never
+ * shows stale data. This context's only job is remembering *which*
+ * products were viewed and *when* — a pointer, not a snapshot.
  */
-export type RecentlyViewedProduct = {
+export type RecentlyViewedRef = {
   id: string
-  title: string
-  image?: string | null
-  currencyCode?: string | null
-  estimatedPrice?: string | null
-  discountPct?: number | null
+  url: string
+  source?: 'catalogue' | 'link'
 }
 
 export type RecentlyViewedEntry = {
-  product: RecentlyViewedProduct
+  ref: RecentlyViewedRef
   viewedAt: number
 }
 
 type RecentlyViewedContextValue = {
   hydrated: boolean
   items: RecentlyViewedEntry[]
-  markViewed: (product: RecentlyViewedProduct) => void
+  markViewed: (ref: RecentlyViewedRef) => void
   removeItem: (id: string) => void
   clearAll: () => void
 }
@@ -52,7 +40,19 @@ type RecentlyViewedContextValue = {
 const RecentlyViewedContext = createContext<RecentlyViewedContextValue | null>(null)
 
 const STORAGE_KEY = 'wishdrop:recently-viewed'
-const MAX_ITEMS = 30
+const MAX_ITEMS = 100
+
+function dedupeById(entries: RecentlyViewedEntry[]): RecentlyViewedEntry[] {
+  const seen = new Set<string>()
+  const result: RecentlyViewedEntry[] = []
+  for (const entry of entries) {
+    if (!entry?.ref?.id) continue
+    if (seen.has(entry.ref.id)) continue
+    seen.add(entry.ref.id)
+    result.push(entry)
+  }
+  return result
+}
 
 function loadInitialItems(): RecentlyViewedEntry[] {
   if (typeof window === 'undefined') return []
@@ -60,7 +60,7 @@ function loadInitialItems(): RecentlyViewedEntry[] {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    return Array.isArray(parsed) ? dedupeById(parsed) : []
   } catch {
     return []
   }
@@ -89,7 +89,7 @@ export function RecentlyViewedProvider({ children }: { children: ReactNode }) {
       if (e.key !== STORAGE_KEY) return
       try {
         const parsed = e.newValue ? JSON.parse(e.newValue) : []
-        setItems(Array.isArray(parsed) ? parsed : [])
+        setItems(Array.isArray(parsed) ? dedupeById(parsed) : [])
       } catch {
         // ignore malformed cross-tab payloads
       }
@@ -98,16 +98,16 @@ export function RecentlyViewedProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const markViewed = useCallback((product: RecentlyViewedProduct) => {
+  const markViewed = useCallback((ref: RecentlyViewedRef) => {
     setItems((prev) => {
-      const withoutDupe = prev.filter((e) => e.product.id !== product.id)
-      const next = [{ product, viewedAt: Date.now() }, ...withoutDupe]
+      const withoutDupe = prev.filter((e) => e.ref.id !== ref.id)
+      const next = [{ ref, viewedAt: Date.now() }, ...withoutDupe]
       return next.slice(0, MAX_ITEMS)
     })
   }, [])
 
   const removeItem = useCallback((id: string) => {
-    setItems((prev) => prev.filter((e) => e.product.id !== id))
+    setItems((prev) => prev.filter((e) => e.ref.id !== id))
   }, [])
 
   const clearAll = useCallback(() => {

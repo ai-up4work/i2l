@@ -71,13 +71,12 @@ function Spark({ className = "" }: { className?: string }) {
 
 function StoreRow({ store }: { store: AffiliatedStore }) {
   const isLocal = store.storeType === "local"
-  // Marketplaces (Amazon, Flipkart, etc.) carry their real site in `url` —
-  // send clicks there instead of the internal /stores/[platform] catalog
-  // page. Local sellers have no external site, so they keep the internal
-  // route.
-  const href = `/stores/${store.platform}`
-  const isExternal = Boolean(store.url)
-
+  // Route by storeType, not just presence of `url` — some local store
+  // records may still have a `url` field populated, but local sellers
+  // always live on our internal /stores/[platform] page. Only real
+  // marketplaces (Amazon, Flipkart, etc.) send clicks out to their site.
+  const isExternal = !isLocal && Boolean(store.url)
+  const href = isExternal ? store.url! : `/stores/${store.platform}`
   return (
     <a
       href={href}
@@ -95,7 +94,7 @@ function StoreRow({ store }: { store: AffiliatedStore }) {
           <img src={store.logo} alt="" className="h-full w-full object-cover" />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element -- fixed circle, logo centered regardless of its own aspect ratio
-          <img src={store.logo} alt="" className="h-full w-full object-contain p-1" />
+          <img src={store.logo} alt="" className="h-full w-full object-contain" />
         )}
         {store.isNew && (
           <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center text-gold">
@@ -222,13 +221,18 @@ export function ShopMegaMenuPanel({
   const isDesktop = useIsDesktopNav()
   const { stores } = useAffiliatedStores()
   const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
+  // FIX: split out full local-store list from the capped preview grid,
+  // so the "Browse all N" link below can count only real local sellers
+  // instead of marketplaces + local combined (which is what
+  // stores.length was doing before, e.g. 11 marketplaces + 4 local = 15
+  // shown as "affiliated stores" even though only 4 are actually local).
+  const localStores = useMemo(() => stores.filter((s) => s.storeType === "local"), [stores])
   // Preview of local stores in the mega menu — shows all local stores
   // (not filtered to `isNew` only), capped at 24 so the panel stays a
-  // preview rather than a full duplicate of /stores.
-  const featuredLocalStores = useMemo(
-    () => stores.filter((s) => s.storeType === "local").slice(0, 24),
-    [stores],
-  )
+  // preview rather than a full duplicate of /stores. Capped separately
+  // from `localStores` above so the "Browse all N" count doesn't freeze
+  // at 24 once there are more than 24 real local sellers.
+  const featuredLocalStores = useMemo(() => localStores.slice(0, 24), [localStores])
   useEffect(() => setMounted(true), [])
   if (!mounted || !isDesktop) return null
 
@@ -285,7 +289,7 @@ export function ShopMegaMenuPanel({
               Marketplaces
             </div>
             <div className="grid grid-cols-4 gap-x-2 gap-y-0.5">
-              {marketplaceStores.map((store) => (
+              {marketplaceStores.slice(0, 8).map((store) => (
                 <StoreRow key={store.platform} store={store} />
               ))}
             </div>
@@ -303,7 +307,8 @@ export function ShopMegaMenuPanel({
               href="/stores"
               className="mt-2 block rounded-xl px-3 py-2.5 text-sm font-semibold font-body text-teal-deep transition-colors duration-150 hover:bg-teal/10"
             >
-              Browse all {stores.length} affiliated stores →
+              {/* FIX: was {stores.length} (marketplaces + local combined) */}
+              Browse all {localStores.length} affiliated stores →
             </a>
           </div>
         </div>
@@ -317,10 +322,9 @@ export function ShopMegaMenuPanel({
 export function ShopMegaMenuMobile() {
   const { stores } = useAffiliatedStores()
   const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
-  const featuredLocalStores = useMemo(
-    () => stores.filter((s) => s.storeType === "local").slice(0, 24),
-    [stores],
-  )
+  // FIX: same split as ShopMegaMenuPanel above — see the comment there.
+  const localStores = useMemo(() => stores.filter((s) => s.storeType === "local"), [stores])
+  const featuredLocalStores = useMemo(() => localStores.slice(0, 24), [localStores])
 
   return (
     <div className="bg-teal/[0.06] px-2 pb-3">
@@ -362,7 +366,8 @@ export function ShopMegaMenuMobile() {
         href="/stores"
         className="mx-2 mt-2 block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-deep font-body"
       >
-        Browse all {stores.length} affiliated stores →
+        {/* FIX: was {stores.length} (marketplaces + local combined) */}
+        Browse all {localStores.length} affiliated stores →
       </a>
     </div>
   )

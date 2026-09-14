@@ -4,8 +4,8 @@
 // (public.* tables only — auth.users is Supabase-managed and not
 // redeclared here). This is NOT a substitute for the generated version —
 // USER-DEFINED enum columns are typed as `string` below because the dump
-// doesn't include the enum's allowed values, and RLS metadata generated
-// types normally carry isn't present either.
+// doesn't include the enum's allowed values, and RLS/relationship metadata
+// generated types normally carry isn't present either.
 //
 // Regenerate for real as soon as you can:
 //   npx supabase login
@@ -15,20 +15,6 @@
 // real column names and Row/Insert/Update shapes instead of `any`, so a
 // typo like `.select('naem')` or `.update({ pric: 10 })` is caught at
 // compile time.
-//
-// `Relationships: []` on every table below: @supabase/postgrest-js's
-// GenericTable type requires a `Relationships` field alongside
-// Row/Insert/Update — without it, a table's shape doesn't structurally
-// satisfy GenericTable, and TypeScript silently fails to resolve the
-// correct .insert()/.update()/.upsert() overload, falling back to
-// `never[]` for the argument type (surfacing as errors like "'user_id'
-// does not exist in type 'never[]'" on a perfectly correct call). Since
-// this file is hand-written rather than introspected from real foreign
-// keys, `[]` is the safe/correct value here — it only means embedded
-// relation selects (e.g. `product_snapshots(...)` joins) won't get
-// strong typing from these definitions, which matches how the app
-// already treats those joined rows (cast as `any`) in Cart/Wishlist/
-// Orders/RecentlyViewed contexts, so nothing else changes.
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 

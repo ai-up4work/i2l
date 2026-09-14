@@ -368,6 +368,11 @@ export function normaliseShopifyProduct(
     compareAtPrice,
     onSale: compareAtPrice != null && compareAtPrice > price,
     inStock: p.variants?.some((v) => v.available) ?? true,
+    // Shopify's public /products.json never exposes a real inventory
+    // number — only per-variant `available` (used for inStock above).
+    // null is the correct "unknown" value per StoreProduct's own doc
+    // comment (null = unknown, not zero), not a placeholder to guess at.
+    stockCount: null,
     category: normaliseProductType(p.product_type) ?? 'General',
     condition: 'New',
     description: stripHtml(p.body_html ?? ''),
@@ -447,6 +452,9 @@ function normaliseShopifyJsProduct(
     // Prefer real per-variant availability; fall back to the product-level
     // `available` flag only when there's no variant data at all to check.
     inStock: p.variants?.length ? p.variants.some((v) => v.available) : p.available,
+    // Same as normaliseShopifyProduct above — .js exposes no inventory
+    // count either, only `available` (used for inStock above).
+    stockCount: null,
     category: normaliseProductType(p.type) ?? 'General',
     condition: 'New',
     description: stripHtml(p.description ?? ''),

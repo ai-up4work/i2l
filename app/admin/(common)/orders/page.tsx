@@ -249,7 +249,7 @@ export default function OrdersPage() {
 
   return (
     <div className="min-h-screen bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1200px] px-6 pb-20 pt-10 lg:px-10">
+      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
         {/* ── Header ── */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">

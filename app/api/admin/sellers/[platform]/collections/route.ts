@@ -115,7 +115,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
   if (sellerError) return NextResponse.json({ error: sellerError.message }, { status: 500 })
   if (!seller) return NextResponse.json({ error: 'Seller not found' }, { status: 404 })
 
-  const providerConfig = (seller.provider_config ?? { type: 'mock' }) as StoreProviderConfig
+  const providerConfig = (seller.provider_config ?? { type: 'mock' }) as unknown as StoreProviderConfig
 
   try {
     if (providerConfig.type === 'shopify') {

@@ -15,15 +15,18 @@ import { createClient } from '@/lib/supabase/client'
 import { ensureProductSnapshot, findSnapshotId } from '@/lib/supabase/product-snapshots'
 
 // ---------------------------------------------------------------------------
-// Types (unchanged)
+// Types
 // ---------------------------------------------------------------------------
 
+/** A saved variant selection — size/color/whatever the product supports. */
 export type ProductVariant = {
-  label: string
-  value: string
+  label: string // e.g. "Size / Color"
+  value: string // e.g. "M / Black"
 }
 
+/** Same idea as CartProduct — a small serializable snapshot, not the full scrape result. */
 export type WishlistProduct = {
+  /** Stable identity — use the listing URL, same convention as the cart. */
   id: string
   url: string
   site?: string | null
@@ -35,6 +38,7 @@ export type WishlistProduct = {
 
 export type WishlistEntry = WishlistProduct & { addedAt: number }
 
+/** A product as saved inside a board — adds variant/qty/ordering on top of the base product. */
 export type BoardProduct = WishlistProduct & {
   variant?: ProductVariant | null
   quantity?: number
@@ -42,7 +46,9 @@ export type BoardProduct = WishlistProduct & {
 
 export type BoardItem = BoardProduct & {
   addedAt: number
+  /** Snapshot of price at the moment it was saved — compare to live price to detect drops. */
   priceAtSave?: string | null
+  /** Sort position within the board (lower = earlier). Kept dense on every reorder. */
   position: number
 }
 
@@ -54,12 +60,15 @@ export type Board = {
   description?: string | null
   items: BoardItem[]
   visibility: BoardVisibility
+  /** Opaque token used in shareable URLs. Only present once a share link has been generated. */
   shareToken?: string | null
   createdAt: number
   updatedAt: number
+  /** Sort position among the user's boards (for drag-reordering the board list). */
   position: number
 }
 
+/** Result of pushing an entire board into the cart in one action. */
 export type AddBoardToCartResult = {
   added: BoardItem[]
   skipped: BoardItem[]
@@ -67,6 +76,8 @@ export type AddBoardToCartResult = {
 
 type WishlistContextValue = {
   hydrated: boolean
+
+  // ---- flat wishlist -------------------------------------------------
   items: WishlistEntry[]
   count: number
   addItem: (product: WishlistProduct) => void
@@ -75,6 +86,7 @@ type WishlistContextValue = {
   isInWishlist: (id: string) => boolean
   clearWishlist: () => void
 
+  // ---- boards: CRUD ----------------------------------------------------
   boards: Board[]
   createBoard: (name?: string, initialItems?: BoardProduct[]) => Board
   renameBoard: (boardId: string, name: string) => void
@@ -84,6 +96,7 @@ type WishlistContextValue = {
   reorderBoards: (orderedIds: string[]) => void
   getBoard: (boardId: string) => Board | undefined
 
+  // ---- boards: items -----------------------------------------------------
   addItemToBoard: (boardId: string, product: BoardProduct) => void
   removeItemFromBoard: (boardId: string, itemId: string) => void
   moveItem: (fromBoardId: string, toBoardId: string, itemId: string) => void
@@ -94,10 +107,12 @@ type WishlistContextValue = {
   isInBoard: (boardId: string, itemId: string) => boolean
   getBoardsForItem: (itemId: string) => Board[]
 
+  // ---- boards: sharing -----------------------------------------------------
   setBoardVisibility: (boardId: string, visibility: BoardVisibility) => void
   generateShareLink: (boardId: string) => string
   revokeShareLink: (boardId: string) => void
 
+  // ---- boards: cart -----------------------------------------------------
   addBoardToCart: (
     boardId: string,
     addToCart: (item: BoardItem) => boolean | void,
@@ -107,59 +122,45 @@ type WishlistContextValue = {
 const WishlistContext = createContext<WishlistContextValue | null>(null)
 
 // ---------------------------------------------------------------------------
-// Persistence — GUEST-ONLY for both items and boards now. Boards are backed
-// by `boards` / `board_items` in Supabase (RLS already in place), so they
-// follow the exact same guest<->logged-in lifecycle as the flat wishlist and
-// cart: localStorage while logged out, DB while logged in, merged once on
-// login.
+// Persistence — one storage key for the whole feature (items + boards +
+// naming counter), since they're always read/written together on load.
+//
+// NOTE ON SUPABASE SYNC: only the flat `items` list below is synced to the
+// `wishlist_items` table for logged-in users. Boards (`boards` state) are
+// NOT yet synced — they stay localStorage-only, matching how they already
+// worked before. Boards need their own migration path (create/rename/
+// delete/reorder/share-token generation all need server round-trips, and
+// getting the share-link flow right needs its own pass) — flagged here
+// rather than done partially/incorrectly. `board_items`/`boards` tables
+// already exist in the schema and are ready for this when it's built.
 // ---------------------------------------------------------------------------
 
-const ITEMS_STORAGE_KEY = 'wishdrop:wishlist-items'
-const BOARDS_STORAGE_KEY = 'wishdrop:wishlist-boards'
+const STORAGE_KEY = 'wishdrop:wishlist-data'
 
-type PersistedBoardsShape = {
+type PersistedShape = {
+  items: WishlistEntry[]
   boards: Board[]
   boardCounter: number
 }
 
-function loadInitialItems(): WishlistEntry[] {
-  if (typeof window === 'undefined') return []
+function loadInitialState(): PersistedShape {
+  if (typeof window === 'undefined') return { items: [], boards: [], boardCounter: 0 }
   try {
-    const raw = window.localStorage.getItem(ITEMS_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function loadInitialBoards(): PersistedBoardsShape {
-  if (typeof window === 'undefined') return { boards: [], boardCounter: 0 }
-  try {
-    const raw = window.localStorage.getItem(BOARDS_STORAGE_KEY)
-    if (!raw) return { boards: [], boardCounter: 0 }
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return { items: [], boards: [], boardCounter: 0 }
     const parsed = JSON.parse(raw)
     return {
+      items: Array.isArray(parsed.items) ? parsed.items : [],
       boards: Array.isArray(parsed.boards) ? parsed.boards : [],
       boardCounter: typeof parsed.boardCounter === 'number' ? parsed.boardCounter : 0,
     }
   } catch {
-    return { boards: [], boardCounter: 0 }
+    return { items: [], boards: [], boardCounter: 0 }
   }
 }
 
-// Boards need a real uuid now (they're a Postgres `uuid` primary key), not
-// the old "board-<timestamp>-<rand>" shorthand. Generated client-side so
-// createBoard can still return a usable id synchronously, before the DB
-// write resolves.
-function makeBoardId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
+function makeId(prefix: string) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 
 function makeShareToken() {
@@ -178,65 +179,34 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   const [boards, setBoards] = useState<Board[]>([])
   const [boardCounter, setBoardCounter] = useState(0)
   const [hydrated, setHydrated] = useState(false)
+  const dbSyncedForUserId = useRef<string | null>(null)
 
-  // Which user's DB wishlist/boards are currently reflected in state.
-  const loadedItemsUserIdRef = useRef<string | null>(null)
-  const loadedBoardsUserIdRef = useRef<string | null>(null)
-
-  // ---- initial hydration --------------------------------------------
   useEffect(() => {
-    setItems(loadInitialItems())
-    const initialBoards = loadInitialBoards()
-    setBoards(initialBoards.boards)
-    setBoardCounter(initialBoards.boardCounter)
+    const initial = loadInitialState()
+    setItems(initial.items)
+    setBoards(initial.boards)
+    setBoardCounter(initial.boardCounter)
     setHydrated(true)
   }, [])
 
-  // ---- guest-only items persistence ----------------------------------
   useEffect(() => {
-    if (!hydrated || user) return
+    if (!hydrated) return
     try {
-      window.localStorage.setItem(ITEMS_STORAGE_KEY, JSON.stringify(items))
+      const payload: PersistedShape = { items, boards, boardCounter }
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch {
-      // best-effort
+      // Storage can fail (quota, private mode) — losing persistence isn't
+      // worth crashing the wishlist/boards feature over.
     }
-  }, [items, hydrated, user])
+  }, [items, boards, boardCounter, hydrated])
 
-  // ---- guest-only boards persistence ----------------------------------
-  useEffect(() => {
-    if (!hydrated || user) return
-    try {
-      const payload: PersistedBoardsShape = { boards, boardCounter }
-      window.localStorage.setItem(BOARDS_STORAGE_KEY, JSON.stringify(payload))
-    } catch {
-      // best-effort
-    }
-  }, [boards, boardCounter, hydrated, user])
-
-  // ---- guest-only items cross-tab sync -------------------------------
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (user) return
-      if (e.key !== ITEMS_STORAGE_KEY) return
-      try {
-        const parsed = e.newValue ? JSON.parse(e.newValue) : []
-        setItems(Array.isArray(parsed) ? parsed : [])
-      } catch {
-        // ignore malformed cross-tab payloads
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [user])
-
-  // ---- guest-only boards cross-tab sync -------------------------------
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (user) return
-      if (e.key !== BOARDS_STORAGE_KEY) return
+      if (e.key !== STORAGE_KEY) return
       try {
         const parsed = e.newValue ? JSON.parse(e.newValue) : null
         if (!parsed) return
+        if (Array.isArray(parsed.items)) setItems(parsed.items)
         if (Array.isArray(parsed.boards)) setBoards(parsed.boards)
         if (typeof parsed.boardCounter === 'number') setBoardCounter(parsed.boardCounter)
       } catch {
@@ -245,9 +215,9 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [user])
+  }, [])
 
-  // ---- flat wishlist: Supabase sync ----------------------------------
+  // ---- flat wishlist: Supabase sync --------------------------------------
 
   const pushItemToDb = useCallback(
     async (product: WishlistProduct, userId: string) => {
@@ -290,32 +260,27 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     [supabase],
   )
 
+  // On login: push local (guest) wishlist items up, then replace local
+  // state with the merged server-side list. Boards are intentionally left
+  // untouched here — see the note above the storage-key section.
   useEffect(() => {
     if (authLoading || !hydrated) return
-
     if (!user) {
-      if (loadedItemsUserIdRef.current !== null) {
-        setItems(loadInitialItems())
-      }
-      loadedItemsUserIdRef.current = null
+      dbSyncedForUserId.current = null
       return
     }
-
-    if (loadedItemsUserIdRef.current === user.id) return
+    // Only skip if we've already synced AND there's still something in
+    // local state — see the identical comment in contexts/Cartcontext.tsx.
+    // Without the items.length check, once synced this effect would never
+    // look at the DB again for the rest of the session even if local
+    // state later ended up empty while wishlist_items still had rows.
+    if (dbSyncedForUserId.current === user.id && items.length > 0) return
+    dbSyncedForUserId.current = user.id
 
     let cancelled = false
-    const guestItemsAtLogin = items
-
     ;(async () => {
-      for (const entry of guestItemsAtLogin) {
+      for (const entry of items) {
         await pushItemToDb(entry, user.id)
-      }
-      if (guestItemsAtLogin.length) {
-        try {
-          window.localStorage.removeItem(ITEMS_STORAGE_KEY)
-        } catch {
-          // best-effort
-        }
       }
 
       const { data, error } = await supabase
@@ -323,12 +288,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         .select('added_at, product_snapshots(url, site, title, image_url, currency, price)')
         .eq('user_id', user.id)
 
-      if (cancelled) return
-
-      if (error || !data) {
-        loadedItemsUserIdRef.current = user.id
-        return
-      }
+      if (cancelled || error || !data) return
 
       const merged: WishlistEntry[] = data
         .filter((row: any) => row.product_snapshots?.url)
@@ -344,7 +304,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         }))
 
       setItems(merged)
-      loadedItemsUserIdRef.current = user.id
     })()
 
     return () => {
@@ -397,204 +356,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     if (user) idsToRemove.forEach((id) => removeItemFromDb(id, user.id))
   }, [items, user, removeItemFromDb])
 
-  // ---- boards: Supabase sync ------------------------------------------
-
-  const pushBoardToDb = useCallback(
-    async (board: Board, userId: string) => {
-      try {
-        await supabase.from('boards').upsert(
-          {
-            id: board.id,
-            user_id: userId,
-            name: board.name,
-            description: board.description ?? null,
-            visibility: board.visibility,
-            share_token: board.shareToken ?? null,
-            position: board.position,
-          },
-          { onConflict: 'id' },
-        )
-      } catch (err) {
-        console.error('[wishlist] failed to sync board to db', err)
-      }
-    },
-    [supabase],
-  )
-
-  const updateBoardFieldsInDb = useCallback(
-    async (
-      boardId: string,
-      fields: {
-        name?: string
-        description?: string | null
-        visibility?: string
-        share_token?: string | null
-        position?: number
-      },
-    ) => {
-      try {
-        await supabase.from('boards').update(fields).eq('id', boardId)
-      } catch (err) {
-        console.error('[wishlist] failed to update board in db', err)
-      }
-    },
-    [supabase],
-  )
-
-  const removeBoardFromDb = useCallback(
-    async (boardId: string) => {
-      try {
-        // Explicit child-first delete rather than relying on an assumed
-        // ON DELETE CASCADE that may not exist on this FK.
-        await supabase.from('board_items').delete().eq('board_id', boardId)
-        await supabase.from('boards').delete().eq('id', boardId)
-      } catch (err) {
-        console.error('[wishlist] failed to remove board from db', err)
-      }
-    },
-    [supabase],
-  )
-
-  const pushBoardItemToDb = useCallback(
-    async (boardId: string, item: BoardItem, userId: string) => {
-      try {
-        const snapshotId = await ensureProductSnapshot(supabase, {
-          id: item.id,
-          title: item.title,
-          image: item.image,
-          currencyCode: item.currencyCode,
-          price: item.price,
-          site: item.site,
-        })
-        await supabase.from('board_items').upsert(
-          {
-            board_id: boardId,
-            product_snapshot_id: snapshotId,
-            variant: item.variant ?? null,
-            quantity: item.quantity ?? 1,
-            price_at_save:
-              item.priceAtSave == null ? null : Number(item.priceAtSave),
-            position: item.position,
-          },
-          { onConflict: 'board_id,product_snapshot_id' },
-        )
-      } catch (err) {
-        console.error('[wishlist] failed to sync board item to db', err)
-      }
-      // userId currently unused directly (ownership enforced via RLS through
-      // board_id -> boards.user_id) but kept in the signature for parity
-      // with the cart/wishlist push functions and in case per-user logic
-      // is needed later.
-      void userId
-    },
-    [supabase],
-  )
-
-  const removeBoardItemFromDb = useCallback(
-    async (boardId: string, itemId: string) => {
-      try {
-        const snapshotId = await findSnapshotId(supabase, itemId)
-        if (!snapshotId) return
-        await supabase
-          .from('board_items')
-          .delete()
-          .eq('board_id', boardId)
-          .eq('product_snapshot_id', snapshotId)
-      } catch (err) {
-        console.error('[wishlist] failed to remove board item from db', err)
-      }
-    },
-    [supabase],
-  )
-
-  // Guest -> logged-in merge (push local boards up, then load DB boards as
-  // truth) / logged-in -> logged-out fallback (revert to localStorage).
-  // Mirrors the flat-wishlist effect above.
-  useEffect(() => {
-    if (authLoading || !hydrated) return
-
-    if (!user) {
-      if (loadedBoardsUserIdRef.current !== null) {
-        const local = loadInitialBoards()
-        setBoards(local.boards)
-        setBoardCounter(local.boardCounter)
-      }
-      loadedBoardsUserIdRef.current = null
-      return
-    }
-
-    if (loadedBoardsUserIdRef.current === user.id) return
-
-    let cancelled = false
-    const guestBoardsAtLogin = boards
-
-    ;(async () => {
-      for (const board of guestBoardsAtLogin) {
-        await pushBoardToDb(board, user.id)
-        for (const item of board.items) {
-          await pushBoardItemToDb(board.id, item, user.id)
-        }
-      }
-      if (guestBoardsAtLogin.length) {
-        try {
-          window.localStorage.removeItem(BOARDS_STORAGE_KEY)
-        } catch {
-          // best-effort
-        }
-      }
-
-      const { data, error } = await supabase
-        .from('boards')
-        .select(
-          'id, name, description, visibility, share_token, position, created_at, updated_at, board_items(product_snapshot_id, variant, quantity, price_at_save, position, added_at, product_snapshots(url, site, title, image_url, currency, price))',
-        )
-        .eq('user_id', user.id)
-
-      if (cancelled) return
-
-      if (error || !data) {
-        loadedBoardsUserIdRef.current = user.id
-        return
-      }
-
-      const merged: Board[] = data.map((row: any) => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        visibility: row.visibility,
-        shareToken: row.share_token,
-        createdAt: new Date(row.created_at).getTime(),
-        updatedAt: new Date(row.updated_at).getTime(),
-        position: row.position,
-        items: (row.board_items ?? [])
-          .filter((bi: any) => bi.product_snapshots?.url)
-          .map((bi: any) => ({
-            id: bi.product_snapshots.url,
-            url: bi.product_snapshots.url,
-            site: bi.product_snapshots.site,
-            title: bi.product_snapshots.title,
-            image: bi.product_snapshots.image_url,
-            currencyCode: bi.product_snapshots.currency,
-            price: bi.product_snapshots.price != null ? String(bi.product_snapshots.price) : null,
-            variant: bi.variant ?? null,
-            quantity: bi.quantity,
-            priceAtSave: bi.price_at_save != null ? String(bi.price_at_save) : null,
-            position: bi.position,
-            addedAt: new Date(bi.added_at).getTime(),
-          })),
-      }))
-
-      setBoards(merged)
-      loadedBoardsUserIdRef.current = user.id
-    })()
-
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, hydrated])
-
-  // ---- boards: CRUD (local-first, syncs to db when logged in) --------
+  // ---- boards: CRUD (unchanged — localStorage only, see note above) -----
 
   const createBoard = useCallback(
     (name?: string, initialItems: BoardProduct[] = []): Board => {
@@ -608,7 +370,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       })
 
       const board: Board = {
-        id: makeBoardId(),
+        id: makeId('board'),
         name: trimmed || `Board ${1000 + nextCounterValue}`,
         description: null,
         visibility: 'private',
@@ -625,44 +387,26 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       }
 
       setBoards((prev) => [...prev, board])
-
-      if (user) {
-        pushBoardToDb(board, user.id)
-        board.items.forEach((item) => pushBoardItemToDb(board.id, item, user.id))
-      }
-
       return board
     },
-    [boards.length, user, pushBoardToDb, pushBoardItemToDb],
+    [boards.length],
   )
 
-  const renameBoard = useCallback(
-    (boardId: string, name: string) => {
-      setBoards((prev) =>
-        prev.map((b) => (b.id === boardId ? { ...b, name, updatedAt: Date.now() } : b)),
-      )
-      if (user) updateBoardFieldsInDb(boardId, { name })
-    },
-    [user, updateBoardFieldsInDb],
-  )
+  const renameBoard = useCallback((boardId: string, name: string) => {
+    setBoards((prev) =>
+      prev.map((b) => (b.id === boardId ? { ...b, name, updatedAt: Date.now() } : b)),
+    )
+  }, [])
 
-  const updateBoardDescription = useCallback(
-    (boardId: string, description: string) => {
-      setBoards((prev) =>
-        prev.map((b) => (b.id === boardId ? { ...b, description, updatedAt: Date.now() } : b)),
-      )
-      if (user) updateBoardFieldsInDb(boardId, { description })
-    },
-    [user, updateBoardFieldsInDb],
-  )
+  const updateBoardDescription = useCallback((boardId: string, description: string) => {
+    setBoards((prev) =>
+      prev.map((b) => (b.id === boardId ? { ...b, description, updatedAt: Date.now() } : b)),
+    )
+  }, [])
 
-  const deleteBoard = useCallback(
-    (boardId: string) => {
-      setBoards((prev) => prev.filter((b) => b.id !== boardId))
-      if (user) removeBoardFromDb(boardId)
-    },
-    [user, removeBoardFromDb],
-  )
+  const deleteBoard = useCallback((boardId: string) => {
+    setBoards((prev) => prev.filter((b) => b.id !== boardId))
+  }, [])
 
   const duplicateBoard = useCallback(
     (boardId: string, newName?: string) => {
@@ -672,7 +416,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       const now = Date.now()
       const copy: Board = {
         ...source,
-        id: makeBoardId(),
+        id: makeId('board'),
         name: newName?.trim() || `${source.name} (Copy)`,
         shareToken: null,
         visibility: 'private',
@@ -682,203 +426,146 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         items: source.items.map((item) => ({ ...item, addedAt: now })),
       }
       setBoards((prev) => [...prev, copy])
-
-      if (user) {
-        pushBoardToDb(copy, user.id)
-        copy.items.forEach((item) => pushBoardItemToDb(copy.id, item, user.id))
-      }
-
       return copy
     },
-    [boards, user, pushBoardToDb, pushBoardItemToDb],
+    [boards],
   )
 
-  const reorderBoards = useCallback(
-    (orderedIds: string[]) => {
-      setBoards((prev) => {
-        const byId = new Map(prev.map((b) => [b.id, b]))
-        const reordered = orderedIds
-          .map((id, index) => {
-            const board = byId.get(id)
-            return board ? { ...board, position: index } : null
-          })
-          .filter((b): b is Board => b !== null)
+  const reorderBoards = useCallback((orderedIds: string[]) => {
+    setBoards((prev) => {
+      const byId = new Map(prev.map((b) => [b.id, b]))
+      const reordered = orderedIds
+        .map((id, index) => {
+          const board = byId.get(id)
+          return board ? { ...board, position: index } : null
+        })
+        .filter((b): b is Board => b !== null)
 
-        const remaining = prev.filter((b) => !orderedIds.includes(b.id))
-        return [...reordered, ...remaining]
-      })
-      if (user) {
-        orderedIds.forEach((id, index) => updateBoardFieldsInDb(id, { position: index }))
-      }
-    },
-    [user, updateBoardFieldsInDb],
-  )
+      const remaining = prev.filter((b) => !orderedIds.includes(b.id))
+      return [...reordered, ...remaining]
+    })
+  }, [])
 
   const getBoard = useCallback((boardId: string) => boards.find((b) => b.id === boardId), [boards])
 
-  const addItemToBoard = useCallback(
-    (boardId: string, product: BoardProduct) => {
-      let newItem: BoardItem | null = null
-      setBoards((prev) =>
-        prev.map((b) => {
-          if (b.id !== boardId) return b
-          if (b.items.some((item) => item.id === product.id)) return b
-          newItem = {
-            ...product,
-            addedAt: Date.now(),
-            priceAtSave: product.price ?? null,
-            position: b.items.length,
-          }
-          return { ...b, items: [...b.items, newItem], updatedAt: Date.now() }
-        }),
-      )
-      if (user && newItem) pushBoardItemToDb(boardId, newItem, user.id)
-    },
-    [user, pushBoardItemToDb],
-  )
+  const addItemToBoard = useCallback((boardId: string, product: BoardProduct) => {
+    setBoards((prev) =>
+      prev.map((b) => {
+        if (b.id !== boardId) return b
+        if (b.items.some((item) => item.id === product.id)) return b
+        const newItem: BoardItem = {
+          ...product,
+          addedAt: Date.now(),
+          priceAtSave: product.price ?? null,
+          position: b.items.length,
+        }
+        return { ...b, items: [...b.items, newItem], updatedAt: Date.now() }
+      }),
+    )
+  }, [])
 
-  const removeItemFromBoard = useCallback(
-    (boardId: string, itemId: string) => {
-      setBoards((prev) =>
-        prev.map((b) =>
-          b.id === boardId
-            ? { ...b, items: b.items.filter((i) => i.id !== itemId), updatedAt: Date.now() }
-            : b,
-        ),
-      )
-      if (user) removeBoardItemFromDb(boardId, itemId)
-    },
-    [user, removeBoardItemFromDb],
-  )
+  const removeItemFromBoard = useCallback((boardId: string, itemId: string) => {
+    setBoards((prev) =>
+      prev.map((b) =>
+        b.id === boardId
+          ? { ...b, items: b.items.filter((i) => i.id !== itemId), updatedAt: Date.now() }
+          : b,
+      ),
+    )
+  }, [])
 
-  const moveItem = useCallback(
-    (fromBoardId: string, toBoardId: string, itemId: string) => {
-      if (fromBoardId === toBoardId) return
-      let movedItem: BoardItem | null = null
-      setBoards((prev) => {
-        const source = prev.find((b) => b.id === fromBoardId)
-        const item = source?.items.find((i) => i.id === itemId)
-        if (!item) return prev
+  const moveItem = useCallback((fromBoardId: string, toBoardId: string, itemId: string) => {
+    if (fromBoardId === toBoardId) return
+    setBoards((prev) => {
+      const source = prev.find((b) => b.id === fromBoardId)
+      const item = source?.items.find((i) => i.id === itemId)
+      if (!item) return prev
 
-        const now = Date.now()
-        return prev.map((b) => {
-          if (b.id === fromBoardId) {
-            return { ...b, items: b.items.filter((i) => i.id !== itemId), updatedAt: now }
-          }
-          if (b.id === toBoardId) {
-            if (b.items.some((i) => i.id === itemId)) return b
-            movedItem = { ...item, position: b.items.length, addedAt: now }
-            return {
-              ...b,
-              items: [...b.items, movedItem],
-              updatedAt: now,
-            }
-          }
-          return b
-        })
-      })
-      if (user && movedItem) {
-        removeBoardItemFromDb(fromBoardId, itemId)
-        pushBoardItemToDb(toBoardId, movedItem, user.id)
-      }
-    },
-    [user, removeBoardItemFromDb, pushBoardItemToDb],
-  )
-
-  const copyItemToBoard = useCallback(
-    (boardId: string, itemId: string, toBoardId: string) => {
-      let copiedItem: BoardItem | null = null
-      setBoards((prev) => {
-        const source = prev.find((b) => b.id === boardId)
-        const item = source?.items.find((i) => i.id === itemId)
-        if (!item) return prev
-
-        const now = Date.now()
-        return prev.map((b) => {
-          if (b.id !== toBoardId) return b
+      const now = Date.now()
+      return prev.map((b) => {
+        if (b.id === fromBoardId) {
+          return { ...b, items: b.items.filter((i) => i.id !== itemId), updatedAt: now }
+        }
+        if (b.id === toBoardId) {
           if (b.items.some((i) => i.id === itemId)) return b
-          copiedItem = { ...item, position: b.items.length, addedAt: now }
           return {
             ...b,
-            items: [...b.items, copiedItem],
+            items: [...b.items, { ...item, position: b.items.length, addedAt: now }],
             updatedAt: now,
           }
-        })
+        }
+        return b
       })
-      if (user && copiedItem) pushBoardItemToDb(toBoardId, copiedItem, user.id)
-    },
-    [user, pushBoardItemToDb],
-  )
+    })
+  }, [])
 
-  const updateItemQuantity = useCallback(
-    (boardId: string, itemId: string, quantity: number) => {
-      const safeQty = Math.max(1, Math.floor(quantity) || 1)
-      let updatedItem: BoardItem | null = null
-      setBoards((prev) =>
-        prev.map((b) => {
-          if (b.id !== boardId) return b
-          return {
-            ...b,
-            items: b.items.map((i) => {
-              if (i.id !== itemId) return i
-              updatedItem = { ...i, quantity: safeQty }
-              return updatedItem
-            }),
-            updatedAt: Date.now(),
-          }
-        }),
-      )
-      if (user && updatedItem) pushBoardItemToDb(boardId, updatedItem, user.id)
-    },
-    [user, pushBoardItemToDb],
-  )
+  const copyItemToBoard = useCallback((boardId: string, itemId: string, toBoardId: string) => {
+    setBoards((prev) => {
+      const source = prev.find((b) => b.id === boardId)
+      const item = source?.items.find((i) => i.id === itemId)
+      if (!item) return prev
+
+      const now = Date.now()
+      return prev.map((b) => {
+        if (b.id !== toBoardId) return b
+        if (b.items.some((i) => i.id === itemId)) return b
+        return {
+          ...b,
+          items: [...b.items, { ...item, position: b.items.length, addedAt: now }],
+          updatedAt: now,
+        }
+      })
+    })
+  }, [])
+
+  const updateItemQuantity = useCallback((boardId: string, itemId: string, quantity: number) => {
+    const safeQty = Math.max(1, Math.floor(quantity) || 1)
+    setBoards((prev) =>
+      prev.map((b) =>
+        b.id === boardId
+          ? {
+              ...b,
+              items: b.items.map((i) => (i.id === itemId ? { ...i, quantity: safeQty } : i)),
+              updatedAt: Date.now(),
+            }
+          : b,
+      ),
+    )
+  }, [])
 
   const updateItemVariant = useCallback(
     (boardId: string, itemId: string, variant: ProductVariant | null) => {
-      let updatedItem: BoardItem | null = null
       setBoards((prev) =>
-        prev.map((b) => {
-          if (b.id !== boardId) return b
-          return {
-            ...b,
-            items: b.items.map((i) => {
-              if (i.id !== itemId) return i
-              updatedItem = { ...i, variant }
-              return updatedItem
-            }),
-            updatedAt: Date.now(),
-          }
-        }),
+        prev.map((b) =>
+          b.id === boardId
+            ? {
+                ...b,
+                items: b.items.map((i) => (i.id === itemId ? { ...i, variant } : i)),
+                updatedAt: Date.now(),
+              }
+            : b,
+        ),
       )
-      if (user && updatedItem) pushBoardItemToDb(boardId, updatedItem, user.id)
     },
-    [user, pushBoardItemToDb],
+    [],
   )
 
-  const reorderBoardItems = useCallback(
-    (boardId: string, orderedItemIds: string[]) => {
-      let reorderedItems: BoardItem[] = []
-      setBoards((prev) =>
-        prev.map((b) => {
-          if (b.id !== boardId) return b
-          const byId = new Map(b.items.map((i) => [i.id, i]))
-          const reordered = orderedItemIds
-            .map((id, index) => {
-              const item = byId.get(id)
-              return item ? { ...item, position: index } : null
-            })
-            .filter((i): i is BoardItem => i !== null)
-          const remaining = b.items.filter((i) => !orderedItemIds.includes(i.id))
-          reorderedItems = [...reordered, ...remaining]
-          return { ...b, items: reorderedItems, updatedAt: Date.now() }
-        }),
-      )
-      if (user) {
-        reorderedItems.forEach((item) => pushBoardItemToDb(boardId, item, user.id))
-      }
-    },
-    [user, pushBoardItemToDb],
-  )
+  const reorderBoardItems = useCallback((boardId: string, orderedItemIds: string[]) => {
+    setBoards((prev) =>
+      prev.map((b) => {
+        if (b.id !== boardId) return b
+        const byId = new Map(b.items.map((i) => [i.id, i]))
+        const reordered = orderedItemIds
+          .map((id, index) => {
+            const item = byId.get(id)
+            return item ? { ...item, position: index } : null
+          })
+          .filter((i): i is BoardItem => i !== null)
+        const remaining = b.items.filter((i) => !orderedItemIds.includes(i.id))
+        return { ...b, items: [...reordered, ...remaining], updatedAt: Date.now() }
+      }),
+    )
+  }, [])
 
   const isInBoard = useCallback(
     (boardId: string, itemId: string) => {
@@ -893,15 +580,11 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     [boards],
   )
 
-  const setBoardVisibility = useCallback(
-    (boardId: string, visibility: BoardVisibility) => {
-      setBoards((prev) =>
-        prev.map((b) => (b.id === boardId ? { ...b, visibility, updatedAt: Date.now() } : b)),
-      )
-      if (user) updateBoardFieldsInDb(boardId, { visibility })
-    },
-    [user, updateBoardFieldsInDb],
-  )
+  const setBoardVisibility = useCallback((boardId: string, visibility: BoardVisibility) => {
+    setBoards((prev) =>
+      prev.map((b) => (b.id === boardId ? { ...b, visibility, updatedAt: Date.now() } : b)),
+    )
+  }, [])
 
   const generateShareLink = useCallback(
     (boardId: string): string => {
@@ -916,25 +599,20 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
             : b,
         ),
       )
-      if (user) updateBoardFieldsInDb(boardId, { share_token: token, visibility: 'link' })
       return token
     },
-    [boards, user, updateBoardFieldsInDb],
+    [boards],
   )
 
-  const revokeShareLink = useCallback(
-    (boardId: string) => {
-      setBoards((prev) =>
-        prev.map((b) =>
-          b.id === boardId
-            ? { ...b, shareToken: null, visibility: 'private', updatedAt: Date.now() }
-            : b,
-        ),
-      )
-      if (user) updateBoardFieldsInDb(boardId, { share_token: null, visibility: 'private' })
-    },
-    [user, updateBoardFieldsInDb],
-  )
+  const revokeShareLink = useCallback((boardId: string) => {
+    setBoards((prev) =>
+      prev.map((b) =>
+        b.id === boardId
+          ? { ...b, shareToken: null, visibility: 'private', updatedAt: Date.now() }
+          : b,
+      ),
+    )
+  }, [])
 
   const addBoardToCart = useCallback(
     (boardId: string, addToCart: (item: BoardItem) => boolean | void): AddBoardToCartResult => {

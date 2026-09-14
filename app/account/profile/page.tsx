@@ -13,6 +13,7 @@ export default function ProfileRoute() {
   const supabase = createClient()
 
   const [phone, setPhone] = useState<string | undefined>(undefined)
+  const [phoneVerified, setPhoneVerified] = useState(false)
   const [defaultAddress, setDefaultAddress] = useState<string | undefined>(undefined)
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export default function ProfileRoute() {
     let cancelled = false
     ;(async () => {
       const [{ data: profile }, { data: address }] = await Promise.all([
-        supabase.from('profiles').select('phone').eq('id', user.id).maybeSingle(),
+        supabase.from('profiles').select('phone, phone_verified').eq('id', user.id).maybeSingle(),
         supabase
           .from('addresses')
           .select('address_line1, city, country')
@@ -30,6 +31,7 @@ export default function ProfileRoute() {
       ])
       if (cancelled) return
       setPhone(profile?.phone ?? undefined)
+      setPhoneVerified(Boolean(profile?.phone_verified))
       setDefaultAddress(address ? [address.address_line1, address.city, address.country].filter(Boolean).join(', ') : undefined)
     })()
     return () => {
@@ -50,6 +52,7 @@ export default function ProfileRoute() {
       name={user?.name}
       email={user?.email}
       phone={phone}
+      phoneVerified={phoneVerified}
       avatarUrl={user?.imageUrl}
       address={defaultAddress}
       onUpdateName={handleUpdateName}

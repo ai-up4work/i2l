@@ -25,7 +25,9 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   const view = viewForPath(pathname)
   const isMobile = useIsMobile()
 
-  const { user } = useAuth()
+  // FIX: destructure `logout` alongside `user` so Sidebar's Sign Out
+  // button has something real to call — see onSignOut below.
+  const { user, logout } = useAuth()
   const isPhoneVerified = !!user?.phoneVerified
 
   const {
@@ -132,6 +134,16 @@ function AccountShell({ children }: { children: React.ReactNode }) {
     router.push(pathForView('home'))
   }
 
+  // FIX: real sign-out. logout() (from AuthContext) already clears the
+  // cached user, calls supabase.auth.signOut(), and redirects to '/' —
+  // this just triggers it. Wrapped in `void` since Sidebar's onSignOut
+  // prop type is `() => void`, not `() => Promise<void>`; we don't need
+  // to await or catch here because logout() itself is best-effort and
+  // already clears local state synchronously before the network call.
+  function handleSignOut() {
+    void logout()
+  }
+
   // Fixed positioning removes the banner from flow entirely and pins it
   // to the true viewport top, above the modal (z-30, matching Header's
   // own z-index) and its backdrop, so it visibly floats above the
@@ -172,9 +184,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           view={view}
           onNavigate={handleNavigate}
           onLogoClick={() => router.push(pathForView('home'))}
-          onSignOut={() => {
-            /* existing sign-out handling */
-          }}
+          onSignOut={handleSignOut}
           mobileOpen={sidebarOpen}
           onMobileClose={() => setSidebarOpen(false)}
         />
@@ -192,6 +202,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
             <WelcomeBanner
               open={bannerOpen}
               onDismiss={() => setBannerDismissed(true)}
+              onDetails={() => router.push('/account/settings')}
               collapse={bannerCollapse}
             />
           </div>
@@ -229,20 +240,6 @@ function AccountShell({ children }: { children: React.ReactNode }) {
             }}
           />
         )}
-
-        {/* FIX: was `bottom-6` (24px from viewport bottom) on every
-            breakpoint. MobileBottomNav is `fixed inset-x-0 bottom-0` and
-            ~72–76px tall at the same z-layer range, so on mobile this FAB
-            sat directly on top of the nav's right-side tabs instead of
-            floating above them. bottom-24 (96px) clears the nav bar with
-            headroom; lg:bottom-6 restores the original desktop position,
-            where there's no bottom nav to collide with. */}
-        <button
-          aria-label="Open support chat"
-          className="support-fab fixed right-6 bottom-24 lg:bottom-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-teal text-parchment shadow-lift transition-transform hover:scale-105 hover:bg-teal-deep"
-        >
-          <CircleHelp />
-        </button>
 
         <style>{`
           .content-scroll {

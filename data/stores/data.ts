@@ -119,6 +119,83 @@ export const affiliatedStores: AffiliatedStore[] = [
     categories: ['Electronics', 'Books', 'Home', 'Toys'],
     storeType: 'marketplace',
   },
+  {
+    platform: 'myntra',
+    name: 'Myntra',
+    logo: '/logos/myntra-squared.png',
+    url: 'https://www.myntra.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: "India's leading fashion marketplace — apparel, footwear, and beauty from hundreds of brands.",
+    categories: ['Fashion', 'Beauty', 'Footwear'],
+    storeType: 'marketplace',
+  },
+  {
+    platform: 'tata-cliq',
+    name: 'Tata CLiQ',
+    logo: '/logos/tata-cliq-squared.png',
+    url: 'https://www.tatacliq.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: "A premium multi-brand marketplace for fashion, electronics, and lifestyle — Tata's answer to luxury e-commerce.",
+    categories: ['Fashion', 'Electronics', 'Beauty'],
+    storeType: 'marketplace',
+  },
+  {
+    platform: 'nykaa',
+    name: 'Nykaa',
+    logo: '/logos/nykaa-squared.png',
+    url: 'https://www.nykaa.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: "India's largest beauty and wellness marketplace, with makeup, skincare, and fragrance from global brands.",
+    categories: ['Beauty', 'Wellness', 'Fashion'],
+    storeType: 'marketplace',
+  },
+  {
+    platform: 'ajio',
+    name: 'Ajio',
+    logo: '/logos/ajio-squared.png',
+    url: 'https://www.ajio.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: "Reliance's fashion marketplace — trending apparel, footwear, and accessories across price points.",
+    categories: ['Fashion', 'Footwear', 'Accessories'],
+    storeType: 'marketplace',
+  },
+  {
+    platform: 'hopscotch',
+    name: 'HopScotch',
+    logo: '/logos/hopscotch-squared.png',
+    url: 'https://www.hopscotch.in',
+    country: 'India',
+    flag: '🇮🇳',
+    description: "India's go-to marketplace for baby and kids' fashion, toys, and essentials.",
+    categories: ['Baby & Kids', 'Fashion', 'Toys'],
+    storeType: 'marketplace',
+  },
+    {
+    platform: 'ebay',
+    name: 'eBay',
+    logo: '/logos/ebay-squared.png',
+    url: 'https://www.ebay.com',
+    country: 'United States',
+    flag: '🇺🇸',
+    description: 'The original global marketplace — new, used, and rare finds, from electronics to collectibles.',
+    categories: ['Electronics', 'Collectibles', 'Fashion'],
+    storeType: 'marketplace',
+  },
+  {
+    platform: 'aliexpress',
+    name: 'AliExpress',
+    logo: '/logos/aliexpress-squared.png',
+    url: 'https://www.aliexpress.com',
+    country: 'China',
+    flag: '🇨🇳',
+    description: 'Massive catalog direct from manufacturers — electronics, gadgets, home goods, and fashion at low prices.',
+    categories: ['Electronics', 'Gadgets', 'Home', 'Fashion'],
+    storeType: 'marketplace',
+  },
 
   // ── Local sellers (direct catalog / WhatsApp order flow) ─────────────────
   {
@@ -347,6 +424,16 @@ export const affiliatedStores: AffiliatedStore[] = [
     tags: ['Gold plated', 'Rose Gold', 'Bridal', 'Rings'],
   },
 ]
+
+// Hardcoded on purpose — see the note on hooks/useAffiliatedStores.ts and
+// lib/supabase/affiliated-stores.ts for why. International marketplaces
+// (Amazon, eBay, etc.) aren't onboarded through the seller portal like
+// local sellers are, so there's no `sellers` row for them and no reason
+// to need one: adding a new one is a code change + redeploy either way,
+// so it may as well just be an array edit here instead of a DB write.
+export const marketplaceStores: AffiliatedStore[] = affiliatedStores.filter(
+  (s) => s.storeType === 'marketplace',
+)
 
 export type MockProduct = {
   id: string

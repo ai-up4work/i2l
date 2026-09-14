@@ -1,12 +1,32 @@
 // app/stores/page.tsx
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import { FILTERS, ALPHABET, type Store, type FilterKey } from '@/data/stores/data';
+import {
+  FILTERS,
+  ALPHABET,
+  marketplaceStores,
+  type Store,
+  type FilterKey,
+  type AffiliatedStore,
+} from '@/data/stores/data';
 import { createClient } from '@/lib/supabase/client';
+import { useSequentialLiveProductCounts, type LiveCountEntry } from '@/hooks/useSequentialLiveProductCounts';
+
+// Same provider types the admin sellers page keys off of
+// (provider_config.type on the `sellers` row). 'mock' stores have no real
+// feed to check, so they just show their cached count.
+type ProviderType = 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape' | 'mock';
+
+// Local extension of the legacy `Store` shape — carries the provider type
+// through from the sellers row so this page can decide which stores are
+// worth live-checking, same as /admin/sellers does. Not added to the
+// shared `Store` type in data/stores/data.ts since that type is the
+// back-compat shape other (non-admin) call sites also read.
+type StoreWithProvider = Store & { providerType: ProviderType };
 
 // Maps a raw `sellers` table row into the legacy `Store` shape this page
 // already renders against (slug/category singular/type instead of
@@ -21,7 +41,7 @@ import { createClient } from '@/lib/supabase/client';
 // 'template' here. Add a real `build_type` column (or fold it into
 // provider_config.display like the other merchandising fields) if that
 // filter needs to be accurate rather than defaulted.
-function mapRowToStore(row: Record<string, unknown>): Store {
+function mapRowToStore(row: Record<string, unknown>): StoreWithProvider {
   const providerConfig = (row.provider_config ?? {}) as Record<string, unknown>;
   const display = (providerConfig.display ?? {}) as Record<string, unknown>;
   const categories = (row.categories as string[]) ?? [];
@@ -39,6 +59,7 @@ function mapRowToStore(row: Record<string, unknown>): Store {
     payment: (display.payment as string) ?? '',
     tags: (display.tags as string[]) ?? [],
     itemCount: (display.itemCount as number) ?? 0,
+    providerType: (providerConfig.type as ProviderType) ?? 'mock',
   };
 }
 
@@ -65,42 +86,29 @@ function RowSkeleton() {
   );
 }
 
-function PageSkeleton() {
+// Only covers the "All Stores" section — the marketplaces carousel is
+// static data and renders immediately, no skeleton needed for it.
+function AllStoresSkeleton() {
   return (
-    <div className="w-full mt-8 min-w-0 overflow-x-hidden px-4 sm:px-10 lg:px-40">
-      <div className="max-w-7xl mx-auto py-2 sm:py-4 min-w-0">
-        <div className="mb-5 flex items-center justify-between">
-          <div className="h-7 w-36 rounded-lg bg-ink/10 animate-pulse" />
-          <div className="flex gap-2">
-            <div className="w-9 h-9 rounded-full bg-ink/10 animate-pulse" />
-            <div className="w-9 h-9 rounded-full bg-ink/10 animate-pulse" />
-          </div>
-        </div>
-        <div className="flex gap-3 mb-10 overflow-hidden">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="shrink-0 w-[28vw] sm:w-[18vw] lg:w-32">
-              <CarouselCardSkeleton />
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-between mb-5">
-          <div className="h-7 w-28 rounded-lg bg-ink/10 animate-pulse" />
-          <div className="h-10 w-48 sm:w-72 rounded-lg bg-ink/10 animate-pulse" />
-        </div>
-        {Array.from({ length: 5 }).map((_, i) => <RowSkeleton key={i} />)}
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-5">
+        <div className="h-7 w-28 rounded-lg bg-ink/10 animate-pulse" />
+        <div className="h-10 w-48 sm:w-72 rounded-lg bg-ink/10 animate-pulse" />
       </div>
+      {Array.from({ length: 5 }).map((_, i) => <RowSkeleton key={i} />)}
     </div>
   );
 }
 
-// ─── New Stores Carousel ──────────────────────────────────────────────────────
+// ─── Marketplaces Carousel ──────────────────────────────────────────────────
+// Renders affiliatedStores' storeType: 'marketplace' entries (Amazon, eBay,
+// Flipkart, etc. — see data/stores/data.ts). Static data, no Supabase fetch,
+// so this doesn't depend on the page's `loading` state.
 
-function NewStoresCarousel({ stores }: { stores: Store[] }) {
+function MarketplacesCarousel({ stores }: { stores: AffiliatedStore[] }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [atStart, setAtStart] = useState(true);
   const [atEnd,   setAtEnd]   = useState(false);
-
-  const newStores = stores.filter(s => s.isNew);
 
   // Check bounds on mount so the Next button starts correctly disabled when
   // all cards are already visible (avoids the false-enabled bug from brands page)
@@ -128,7 +136,7 @@ function NewStoresCarousel({ stores }: { stores: Store[] }) {
     <section className="mb-10 mt-8 sm:mb-16">
       <div className="flex items-center justify-between mb-5 sm:mb-8">
         <h2 className="font-display text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
-          New Stores
+          MARKETPLACES
         </h2>
         <div className="flex items-center gap-2">
           <button
@@ -153,10 +161,12 @@ function NewStoresCarousel({ stores }: { stores: Store[] }) {
         onScroll={onScroll}
         className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-none px-4 sm:px-10 lg:mx-0 lg:px-0 pb-1"
       >
-        {newStores.map(store => (
+        {stores.map(store => (
           <Link
-            key={store.slug}
-            href={`/stores/${store.slug}`}
+            key={store.platform}
+            href={store.url ?? `/stores/${store.platform}`}
+            target={store.url ? '_blank' : undefined}
+            rel={store.url ? 'noopener noreferrer' : undefined}
             className="shrink-0 snap-start flex flex-col items-center gap-2.5 group w-[28vw] sm:w-[18vw] lg:w-32"
           >
             <div
@@ -180,9 +190,54 @@ function NewStoresCarousel({ stores }: { stores: Store[] }) {
   );
 }
 
+// ─── Item count cell ─────────────────────────────────────────────────────────
+// Mirrors /admin/sellers' ProductsCell: mock stores just show the cached
+// display.itemCount (no feed to check). Real-feed stores show a dimmed
+// skeleton until their turn comes up in the sequential live-count queue
+// (see useSequentialLiveProductCounts), then swap to the confirmed live
+// count. On error, falls back to the cached number.
+
+function ItemCount({ store, live }: { store: StoreWithProvider; live?: LiveCountEntry }) {
+  const cached = store.itemCount || null;
+
+  if (store.providerType === 'mock') {
+    return <>{cached ?? 0} items</>;
+  }
+
+  const status = live?.status ?? 'pending';
+
+  if (status === 'pending' || status === 'loading') {
+    return (
+      <span
+        className="inline-block h-3 w-14 align-middle rounded bg-ink/10 animate-pulse"
+        title={status === 'loading' ? "Fetching this store's live count\u2026" : 'Queued \u2014 checking live counts one at a time'}
+      />
+    );
+  }
+
+  if (status === 'error') {
+    return <>{cached ?? 0} items</>;
+  }
+
+  return (
+    <>
+      {live?.count}
+      {live?.atLeast && '+'} items
+    </>
+  );
+}
+
 // ─── All Stores ───────────────────────────────────────────────────────────────
 
-function AllStores({ activeFilter, stores }: { activeFilter: FilterKey; stores: Store[] }) {
+function AllStores({
+  activeFilter,
+  stores,
+  liveCounts,
+}: {
+  activeFilter: FilterKey;
+  stores: StoreWithProvider[];
+  liveCounts: Record<string, LiveCountEntry>;
+}) {
   const [search,       setSearch]       = useState('');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
 
@@ -204,7 +259,7 @@ function AllStores({ activeFilter, stores }: { activeFilter: FilterKey; stores: 
   });
 
   // 2. Group by first letter
-  const grouped: Record<string, Store[]> = {};
+  const grouped: Record<string, StoreWithProvider[]> = {};
   preFiltered.forEach(s => {
     const first = s.name[0].toUpperCase();
     const key   = /[A-Z]/.test(first) ? first : '#';
@@ -321,7 +376,7 @@ function AllStores({ activeFilter, stores }: { activeFilter: FilterKey; stores: 
                         </span>
                       </div>
                       <p className="font-body text-xs text-ink/45 mt-0.5">
-                        {store.category} · {store.itemCount} items · {store.shipping}
+                        {store.category} · <ItemCount store={store} live={liveCounts[store.slug]} /> · {store.shipping}
                       </p>
                     </div>
 
@@ -359,7 +414,7 @@ function AllStores({ activeFilter, stores }: { activeFilter: FilterKey; stores: 
 
 export default function StoresPage() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
-  const [stores, setStores] = useState<Store[]>([]);
+  const [stores, setStores] = useState<StoreWithProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -383,7 +438,15 @@ export default function StoresPage() {
     return () => { cancelled = true; };
   }, []);
 
-  if (loading) return <PageSkeleton />;
+  // Queue built from every non-mock store once the fetch resolves — same
+  // sequential, one-at-a-time approach as /admin/sellers, so this page
+  // doesn't hammer every provider's feed at once. Keyed by `slug`, which
+  // is this page's name for the platform id (`platform` on the admin side).
+  const liveFeedPlatforms = useMemo(
+    () => stores.filter(s => s.providerType !== 'mock').map(s => s.slug),
+    [stores],
+  );
+  const { entries: liveCounts } = useSequentialLiveProductCounts(liveFeedPlatforms);
 
   return (
     <>
@@ -409,8 +472,12 @@ export default function StoresPage() {
             ))}
           </div>
 
-          <NewStoresCarousel stores={stores} />
-          <AllStores activeFilter={activeFilter} stores={stores} />
+          {/* Static data — renders immediately regardless of the sellers fetch */}
+          <MarketplacesCarousel stores={marketplaceStores} />
+
+          {loading ? <AllStoresSkeleton /> : (
+            <AllStores activeFilter={activeFilter} stores={stores} liveCounts={liveCounts} />
+          )}
 
         </div>
       </div>

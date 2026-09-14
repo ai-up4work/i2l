@@ -17,32 +17,19 @@ type Props = {
 // stops a bounce/scroll-past from polluting the recently-viewed queue.
 const DWELL_THRESHOLD_MS = 5000
 
-export default function ViewTracker({
-  platform,
-  productId,
-  product,
-  formattedPrice,
-  discountPercent,
-}: Props) {
+export default function ViewTracker({ platform, productId }: Props) {
   const { markViewed } = useRecentlyViewed()
 
   useEffect(() => {
     const timer = setTimeout(() => {
       markViewed({
         id: `${platform}:${productId}`,
-        title: product.name,
-        image: product.image,
-        currencyCode: product.currency,
-        estimatedPrice: formattedPrice ?? null,
-        discountPct: discountPercent ?? null,
+        url: `/stores/${platform}/product/${productId}`,
+        source: 'catalogue',
       })
     }, DWELL_THRESHOLD_MS)
 
-    // Unmounted (navigated away) before the threshold — cancel, never
-    // record. This is the whole point: only genuine dwell counts.
     return () => clearTimeout(timer)
-    // Only re-fire if the shopper navigates to a genuinely different
-    // product — not on every re-render of this component.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platform, productId])
 

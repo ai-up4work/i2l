@@ -1,73 +1,88 @@
-# WishDrop — real status as of this zip
+# WishDrop — status as of this zip
 
-Calling this "final" would overstate it. Here's exactly what's real and
-what's still mock, so nothing gets shipped by assumption.
+Supersedes the WISHDROP_STATUS.md from the previous zip. Same rule as
+before: this isn't "done," it's an honest snapshot.
 
-## Genuinely real (Supabase-backed, verified against your actual schema)
+## What changed since the last zip
 
-- **Catalogues** (`/admin/catalogues`, `/admin/catalogues/[catalogueId]`) —
-  real `products`/`sellers` queries, margin-only edit, soft delete.
-- **Sellers admin** (`/admin/sellers`, `/admin/sellers/[sellerId]`) —
-  including the seller-login provisioning panel and the "Add manual
-  store" shortcut on the catalogues page.
-- **Seller portal** (`/seller/login`, `/seller/products`) — self-service
-  product CRUD, fixed from the route-group/redirect-loop bug.
-- **Cart, Wishlist, Recently Viewed, Loyalty** (`contexts/Cartcontext.tsx`,
-  `Wishlistcontext.tsx`, `RecentlyViewedContext.tsx`, `Loyaltycontext.tsx`)
-  — real Supabase sync, with the one-time-sync-guard bug fixed in all
-  four so a later empty-local-state doesn't get stuck ignoring the DB.
-- **My Orders + Track Order** (`contexts/Ordercontexts.tsx`) — real
-  `orders`/`order_items`/`product_snapshots`/`addresses` fetch.
-- **Cart checkout** (`app/account/cart/page.tsx` + `DashboardContext`'s
-  `confirmCartOrder`) — writes a real `orders` + `order_items` row.
-- **Add Request flow** (`DashboardContext`'s `confirmRequest`) — priced
-  items become a real order; unpriced items become a real `requests` +
-  `chat_threads` row.
-- `lib/supabase/types.ts` — hand-written real Database types for all 44
-  tables in your schema (not a substitute for `supabase gen types`, but
-  real column names/shapes instead of `any`).
+- **Fixed a real crash**: `app/account/cart/page.tsx` had no default
+  export at all (a rename left `CartPage` orphaned) — "The default export
+  is not a React Component," 500 on every visit. Fixed.
+- **Fixed the seller-login redirect loop**: `app/(seller)/...` was a route
+  *group* (no `/seller` URL prefix) with the auth-gating layout wrapping
+  its own login page — every visit to login re-triggered the "not logged
+  in, redirect to login" check. Restructured to `app/seller/(dashboard)/`
+  (gate only the dashboard) + `app/seller/login/` (public). Also fixed two
+  imports that only worked once the layout moved to the right level.
+- **Fixed a real data-loss-looking bug**: `Cartcontext.tsx`,
+  `Wishlistcontext.tsx`, `RecentlyViewedContext.tsx`, and
+  `Loyaltycontext.tsx` all had a "sync from DB once per session" guard
+  that, once satisfied, never checked the database again for the rest of
+  the session — even if local state later ended up empty. Fixed in all
+  four. (Real reloads always worked; this fixed the narrower case of local
+  storage getting cleared without a full page reload.)
+- **Admin chat page** (`/admin/chat`) was a literal WhatsApp-dark-theme
+  clone with its own redundant icon rail, ignoring that it's embedded in
+  the admin shell's own sidebar. Restructured to a stacked layout
+  (horizontal conversation-card strip on top, thread below) using the
+  app's real design tokens (`parchment`/`card`/`ink`/`teal-deep`/`gold`
+  from `app/globals.css`), not WhatsApp's palette.
+- **Marketplaces**: added Myntra, eBay, AliExpress, Tata CLiQ, Nykaa,
+  Ajio, and HopScotch as hardcoded entries in `data/stores/data.ts`
+  (`marketplaceStores`, deliberately NOT database rows — a marketplace
+  needs a code change to add regardless, per your call). Wired that list
+  into both `useAffiliatedStores` (client) and `fetchAffiliatedStores`/
+  `fetchAffiliatedStore` (server) — these were 100% DB-only before, which
+  is why adding to the static file alone wouldn't have shown up anywhere.
+  Also extended `InfoRail.tsx`'s partner quick-links to all 11 platforms.
+- **WhatsApp number verification**: this mostly already existed
+  (`AuthContext`'s real OTP flow, `WelcomeBanner` gated on
+  `phoneVerified`) but had real bugs: the banner's "Details" link was
+  dead (called the same handler as dismiss — there was even an unactioned
+  code comment already flagging this), and verifying a number never
+  synced to `profiles.phone`/`phone_verified` (only Supabase Auth's
+  internal field), which is what your WhatsApp integration actually
+  reads. Both fixed. Relabeled "Phone Number" to "WhatsApp Number" with
+  copy explaining why, and restyled `/account/settings` to match the
+  card-based look of Profile/Address Book (it was a visually distinct
+  uppercase-heading list before).
 
-## Known gaps introduced/left open during this pass
+## Still real, from before
 
-- **No shipping address is collected on checkout.** `orders.recipient_address_id`
-  is left null — the cart form doesn't collect a street address at all
-  today, only country/city/state/zip. Wiring this to the real
-  `addresses` table (or letting the customer pick a saved one) is a
-  separate, undone feature.
-- **A confirmed Channel-3 request (no price, needs a manual quote) has
-  nowhere to show up.** It writes correctly to `requests`, but there's no
-  "my pending requests" page yet, so the customer gets redirected to
-  Orders where it won't appear until an admin quotes it and it becomes a
-  real order.
-- **Order number generation is a client-side random retry loop**
-  (`WD-#####`, retried on collision), not a DB sequence. Fine at low
-  volume, worth a real Postgres sequence/function later.
-- The one thing that's structurally *not fixable from app code*: clearing
-  browser storage via DevTools without reloading the page can't be
-  detected by any JS — browsers don't fire a `storage` event in the same
-  tab that made the change. A real reload (new device, cleared browser
-  data, private mode) already restores correctly; that's a browser
-  limitation, not a bug.
+Catalogues, sellers admin + login provisioning, seller portal, cart/
+wishlist/recently-viewed/loyalty sync, My Orders + Track Order, cart
+checkout, the Add Request flow, and `lib/supabase/types.ts`'s real
+Database types. See the previous status doc's detail if you still have
+it — none of that got re-litigated here, only extended or bug-fixed.
 
-## Still fully mock — not touched in this pass
+## Known gaps, still open
 
-**Account pages:** boards, community, my-following, credits, promo-codes,
-coupons, gift-card, wallet, points, referrals, messages (+ serviceRecords),
-wishdrop-vip.
+- No shipping address collection on checkout (`orders.recipient_address_id`
+  stays null — the form never asks for a street address).
+- A confirmed Channel-3 request (no price, needs a manual quote) has
+  nowhere to show up yet — no "pending requests" page.
+- Order numbers are a client-side random-with-retry, not a DB sequence.
+- New marketplace logos reference `/logos/<slug>-squared.png` — those
+  image files need to actually exist; this project has no `public/`
+  folder in what's been shared with me to verify against.
+- Clearing storage via DevTools without reloading the page still can't be
+  detected by any app code — a browser limitation, not a bug (real reloads
+  already work correctly).
 
-**Admin (all of it):** orders queue, dashboards (common/manager/sales),
-chat, requests intake, staff + warehouses, reports, warehouse queue pages
-(qc/pack-label/export-bin/in-transit/shipped), purchases, scrape-health,
-discounts, collections, settings. Almost all of this runs off one shared
-mock context, `contexts/AdminDataContext.tsx` — that's the next real
-lever to pull for the admin side, the same way `Ordercontexts.tsx` was
-for the customer side.
+## Still fully mock — untouched
 
-**Super-admin:** all 18 pages — analytics, audit log, roles, settings,
-staff. Untouched.
+**Account:** boards, community, my-following, credits, promo-codes,
+coupons, gift-card, wallet, points, referrals, messages (+ service
+records), wishdrop-vip.
 
-**Also still open, unrelated to any specific page:** no staff-role
-gating anywhere in `/api/admin/**` (every route checks "is someone
-logged in," not "is this a Manager") — that needs solving before the
-admin panel is exposed beyond your own team, regardless of which pages
-get real data next.
+**Admin:** orders queue, dashboards (common/manager/sales), chat's
+*underlying data* (the page now looks right, but still reads from
+`ChatContext`'s localStorage-based mock, not real `chat_threads`/
+`chat_messages` rows), requests intake, staff + warehouses, reports,
+warehouse queue pages, purchases, scrape-health, discounts, collections.
+Almost all of it still runs off one shared mock context,
+`contexts/AdminDataContext.tsx`.
+
+**Super-admin:** all 18 pages, untouched.
+
+**Also still open:** no staff-role gating anywhere in `/api/admin/**`.

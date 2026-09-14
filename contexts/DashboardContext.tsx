@@ -337,19 +337,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
         setActiveTab('Requested')
         return { ok: true }
-        } catch (err) {
-          const supaErr = err as { message?: string; code?: string; details?: string; hint?: string }
-          console.error('[dashboard] failed to confirm cart order', {
-            message: supaErr?.message,
-            code: supaErr?.code,
-            details: supaErr?.details,
-            hint: supaErr?.hint,
-          })
-          return {
-            ok: false,
-            error: supaErr?.message || 'Something went wrong. Please try again.',
-          }
-        }
+      } catch (err) {
+        console.error('[dashboard] failed to confirm cart order', err)
+        return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
+      }
     },
     [user],
   )

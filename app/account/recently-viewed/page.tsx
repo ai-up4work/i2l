@@ -1,3 +1,4 @@
+// app/account/recently-viewed/page.tsx
 'use client'
 
 import { useState } from 'react'
@@ -6,14 +7,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Clock, ImageOff, ShoppingBagIcon, Trash2 } from 'lucide-react'
 import { useRecentlyViewed } from '@/contexts/RecentlyViewedContext'
 import { useCart } from '@/contexts/Cartcontext'
+import { useLiveProductData, type LiveProductData } from '@/hooks/useLiveProductData'
 
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
-
-// ---------------------------------------------------------------------------
-// Thumbnail — same "icon on tinted ink bg" placeholder pattern used for
-// missing product images in the boards modals, just full-bleed at card size
-// instead of a small 10x10 row thumb.
-// ---------------------------------------------------------------------------
 
 function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
   if (image) {
@@ -41,14 +37,24 @@ function RecentlyViewedSkeleton() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+// Skeleton shown per-card while its live lookup is still in flight —
+// distinct from RecentlyViewedSkeleton, which is the whole-page skeleton
+// shown only before localStorage hydrates.
+function CardLoadingState() {
+  return (
+    <div className="animate-pulse">
+      <div className="aspect-[4/5] w-full rounded-xl bg-ink/[0.06]" />
+      <div className="mt-2 h-3.5 w-3/4 rounded bg-ink/[0.06]" />
+      <div className="mt-1.5 h-3.5 w-1/3 rounded bg-ink/[0.06]" />
+    </div>
+  )
+}
 
 export default function RecentlyViewedPage() {
   const router = useRouter()
   const { hydrated, items, removeItem } = useRecentlyViewed()
   const { addItem } = useCart()
+  const liveData = useLiveProductData(items)
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -69,7 +75,7 @@ export default function RecentlyViewedPage() {
   }
 
   const selectAll = () => {
-    setSelected(new Set(items.map((entry) => entry.product.id)))
+    setSelected(new Set(items.map((entry) => entry.ref.id)))
   }
 
   const handleConfirmDelete = () => {
@@ -79,24 +85,24 @@ export default function RecentlyViewedPage() {
     setConfirmingDelete(false)
   }
 
-  const handleAddToBag = (productId: string) => {
-    const entry = items.find((e) => e.product.id === productId)
-    if (!entry) return
+  const handleAddToBag = (id: string) => {
+    const entry = items.find((e) => e.ref.id === id)
+    const live = liveData[id]
+    if (!entry || !live || live.status !== 'ready') return
     addItem(
       {
-        id: entry.product.id,
-        url: `/products/${entry.product.id}`,
-        title: entry.product.title,
-        image: entry.product.image,
-        currencyCode: entry.product.currencyCode,
-        estimatedPrice: entry.product.estimatedPrice,
-        source: 'catalogue',
+        id: entry.ref.id,
+        url: entry.ref.url,
+        title: live.title,
+        image: live.image,
+        currencyCode: live.currencyCode,
+        estimatedPrice: live.price,
+        source: entry.ref.source ?? 'catalogue',
       },
       1,
     )
   }
 
-  // Still loading from localStorage — don't flash the empty state.
   if (!hydrated) {
     return (
       <div className="mx-auto max-w-7xl px-6 pb-24 lg:px-10">
@@ -150,11 +156,25 @@ export default function RecentlyViewedPage() {
       ) : (
         <div className="mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-4 sm:gap-x-6 sm:gap-y-10 lg:grid-cols-5">
           <AnimatePresence initial={false}>
-            {items.map(({ product }, idx) => {
-              const isChecked = selected.has(product.id)
+            {items.map(({ ref }, idx) => {
+              const id = ref.id
+              const isChecked = selected.has(id)
+              const live: LiveProductData | undefined = liveData[id]
+
+              // Live lookup hasn't resolved yet for this card.
+              if (!live || live.status === 'loading') {
+                return (
+                  <motion.div key={id} initial={false} animate={{ opacity: 1 }}>
+                    <CardLoadingState />
+                  </motion.div>
+                )
+              }
+
+              const unavailable = live.status === 'unavailable' || live.status === 'error'
+
               return (
                 <motion.div
-                  key={product.id}
+                  key={id}
                   initial={{ opacity: 0, scale: 0.95, y: 10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9 }}
@@ -169,7 +189,7 @@ export default function RecentlyViewedPage() {
                     <button
                       type="button"
                       aria-label={isChecked ? 'Deselect item' : 'Select item'}
-                      onClick={() => toggleItem(product.id)}
+                      onClick={() => toggleItem(id)}
                       className={`absolute right-2 top-2 z-10 grid h-6 w-6 place-items-center rounded-full border-2 transition-colors ${
                         isChecked
                           ? 'border-teal-deep bg-teal-deep text-white'
@@ -182,33 +202,40 @@ export default function RecentlyViewedPage() {
 
                   <button
                     type="button"
-                    onClick={() => (selectMode ? toggleItem(product.id) : undefined)}
+                    onClick={() => (selectMode ? toggleItem(id) : undefined)}
                     className="block w-full text-left"
                   >
                     <div className="relative">
-                      <ProductThumb image={product.image} alt={product.title} />
-                      {!!product.discountPct && (
-                        <span className="absolute left-0 top-2 rounded-r-md bg-teal px-1.5 py-0.5 text-[11px] font-bold text-white">
-                          -{product.discountPct}%
+                      <ProductThumb image={live.image} alt={live.title || 'Product'} />
+                      {unavailable && (
+                        <span className="absolute inset-x-0 bottom-0 rounded-b-xl bg-ink/70 py-1 text-center text-[11px] font-semibold text-white">
+                          No longer available
                         </span>
                       )}
                     </div>
 
-                    <p className="mt-2 line-clamp-2 text-[13px] text-ink/80">{product.title}</p>
+                    <p className="mt-2 line-clamp-2 text-[13px] text-ink/80">
+                      {live.title || (unavailable ? 'Product unavailable' : '—')}
+                    </p>
 
                     <div className="mt-1 flex items-center justify-between">
                       <span className="text-sm font-bold text-teal-deep">
-                        {product.estimatedPrice ?? '—'}
+                        {unavailable ? '—' : live.price ?? '—'}
                       </span>
                       {!selectMode && (
                         <span
                           role="button"
-                          aria-label={`Add ${product.title} to bag`}
+                          aria-label={`Add ${live.title || 'product'} to bag`}
                           onClick={(e) => {
                             e.stopPropagation()
-                            handleAddToBag(product.id)
+                            handleAddToBag(id)
                           }}
-                          className="grid h-8 w-8 flex-none place-items-center rounded-full border border-ink/20 text-ink transition-colors hover:border-ink/40"
+                          aria-disabled={unavailable}
+                          className={`grid h-8 w-8 flex-none place-items-center rounded-full border transition-colors ${
+                            unavailable
+                              ? 'cursor-not-allowed border-ink/10 text-ink/20'
+                              : 'border-ink/20 text-ink hover:border-ink/40'
+                          }`}
                         >
                           <ShoppingBagIcon size={14} />
                         </span>
@@ -222,8 +249,6 @@ export default function RecentlyViewedPage() {
         </div>
       )}
 
-      {/* Selection action bar — matches modal footer treatment (border-t
-          ink/[0.06], bg-card) instead of a plain white bar. */}
       {selectMode && items.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-ink/[0.06] bg-card px-6 py-4 lg:px-10">
           <div className="mx-auto flex max-w-7xl items-center justify-between">
@@ -256,11 +281,6 @@ export default function RecentlyViewedPage() {
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Delete confirmation modal — same shape/motion as boards' DeleteBoardModal,
-// since bulk-removing viewed items is destructive too.
-// ---------------------------------------------------------------------------
 
 function ConfirmDeleteModal({
   open,

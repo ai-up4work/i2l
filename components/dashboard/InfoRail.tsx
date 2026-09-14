@@ -11,11 +11,22 @@ type Partner = {
   href?: string
 }
 
-// Add/remove partners here — nothing else needs to change.
+// Add/remove partners here — nothing else needs to change. Kept in sync
+// with the marketplace entries in data/stores/data.ts's affiliatedStores
+// (same 11 platforms) — these are just the quick-link cards shown in the
+// request flow, not a separate source of truth.
 const PARTNERS: Partner[] = [
   { name: 'eBay', logo: '/logos/ebay.png', href: '/stores/ebay' },
   { name: 'Amazon', logo: '/logos/amazon.png', href: '/stores/amazon' },
-  { name: 'flipkart', logo: '/logos/flipkart.png', href: '/stores/flipkart' },
+  { name: 'Flipkart', logo: '/logos/flipkart.png', href: '/stores/flipkart' },
+  { name: 'Myntra', logo: '/logos/myntra.png', href: '/stores/myntra' },
+  { name: 'Meesho', logo: '/logos/meesho.png', href: '/stores/meesho' },
+  { name: 'AliExpress', logo: '/logos/aliexpress.png', href: '/stores/aliexpress' },
+  { name: 'FirstCry', logo: '/logos/firstcry.png', href: '/stores/firstcry' },
+  { name: 'Tata CLiQ', logo: '/logos/tata-cliq.png', href: '/stores/tata-cliq' },
+  { name: 'Nykaa', logo: '/logos/nykaa.png', href: '/stores/nykaa' },
+  { name: 'Ajio', logo: '/logos/ajio.png', href: '/stores/ajio' },
+  { name: 'HopScotch', logo: '/logos/hopscotch.png', href: '/stores/hopscotch' },
 ]
 
 const AUTO_ADVANCE_MS = 4000

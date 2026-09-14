@@ -5,6 +5,11 @@ import { AlertCircle, ArrowRight, X } from 'lucide-react'
 type WelcomeBannerProps = {
   open: boolean
   onDismiss: () => void
+  /** Navigates to wherever the WhatsApp number actually gets verified
+   *  (the settings page). Separate from onDismiss on purpose — "Details"
+   *  should take the customer to the verification flow, not just hide
+   *  the banner. */
+  onDetails: () => void
   /** If true, content below snaps up to fill the space when closed.
    *  If false (default), the banner just fades out and its space stays reserved. */
   collapse?: boolean
@@ -19,6 +24,7 @@ type WelcomeBannerProps = {
 export default function WelcomeBanner({
   open,
   onDismiss,
+  onDetails,
   collapse = false,
   animated = true,
   durationMs = 300,
@@ -49,7 +55,7 @@ export default function WelcomeBanner({
 
         <span className="hidden text-ink/40 sm:inline">•</span>
 
-        <span className="text-ink/80">Verify your phone number and get</span>
+        <span className="text-ink/80">Verify your WhatsApp number and get</span>
 
         <span className="font-bold text-gold-deep">LKR 1,000 off</span>
 
@@ -57,7 +63,7 @@ export default function WelcomeBanner({
 
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={onDetails}
           className="group inline-flex items-center gap-1 font-semibold text-gold-deep underline decoration-gold-deep/40 underline-offset-4 transition-colors hover:text-gold-deep/70 hover:decoration-gold-deep"
         >
           Details

@@ -62,7 +62,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ca
   }
 
   const admin = createServiceRoleClient()
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  const patch: {
+    active?: boolean
+    margin_percent?: number
+    price?: number
+    updated_at: string
+  } = { updated_at: new Date().toISOString() }
 
   if (active !== undefined) patch.active = active
 

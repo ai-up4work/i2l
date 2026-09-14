@@ -17,7 +17,9 @@ import { ensureProductSnapshot, findSnapshotId } from '@/lib/supabase/product-sn
 /**
  * A trimmed, serializable snapshot of whatever product the shopper added —
  * NOT the full `ScrapeResult`. We only keep what the cart UI (mini-cart,
- * cart page, checkout summary) actually needs to render a line item.
+ * cart page, checkout summary) actually needs to render a line item. This
+ * also means the cart survives fine in localStorage without dragging along
+ * every scraped field (item specifics, description, etc).
  */
 export type CartProduct = {
   id: string
@@ -54,11 +56,6 @@ type CartContextValue = {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
-// Only ever holds a GUEST cart now. A logged-in user's cart lives solely
-// in `cart_items` in Supabase — nothing about it is ever written to, or
-// read back from, localStorage. This key is only touched while `user` is
-// null, and is cleared the moment a guest cart gets merged into an
-// account on login.
 const STORAGE_KEY = 'wishdrop:cart'
 
 function loadInitialItems(): CartLineItem[] {
@@ -79,41 +76,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const [items, setItems] = useState<CartLineItem[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const dbSyncedForUserId = useRef<string | null>(null)
 
-  // Which user's DB cart is currently reflected in `items` (null = no one
-  // yet / guest). Used only to (a) avoid re-fetching on every re-render
-  // and (b) detect a logged-in -> logged-out transition so we can drop
-  // that account's data out of memory rather than let it linger and look
-  // like a "guest cart".
-  const loadedUserIdRef = useRef<string | null>(null)
-
-  // Guest-only hydration: read whatever's in localStorage immediately so
-  // there's something to show before auth resolves. If the user turns out
-  // to be logged in, the effect below replaces this with their real DB
-  // cart right after.
   useEffect(() => {
     setItems(loadInitialItems())
     setHydrated(true)
   }, [])
 
-  // Guest-only persistence. Deliberately gated on `!user` — a logged-in
-  // user's cart is never written to localStorage, so there's nothing here
-  // for a different account to accidentally inherit later.
   useEffect(() => {
-    if (!hydrated || user) return
+    if (!hydrated) return
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
     } catch {
       // Storage can fail (quota, private mode) — losing persistence isn't
       // worth crashing the cart over.
     }
-  }, [items, hydrated, user])
+  }, [items, hydrated])
 
-  // Guest-only cross-tab sync. Ignored while logged in, since a logged-in
-  // tab's source of truth is the DB fetch below, not localStorage.
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (user) return
       if (e.key !== STORAGE_KEY) return
       try {
         const parsed = e.newValue ? JSON.parse(e.newValue) : []
@@ -124,9 +105,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [user])
+  }, [])
 
   // ---- Supabase sync -------------------------------------------------
+  // Pushes a single line up to cart_items (creating/reusing its
+  // product_snapshot). Fire-and-forget from the caller's point of view —
+  // local state is the source of truth for rendering; this just keeps the
+  // account's server-side cart in step so it survives a device switch.
   const pushLineToDb = useCallback(
     async (line: CartLineItem, userId: string) => {
       try {
@@ -167,45 +152,32 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [supabase],
   )
 
-  // Single effect covering both directions:
-  //   - guest -> logged in: push whatever's in the (guest) local cart up
-  //     to the DB once, wipe localStorage so it can't resurface later,
-  //     then load the DB cart as the new source of truth.
-  //   - logged in -> logged out: drop that account's data out of memory
-  //     (it was never in localStorage to begin with) and fall back to
-  //     the guest's own localStorage cart, untouched this whole time.
+  // On login: push whatever's currently in the local (possibly guest) cart
+  // up to the DB first — so nothing added before signing in is lost — then
+  // pull the merged server-side cart back down as the new source of truth.
+  // Skips only while local state is non-empty and already synced for this
+  // user — see the guard below for why "synced once" alone isn't enough.
   useEffect(() => {
     if (authLoading || !hydrated) return
-
     if (!user) {
-      // Was logged in a moment ago -> now logged out. `items` currently
-      // still holds the previous account's DB cart; replace it with
-      // whatever's actually in the guest's local cart instead.
-      if (loadedUserIdRef.current !== null) {
-        setItems(loadInitialItems())
-      }
-      loadedUserIdRef.current = null
+      dbSyncedForUserId.current = null
       return
     }
-
-    // Already loaded this account's DB cart — nothing to do.
-    if (loadedUserIdRef.current === user.id) return
+    // Only skip if we've already synced AND there's still something in
+    // local state. Previously this compared dbSyncedForUserId.current
+    // to user.id alone, which meant that once synced, this effect would
+    // NEVER check the DB again for the rest of the session — even if
+    // local state later ended up empty (cleared storage, a bug, etc)
+    // while the DB still had real data. Requiring items.length > 0 too
+    // means a future run of this effect (e.g. a fresh mount) will still
+    // re-sync instead of trusting a stale "already done" flag.
+    if (dbSyncedForUserId.current === user.id && items.length > 0) return
+    dbSyncedForUserId.current = user.id
 
     let cancelled = false
-    const guestItemsAtLogin = items // whatever was showing right before login (guest cart)
-
     ;(async () => {
-      for (const line of guestItemsAtLogin) {
+      for (const line of items) {
         await pushLineToDb(line, user.id)
-      }
-      // Merged server-side now — clear it so a future guest session on
-      // this browser doesn't inherit an already-claimed cart.
-      if (guestItemsAtLogin.length) {
-        try {
-          window.localStorage.removeItem(STORAGE_KEY)
-        } catch {
-          // best-effort
-        }
       }
 
       const { data, error } = await supabase
@@ -215,12 +187,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         )
         .eq('user_id', user.id)
 
-      if (cancelled) return
-
-      if (error || !data) {
-        loadedUserIdRef.current = user.id
-        return
-      }
+      if (cancelled || error || !data) return
 
       const merged: CartLineItem[] = data
         .filter((row: any) => row.product_snapshots?.url)
@@ -241,7 +208,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }))
 
       setItems(merged)
-      loadedUserIdRef.current = user.id
     })()
 
     return () => {

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mapRowToAffiliatedStore } from '@/lib/supabase/affiliated-stores-shared'
-import type { AffiliatedStore } from '@/data/stores/data'
+import { marketplaceStores, type AffiliatedStore } from '@/data/stores/data'
 
 /**
  * Client-side equivalent of lib/supabase/affiliated-stores.ts's server
@@ -12,9 +12,15 @@ import type { AffiliatedStore } from '@/data/stores/data'
  * (ShopMegaMenu, landing page sections, account HomePage,
  * StoreCatalogClient's "other stores" rail) that can't use the async
  * Server Component fetchers directly.
+ *
+ * Returns the hardcoded international marketplaces (see data/stores/data.ts)
+ * combined with real, active local sellers from the DB. Marketplaces are
+ * deliberately NOT a `sellers` row — adding one is a code change either
+ * way, so there's no DB round trip needed for something that never
+ * changes without a redeploy anyway.
  */
 export function useAffiliatedStores() {
-  const [stores, setStores] = useState<AffiliatedStore[]>([])
+  const [stores, setStores] = useState<AffiliatedStore[]>(marketplaceStores)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -28,9 +34,9 @@ export function useAffiliatedStores() {
         if (cancelled) return
         if (error) {
           console.error('[useAffiliatedStores]', error)
-          setStores([])
+          setStores(marketplaceStores)
         } else {
-          setStores((data ?? []).map(mapRowToAffiliatedStore))
+          setStores([...marketplaceStores, ...(data ?? []).map(mapRowToAffiliatedStore)])
         }
         setLoading(false)
       })

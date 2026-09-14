@@ -159,6 +159,7 @@ export function normaliseV3(p: WooV3Product, platform: string, currency: string,
     currency,
     compareAtPrice,
     onSale: p.on_sale,
+    stockCount: null, // wc/v3 doesn't give a count, only in-stock/out-of-stock
     inStock: p.stock_status === 'instock',
     category: p.categories?.[0]?.name ?? 'General',
     condition: 'New',
@@ -231,6 +232,7 @@ export function normaliseStoreApi(p: WooStoreApiProduct, platform: string, baseU
     onSale: p.on_sale,
     inStock: p.is_in_stock,
     category: p.categories?.[0]?.name ?? 'General',
+    stockCount: null, // Store API doesn't give a count, only in-stock/out-of-stock
     condition: 'New',
     description: stripHtml(p.short_description ?? ''),
     seller: platform,

@@ -4,14 +4,11 @@ import { useEffect, useState, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ArrowLeft,
+  ArrowRight,
   Bell,
   ChevronDown,
-  ChevronLeft,
-  Gift,
   Heart,
   Info,
-  LogIn,
-  LogOut,
   Menu,
   Package,
   Percent,
@@ -21,7 +18,7 @@ import {
 
 import BrandMark from "@/components/shared/BrandMark"
 import AirmailStripe, { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth, type AuthUser } from "@/contexts/AuthContext"
 import { useCart } from "@/contexts/Cartcontext"
 import { useWishlist } from "@/contexts/Wishlistcontext"
 import { useNotifications, type NotificationCategory } from "@/contexts/Notificationcontext"
@@ -85,6 +82,12 @@ const accountNavIconClass =
 const notificationIconClass =
   `relative flex h-9 w-9 items-center justify-center rounded-xl text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none lg:h-10 lg:w-10 ${focusRing}`
 
+// Single, more distinctive CTA for logged-out users, shared by mobile + desktop
+const getStartedButtonClass =
+  `group relative flex items-center gap-2 overflow-hidden rounded-xl bg-gold-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-gold-deep/25 transition-all duration-200 hover:bg-gold hover:shadow-md hover:shadow-gold/30 active:scale-[0.97] motion-reduce:transition-none ${focusRing}`
+
+const skeletonClass = "animate-pulse rounded-xl bg-ink/10 motion-reduce:animate-none"
+
 const CATEGORY_ICON: Record<NotificationCategory, React.ElementType> = {
   order: Package,
   promo: Percent,
@@ -94,6 +97,34 @@ const CATEGORY_ICON: Record<NotificationCategory, React.ElementType> = {
 const HOVER_OPEN_DELAY = 120
 const HOVER_CLOSE_DELAY = 200
 
+function getInitials(name?: string) {
+  if (!name) return "?"
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return "?"
+  const first = parts[0][0]
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : ""
+  return (first + last).toUpperCase()
+}
+
+function Avatar({ user, sizeClass }: { user: AuthUser; sizeClass: string }) {
+  if (user.imageUrl) {
+    return (
+      <img
+        src={user.imageUrl}
+        alt={user.name}
+        className={`${sizeClass} flex-none rounded-full object-cover ring-1 ring-ink/10`}
+      />
+    )
+  }
+  return (
+    <span
+      className={`${sizeClass} grid flex-none place-items-center rounded-full bg-gold-deep/15 text-[11px] font-bold leading-none text-gold-deep ring-1 ring-gold-deep/20`}
+    >
+      {getInitials(user.name)}
+    </span>
+  )
+}
+
 export default function Header({
   title,
   showBackButton = false,
@@ -102,7 +133,7 @@ export default function Header({
   onBack,
   onMenuClick,
 }: HeaderProps) {
-  const { isAuthenticated, login, logout } = useAuth()
+  const { isAuthenticated, user, loading: authLoading, login, logout } = useAuth()
   const cart = useCart()
   const wishlist = useWishlist()
   const isAccount = variant === "account"
@@ -122,6 +153,12 @@ export default function Header({
   const wishlistCount = hasMounted ? wishlist.count : 0
   const cartCount = hasMounted ? cart.itemCount : 0
 
+  // Only treat auth as "settled" once we've mounted on the client AND the
+  // context has finished its check (or hydrated from cache). Before that,
+  // render skeletons instead of guessing — this is what prevents the
+  // "Get started" -> name flash on reload.
+  const authReady = hasMounted && !authLoading
+
   const visibleNavLinks = isAccount ? navLinks.filter((l) => l.megaMenu) : navLinks
   const shopLink = visibleNavLinks[0]
 
@@ -129,7 +166,6 @@ export default function Header({
   const navRef = useRef<HTMLElement>(null)
   const actionsRef = useRef<HTMLDivElement>(null)
   const SHOP_PANEL_ID = "shop-mega-menu-panel"
-  const ACCOUNT_MENU_ID = "#account"
 
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -158,22 +194,6 @@ export default function Header({
     if (!shopLink) return
     const hasDropdown = shopLink.megaMenu || !!shopLink.items
     if (!hasDropdown) return
-    // Defense-in-depth: ShopMegaMenuPanel is portaled to document.body, so
-    // its DOM node lives outside this div entirely — but because it's
-    // still a React *child* of this div, its clicks bubble through the
-    // React synthetic-event tree and land here regardless of the portal.
-    // The panel already calls stopPropagation() on its own click handler,
-    // but if that ever gets bypassed (nested portals, 3rd-party libs,
-    // etc.) this check is a second guard: it looks at the real DOM
-    // target (e.target is the actual clicked DOM node, unaffected by the
-    // portal) and bails out entirely if the click originated inside the
-    // actual panel element in the document — so a click on a category,
-    // store, or "browse all" link NEVER reaches the preventDefault/close
-    // logic below, and the link's normal navigation proceeds.
-    const clickedInsidePanel = document
-      .getElementById(SHOP_PANEL_ID)
-      ?.contains(e.target as Node)
-    if (clickedInsidePanel) return
     e.preventDefault()
     clearHoverTimer()
     setActiveDesktopMenu((prev) => (prev === shopLink.href ? null : shopLink.href))
@@ -188,7 +208,7 @@ export default function Header({
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [isAuthenticated, variant])
+  }, [isAuthenticated, authReady, variant])
 
   useEffect(() => {
     if (!activeDesktopMenu && !notifOpen) return
@@ -240,8 +260,6 @@ export default function Header({
     `polygon(0 0, 100% 0, 100% ${OUTER_H}px, calc(100% - ${rightNotch}px) ${OUTER_H}px, ` +
     `calc(100% - ${rightNotch + NOTCH_GAP}px) ${INNER_H}px, ${LEFT_NOTCH + NOTCH_GAP}px ${INNER_H}px, ${LEFT_NOTCH}px ${OUTER_H}px, 0 ${OUTER_H}px)`
 
-  const isAccountMenuOpen = activeDesktopMenu === ACCOUNT_MENU_ID
-
   const wishlistPreview = hasMounted
     ? wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt).slice(0, PREVIEW_ITEM_LIMIT)
     : []
@@ -255,11 +273,6 @@ export default function Header({
     } else {
       login()
     }
-  }
-
-  function goToAccountRoute(path: string) {
-    setActiveDesktopMenu(null)
-    router.push(path)
   }
 
   const notificationBell = (
@@ -397,11 +410,6 @@ export default function Header({
               ) : (
                 <div
                   className={`items-center cursor-pointer group min-w-0 ${
-                    // On mobile account pages, the sidebar (opened via the hamburger
-                    // button above) already shows this same logo — repeating it here
-                    // in the header bar is redundant. Hidden below `lg` only when
-                    // isAccount; still shown on desktop account pages (no sidebar
-                    // duplication there) and on mobile for public/landing pages.
                     isAccount ? "hidden lg:flex" : "flex"
                   }`}
                 >
@@ -417,17 +425,7 @@ export default function Header({
               aria-haspopup="true"
               aria-expanded={shopSheetOpen}
               onClick={() => setShopSheetOpen(true)}
-              className={`${
-                // Shop trigger in the middle of the mobile bar: only makes
-                // sense on public/landing pages on mobile — account pages
-                // get their own nav via the hamburger menu, and desktop
-                // already has the full "Shop" nav item + mega menu in the
-                // notch below, so this stays lg:hidden either way. It was
-                // previously `hidden` unconditionally, which meant this
-                // button never rendered anywhere; now it's visible on
-                // mobile specifically when we're NOT on an account route.
-                isAccount ? "hidden" : "flex lg:hidden"
-              } flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
+              className={`hidden flex-1 items-center justify-center gap-1 h-full min-w-0 px-2 text-ink/70 transition-colors duration-150 active:bg-gold/10 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
             >
               <span className="text-sm font-semibold font-body truncate">{shopLink.label}</span>
               <ChevronDown
@@ -497,11 +495,9 @@ export default function Header({
               </nav>
             </div>
 
-            {/* MOBILE action icons — notification bell now shown on every
-                page, not just isAccount, so it's pulled out from behind
-                that gate here as well. */}
+            {/* MOBILE action icons */}
             <div className="flex lg:hidden items-center gap-1 h-full">
-              {notificationBell}
+              {authReady && isAuthenticated && notificationBell}
 
               <button
                 type="button"
@@ -523,33 +519,33 @@ export default function Header({
                 <CountBadge count={cartCount} />
               </button>
 
-              {isAuthenticated ? (
+              {!authReady ? (
+                <div aria-hidden="true" className={`h-9 w-9 ${skeletonClass}`} />
+              ) : isAuthenticated && user ? (
                 <button
                   type="button"
                   aria-label="Account"
                   onClick={goToAccountHome}
                   className={`relative ${mobileIconQuietClass}`}
                 >
-                  <User className="w-[17px] h-[17px]" />
-                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-gold-deep ring-2 ring-parchment" />
+                  <Avatar user={user} sizeClass="h-6 w-6" />
                 </button>
               ) : (
                 <button
                   type="button"
-                  aria-label="Sign in"
+                  aria-label="Get started"
                   onClick={login}
-                  className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep motion-reduce:transition-none ${focusRing}`}
+                  className={`${getStartedButtonClass} px-3 py-1.5`}
                 >
-                  <User className="w-[17px] h-[17px]" />
-                  <span className="text-xs font-semibold">Sign in</span>
+                  <span>Get started</span>
+                  <ArrowRight className="w-3.5 h-3.5 transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
                 </button>
               )}
             </div>
 
-            {/* DESKTOP action icons — same change: notification bell no
-                longer gated behind isAccount, always rendered. */}
+            {/* DESKTOP action icons */}
             <div ref={actionsRef} className="hidden lg:flex items-center justify-end gap-2.5 flex-shrink-0 z-20 pl-2 h-full">
-              {notificationBell}
+              {authReady && isAuthenticated && notificationBell}
 
               <button
                 type="button"
@@ -571,71 +567,30 @@ export default function Header({
                 <CountBadge count={cartCount} />
               </button>
 
-              {isAuthenticated ? (
-                <div className="relative h-full flex items-center">
-                  <button
-                    type="button"
-                    aria-label="Account menu"
-                    aria-expanded={isAccountMenuOpen}
-                    onClick={() => setActiveDesktopMenu((prev) => (prev === ACCOUNT_MENU_ID ? null : ACCOUNT_MENU_ID))}
-                    className={`relative ${pillButtonClass} lg:px-3`}
-                  >
-                    <User className="w-4 h-4 lg:w-[18px] lg:h-[18px]" />
-                    <span className="hidden sm:inline text-[13px] font-semibold">Account</span>
-                    <ChevronDown size={13} className={`text-ink/40 transition-transform duration-200 motion-reduce:transition-none ${isAccountMenuOpen ? "-rotate-180" : ""}`} />
-                    <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-gold-deep ring-2 ring-parchment" />
-                  </button>
-
-                  {/* Account dropdown — "Notifications" row removed:
-                      the bell (now visible on every page, including here
-                      in the account menu bar) already covers that job,
-                      so this was a duplicate entry point to the same
-                      thing. */}
-                  <div className={`absolute right-0 top-full z-50 w-64 pt-3 transition-all duration-200 ease-out motion-reduce:transition-none ${isAccountMenuOpen ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"}`}>
-                    <div className="rounded-2xl border border-gold/20 bg-parchment p-2 shadow-xl shadow-black/10">
-                      <button
-                        type="button"
-                        onClick={() => goToAccountRoute("/account/")}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
-                      >
-                        <User size={16} className="text-gold-deep" />
-                        <span className="text-sm font-semibold text-ink">My Profile</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => goToAccountRoute("/account/referrals")}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
-                      >
-                        <Gift size={16} className="text-gold-deep" />
-                        <span className="text-sm font-semibold text-ink">Invite &amp; Earn</span>
-                      </button>
-                      <div className="my-1 border-t border-ink/10" />
-                      <button
-                        type="button"
-                        onClick={logout}
-                        className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
-                      >
-                        <LogOut size={16} className="text-ink/50" />
-                        <span className="text-sm font-semibold text-ink">Sign out</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              {!authReady ? (
+                <div aria-hidden="true" className={`h-9 w-24 lg:h-10 lg:w-28 ${skeletonClass}`} />
+              ) : isAuthenticated && user ? (
+                <button
+                  type="button"
+                  aria-label="Account"
+                  onClick={() => router.push("/account/")}
+                  className={`${pillButtonClass} lg:px-3`}
+                >
+                  <Avatar user={user} sizeClass="h-6 w-6 lg:h-7 lg:w-7" />
+                  <span className="hidden sm:inline text-[13px] font-semibold max-w-[9rem] truncate">
+                    {user.name}
+                  </span>
+                </button>
               ) : (
-                <div className="flex items-center gap-2">
-                  <button type="button" aria-label="Sign in" title="Sign in" onClick={login} className={`group ${pillButtonClass} lg:px-4`}>
-                    <LogIn className="w-4 h-4 lg:w-[18px] lg:h-[18px] transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
-                    <span className="hidden sm:inline text-[13px] font-semibold">Sign in</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Get started"
-                    onClick={() => router.push("/auth/signup")}
-                    className={`rounded-xl bg-gold-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-gold-deep/20 transition-all duration-200 hover:bg-gold hover:shadow-md hover:shadow-gold/25 ${focusRing}`}
-                  >
-                    Get started
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  aria-label="Get started"
+                  onClick={login}
+                  className={getStartedButtonClass}
+                >
+                  <span>Get started</span>
+                  <ArrowRight className="w-4 h-4 transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
+                </button>
               )}
             </div>
           </div>
