@@ -15,19 +15,22 @@ import {
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { DELIVERY_STATUS_LABEL, type DeliveryStatus, type InTransitLine } from "@/types/admin"
 
-// In transit: orders handed off to a courier from the export bin, en
-// route to the customer. This is the last stop before "Delivered" —
-// marking an order delivered here is what actually advances its
-// pipeline stage from "Shipped" to "Delivered" (see markDelivered in
-// AdminDataContext).
+// In transit: orders handed off to a courier from the export bin,
+// crossing the border toward Sri Lanka. "Mark shipped" here is what
+// actually advances the pipeline stage from "Quality check" to
+// "Shipped" — and "Shipped" specifically means it has arrived at the
+// Sri Lanka warehouse, not merely that it's on a truck somewhere. Local
+// delivery (from the SL warehouse to the customer) is a separate,
+// later step handled on /admin/shipped — this page never marks
+// anything delivered.
 //
-// ROW BEHAVIOR: clicking a row calls markDelivered for that single order
-// immediately, same as the bulk "Mark delivered" button does for a whole
-// selection — it does NOT navigate to the order detail page. The order
-// number is its own separate link (stopPropagation'd) for anyone who
-// still wants to open the order itself. Checkbox + bulk bar are
-// unchanged, for delivering several orders from the same courier run at
-// once.
+// ROW BEHAVIOR: a bare row click does NOT do anything — it used to
+// (fire the action on any click, no confirmation), which was too easy
+// to trigger by accident while just trying to glance at an order.
+// Marking shipped now requires an explicit "Mark shipped" button per
+// row, or selecting rows via the checkbox and using the bulk action
+// bar. The order number is its own separate link to the order detail
+// page, same as before.
 
 function formatAge(hours: number): string {
   if (hours < 1) return "<1h"
@@ -56,13 +59,13 @@ const STATUS_TABS: { key: "all" | DeliveryStatus; label: string }[] = [
 ]
 
 export default function InTransitPage() {
-  const { visibleInTransitLines, canActOnInTransitLine, markDelivered, sites, currentUser, permissions } = useAdminData()
+  const { visibleInTransitLines, canActOnInTransitLine, markShipped, sites, currentUser, permissions } = useAdminData()
 
   const [query, setQuery] = useState("")
   const [courierFilter, setCourierFilter] = useState<string>("All couriers")
   const [statusTab, setStatusTab] = useState<"all" | DeliveryStatus>("all")
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [justDelivered, setJustDelivered] = useState<string[]>([])
+  const [justShipped, setJustDelivered] = useState<string[]>([])
 
   const couriers = useMemo(() => {
     const set = new Set(visibleInTransitLines.map((l) => l.courier))
@@ -112,10 +115,10 @@ export default function InTransitPage() {
     })
   }
 
-  const handleMarkDelivered = () => {
+  const handleMarkShipped = () => {
     if (selected.size === 0) return
     const ids = Array.from(selected)
-    ids.forEach((orderId) => markDelivered(orderId))
+    ids.forEach((orderId) => markShipped(orderId))
     setJustDelivered(ids)
     setSelected(new Set())
     setTimeout(() => setJustDelivered([]), 4000)
@@ -123,8 +126,8 @@ export default function InTransitPage() {
 
   // Single-row equivalent — fired by clicking the row itself, instead of
   // navigating to the order page.
-  const handleSingleDeliver = (orderId: string) => {
-    markDelivered(orderId)
+  const handleSingleShip = (orderId: string) => {
+    markShipped(orderId)
     setJustDelivered([orderId])
     setSelected((prev) => {
       if (!prev.has(orderId)) return prev
@@ -173,10 +176,10 @@ export default function InTransitPage() {
         </div>
 
         {/* ── Confirmation banner ── */}
-        {justDelivered.length > 0 && (
+        {justShipped.length > 0 && (
           <div className="mt-6 flex items-center gap-2.5 rounded-2xl border border-teal/25 bg-teal/[0.08] px-4 py-3 text-sm font-medium text-teal-deep">
             <CheckCircle2 size={16} />
-            {justDelivered.length} order{justDelivered.length === 1 ? "" : "s"} marked delivered.
+            {justShipped.length} order{justShipped.length === 1 ? "" : "s"} marked shipped.
           </div>
         )}
 
@@ -244,12 +247,12 @@ export default function InTransitPage() {
 
           <button
             type="button"
-            onClick={handleMarkDelivered}
+            onClick={handleMarkShipped}
             disabled={selected.size === 0}
             className="inline-flex items-center gap-1.5 rounded-xl bg-teal-deep px-3.5 py-2 text-xs font-semibold text-parchment transition-colors hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/15"
           >
             <CheckCircle2 size={14} />
-            Mark delivered ({selected.size || 0})
+            Mark shipped ({selected.size || 0})
           </button>
         </div>
 
@@ -291,7 +294,7 @@ export default function InTransitPage() {
                 canAct={canActOnInTransitLine(line)}
                 selected={selected.has(line.id)}
                 onToggleSelect={() => toggleSelect(line.id)}
-                onRowClick={() => handleSingleDeliver(line.orderId)}
+                onMarkShipped={() => handleSingleShip(line.orderId)}
               />
             ))
           )}
@@ -306,13 +309,13 @@ function InTransitRow({
   canAct,
   selected,
   onToggleSelect,
-  onRowClick,
+  onMarkShipped,
 }: {
   line: InTransitLine
   canAct: boolean
   selected: boolean
   onToggleSelect: () => void
-  onRowClick: () => void
+  onMarkShipped: () => void
 }) {
   const status = line.deliveryStatus
   const deliveryLabel =
@@ -322,21 +325,11 @@ function InTransitRow({
 
   return (
     <div
-      role={canAct ? "button" : undefined}
-      tabIndex={canAct ? 0 : undefined}
-      title={canAct ? "Mark delivered" : undefined}
-      onClick={() => canAct && onRowClick()}
-      onKeyDown={(e) => {
-        if (canAct && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault()
-          onRowClick()
-        }
-      }}
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 outline-none transition-colors last:border-b-0 sm:grid-cols-[auto_1.1fr_1fr_0.9fr_0.8fr_0.9fr] ${
+      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 sm:grid-cols-[auto_1.1fr_1fr_0.9fr_0.8fr_0.9fr_auto] ${
         selected ? "bg-teal/[0.05]" : ""
-      } ${canAct ? "cursor-pointer hover:bg-teal/[0.06] focus-visible:bg-teal/[0.1]" : ""}`}
+      }`}
     >
-      <span onClick={(e) => e.stopPropagation()}>
+      <span>
         <input
           type="checkbox"
           checked={selected}
@@ -346,7 +339,7 @@ function InTransitRow({
         />
       </span>
 
-      <span className="min-w-0" onClick={(e) => e.stopPropagation()}>
+      <span className="min-w-0">
         <Link
           href={`/admin/orders/${line.orderId}`}
           className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
@@ -376,6 +369,19 @@ function InTransitRow({
         </span>
       </span>
 
+      <span className="hidden justify-self-end sm:block">
+        <button
+          type="button"
+          disabled={!canAct}
+          onClick={onMarkShipped}
+          title={canAct ? "Mark shipped" : undefined}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <CheckCircle2 size={13} />
+          Mark shipped
+        </button>
+      </span>
+
       {/* mobile summary */}
       <span className="col-span-3 flex items-center justify-between gap-2 pl-7 sm:hidden">
         <span className="text-xs text-ink/45">{line.destination} · {line.courier}</span>
@@ -383,6 +389,18 @@ function InTransitRow({
           <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
           {DELIVERY_STATUS_LABEL[status]}
         </span>
+      </span>
+      {/* mobile: explicit action, same "no accidental tap" rule as desktop */}
+      <span className="col-span-3 pl-7 sm:hidden">
+        <button
+          type="button"
+          disabled={!canAct}
+          onClick={onMarkShipped}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <CheckCircle2 size={13} />
+          Mark shipped
+        </button>
       </span>
     </div>
   )

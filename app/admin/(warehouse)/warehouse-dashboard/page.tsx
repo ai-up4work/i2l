@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { Activity, Archive, Boxes, ClipboardCheck, Clock, Flag, PackageCheck, Truck } from "lucide-react"
+import { Activity, Archive, Boxes, ClipboardCheck, Clock, Flag, PackageCheck, PartyPopper, Truck } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import { panelClass } from "@/components/admin/seller/shared"
@@ -46,6 +46,7 @@ export default function WarehouseDashboardPage() {
   const exportBinCount = visibleExportBinLines.length
   const inTransitCount = visibleInTransitLines.length
   const inTransitOverdue = visibleInTransitLines.filter((l) => l.deliveryStatus === "overdue").length
+  const deliveredCount = visibleOrders.filter((o) => o.stage === "Delivered").length
   const breachedOrders = visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
   const delayedOrders = visibleOrders.filter((o) => o.delayed).length
 
@@ -116,7 +117,7 @@ export default function WarehouseDashboardPage() {
         </div>
 
         {/* ── Queue cards ── */}
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <QueueCard
             icon={<ClipboardCheck size={20} strokeWidth={1.75} />}
             label="Quality check"
@@ -152,6 +153,14 @@ export default function WarehouseDashboardPage() {
             flagCount={inTransitOverdue}
             flagLabel="overdue"
             onOpen={() => router.push("/admin/in-transit")}
+          />
+          <QueueCard
+            icon={<PartyPopper size={20} strokeWidth={1.75} />}
+            label="Delivered"
+            description="Confirmed delivered — by warehouse or by the customer."
+            count={deliveredCount}
+            countLabel="delivered"
+            onOpen={() => router.push("/admin/delivered")}
           />
         </div>
 

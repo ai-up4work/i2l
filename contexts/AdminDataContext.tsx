@@ -115,6 +115,7 @@ import type {
   PackageDimensionsCm,
   ExportBinLine,
   InTransitLine,
+  ShippedLine,
   DeliveryStatus,
   Request,
   RequestStatus,
@@ -397,6 +398,7 @@ import {
   addInternalNote as realAddInternalNote,
   setWarehouseSubstage as realSetWarehouseSubstage,
   packOrderReal as realPackOrder,
+  markShippedReal as realMarkShipped,
   setOrderPackageDetails as realSetOrderPackageDetails,
   setOrderShipping as realSetOrderShipping,
   confirmDelivery as realConfirmDelivery,
@@ -478,13 +480,20 @@ function mapToOrder(
   const stage = mapDbStageToOrderStage(o.stage)
   if (stage === null) return null
 
-  // Packing is the real transition point that flips stage from
-  // 'quality_check' to 'shipped' (see packOrder below, mirroring the
-  // original mock's own withStageChange(o, "Shipped") inside packOrder) —
-  // so any order already at 'shipped' or 'delivered' has necessarily
-  // been packed.
-  const packedAt = o.stage === "shipped" || o.stage === "delivered" ? o.stageEnteredAt : undefined
-  const pickedUpAt = o.substage === "in_transit" || o.stage === "delivered" ? o.stageEnteredAt : undefined
+  // Packing and pickup are substage markers now, not stage transitions
+  // (only In-Transit's "Mark shipped" and Shipped's "Mark delivered" are
+  // real enum changes — see getAdminQueue's doc comment in
+  // orders-admin.ts). Best-available timestamp: substageAt when the
+  // CURRENT substage is the one that matters here; once the order has
+  // moved past it (e.g. now 'in_transit' when we want packedAt, or
+  // already 'shipped'/'delivered'), only the latest substage marker's
+  // timestamp survives — that's a reasonable approximation, not an exact
+  // "the moment it was packed" value, since intermediate substage
+  // history isn't kept, only the latest.
+  const isPacked = o.substage === "packed" || o.substage === "in_transit" || o.stage === "shipped" || o.stage === "delivered"
+  const packedAt = isPacked ? o.substageAt ?? o.stageEnteredAt : undefined
+  const isPickedUp = o.substage === "in_transit" || o.stage === "shipped" || o.stage === "delivered"
+  const pickedUpAt = isPickedUp ? o.substageAt ?? o.stageEnteredAt : undefined
   const deliveredAt = o.stage === "delivered" ? o.stageEnteredAt : undefined
 
   return {
@@ -526,6 +535,7 @@ function mapToOrder(
     pickedUpAt,
     etaHours: pickedUpAt ? IN_TRANSIT_DEFAULT_ETA_HOURS : undefined,
     deliveredAt,
+    deliveredConfirmedBy: o.deliveredConfirmedBy ?? undefined,
   }
 }
 
@@ -894,6 +904,11 @@ interface AdminDataContextValue {
   visibleInTransitLines: InTransitLine[]
   getInTransitLine: (orderId: string) => InTransitLine | undefined
   canActOnInTransitLine: (line: InTransitLine) => boolean
+  markShipped: (orderId: string) => void
+  shippedLines: ShippedLine[]
+  visibleShippedLines: ShippedLine[]
+  getShippedLine: (orderId: string) => ShippedLine | undefined
+  canActOnShippedLine: (line: ShippedLine) => boolean
   markDelivered: (orderId: string) => void
 
   // -- Requests (Channel 3) --------------------------------------------
@@ -1638,10 +1653,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const packOrder = (orderId: string) => {
     setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== orderId || o.stage !== "Quality check" || o.packedAt) return o
-        return { ...withStageChange(o, "Shipped"), packedAt: new Date().toISOString() }
-      })
+      prev.map((o) => (o.id === orderId && o.stage === "Quality check" && !o.packedAt ? { ...o, packedAt: new Date().toISOString() } : o))
     )
     const realId = resolveRealId(orderId)
     if (realId) realPackOrder(realId, currentUser.id)
@@ -1713,7 +1725,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const inTransitLines = useMemo<InTransitLine[]>(() => {
     return orders.flatMap((order) => {
-      if (!order.pickedUpAt || order.deliveredAt) return []
+      if (!order.pickedUpAt || order.stage !== "Quality check") return []
       const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const pickedUpAgeHours = hoursSince(order.pickedUpAt)
       const etaHours = order.etaHours ?? IN_TRANSIT_DEFAULT_ETA_HOURS
@@ -1753,10 +1765,58 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const canActOnInTransitLine = (line: InTransitLine) =>
     permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || line.siteId === currentUser.siteId)
 
+  /** In-Transit "Mark shipped": arrived at the Sri Lanka warehouse — the real enum change from "Quality check" to "Shipped". */
+  const markShipped = (orderId: string) => {
+    setOrders((prev) => prev.map((o) => (o.id === orderId && o.pickedUpAt && o.stage === "Quality check" ? withStageChange(o, "Shipped") : o)))
+    const realId = resolveRealId(orderId)
+    if (realId) realMarkShipped(realId, currentUser.id)
+  }
+
+  /**
+   * Arrived at the SL warehouse, awaiting local delivery. Distinct from
+   * inTransitLines above — an order leaves that queue and enters this
+   * one the moment markShipped fires (real stage flips to "Shipped"),
+   * not when it's physically picked up by a courier internationally.
+   */
+  const shippedLines = useMemo<ShippedLine[]>(() => {
+    return orders.flatMap((order) => {
+      if (order.stage !== "Shipped") return []
+      const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
+      const shippedAgeHours = hoursSince(order.stageEnteredAt)
+      return [{
+        id: order.id,
+        orderId: order.id,
+        orderNumber: order.id,
+        customerName: order.customerName,
+        siteId: order.siteId,
+        site: siteName,
+        channel: order.channel,
+        destination: order.destination ?? siteName,
+        courier: order.courier,
+        trackingRef: order.trackingRef,
+        shippedAgeHours,
+        shippedAgeLabel: formatAge(shippedAgeHours),
+      }]
+    })
+  }, [orders])
+
+  const visibleShippedLines = useMemo(() => {
+    if (permissions.ordersScopedToOwnSite && currentUser.siteId) {
+      return shippedLines.filter((l) => l.siteId === currentUser.siteId)
+    }
+    return shippedLines
+  }, [shippedLines, permissions.ordersScopedToOwnSite, currentUser.siteId])
+
+  const getShippedLine = (orderId: string) => shippedLines.find((l) => l.id === orderId)
+
+  const canActOnShippedLine = (line: ShippedLine) =>
+    permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || line.siteId === currentUser.siteId)
+
+  /** Shipped page's "Mark delivered": local delivery complete — final real enum change. */
   const markDelivered = (orderId: string) => {
     setOrders((prev) =>
       prev.map((o) => {
-        if (o.id !== orderId || !o.pickedUpAt || o.deliveredAt) return o
+        if (o.id !== orderId || o.stage !== "Shipped" || o.deliveredAt) return o
         return { ...withStageChange(o, "Delivered"), deliveredAt: new Date().toISOString() }
       })
     )
@@ -2058,6 +2118,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     visibleInTransitLines,
     getInTransitLine,
     canActOnInTransitLine,
+    markShipped,
+    shippedLines,
+    visibleShippedLines,
+    getShippedLine,
+    canActOnShippedLine,
     markDelivered,
     requestLines,
     getRequestLine,

@@ -142,6 +142,8 @@ export interface Order {
    * an order can't be marked delivered without having been picked up.
    */
   deliveredAt?: string
+  /** Who confirmed delivery — warehouse-confirmed (this admin panel) or customer self-confirmed from their own account page. Matches the real orders.delivered_confirmed_by column; see the /admin/delivered page. */
+  deliveredConfirmedBy?: "warehouse" | "customer"
 }
 
 export interface CurrentUser {
@@ -441,6 +443,30 @@ export interface InTransitLine {
   /** Negative once overdue */
   etaRemainingHours: number
   deliveryStatus: DeliveryStatus
+}
+
+/**
+ * Arrived at the Sri Lanka warehouse, awaiting local delivery — the one
+ * remaining step before Delivered. No ETA/delivery-status tracking the
+ * way InTransitLine has: once it's physically in the country, local
+ * delivery (post, courier, whatever) isn't tracked in fine-grained
+ * detail — see /admin/shipped and markShipped/markDelivered in
+ * AdminDataContext.
+ */
+export interface ShippedLine {
+  /** Same as orderId */
+  id: string
+  orderId: string
+  orderNumber: string
+  customerName: string
+  siteId: string
+  site: string
+  channel: Channel
+  destination: string
+  courier?: string
+  trackingRef?: string
+  shippedAgeHours: number
+  shippedAgeLabel: string
 }
 
 // ---------------------------------------------------------------------------

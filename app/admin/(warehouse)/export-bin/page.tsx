@@ -21,14 +21,13 @@ import type { ExportBinLine } from "@/types/admin"
 // packed" sets Order.packedAt, and leaves the instant markPickedUp is
 // called below — which is also what makes it appear on /admin/in-transit.
 //
-// ROW BEHAVIOR: clicking a row is now the "move to next stage" action
-// itself — it calls markPickedUp for that single order using whichever
-// courier is currently selected in the toolbar, the same as the bulk
-// button does for a whole selection. It no longer navigates to the order
-// detail page; that's still one click away via the order number, which
-// is its own separate link so it doesn't also trigger a pickup. The
-// checkbox + bulk "Mark picked up" bar stay exactly as they were, for
-// handing off several orders to the same courier at once.
+// ROW BEHAVIOR: a bare row click does NOT hand anything to a courier —
+// it used to (fire markPickedUp on any click, no confirmation), which
+// was too easy to trigger by accident while just trying to glance at an
+// order. Handing off now requires an explicit "Mark picked up" button
+// per row, or selecting rows via the checkbox and using the bulk action
+// bar. The order number is its own separate link to the order detail
+// page, same as before.
 
 function formatAge(hours: number): string {
   if (hours < 1) return "<1h"
@@ -262,7 +261,7 @@ export default function ExportBinPage() {
                 selected={selected.has(line.id)}
                 courier={bulkCourier}
                 onToggleSelect={() => toggleSelect(line.id)}
-                onRowClick={() => handleSinglePickup(line.orderId)}
+                onMarkPickedUp={() => handleSinglePickup(line.orderId)}
               />
             ))
           )}
@@ -278,32 +277,22 @@ function ExportBinRow({
   selected,
   courier,
   onToggleSelect,
-  onRowClick,
+  onMarkPickedUp,
 }: {
   line: ExportBinLine
   canAct: boolean
   selected: boolean
   courier: string
   onToggleSelect: () => void
-  onRowClick: () => void
+  onMarkPickedUp: () => void
 }) {
   return (
     <div
-      role={canAct ? "button" : undefined}
-      tabIndex={canAct ? 0 : undefined}
-      title={canAct ? `Mark picked up by ${courier}` : undefined}
-      onClick={() => canAct && onRowClick()}
-      onKeyDown={(e) => {
-        if (canAct && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault()
-          onRowClick()
-        }
-      }}
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 outline-none transition-colors last:border-b-0 sm:grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr] ${
+      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 sm:grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr_auto] ${
         selected ? "bg-teal/[0.05]" : ""
-      } ${canAct ? "cursor-pointer hover:bg-teal/[0.06] focus-visible:bg-teal/[0.1]" : ""}`}
+      }`}
     >
-      <span onClick={(e) => e.stopPropagation()}>
+      <span>
         <input
           type="checkbox"
           checked={selected}
@@ -313,7 +302,7 @@ function ExportBinRow({
         />
       </span>
 
-      <span className="min-w-0" onClick={(e) => e.stopPropagation()}>
+      <span className="min-w-0">
         <Link
           href={`/admin/orders/${line.orderId}`}
           className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
@@ -339,10 +328,35 @@ function ExportBinRow({
 
       <span className="hidden justify-self-end text-sm text-ink/50 sm:block">{line.packedAgeLabel} ago</span>
 
+      <span className="hidden justify-self-end sm:block">
+        <button
+          type="button"
+          disabled={!canAct}
+          onClick={onMarkPickedUp}
+          title={canAct ? `Mark picked up by ${courier}` : undefined}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <Truck size={13} />
+          Mark picked up
+        </button>
+      </span>
+
       {/* mobile summary */}
       <span className="col-span-3 flex items-center justify-between gap-2 pl-7 sm:hidden">
         <span className="text-xs text-ink/45">{line.destination}</span>
         <span className="text-xs text-ink/40">{line.packedAgeLabel} ago</span>
+      </span>
+      {/* mobile: explicit action, same "no accidental tap" rule as desktop */}
+      <span className="col-span-3 pl-7 sm:hidden">
+        <button
+          type="button"
+          disabled={!canAct}
+          onClick={onMarkPickedUp}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <Truck size={13} />
+          Mark picked up by {courier}
+        </button>
       </span>
     </div>
   )

@@ -19,6 +19,7 @@ import {
   Warehouse,
   Truck,
   Send,
+  PartyPopper,
   Settings,
   ChevronsLeft,
   ChevronsUpDown,
@@ -127,6 +128,7 @@ function getGroups(role: Role): Group[] {
         { label: "Export bin", href: "/admin/export-bin", icon: Warehouse, roles: ["manager", "warehouse"] },
         { label: "In transit", href: "/admin/in-transit", icon: Truck, roles: ["manager", "warehouse"] },
         { label: "Shipped", href: "/admin/shipped", icon: Send, roles: ["manager", "warehouse"] },
+        { label: "Delivered", href: "/admin/delivered", icon: PartyPopper, roles: ["manager", "warehouse"] },
       ],
     },
     {

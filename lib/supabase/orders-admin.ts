@@ -19,23 +19,26 @@
 // pages (QC / Pack & Label / Export Bin / In-Transit / Shipped), but the
 // real schema only tracks the coarse 4-stage customer pipeline — there's
 // no column for "passed QC but not yet packed" vs "packed, staged for
-// export" vs "in transit" vs "arrived, awaiting delivery confirmation".
-// Rather than invent schema that doesn't exist, that finer position is
-// tracked as a marker inside `order_internal_notes` (real rows, just not
-// a typed column — same pattern already used for package weight/
-// dimensions/label ref, which also have no dedicated columns):
+// export" vs "in international transit". Rather than invent schema that
+// doesn't exist, that finer position is tracked as a marker inside
+// `order_internal_notes` (real rows, just not a typed column — same
+// pattern already used for package weight/dimensions/label ref, which
+// also have no dedicated columns):
 //   stage='quality_check' + substage='qc_pending' (default) → QC queue
 //   stage='quality_check' + substage='qc_passed'            → Pack & Label queue
 //   stage='quality_check' + substage='packed'                → Export Bin queue
-//   stage='shipped'       + substage='in_transit' (default)  → In-Transit queue
-//   stage='shipped'       + substage='arrived'                → Shipped queue
-// Only two of these six transitions are REAL enum changes on `orders.stage`
-// (export-bin → in-transit flips 'quality_check' -> 'shipped'; shipped ->
-// delivered flips 'shipped' -> 'delivered'). Every other queue move
-// (QC pass, mark packed, pull back, arrived) only writes a substage note
-// and leaves the real enum column untouched — see setWarehouseSubstage()
-// vs setOrderStage() below; never call setOrderStage() with anything
-// other than a real DbOrderStage.
+//   stage='quality_check' + substage='in_transit'             → In-Transit queue
+//   stage='shipped'                                            → Shipped queue
+// "Shipped" specifically means arrived at the Sri Lanka warehouse, not
+// merely packed for export — see markShippedReal, called from the
+// In-Transit page once an order actually reaches Sri Lanka. Only two
+// transitions are REAL enum changes on `orders.stage` (In-Transit's
+// "Mark shipped" flips 'quality_check' -> 'shipped'; Shipped's "Mark
+// delivered" flips 'shipped' -> 'delivered'). Every other queue move (QC
+// pass, mark packed, mark picked up) only writes a substage note and
+// leaves the real enum column untouched — see setWarehouseSubstage() vs
+// setOrderStage() below; never call setOrderStage() with anything other
+// than a real DbOrderStage.
 //
 // RLS NOTE: `public.orders`/`public.order_items` have a real RLS policy
 // restricting SELECT to `auth.uid() = user_id` — i.e. a customer can only
@@ -74,8 +77,8 @@ export const STAGE_LABEL: Record<DbOrderStage, string> = {
 
 export const STAGE_AGE_THRESHOLD_HOURS: Record<DbOrderStage, number> = {
   ordered: 24,
-  quality_check: 72, // covers QC + pack + export-bin dwell time combined, see file header
-  shipped: 96, // covers in-transit + awaiting-delivery-confirmation combined
+  quality_check: 96, // now covers QC + pack + export-bin + international transit combined — see getAdminQueue's doc comment
+  shipped: 48, // arrived at the SL warehouse, awaiting local delivery only
   delivered: Infinity,
   cancelled: Infinity,
 }
@@ -104,29 +107,42 @@ export function isKnownStage(stage: string): stage is DbOrderStage {
  * WAREHOUSE SUB-QUEUES — tracked via order_internal_notes, not the enum
  * ============================================================ */
 
-export type WarehouseSubstage = 'qc_pending' | 'qc_passed' | 'packed' | 'in_transit' | 'arrived'
+export type WarehouseSubstage = 'qc_pending' | 'qc_passed' | 'packed' | 'in_transit'
 
 export const SUBSTAGE_LABEL: Record<WarehouseSubstage, string> = {
   qc_pending: 'Awaiting QC',
   qc_passed: 'QC Passed',
   packed: 'Packed',
   in_transit: 'In Transit',
-  arrived: 'Arrived',
 }
 
 export type AdminQueue = 'qc' | 'pack-label' | 'export-bin' | 'in-transit' | 'shipped' | null
 
-/** Which admin queue page an order currently belongs in, given its real stage + tracked substage. */
+/**
+ * Which admin queue page an order currently belongs in, given its real
+ * stage + tracked substage.
+ *
+ * IMPORTANT SEMANTICS: `orders.stage = 'shipped'` now specifically means
+ * "arrived at the Sri Lanka warehouse" — not "packed for export" the way
+ * an earlier version of this file had it (matching packOrderReal
+ * flipping the enum immediately at pack time). Packing, staging for
+ * export, and international transit are now all sub-phases WITHIN
+ * 'quality_check' (via substage), and the real enum only advances to
+ * 'shipped' once markShippedReal is called from the In-Transit page —
+ * i.e. once the order has actually reached Sri Lanka. From there, the
+ * only remaining step is local delivery, which doesn't need its own
+ * tracked sub-phase (courier/post/etc. — however it happens locally
+ * isn't tracked in detail); Shipped -> Delivered is a single real
+ * transition, same as before.
+ */
 export function getAdminQueue(stage: string, substage: WarehouseSubstage | null): AdminQueue {
   if (stage === 'quality_check') {
+    if (substage === 'in_transit') return 'in-transit'
     if (substage === 'packed') return 'export-bin'
     if (substage === 'qc_passed') return 'pack-label'
     return 'qc' // qc_pending, or no marker yet (freshly entered QC)
   }
-  if (stage === 'shipped') {
-    if (substage === 'arrived') return 'shipped'
-    return 'in-transit' // in_transit, or no marker yet (freshly exported)
-  }
+  if (stage === 'shipped') return 'shipped' // arrived at the SL warehouse, awaiting local delivery
   return null
 }
 
@@ -150,11 +166,16 @@ function parseSubstageFromNoteText(text: string): WarehouseSubstage | null {
   if (!text.startsWith(SUBSTAGE_NOTE_PREFIX)) return null
   const rest = text.slice(SUBSTAGE_NOTE_PREFIX.length)
   const token = rest.split(' — ')[0].trim() as WarehouseSubstage
-  return (['qc_pending', 'qc_passed', 'packed', 'in_transit', 'arrived'] as string[]).includes(token) ? token : null
+  return (['qc_pending', 'qc_passed', 'packed', 'in_transit'] as string[]).includes(token) ? token : null
 }
 
-/** Latest substage marker per order id, for a batch of orders — one query, reduced client-side. */
-async function fetchLatestSubstages(orderIds: string[]): Promise<Map<string, WarehouseSubstage>> {
+interface SubstageEntry {
+  substage: WarehouseSubstage
+  at: string
+}
+
+/** Latest substage marker (+ when it was set) per order id, for a batch of orders — one query, reduced client-side. */
+async function fetchLatestSubstages(orderIds: string[]): Promise<Map<string, SubstageEntry>> {
   if (!orderIds.length) return new Map()
   const supabase = createClient()
   const { data, error } = await supabase
@@ -167,10 +188,10 @@ async function fetchLatestSubstages(orderIds: string[]): Promise<Map<string, War
     console.error('[fetchLatestSubstages]', error)
     return new Map()
   }
-  const latest = new Map<string, WarehouseSubstage>()
+  const latest = new Map<string, SubstageEntry>()
   for (const row of data ?? []) {
     const substage = parseSubstageFromNoteText(row.text)
-    if (substage) latest.set(row.order_id, substage)
+    if (substage) latest.set(row.order_id, { substage, at: row.created_at })
   }
   return latest
 }
@@ -231,6 +252,8 @@ export interface AdminOrder {
   channel: Channel
   stage: DbOrderStage
   substage: WarehouseSubstage | null
+  /** When the current substage marker was set — needed to derive packedAt/pickedUpAt-equivalent timestamps now that packing/transit no longer flip the real enum (see getAdminQueue's doc comment). */
+  substageAt: string | null
   siteId: string | null
   siteName?: string
   currency: string
@@ -296,7 +319,7 @@ function mapRowToAdminOrder(
   row: OrderRow,
   profileByUserId: Map<string, { full_name: string; email: string }>,
   siteById: Map<string, string>,
-  substageByOrderId: Map<string, WarehouseSubstage>,
+  substageByOrderId: Map<string, SubstageEntry>,
 ): AdminOrder {
   const profile = profileByUserId.get(row.user_id)
   return {
@@ -307,7 +330,8 @@ function mapRowToAdminOrder(
     customerEmail: profile?.email ?? '',
     channel: row.channel,
     stage: row.stage,
-    substage: substageByOrderId.get(row.id) ?? null,
+    substage: substageByOrderId.get(row.id)?.substage ?? null,
+    substageAt: substageByOrderId.get(row.id)?.at ?? null,
     siteId: row.site_id,
     siteName: row.site_id ? siteById.get(row.site_id) : undefined,
     currency: row.currency,
@@ -407,8 +431,7 @@ export async function fetchAdminOrders(opts: FetchOrdersOptions = {}): Promise<A
  * client-side, since substage isn't a real column to filter on server-side.
  */
 export async function fetchOrdersByQueue(queue: Exclude<AdminQueue, null>, siteId?: string): Promise<AdminOrder[]> {
-  const stages: DbOrderStage[] =
-    queue === 'qc' || queue === 'pack-label' || queue === 'export-bin' ? ['quality_check'] : ['shipped']
+  const stages: DbOrderStage[] = queue === 'shipped' ? ['shipped'] : ['quality_check']
   const candidates = await fetchAdminOrders({ siteId, stages })
   return candidates.filter((o) => getAdminQueue(o.stage, o.substage) === queue)
 }
@@ -530,11 +553,14 @@ export async function setOrderStage(
   return { ok: true }
 }
 
-/** Pack & Label "Mark packed": the real enum change ('quality_check' -> 'shipped') — matches the original UI's own packOrder, which flips stage the moment an order is packed, not when a courier later picks it up. */
+/** Pack & Label "Mark packed": purely a substage marker now — see getAdminQueue's doc comment for why this no longer touches orders.stage. */
 export async function packOrderReal(orderId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await setOrderStage(orderId, 'shipped', staffId, 'Packed & labeled')
-  if (!res.ok) return res
-  return setWarehouseSubstage(orderId, 'packed', staffId)
+  return setWarehouseSubstage(orderId, 'packed', staffId, 'Packed & labeled')
+}
+
+/** In-Transit "Mark shipped": the real enum change ('quality_check' -> 'shipped') — this is what "Shipped" now means: arrived at the Sri Lanka warehouse, not merely packed for export. */
+export async function markShippedReal(orderId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
+  return setOrderStage(orderId, 'shipped', staffId, 'Arrived at the Sri Lanka warehouse')
 }
 
 export async function setOrderDelayed(orderId: string, delayed: boolean): Promise<{ ok: boolean; error?: string }> {
