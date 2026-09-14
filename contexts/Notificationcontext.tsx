@@ -1,6 +1,8 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useAuth } from './AuthContext'
+import { createClient } from '@/lib/supabase/client'
 
 export type NotificationCategory = 'order' | 'promo' | 'system'
 
@@ -9,67 +11,62 @@ export type AppNotification = {
   category: NotificationCategory
   title: string
   message: string
-  /** Preformatted for this seed data — e.g. "5m ago". Once this reads
-   *  from a real notifications endpoint, swap in real timestamps and
-   *  format them client-side after mount (same hydration-safety pattern
-   *  Header already uses for cart/wishlist counts), rather than
-   *  formatting a live Date on the server. */
+  /** Preformatted — e.g. "5m ago". Computed client-side from the real
+   *  `created_at` timestamp after mount, same hydration-safety pattern
+   *  Header already uses for cart/wishlist counts (never format a live
+   *  Date during SSR). */
   timeLabel: string
   read: boolean
   href?: string | null
 }
 
-// Mock seed data standing in for a real notifications API. The
-// provider/hook shape below doesn't assume mock data anywhere — swapping
-// this array for a fetch + the setter below for a mutation is the only
-// change a real backend would need.
-const MOCK_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: 'n1',
-    category: 'order',
-    title: 'Your parcel has shipped',
-    message: 'HRX by Hrithik Roshan Men Running Shoes is on its way to the warehouse.',
-    timeLabel: '5m ago',
-    read: false,
-    href: '/account/orders',
-  },
-  {
-    id: 'n2',
-    category: 'promo',
-    title: 'LKR 1,000 off your first order',
-    message: 'Verify your phone number before Friday to claim your discount.',
-    timeLabel: '2h ago',
-    read: false,
-    href: '/account',
-  },
-  {
-    id: 'n3',
-    category: 'system',
-    title: 'Warehouse address updated',
-    message: "We've refreshed your UK warehouse address — check it before your next order.",
-    timeLabel: '6h ago',
-    read: false,
-    href: '/account',
-  },
-  {
-    id: 'n4',
-    category: 'order',
-    title: 'Quality check complete',
-    message: 'Your item passed QC and is ready for consolidation.',
-    timeLabel: '1d ago',
-    read: true,
-    href: '/account/orders',
-  },
-  {
-    id: 'n5',
-    category: 'promo',
-    title: 'Refer a friend, earn LKR 500',
-    message: 'Your referral code is ready to share.',
-    timeLabel: '3d ago',
-    read: true,
-    href: '/account/referrals',
-  },
-]
+/**
+ * Real `notifications.type` is free text (see
+ * data/wishdrop-supabase-schema.sql: 'order_update' | 'price_drop' |
+ * 'chat_reply' | ...) — this is the one place that maps it down to the
+ * 3-category vocabulary the UI (Topbar's CATEGORY_ICON) actually
+ * switches on. Extend this, not the UI, when a new notification type is
+ * introduced elsewhere (e.g. confirmRequestReal, the QC-issue flow).
+ */
+function categoryForType(type: string): NotificationCategory {
+  if (type === 'promo' || type === 'discount' || type === 'referral' || type === 'coupon_issued') return 'promo'
+  if (type.startsWith('order_') || type === 'qc_issue' || type === 'chat_reply' || type === 'shipment_update') return 'order'
+  return 'system'
+}
+
+function formatTimeLabel(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+type NotificationRow = {
+  id: string
+  type: string
+  title: string
+  body: string | null
+  link: string | null
+  read: boolean
+  created_at: string
+}
+
+function mapRowToNotification(row: NotificationRow): AppNotification {
+  return {
+    id: row.id,
+    category: categoryForType(row.type),
+    title: row.title,
+    message: row.body ?? '',
+    timeLabel: formatTimeLabel(row.created_at),
+    read: row.read,
+    href: row.link,
+  }
+}
 
 type NotificationContextValue = {
   notifications: AppNotification[]
@@ -82,18 +79,81 @@ type NotificationContextValue = {
 const NotificationContext = createContext<NotificationContextValue | null>(null)
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const [notifications, setNotifications] = useState<AppNotification[]>(MOCK_NOTIFICATIONS)
+  const { user } = useAuth()
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const supabaseRef = useRef(createClient())
 
-  const markAsRead = useCallback((id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
-  }, [])
+  const load = useCallback(async () => {
+    if (!user) {
+      setNotifications([])
+      return
+    }
+    const { data, error } = await supabaseRef.current
+      .from('notifications')
+      .select('id, type, title, body, link, read, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (error) {
+      console.error('[notifications] failed to load', error)
+      return
+    }
+    setNotifications((data ?? []).map(mapRowToNotification))
+  }, [user])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Live updates — a new notification (order update, QC issue, coupon
+  // issued, etc.) shows up without the user needing to reload the page,
+  // same realtime pattern lib/supabase/chat.ts already uses for messages.
+  useEffect(() => {
+    if (!user) return
+    const supabase = supabaseRef.current
+    const channel = supabase
+      .channel(`notifications:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          setNotifications((prev) => [mapRowToNotification(payload.new as NotificationRow), ...prev])
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user])
+
+  const markAsRead = useCallback(
+    (id: string) => {
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+      supabaseRef.current.from('notifications').update({ read: true }).eq('id', id).then(({ error }) => {
+        if (error) console.error('[notifications] markAsRead failed', error)
+      })
+    },
+    [],
+  )
 
   const markAllAsRead = useCallback(() => {
+    if (!user) return
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-  }, [])
+    supabaseRef.current
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', user.id)
+      .eq('read', false)
+      .then(({ error }) => {
+        if (error) console.error('[notifications] markAllAsRead failed', error)
+      })
+  }, [user])
 
   const dismiss = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id))
+    supabaseRef.current.from('notifications').delete().eq('id', id).then(({ error }) => {
+      if (error) console.error('[notifications] dismiss failed', error)
+    })
   }, [])
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
