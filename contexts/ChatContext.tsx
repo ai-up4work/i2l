@@ -112,14 +112,14 @@ interface ChatContextValue {
 const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, refreshChatHandle } = useAuth()
 
-  // chat_handle lives only in profiles.chat_handle now (single source of
-  // truth — see AuthContext, which no longer carries chatHandle at all).
-  // Falls back to deriveHandle(user.name) until the row loads, or forever
-  // if the user has never set a handle.
-  const [profileHandle, setProfileHandle] = useState<string | null>(null)
-  const handle = user ? profileHandle ?? deriveHandle(user.name) : null
+  // chat_handle is hydrated by AuthContext (from profiles.chat_handle)
+  // alongside the rest of the auth user now, so ChatContext no longer runs
+  // its own profiles query for it — just read user.chatHandle. Falls back
+  // to deriveHandle(user.name) until that resolves, or forever if the user
+  // has never set a handle.
+  const handle = user ? user.chatHandle ?? deriveHandle(user.name) : null
 
   const [isOpen, setIsOpen] = useState(false)
   const [threadId, setThreadId] = useState<string | null>(null)
@@ -130,51 +130,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const supabaseRef = useRef(createClient())
 
-  // Load (or clear) this user's chat_handle from profiles whenever the
-  // signed-in user changes. Keyed on user?.id, same reasoning as the
-  // thread-loading effect below: AuthContext can emit a value-equal but
-  // new `user` object on tab focus/token refresh, and keying on the
-  // object would re-fire this on every one of those.
-  useEffect(() => {
-    if (!user) {
-      setProfileHandle(null)
-      return
-    }
-    let cancelled = false
-    ;(async () => {
-      const { data, error } = await supabaseRef.current
-        .from('profiles')
-        .select('chat_handle')
-        .eq('id', user.id)
-        .maybeSingle()
-      if (cancelled) return
-      if (error) {
-        console.error('[chat] failed to load chat_handle', error)
-        return
-      }
-      setProfileHandle(data?.chat_handle ?? null)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [user?.id])
-
   // Lets other parts of the app (e.g. the profile page, right after a
-  // successful handle update) tell ChatContext to re-read profiles
-  // instead of waiting for a remount or a user.id change to pick it up.
+  // successful handle update) tell ChatContext's consumers to pick up the
+  // new chat_handle, by asking AuthContext to re-read it from profiles.
   const refreshHandle = useCallback(async () => {
-    if (!user) return
-    const { data, error } = await supabaseRef.current
-      .from('profiles')
-      .select('chat_handle')
-      .eq('id', user.id)
-      .maybeSingle()
-    if (error) {
-      console.error('[chat] failed to refresh chat_handle', error)
-      return
-    }
-    setProfileHandle(data?.chat_handle ?? null)
-  }, [user])
+    await refreshChatHandle()
+  }, [refreshChatHandle])
 
   // Resolve (or create) this customer's general support thread and load
   // its history once we know who's logged in.
