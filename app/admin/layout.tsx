@@ -35,7 +35,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <header className="flex flex-none items-center justify-end border-b border-indigo-100 bg-white/60 px-6 py-3">
               <RoleSwitcher />
             </header>
-            <main className="flex flex-1 flex-col overflow-hidden p-6">{children}</main>
+            <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
           </AdminContentShell>
         </div>
       </AdminSidebarProvider>
