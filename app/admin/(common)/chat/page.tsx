@@ -577,7 +577,7 @@ export default function AdminChatPage() {
           `bg-card` panel / `border-ink/10` seam, see the top-of-file
           note on "Surfaces". ── */}
       <div className="flex-none bg-parchment">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-ink/10">
           <div className="flex items-center gap-2">
             <p className="text-lg font-medium text-ink">Chats</p>
             {totalUnread > 0 && (
@@ -628,7 +628,7 @@ export default function AdminChatPage() {
           </div>
         </div>
 
-        <div className="scrollbar-none flex gap-2 overflow-x-auto px-4 pb-3">
+        <div className="scrollbar-none flex gap-2 overflow-x-auto px-4 pb-2 border-b border-ink/10 mt-2">
           {threadsLoading ? (
             <p className="px-1 py-2 text-sm text-ink/40">Loading conversations…</p>
           ) : rows.length === 0 ? (
@@ -693,7 +693,7 @@ export default function AdminChatPage() {
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
-            <div className="flex flex-none items-center gap-3 bg-parchment px-4 py-2.5">
+            <div className="flex flex-none items-center gap-3 bg-parchment px-4 py-2.5 border-b border-ink/10">
               <Avatar
                 name={selectedThread.profiles?.full_name ?? selectedThread.profiles?.email ?? 'Customer'}
                 avatarUrl={selectedThread.profiles?.avatar_url}
