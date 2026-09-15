@@ -1091,6 +1091,46 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['audit_log']['Insert']>
         Relationships: []
       }
+      order_item_issues: {
+        Row: {
+          id: string
+          order_id: string
+          order_item_id: string
+          user_id: string
+          issue_type: string
+          staff_note: string | null
+          customer_note: string | null
+          photo_url: string | null
+          seller_refund_obtained: boolean | null
+          resolution: string
+          personal_coupon_id: string | null
+          whatsapp_sent: boolean
+          whatsapp_sent_at: string | null
+          created_by: string | null
+          resolved_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          order_id: string
+          order_item_id: string
+          user_id: string
+          issue_type: string
+          staff_note?: string | null
+          customer_note?: string | null
+          photo_url?: string | null
+          seller_refund_obtained?: boolean | null
+          resolution?: string
+          personal_coupon_id?: string | null
+          whatsapp_sent?: boolean
+          whatsapp_sent_at?: string | null
+          created_by?: string | null
+          resolved_at?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['order_item_issues']['Insert']>
+        Relationships: []
+      }
       personal_coupons: {
         Row: {
           id: string

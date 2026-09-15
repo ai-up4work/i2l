@@ -189,7 +189,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     categories: ['Fashion', 'Electronics', 'Beauty'],
     storeType: 'marketplace',
     scraperSite: 'tataCliq', // slug is 'tata-cliq'; scraper's ScrapeResult.site returns 'tataCliq'
-    sampleProductUrl: 'https://www.tatacliq.com/mabish-multicolored-printed-top/p-mp000000024095540',
+    sampleProductUrl: 'https://www.tatacliq.com/hop-kids-girls-by-westside-beige-slingbag-design-cotton-aline-dress/p-mp000000031753767',
     sampleProductLabel: 'Mabish',
   },
   {
@@ -203,7 +203,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     categories: ['Beauty', 'Wellness', 'Fashion'],
     storeType: 'marketplace',
     sampleProductUrl:
-      'https://www.nykaa.com/livon-serum-for-dry-unruly-hair-50ml/p/355622?productId=355622&pps=19',
+      'https://www.nykaa.com/tresemme-keratin-smooth-with-argan-oil-shampoo/p/208997?productId=208997&pps=19',
     sampleProductLabel: 'Hair Serum for Women for Dry and Rough Hair',
   },
   {
@@ -233,34 +233,34 @@ export const affiliatedStores: AffiliatedStore[] = [
     sampleProductUrl: `https://www.hopscotch.in/product/1319830/girl's-peach-party-dresses`,
     sampleProductLabel: 'Ruffled Bow Applique Dress',
   },
-    {
-    platform: 'ebay',
-    name: 'eBay',
-    logo: '/logos/ebay-squared.png',
-    url: 'https://www.ebay.com',
-    country: 'United States',
-    flag: '🇺🇸',
-    description: 'The original global marketplace — new, used, and rare finds, from electronics to collectibles.',
-    categories: ['Electronics', 'Collectibles', 'Fashion'],
-    storeType: 'marketplace',
-    sampleProductUrl: 'https://www.ebay.com/itm/366055212799?var=635850429733',
-    sampleProductLabel: 'Wireless Bluetooth Earbuds',
-  },
-  {
-    platform: 'aliexpress',
-    name: 'AliExpress',
-    logo: '/logos/aliexpress-squared.png',
-    url: 'https://www.aliexpress.com',
-    country: 'China',
-    flag: '🇨🇳',
-    description: 'Massive catalog direct from manufacturers — electronics, gadgets, home goods, and fashion at low prices.',
-    categories: ['Electronics', 'Gadgets', 'Home', 'Fashion'],
-    storeType: 'marketplace',
-    scraperSite: 'Aliexpress', // preserving original preset-link casing (capital A)
-    sampleProductUrl:
-      'https://www.aliexpress.com/item/1005010090865518.html?spm=a2g0o.productlist.main.3.2bd5fyb2fyb2AP&algo_pvid=c33373f1-7604-4220-ade3-7adc7652e0a0&algo_exp_id=c33373f1-7604-4220-ade3-7adc7652e0a0-2&pdp_ext_f=%7B%22order%22%3A%221215%22%2C%22spu_best_type%22%3A%22price%22%2C%22eval%22%3A%221%22%2C%22fromPage%22%3A%22search%22%7D&pdp_npi=6%40dis%21LKR%2119803.98%219843.34%21%21%21360.89%21179.38%21%402140cf5017893760822927147e115f%2112000052306071265%21sea%21LK%210%21ABX%211%210%21n_tag%3A-29910%3Bd%3Aef17001a%3Bm03_new_user%3A-29895%3BpisId%3A5000000216878933&curPageLogUid=DnaE0SYHPS97&utparam-url=scene%3Asearch%7Cquery_from%3A%7Cx_object_id%3A1005010090865518%7C_p_origin_prod%3A',
-    sampleProductLabel: `Talenza Women's Plush Pullover Fashion Solid Loose High Street Sweaters Vintage Chic Strapless Autumn Casual Female Pullovers`,
-  },
+  // {
+  //   platform: 'ebay',
+  //   name: 'eBay',
+  //   logo: '/logos/ebay-squared.png',
+  //   url: 'https://www.ebay.com',
+  //   country: 'United States',
+  //   flag: '🇺🇸',
+  //   description: 'The original global marketplace — new, used, and rare finds, from electronics to collectibles.',
+  //   categories: ['Electronics', 'Collectibles', 'Fashion'],
+  //   storeType: 'marketplace',
+  //   sampleProductUrl: 'https://www.ebay.com/itm/366055212799?var=635850429733',
+  //   sampleProductLabel: 'Wireless Bluetooth Earbuds',
+  // },
+  // {
+  //   platform: 'aliexpress',
+  //   name: 'AliExpress',
+  //   logo: '/logos/aliexpress-squared.png',
+  //   url: 'https://www.aliexpress.com',
+  //   country: 'China',
+  //   flag: '🇨🇳',
+  //   description: 'Massive catalog direct from manufacturers — electronics, gadgets, home goods, and fashion at low prices.',
+  //   categories: ['Electronics', 'Gadgets', 'Home', 'Fashion'],
+  //   storeType: 'marketplace',
+  //   scraperSite: 'Aliexpress', // preserving original preset-link casing (capital A)
+  //   sampleProductUrl:
+  //     'https://www.aliexpress.com/item/1005010090865518.html?spm=a2g0o.productlist.main.3.2bd5fyb2fyb2AP&algo_pvid=c33373f1-7604-4220-ade3-7adc7652e0a0&algo_exp_id=c33373f1-7604-4220-ade3-7adc7652e0a0-2&pdp_ext_f=%7B%22order%22%3A%221215%22%2C%22spu_best_type%22%3A%22price%22%2C%22eval%22%3A%221%22%2C%22fromPage%22%3A%22search%22%7D&pdp_npi=6%40dis%21LKR%2119803.98%219843.34%21%21%21360.89%21179.38%21%402140cf5017893760822927147e115f%2112000052306071265%21sea%21LK%210%21ABX%211%210%21n_tag%3A-29910%3Bd%3Aef17001a%3Bm03_new_user%3A-29895%3BpisId%3A5000000216878933&curPageLogUid=DnaE0SYHPS97&utparam-url=scene%3Asearch%7Cquery_from%3A%7Cx_object_id%3A1005010090865518%7C_p_origin_prod%3A',
+  //   sampleProductLabel: `Talenza Women's Plush Pullover Fashion Solid Loose High Street Sweaters Vintage Chic Strapless Autumn Casual Female Pullovers`,
+  // },
 
   // ── Local sellers (direct catalog / WhatsApp order flow) ─────────────────
   {

@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowRight,
@@ -31,6 +31,8 @@ import {
   type Order,
   type TimelineIconKey,
 } from '@/contexts/Ordercontexts'
+import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from '@/lib/supabase/qc-issues'
+import QcIssueBanner from '@/components/shared/QcIssueBanner'
 
 // DESIGN PASS: same status → accent mapping used on the My Orders list
 // page, reused here for the order-picker and recent-orders rows so a
@@ -408,6 +410,7 @@ function NoOrdersEmptyState({ onBrowse }: { onBrowse: () => void }) {
 
 function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order; initialTab?: DetailTab }) {
   const [activeTab, setActiveTab] = useState<DetailTab>(initialTab)
+  const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
   const currentIndex = shippingStepIndex(order.status)
   const isCancelled = order.status === 'Cancelled'
   const recipient = getOrderRecipient(order)
@@ -418,6 +421,12 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
 
   const currencySymbol = order.currency === 'LKR' ? 'Rs.' : '₹'
   const total = orderTotal(order)
+
+  useEffect(() => {
+    const itemIds = order.items.map((i) => i.id).filter((id): id is string => !!id)
+    if (!itemIds.length) return
+    fetchQcIssuesForItems(itemIds).then(setQcIssuesByItemId)
+  }, [order.items])
 
   const stepCount = SHIPPING_FLOW.length
   const halfStep = 50 / stepCount
@@ -660,19 +669,24 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
                 </h3>
                 <div className="space-y-4">
                   {order.items.map((item, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="h-12 w-12 flex-none rounded-xl bg-ink/5 object-cover"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink">{item.name}</p>
-                        <p className="text-xs text-ink/50">{itemMeta(item)}</p>
+                    <div key={i}>
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="h-12 w-12 flex-none rounded-xl bg-ink/5 object-cover"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-ink">{item.name}</p>
+                          <p className="text-xs text-ink/50">{itemMeta(item)}</p>
+                        </div>
+                        <p className="flex-none text-sm font-semibold text-ink">
+                          {currencySymbol} {(item.qty * item.unitPrice).toLocaleString()}
+                        </p>
                       </div>
-                      <p className="flex-none text-sm font-semibold text-ink">
-                        {currencySymbol} {(item.qty * item.unitPrice).toLocaleString()}
-                      </p>
+                      {item.id && qcIssuesByItemId.get(item.id) && (
+                        <QcIssueBanner issue={qcIssuesByItemId.get(item.id)!} />
+                      )}
                     </div>
                   ))}
                 </div>

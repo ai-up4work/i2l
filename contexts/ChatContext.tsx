@@ -1,3 +1,4 @@
+// contexts/ChatContext.tsx
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -105,20 +106,13 @@ interface ChatContextValue {
   markRead: () => void
   isLocked: boolean
   handle: string | null
-  refreshHandle: () => Promise<void>
   getWhatsAppLink: (prefillText?: string) => string
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, refreshChatHandle } = useAuth()
-
-  // chat_handle is hydrated by AuthContext (from profiles.chat_handle)
-  // alongside the rest of the auth user now, so ChatContext no longer runs
-  // its own profiles query for it — just read user.chatHandle. Falls back
-  // to deriveHandle(user.name) until that resolves, or forever if the user
-  // has never set a handle.
+  const { user, isAuthenticated } = useAuth()
   const handle = user ? user.chatHandle ?? deriveHandle(user.name) : null
 
   const [isOpen, setIsOpen] = useState(false)
@@ -129,13 +123,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [sendError, setSendError] = useState<string | null>(null)
 
   const supabaseRef = useRef(createClient())
-
-  // Lets other parts of the app (e.g. the profile page, right after a
-  // successful handle update) tell ChatContext's consumers to pick up the
-  // new chat_handle, by asking AuthContext to re-read it from profiles.
-  const refreshHandle = useCallback(async () => {
-    await refreshChatHandle()
-  }, [refreshChatHandle])
 
   // Resolve (or create) this customer's general support thread and load
   // its history once we know who's logged in.
@@ -253,7 +240,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     markRead,
     isLocked: !isAuthenticated,
     handle,
-    refreshHandle,
     getWhatsAppLink,
   }
 

@@ -28,6 +28,7 @@ import {
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useDashboard } from '@/contexts/DashboardContext'
 import { OrdersProvider, useOrders } from '@/contexts/Ordercontexts'
+import { useLoyalty, effectiveCouponStatus, type Coupon } from '@/contexts/Loyaltycontext'
 import {
   getDualDeliveryPricing,
   formatLKR,
@@ -411,10 +412,13 @@ function CartPageContent() {
 
   const cart = useCart()
   const dashboard = useDashboard()
+  const loyalty = useLoyalty()
   const router = useRouter()
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
   const [confirming, setConfirming] = useState(false)
   const [discountCode, setDiscountCode] = useState('')
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null)
+  const [couponError, setCouponError] = useState<string | null>(null)
 
   const [breakdownLineId, setBreakdownLineId] = useState<string | null>(null)
   const breakdownLine = cart.items.find((line) => line.product.id === breakdownLineId) ?? null
@@ -441,7 +445,7 @@ function CartPageContent() {
     confirmsRestrictions &&
     confirmsPreowned
 
-  const { priceSubtotalLKR, serviceChargeSubtotalLKR, deliverySubtotalLKR, grandTotalLKR } = useMemo(() => {
+  const { priceSubtotalLKR, serviceChargeSubtotalLKR, deliverySubtotalLKR, discountLKR, grandTotalLKR } = useMemo(() => {
     let priceSubtotalLKR = 0
     let serviceChargeSubtotalLKR = 0
     let deliverySubtotalLKR = 0
@@ -454,16 +458,61 @@ function CartPageContent() {
       deliverySubtotalLKR += option.deliveryFeeLKR * line.qty
     })
 
+    // Discount only ever applies to the product price, never shipping/
+    // service charges — same "coupon value is the product's value, not
+    // the whole order" rule the QC-issue compensation coupons are issued
+    // under (see lib/supabase/qc-issues.ts).
+    let discountLKR = 0
+    if (appliedCoupon && priceSubtotalLKR >= appliedCoupon.minOrderValue) {
+      discountLKR =
+        appliedCoupon.discountType === 'percent'
+          ? Math.round(priceSubtotalLKR * (appliedCoupon.discountValue / 100))
+          : appliedCoupon.discountValue
+      if (appliedCoupon.maxDiscount != null) discountLKR = Math.min(discountLKR, appliedCoupon.maxDiscount)
+      discountLKR = Math.min(discountLKR, priceSubtotalLKR)
+    }
+
     return {
       priceSubtotalLKR,
       serviceChargeSubtotalLKR,
       deliverySubtotalLKR,
-      grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR,
+      discountLKR,
+      grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR - discountLKR,
     }
-  }, [cart.items, deliveryChoice])
+  }, [cart.items, deliveryChoice, appliedCoupon])
 
   const pendingRequestCount = useOrders().orders.length
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
+
+  const handleApplyCoupon = () => {
+    setCouponError(null)
+    const code = discountCode.trim()
+    if (!code) return
+    const match = loyalty.coupons.find((c) => c.code.toLowerCase() === code.toLowerCase())
+    if (!match) {
+      setCouponError('That code isn\u2019t valid.')
+      return
+    }
+    const status = effectiveCouponStatus(match)
+    if (status === 'used') {
+      setCouponError('You\u2019ve already used that code.')
+      return
+    }
+    if (status === 'expired') {
+      setCouponError('That code has expired.')
+      return
+    }
+    if (priceSubtotalLKR < match.minOrderValue) {
+      setCouponError(`This code needs an order of at least Rs. ${match.minOrderValue.toLocaleString('en-LK')}.`)
+      return
+    }
+    setAppliedCoupon(match)
+  }
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null)
+    setCouponError(null)
+  }
 
   const handleConfirm = async () => {
     if (cart.items.length === 0 || confirming || !detailsComplete) return
@@ -490,6 +539,9 @@ function CartPageContent() {
       setConfirming(false)
       return
     }
+    // Mark the coupon used only after the order actually succeeded —
+    // an order failure shouldn't burn a one-time-use code.
+    if (appliedCoupon) loyalty.useCoupon(appliedCoupon.id)
     cart.clearCart()
     router.push('/account/orders')
   }
@@ -733,25 +785,48 @@ function CartPageContent() {
           </div>
 
           <div className="border-t border-ink/10 px-6 py-5">
-            <div className="flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-ink/15 bg-white px-3.5 py-2.5">
-                <Tag size={14} className="flex-none text-ink/35" />
-                <input
-                  type="text"
-                  value={discountCode}
-                  onChange={(e) => setDiscountCode(e.target.value)}
-                  placeholder="Discount code"
-                  className="w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-ink/35 focus:outline-none"
-                />
+            {appliedCoupon ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-teal/25 bg-teal/[0.06] px-3.5 py-2.5">
+                <div className="flex items-center gap-2 text-sm text-teal-deep">
+                  <Tag size={14} className="flex-none" />
+                  <span className="font-semibold">{appliedCoupon.code}</span>
+                  <span className="text-teal-deep/70">applied</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveCoupon}
+                  className="flex-none text-xs font-semibold text-ink/50 underline decoration-dotted underline-offset-2 hover:text-ink"
+                >
+                  Remove
+                </button>
               </div>
-              <button
-                type="button"
-                disabled={!discountCode.trim()}
-                className="flex-none rounded-xl border border-ink/15 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Apply
-              </button>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="flex flex-1 items-center gap-2 rounded-xl border border-ink/15 bg-white px-3.5 py-2.5">
+                  <Tag size={14} className="flex-none text-ink/35" />
+                  <input
+                    type="text"
+                    value={discountCode}
+                    onChange={(e) => {
+                      setDiscountCode(e.target.value)
+                      if (couponError) setCouponError(null)
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleApplyCoupon()}
+                    placeholder="Discount code"
+                    className="w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-ink/35 focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyCoupon}
+                  disabled={!discountCode.trim()}
+                  className="flex-none rounded-xl border border-ink/15 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Apply
+                </button>
+              </div>
+            )}
+            {couponError && <p className="mt-2 text-xs font-semibold text-red-600">{couponError}</p>}
 
             <div className="mt-4 space-y-2 border-t border-ink/10 pt-4">
               <p className="text-xs font-semibold text-ink/50">
@@ -769,6 +844,12 @@ function CartPageContent() {
                 <span>Delivery</span>
                 <span className="tabular-nums">{formatLKR(deliverySubtotalLKR)}</span>
               </div>
+              {discountLKR > 0 && (
+                <div className="flex items-center justify-between text-sm text-teal-deep">
+                  <span>Discount ({appliedCoupon?.code})</span>
+                  <span className="tabular-nums">-{formatLKR(discountLKR)}</span>
+                </div>
+              )}
               <div className="mt-1 flex items-center justify-between border-t border-ink/10 pt-3">
                 <span className="text-base font-semibold text-ink">Total</span>
                 <span className="font-display text-2xl text-ink">{formatLKR(grandTotalLKR)}</span>

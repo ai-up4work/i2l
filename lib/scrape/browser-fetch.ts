@@ -340,7 +340,32 @@ export async function fetchRendered(
     timeoutMs = 25000,
     waitForSelector,
     settleMs = 800,
-  }: { timeoutMs?: number; waitForSelector?: string; settleMs?: number } = {}
+    postNavigate,
+  }: {
+    timeoutMs?: number
+    waitForSelector?: string
+    settleMs?: number
+    /**
+     * Optional hook run AFTER the initial page-load wait
+     * (waitForSelector or settleMs, whichever applied) and BEFORE
+     * page.content() is captured. Intended for sites where some data
+     * only appears after a genuine user interaction — e.g. clicking a
+     * "view size chart" trigger that mounts a modal — rather than
+     * merely waiting longer for something to hydrate on its own.
+     *
+     * Deliberately generic and site-agnostic: this file has no
+     * knowledge of which sites need this or why. Callers (parsers.ts,
+     * via a helper the relevant extractor module owns — see e.g.
+     * extractors/hopscotch.ts's openHopscotchSizeChartModal) supply
+     * the actual interaction. Any error thrown here is caught and
+     * logged, not rethrown — a failed click shouldn't take down an
+     * otherwise-successful render fetch; the caller's own DOM
+     * extraction simply won't find what the click would have
+     * revealed, which is a normal (if disappointing) partial-data
+     * outcome elsewhere in this pipeline too.
+     */
+    postNavigate?: (page: Page) => Promise<void>
+  } = {}
 ): Promise<BrowserFetchResult> {
   let context: BrowserContext | null = null
   try {
@@ -356,6 +381,15 @@ export async function fetchRendered(
       await page.waitForSelector(waitForSelector, { timeout: 6000 }).catch(() => {})
     } else {
       await page.waitForTimeout(settleMs)
+    }
+
+    if (postNavigate) {
+      try {
+        await postNavigate(page)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.warn(`[browser-fetch] postNavigate hook failed for ${url}: ${msg}. Continuing with page as-is.`)
+      }
     }
 
     const html = await page.content()

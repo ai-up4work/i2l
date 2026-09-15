@@ -378,7 +378,7 @@ async function setCachedMeeshoHtml(url: string, html: string): Promise<void> {
 // concrete remedy ScraperAPI itself points at, before finally moving
 // on to the next key in the pool.
 const FREE_RETRYABLE_500_RE = /will not be charged/i
-const MAX_FREE_RETRIES_PER_KEY = 2
+const MAX_FREE_RETRIES_PER_KEY = 0
 
 type ScraperApiAttempt =
   | { ok: true; html: string }

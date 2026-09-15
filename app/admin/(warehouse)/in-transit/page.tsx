@@ -65,7 +65,7 @@ export default function InTransitPage() {
   const [courierFilter, setCourierFilter] = useState<string>("All couriers")
   const [statusTab, setStatusTab] = useState<"all" | DeliveryStatus>("all")
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [justShipped, setJustDelivered] = useState<string[]>([])
+  const [justShipped, setJustShipped] = useState<string[]>([])
 
   const couriers = useMemo(() => {
     const set = new Set(visibleInTransitLines.map((l) => l.courier))
@@ -119,23 +119,23 @@ export default function InTransitPage() {
     if (selected.size === 0) return
     const ids = Array.from(selected)
     ids.forEach((orderId) => markShipped(orderId))
-    setJustDelivered(ids)
+    setJustShipped(ids)
     setSelected(new Set())
-    setTimeout(() => setJustDelivered([]), 4000)
+    setTimeout(() => setJustShipped([]), 4000)
   }
 
   // Single-row equivalent — fired by clicking the row itself, instead of
   // navigating to the order page.
   const handleSingleShip = (orderId: string) => {
     markShipped(orderId)
-    setJustDelivered([orderId])
+    setJustShipped([orderId])
     setSelected((prev) => {
       if (!prev.has(orderId)) return prev
       const next = new Set(prev)
       next.delete(orderId)
       return next
     })
-    setTimeout(() => setJustDelivered([]), 4000)
+    setTimeout(() => setJustShipped([]), 4000)
   }
 
   const actionableFiltered = filtered.filter(canActOnInTransitLine)
@@ -158,8 +158,8 @@ export default function InTransitPage() {
             <div>
               <h1 className="font-display text-3xl font-semibold text-ink">In transit</h1>
               <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Orders handed off to a courier from {scopeLabel}, en route to the customer. Click a row to mark it
-                delivered.
+                Orders handed off to a courier from {scopeLabel}, crossing the border. Use "Mark shipped" once an
+                order arrives at the Sri Lanka warehouse.
               </p>
             </div>
           </div>

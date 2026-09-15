@@ -58,6 +58,8 @@ export type OrderStatus = 'Processing' | 'Quality Check' | 'Shipped' | 'Delivere
 export type SellerType = 'store' | 'individual'
 
 export type OrderItem = {
+  /** order_items.id — real row uuid. Optional only because MOCK_ORDERS (unused now, kept for reference) doesn't set it. Used to look up a QC issue for this specific item (see fetchQcIssuesForItem in lib/supabase/qc-issues.ts). */
+  id?: string
   name: string
   variant?: string // e.g. "Size UK 9" or "Color: Black" — omit if not applicable
   qty: number
@@ -854,6 +856,7 @@ function rowToOrder(row: OrderRow): Order {
       ? { name: row.addresses.recipient_name, city: row.addresses.city, country: row.addresses.country }
       : undefined,
     items: row.order_items.map((it) => ({
+      id: it.id,
       name: it.title,
       variant: it.variant_label ?? undefined,
       qty: it.quantity,

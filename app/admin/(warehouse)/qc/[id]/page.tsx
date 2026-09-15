@@ -16,6 +16,8 @@ import {
 } from "lucide-react"
 
 import { useAdminData, isOrderAgeBreached } from "@/contexts/AdminDataContext"
+import { fetchOrderIdentity } from "@/lib/supabase/orders-admin"
+import { createQcIssue } from "@/lib/supabase/qc-issues"
 import { CHANNEL_LABEL, QC_STATUS_LABEL, type QCStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass, groupClass, SectionHeading } from "@/components/admin/seller/shared"
@@ -60,7 +62,7 @@ const STATUS_TONE_FOR: Record<QCStatus, StatusTone> = {
 export default function QCDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
-  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading } = useAdminData()
+  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading, currentUser } = useAdminData()
   // qcLines[].id is `${orderUuid}:${itemUuid}` (see AdminDataContext's
   // purchaseLines/qcLines derivation) — the colon can arrive
   // percent-encoded depending on how it was navigated to, exactly like
@@ -110,6 +112,19 @@ export default function QCDetailPage() {
     if (status === "pending" || !canAct) return
     setSaving(true)
     submitQcResult(line!.purchaseId, status, note)
+    if (status === "flagged") {
+      fetchOrderIdentity(line!.orderId).then((identity) => {
+        if (!identity) return
+        createQcIssue({
+          orderId: identity.orderId,
+          orderItemId: line!.orderItemId,
+          userId: identity.userId,
+          issueType: "faulty_unit",
+          staffNote: note,
+          staffId: currentUser.id,
+        })
+      })
+    }
     window.setTimeout(() => {
       setSaving(false)
       setSaved(true)

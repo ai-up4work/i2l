@@ -436,6 +436,14 @@ export async function fetchOrdersByQueue(queue: Exclude<AdminQueue, null>, siteI
   return candidates.filter((o) => getAdminQueue(o.stage, o.substage) === queue)
 }
 
+/** Resolves the real customer user_id + order uuid from a display_id — needed wherever a feature (like QC-issue resolution) has to write a row for "this order's customer" but only has the display_id the UI works with. */
+export async function fetchOrderIdentity(displayId: string): Promise<{ orderId: string; userId: string } | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase.from('orders').select('id, user_id').eq('display_id', displayId).maybeSingle()
+  if (error || !data) return null
+  return { orderId: data.id, userId: data.user_id }
+}
+
 /** One order by its `display_id` (the human-facing "WD-..." id used in every admin URL). */
 export async function fetchAdminOrder(displayId: string): Promise<AdminOrder | null> {
   const supabase = createClient()

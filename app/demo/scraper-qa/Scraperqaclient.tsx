@@ -1,7 +1,7 @@
 // app/demo/scraper-qa/ScraperQaClient.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   ExternalLink,
@@ -51,6 +51,8 @@ type CaseState = {
   status: TestStatus
   comment: string
 }
+
+const DEFAULT_CASE_STATE: CaseState = { status: 'untested', comment: '' }
 
 const REVIEW_STORAGE_KEY = 'scraper-qa-review-v1'
 
@@ -146,6 +148,8 @@ type FeedbackEntry = {
   comment: string
   submitted: boolean
 }
+
+const DEFAULT_FEEDBACK_ENTRY: FeedbackEntry = { verdict: null, comment: '', submitted: false }
 
 const FEEDBACK_STORAGE_KEY = 'scraper-qa-feedback-v1'
 
@@ -399,12 +403,42 @@ export default function ScraperQaClient() {
 
   const [feedbackState, setFeedbackState] = useState<Record<string, FeedbackEntry>>({})
 
+  // Gates prefillUnavailableNote (called from inside an async fetch
+  // .then, well after mount) so it doesn't fire before the load effect
+  // below has had a chance to populate reviewState from localStorage.
+  // Not used to gate the save effects anymore — see reviewSaveSkip /
+  // feedbackSaveSkip below for why that needs its own, independent
+  // ref per effect rather than one shared flag.
+  const hydrated = useRef(false)
+
+  // Each save effect must skip its OWN first run, not just check a
+  // shared "have we loaded yet" flag. On mount, the load effect below
+  // calls setReviewState(loaded)/setFeedbackState(loaded) — both async,
+  // batched updates — and sets hydrated.current = true synchronously in
+  // the same pass. The two save effects then run in that SAME commit,
+  // see hydrated.current already true, and would write their CURRENT
+  // closure value (still the original `{}` from the very first render,
+  // since the load's setState hasn't been applied yet) straight to
+  // localStorage — silently overwriting whatever was already saved
+  // there, a heartbeat before the real loaded value gets written back
+  // on the next render. Usually invisible, but anything that reads
+  // localStorage in that window (another tab, a fast unmount) sees the
+  // wipe. A per-effect "skip my first run" ref sidesteps this
+  // regardless of effect ordering or how many renders the load takes.
+  const reviewSaveSkip = useRef(true)
+  const feedbackSaveSkip = useRef(true)
+
   useEffect(() => {
     setReviewState(loadReviewState())
     setFeedbackState(loadFeedbackState())
+    hydrated.current = true
   }, [])
 
   useEffect(() => {
+    if (reviewSaveSkip.current) {
+      reviewSaveSkip.current = false
+      return
+    }
     try {
       window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(reviewState))
     } catch {
@@ -413,6 +447,10 @@ export default function ScraperQaClient() {
   }, [reviewState])
 
   useEffect(() => {
+    if (feedbackSaveSkip.current) {
+      feedbackSaveSkip.current = false
+      return
+    }
     try {
       window.localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(feedbackState))
     } catch {
@@ -420,17 +458,22 @@ export default function ScraperQaClient() {
     }
   }, [feedbackState])
 
+  // Reads from the LIVE reviewState — fine for rendering, where a
+  // render always has the current committed state. NOT safe to call
+  // from inside a setReviewState updater (its `prev` argument may be
+  // newer than this closure's `reviewState`) — every updater below
+  // reads `prev[url]` directly instead, for exactly that reason.
   function getCase(url: string): CaseState {
-    return reviewState[url] ?? { status: 'untested', comment: '' }
+    return reviewState[url] ?? DEFAULT_CASE_STATE
   }
 
   function getFeedback(url: string): FeedbackEntry {
-    return feedbackState[url] ?? { verdict: null, comment: '', submitted: false }
+    return feedbackState[url] ?? DEFAULT_FEEDBACK_ENTRY
   }
 
   function cycleStatus(url: string) {
     setReviewState((prev) => {
-      const current = getCase(url)
+      const current = prev[url] ?? DEFAULT_CASE_STATE
       const next: TestStatus =
         current.status === 'untested' ? 'pass' : current.status === 'pass' ? 'fail' : 'untested'
       return { ...prev, [url]: { ...current, status: next } }
@@ -438,12 +481,30 @@ export default function ScraperQaClient() {
   }
 
   function setComment(url: string, comment: string) {
-    setReviewState((prev) => ({ ...prev, [url]: { ...getCase(url), comment } }))
+    setReviewState((prev) => ({
+      ...prev,
+      [url]: { ...(prev[url] ?? DEFAULT_CASE_STATE), comment },
+    }))
   }
 
   function prefillUnavailableNote(url: string) {
+    // Can fire from inside the fetch `.then` before the load effect has
+    // run, on a page opened directly with `?url=...`. At that point
+    // reviewState is still empty, so bail rather than stamp a note that
+    // the load effect would then appear to "erase" a moment later.
+    if (!hydrated.current) return
     setReviewState((prev) => {
-      const current = getCase(url)
+      // FIX: was `getCase(url)`, which reads the `reviewState` this
+      // closure was created with — a snapshot from whenever the
+      // enclosing effect last re-ran (i.e. whenever `activeUrl` last
+      // changed), NOT from whenever this fetch actually resolves. If
+      // you changed this URL's status or note anywhere in between —
+      // easy to do, since this fires from an async .then after a real
+      // network round trip — that edit lived only in `prev`, and this
+      // update would silently overwrite the whole per-URL object with
+      // the stale snapshot plus the new comment, discarding it. Always
+      // derive `current` from `prev` inside a setState updater.
+      const current = prev[url] ?? DEFAULT_CASE_STATE
       if (current.comment) return prev
       return {
         ...prev,
@@ -458,18 +519,24 @@ export default function ScraperQaClient() {
   function setFeedbackVerdict(url: string, verdict: FeedbackVerdict) {
     setFeedbackState((prev) => ({
       ...prev,
-      [url]: { ...getFeedback(url), verdict, submitted: false },
+      [url]: { ...(prev[url] ?? DEFAULT_FEEDBACK_ENTRY), verdict, submitted: false },
     }))
   }
 
   function setFeedbackComment(url: string, comment: string) {
-    setFeedbackState((prev) => ({ ...prev, [url]: { ...getFeedback(url), comment } }))
+    setFeedbackState((prev) => ({
+      ...prev,
+      [url]: { ...(prev[url] ?? DEFAULT_FEEDBACK_ENTRY), comment },
+    }))
   }
 
   function handleFeedbackSubmit(url: string, currentResult: ScrapeResult) {
     const entry = getFeedback(url)
     if (!entry.verdict) return
-    setFeedbackState((prev) => ({ ...prev, [url]: { ...entry, submitted: true } }))
+    setFeedbackState((prev) => ({
+      ...prev,
+      [url]: { ...(prev[url] ?? DEFAULT_FEEDBACK_ENTRY), submitted: true },
+    }))
     submitFeedback({ url, verdict: entry.verdict, comment: entry.comment, result: currentResult })
   }
 
@@ -495,7 +562,7 @@ export default function ScraperQaClient() {
     setReviewState((prev) => {
       const next = { ...prev }
       selectedUrls.forEach((url) => {
-        next[url] = { ...getCase(url), status }
+        next[url] = { ...(prev[url] ?? DEFAULT_CASE_STATE), status }
       })
       return next
     })
