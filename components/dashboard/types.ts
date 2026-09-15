@@ -118,6 +118,21 @@ export type Draft = {
   image: string
   isLiquid: boolean | null
   hasBatteries: boolean | null
+  /**
+   * True when the most recent scrape for this draft came back ogOnly
+   * (see ScrapeResult.ogOnly's own doc comment) — meaning whatever
+   * price/currency it did find, it structurally could NOT have checked
+   * for a size/color/variant picker. og-only.ts never inspects the DOM
+   * for one; it only ever reads OG/JSON-LD meta tags, which don't carry
+   * variant data at all. So this isn't "we checked and there are no
+   * variants" — it's "we have no way to know", which for a real
+   * clothing/footwear item is very often false. Used by confirmRequest
+   * to both gate Channel 2 auto-pricing (see applyScrapeResultToDraft)
+   * and, when it DOES fall through to Channel 3, to tell the customer
+   * and ops explicitly that a variant needs confirming rather than
+   * silently ordering "one of however many this comes in".
+   */
+  needsVariantConfirmation?: boolean
 }
 
 export type WarehouseAddress = {

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag } from 'lucide-react'
+import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion } from 'lucide-react'
+import RequestActionButton from '@/components/stores/RequestActionButton'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
 import FlipkartProductView from '@/components/platforms/FlipkartProductView'
@@ -10,13 +11,16 @@ import MyntraProductView from '@/components/platforms/MyntraProductView'
 import EbayProductView from '@/components/platforms/EbayProductView'
 import AjioProductView from '@/components/platforms/AjioProductView'
 import JioMartProductView from '@/components/platforms/JioMartProductView'
+import FirstCryProductView from '@/components/platforms/Firstcryproductview'
+import TataCliqProductView from '@/components/platforms/Tatacliqproductview'
+import NykaaProductView from '@/components/platforms/Nykaaproductview'
+import HopscotchProductView from '@/components/platforms/Hopscotchproductview'
+import WestsideProductView from '@/components/platforms/Westsideproductview'
 import SnapdealProductView from '@/components/platforms/SnapdealProductView'
 import ShopifyProductView from '@/components/platforms/Shopifyproductview'
 import WooCommerceProductView from '@/components/platforms/Woocommerceproductview'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
-import { HEADER_BAR_HEIGHT } from '@/components/shared/Header'
-import { MOBILE_BOTTOM_NAV_HEIGHT } from '@/components/dashboard/MobileBottomNav'
 import Image from 'next/image'
 
 /**
@@ -36,40 +40,27 @@ import Image from 'next/image'
  * already displays the title/store name above it, so repeating a
  * "Product details" label here was redundant.
  *
- * Panel bounds: at ALL breakpoints, the top of the panel follows
- * --account-header-h (set by AccountShell to the Topbar/Header height
- * normally, or to the WelcomeBanner's live height / 0 while this modal
- * is open — see AccountShell for the full explanation). This lets the
- * banner visually "push" the panel down while it's open, and lets the
- * panel expand to fill that space the instant the banner is dismissed,
- * on desktop just as it already did on mobile.
- *
- * Only `bottom` differs by breakpoint: below 1024px there's a real
- * fixed mobile bottom nav to clear, so bottom reserves
- * MOBILE_BOTTOM_NAV_HEIGHT + safe-area inset. At 1024px+ there's no
- * bottom nav, so bottom resets to 0.
- *
- * (Previously, `top` was ALSO force-reset to 0 at 1024px+, which broke
- * the banner-push behavior on desktop entirely — the panel ignored
- * --account-header-h and always started at the very top of the
- * viewport regardless of whether the banner was open. Fixed below.)
+ * FULL-VIEWPORT OVERLAY: this modal now always covers the ENTIRE
+ * screen (top: 0, bottom: 0), regardless of --account-header-h, the
+ * WelcomeBanner, or the mobile bottom nav. Those all live underneath
+ * it and are irrelevant while it's open — AccountShell no longer
+ * renders WelcomeBanner at all while this modal is open (see that
+ * file), so there's nothing left for this modal to "push down" for or
+ * leave a gap above. Previously the panel's top/bottom followed
+ * --account-header-h and MOBILE_BOTTOM_NAV_HEIGHT so the banner could
+ * visually sit above it — that entire mechanism is gone now.
  *
  * Backdrop bounds: the dimmed/blurred backdrop shares the same
  * .item-overlay-bounds top/bottom offsets as the panel (inset-x-0
- * instead of inset-0), so it never paints over whatever is meant to
- * stay visible above the panel (banner, or nothing once dismissed).
+ * instead of inset-0), so both now simply span the full viewport.
  *
  * Click-through fix: the outer `fixed inset-0` wrapper used to be a
  * fully "live" hit-target for its entire box, even in the region above
  * .item-overlay-bounds (the gap left uncovered on mobile, where the
- * WelcomeBanner lives, since --account-header-h only accounts for
- * Topbar/Header height, not the banner). That transparent gap still
- * intercepted clicks meant for whatever was underneath, at z-20 —
- * i.e. WelcomeBanner's "Details" link and dismiss button were dead
- * while this modal was open, even though nothing was visibly on top of
- * them. Fix: the outer wrapper is now `pointer-events-none`, and only
- * the two actually-visible pieces — the backdrop and the panel — opt
- * back in with `pointer-events-auto`. Nothing else changed.
+ * WelcomeBanner lived). Since the panel now always spans the full
+ * viewport, that gap no longer exists — but the wrapper stays
+ * `pointer-events-none` with only the backdrop/panel opting back in,
+ * since that's still correct and harmless.
  *
  * Loading state: instead of a centered spinner, the loading state now
  * renders <ProductSkeleton /> — a pulsing placeholder shaped like the
@@ -146,7 +137,7 @@ function toProductSnapshot(result: ScrapeResult) {
 // Fallback for an unrecognized result.site — now also renders its own
 // StoreCommercePanel, same as every named platform view.
 function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
-  const { result } = props
+  const { result, qty, onQtyChange, onRequestReview, loading, canAct } = props
   const images = result.images?.length ? result.images : []
   return (
     <div className="grid gap-6 sm:grid-cols-2">
@@ -168,6 +159,60 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
         <p className="mt-2 font-display text-xl text-ink">
           {result.currencyCode ?? ''} {result.price ?? '—'}
         </p>
+
+        {/* We couldn't fully read this listing — no dedicated extractor
+            for this site, so we're going off the page's own basic tags
+            (see ScrapeResult.ogOnly's doc comment): no confirmed
+            size/color options, and pricing that hasn't been double-
+            checked. Framed as "we'll confirm it with you", not
+            "something's broken" — it isn't, this is just handed to a
+            real person instead of being auto-confirmed, same as any
+            link our system can't fully read on its own. No "Add to
+            Cart" here on purpose — only "Request this item", which
+            always gets a human's eyes on the price and variant before
+            anything is charged (see confirmRequest/
+            applyScrapeResultToDraft in DashboardContext.tsx). */}
+        <div className="mt-4 flex items-start gap-2 rounded-xl bg-teal/[0.06] p-3 text-sm text-ink/70 ring-1 ring-inset ring-teal/15">
+          <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
+          <span>
+            This one needs a quick manual check — sizes, colors, and the final price. Send us the request and our
+            team will confirm everything with you before anything is charged.
+          </span>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-ink/50 transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums text-ink">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-ink/50 transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
+          <RequestActionButton
+            onClick={onRequestReview}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            icon={<ShoppingCart size={16} />}
+            className="flex-1 whitespace-nowrap rounded-xl bg-teal-deep px-5 py-3 text-sm font-bold text-parchment hover:bg-teal"
+          >
+            Request this item
+          </RequestActionButton>
+        </div>
+        <p className="mt-2 text-xs text-ink/40">You won&rsquo;t be charged now — this only sends a request.</p>
       </div>
 
     </div>
@@ -177,6 +222,30 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
 // Pulsing placeholder shown while the listing is being scraped/read.
 // Shaped like the eventual two-column layout (image + details) plus a
 // tabs section, so there's no layout jump once real content lands.
+// Some sites (bot-protection on Gymshark's included) can't be read with
+// a plain fetch and fall through to slower tiers — a headless render,
+// then a paid residential-proxy fallback — that can legitimately take
+// 20-40+ seconds, occasionally longer (the API route's own maxDuration
+// is set to 5 minutes specifically to give that room). A bare pulsing
+// skeleton with zero explanation for that long reads as frozen/broken
+// to a real person, who's likely to just give up and leave. This shows
+// a short, honest reassurance line once loading has clearly gone past
+// a normal fetch's timescale — not before, so it doesn't clutter the
+// common case where a site returns in a second or two.
+function SlowLoadNotice() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), 6000)
+    return () => clearTimeout(t)
+  }, [])
+  if (!show) return null
+  return (
+    <p className="text-center text-xs text-ink/45 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
+      Still working — some sites take a little longer to read. Hang tight.
+    </p>
+  )
+}
+
 function ProductSkeleton() {
   return (
     <div
@@ -340,6 +409,16 @@ export default function ItemInfoModal({
         return <JioMartProductView {...commerceProps} />
       case 'snapdeal':
         return <SnapdealProductView {...commerceProps} />
+      case 'firstcry':
+        return <FirstCryProductView {...commerceProps} />
+      case 'tatacliq':
+        return <TataCliqProductView {...commerceProps} />
+      case 'nykaa':
+        return <NykaaProductView {...commerceProps} />
+      case 'hopscotch':
+        return <HopscotchProductView {...commerceProps} />
+      case 'westside':
+        return <WestsideProductView {...commerceProps} />
       case 'shopify':
         return <ShopifyProductView {...commerceProps} />
       case 'woocommerce':
@@ -370,21 +449,16 @@ export default function ItemInfoModal({
         @keyframes priceUpdatePulse { 0% { opacity: 0.4 } 100% { opacity: 1 } }
         @keyframes heartPop { 0% { transform: scale(0.7) } 60% { transform: scale(1.15) } 100% { transform: scale(1) } }
 
+        /* Full-viewport overlay: always spans the entire screen, top to
+           bottom. No longer follows --account-header-h or any bottom-
+           nav reservation — AccountShell doesn't render WelcomeBanner
+           (or anything else) above this modal anymore, so there's
+           nothing left to leave room for. */
         .item-overlay-bounds {
-          top: var(--account-header-h, ${HEADER_BAR_HEIGHT}px);
-          bottom: calc(${MOBILE_BOTTOM_NAV_HEIGHT}px + env(safe-area-inset-bottom));
+          top: 0;
+          bottom: 0;
         }
-        @media (min-width: 1024px) {
-          /* NOTE: top intentionally NOT reset here anymore. It keeps
-             following --account-header-h at every breakpoint, which is
-             what lets the WelcomeBanner push this panel down while open
-             (var = banner height) and lets the panel reclaim that space
-             the instant the banner is dismissed (var = 0), on desktop
-             exactly like it already worked on mobile. Only bottom
-             differs by breakpoint, since there's no mobile bottom nav
-             to clear at 1024px+. */
-          .item-overlay-bounds { bottom: 0; }
-        }
+
         @media (prefers-reduced-motion: no-preference) {
           .item-overlay-panel { animation: panelSlideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
         }
@@ -404,9 +478,9 @@ export default function ItemInfoModal({
               <ArrowLeft size={15} className="flex-none" />
               Back to listing
             </button>
-          ) : showLoading || result?.error ? (
+          ) : (
             <div
-              key={showLoading ? 'loading' : 'error'}
+              key={showLoading ? 'loading' : result?.error ? 'error' : 'listing'}
               className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
             >
               <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
@@ -414,8 +488,6 @@ export default function ItemInfoModal({
                 {showLoading ? 'Reading listing…' : 'Listing'}
               </span>
             </div>
-          ) : (
-            <div />
           )}
           <button
             type="button"
@@ -436,7 +508,10 @@ export default function ItemInfoModal({
             [&::-webkit-scrollbar-thumb]:bg-ink/20"
         >
           {showLoading ? (
-            <ProductSkeleton />
+            <>
+              <ProductSkeleton />
+              <SlowLoadNotice />
+            </>
           ) : result!.error ? (
             <div className="rounded-xl border border-red-300/40 bg-red-50 p-5 text-sm text-ink/70 motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
               Couldn&apos;t read this listing: {result!.error}

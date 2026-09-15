@@ -111,15 +111,47 @@ const DashboardContext = createContext<DashboardContextValue | null>(null)
 
 function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
   const price = result.price != null ? Number(result.price) : null
+  // A scraped price is only trustworthy enough to auto-price a real
+  // Channel-2 order when we KNOW what currency it's actually in AND
+  // the scrape had a real shot at knowing whether this item even has
+  // variants. rateToLKR(null) deliberately falls back to treating the
+  // amount as already-LKR (see its own doc comment) — a sensible
+  // default for trusted internal callers, but silently wrong here: a
+  // site with no dedicated extractor (Gymshark, or anything else only
+  // covered by og-only.ts) that also doesn't expose
+  // product:price:currency in its OG tags produces `currencyCode:
+  // null`, and a real £30 item was getting priced at LKR 30 — roughly
+  // 1/380th of its real value, auto-confirmed straight into a real
+  // paid order with no human ever looking at it.
+  //
+  // Separately, and just as important: `result.ogOnly` means this data
+  // came ENTIRELY from OG/JSON-LD meta tags (see og-only.ts's doc
+  // comment) — a tier that structurally never inspects the page for a
+  // size/color picker at all. A correct price and currency don't help
+  // if the item is, say, a Gymshark top that comes in 7 colors x 7
+  // sizes and nothing captured which one the customer meant — auto-
+  // confirming that into a real order silently picks nothing, which
+  // ops then can't fulfill correctly either. There's no reliable way to
+  // tell "this product has no variants" from ogOnly data — it never
+  // looks for them either way — so the only safe assumption is "can't
+  // confirm, treat as if it might". Both this AND the currency check
+  // gate the same outcome: unitPrice stays unset, which routes the
+  // item to Channel 3 for a human to both price AND confirm the exact
+  // variant with the customer — see confirmRequest's unpriced branch,
+  // which reads needsVariantConfirmation (set below) to make that
+  // explicit in the seeded chat message and the request note.
+  const trustedPrice = price != null && Number.isFinite(price) && !!result.currencyCode && !result.ogOnly ? price : null
   return {
     ...current,
     url: result.url ?? current.url,
     name: result.title || current.name,
     image: result.images?.[0] || current.image,
-    unitPrice:
-      price != null && Number.isFinite(price)
-        ? Math.round(price * rateToLKR(result.currencyCode ?? null))
-        : current.unitPrice,
+    unitPrice: trustedPrice != null ? Math.round(trustedPrice * rateToLKR(result.currencyCode)) : current.unitPrice,
+    // Reset on every scrape, not merged with the previous draft's value
+    // — a fresh lookup (e.g. selectVariant re-scraping a different URL)
+    // should reflect THIS result's own ogOnly status, not linger from
+    // an earlier attempt.
+    needsVariantConfirmation: result.ogOnly === true,
   }
 }
 
@@ -332,6 +364,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         const screenshotUrl = hasRealImage ? draft.image : (og?.image ?? undefined)
         const displayTitle = draft.name.trim() || og?.title || draft.url
 
+        // See Draft.needsVariantConfirmation's doc comment — true means
+        // whatever scrape produced this draft's price/title (or lack
+        // thereof) came from ogOnly data, which never checks for a
+        // size/color picker at all. Surfaced in BOTH the customer's own
+        // first message (so they think to specify size/color right away
+        // instead of a back-and-forth) and the admin-facing request note
+        // (so ops sees it while scanning the queue, without having to
+        // open the thread first).
+        const variantNote = draft.needsVariantConfirmation
+          ? "\n\nNote: this item may come in different sizes/colors — please let us know which one you'd like when you get a chance."
+          : ''
+
         const { data: thread, error: threadError } = await supabase
           .from('chat_threads')
           .insert({ user_id: user.id })
@@ -344,7 +388,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           .insert({
             user_id: user.id,
             link: draft.url,
-            note: draft.name,
+            note: draft.needsVariantConfirmation ? `[Confirm size/color with customer] ${draft.name}` : draft.name,
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
             chat_thread_id: thread.id,
@@ -368,7 +412,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           threadId: thread.id,
           sender: 'customer',
           senderName: user.name,
-          text: `I'd like to order this: ${displayTitle}\n${draft.url}`,
+          text: `I'd like to order this: ${displayTitle}\n${draft.url}${variantNote}`,
           attachmentUrl: screenshotUrl ?? null,
           requestId: newRequest.id,
         })

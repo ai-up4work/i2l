@@ -47,7 +47,7 @@ export interface ShopifyPlusConfig {
   type: 'shopify-plus';
   /** The PUBLIC-facing storefront domain, e.g. "westside.com" — used to build product/collection URLs shown to users. */
   baseUrl: string;
-  /** The real backend, e.g. "my-westside.myshopify.com" — where GraphQL calls actually go. */
+  /** The real backend GraphQL is actually called at — usually "my-store.myshopify.com", but can be a merchant-proxied custom domain/CDN for stores that route their Storefront API through their own domain (see discoverViaHeadlessBrowser's onRequest handler). Named myshopifyDomain for historical reasons; treat it as "the resolved GraphQL origin", not a guarantee it ends in .myshopify.com. */
   myshopifyDomain: string;
   /** Public Storefront API access token, captured from the site's own outgoing requests. Safe to log/cache — it's client-side by design and read-scoped. */
   storefrontToken: string;
@@ -109,6 +109,10 @@ export function clearShopifyPlusCache(domain?: string): void {
 // ---------------------------------------------------------------------
 
 const GRAPHQL_REQUEST_RE = /\/api\/[\d-]+\/graphql\.json$/i;
+// No longer used to GATE a match — kept only as a hint for logging/
+// debugging which real backend a resolved domain turned out to be.
+// See discoverViaHeadlessBrowser's onRequest handler below for why
+// requiring this pattern on the ORIGIN was too strict.
 const MYSHOPIFY_ORIGIN_RE = /^https:\/\/([a-z0-9-]+\.myshopify\.com)/i;
 
 /**
@@ -175,20 +179,35 @@ async function discoverViaHeadlessBrowser(
     onRequest: (req) => {
       if (resolved) return;
       const url = req.url();
+      let origin: string;
       let pathname: string;
       try {
-        pathname = new URL(url).pathname;
+        const parsed = new URL(url);
+        origin = parsed.origin;
+        pathname = parsed.pathname;
       } catch {
         return;
       }
       if (!GRAPHQL_REQUEST_RE.test(pathname)) return;
-      const originMatch = url.match(MYSHOPIFY_ORIGIN_RE);
-      if (!originMatch) return;
       // Request.headers() is Playwright's synchronous, lowercased
       // header map — matches how the original manual Network-panel
       // capture showed `x-shopify-storefront-access-token`.
       const token = req.headers()['x-shopify-storefront-access-token'];
-      if (token) resolved = { myshopifyDomain: originMatch[1], storefrontToken: token };
+      if (!token) return;
+      // Match on PATH SHAPE + a real Storefront token, not on the
+      // origin being *.myshopify.com specifically. An enterprise
+      // merchant can proxy this same call through their own domain or
+      // CDN (for branding, caching, or WAF reasons) while still being
+      // genuinely headless underneath — requiring the literal
+      // myshopify.com host here would make that setup invisible to
+      // discovery even though the token + GraphQL path prove it's the
+      // real thing. Whatever origin this request actually went to IS
+      // the right one to send future GraphQL calls to, myshopify.com or
+      // not — a non-myshopify.com match just means this store proxies.
+      resolved = { myshopifyDomain: origin.replace(/^https?:\/\//, ''), storefrontToken: token };
+      if (!MYSHOPIFY_ORIGIN_RE.test(url)) {
+        console.log(`[shopify-plus] Resolved via a proxied/custom domain (${origin}), not *.myshopify.com directly — this store routes its Storefront API through its own domain.`);
+      }
     },
   });
 

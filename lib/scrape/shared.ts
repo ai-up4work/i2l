@@ -199,6 +199,27 @@ export function looksLikeJsRequiredShell(html: string): boolean {
   )
 }
 
+// Shopify's own password/"coming soon" wall — served instead of any
+// real page content when a store hasn't launched yet or is
+// deliberately gated. Distinct from looksBlocked() above (a WAF/bot
+// check) — this is the MERCHANT's own choice, not a bot-mitigation
+// wall, and no fetch tier in this codebase (plain fetch, headless
+// render, TLS fingerprint, ScraperAPI) can or should try to get past
+// it: there's no "how the store actually looks" to recover underneath,
+// and guessing at real credentials would be a different, much worse
+// category of problem than a slow/blocked scrape. The only correct
+// response is a clear, specific "this store isn't public yet" —
+// see its use in scrapeShopifyProduct's fallback path in parsers.ts.
+export function looksLikeShopifyPasswordWall(html: string, finalUrl?: string): boolean {
+  if (finalUrl && /\/password(\?|$)/i.test(finalUrl)) return true
+  const sample = html.slice(0, 6000).toLowerCase()
+  const hasPasswordForm = /name=["']password["']/.test(sample) && /shopify/.test(sample)
+  const hasShopifyPasswordCopy = /(enter (the )?store using password|this store will be right back|opening soon|we'?re not quite ready)/i.test(
+    sample
+  )
+  return hasPasswordForm || hasShopifyPasswordCopy
+}
+
 export async function readErrorBodySnippet(res: Response, maxLen = 300): Promise<string> {
   try {
     const text = await res.text()

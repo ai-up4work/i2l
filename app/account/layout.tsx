@@ -2,7 +2,6 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { CircleHelp } from 'lucide-react'
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 import Sidebar from '@/components/dashboard/Sidebar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
@@ -16,8 +15,6 @@ import Header, { HEADER_BAR_HEIGHT_MOBILE, HEADER_BAR_HEIGHT_DESKTOP } from '@/c
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useIsMobile } from '@/hooks/useIsMobile'
-
-const MOBILE_BOTTOM_NAV_H = 72
 
 function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -71,35 +68,19 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 
   // True whenever ItemInfoModal is covering the screen. While true:
   //  - Header is hidden outright (unmounted below).
-  //  - WelcomeBanner, if still open, is pulled OUT of normal flow into
-  //    a fixed strip pinned to the very top of the viewport, above the
-  //    modal (see bannerWrapperClass below).
+  //  - WelcomeBanner is unmounted outright too (not repositioned, not
+  //    collapsed — just not rendered). ItemInfoModal is now a true
+  //    full-viewport overlay (top: 0, bottom: 0 — see that file), so
+  //    there's no "gap above it" left for the banner to occupy or push
+  //    into anymore.
   const overlayActive = modalOpen
 
-  // FIX: mobile-only auto-collapse. On mobile, once the banner has
-  // nothing to show (verified/dismissed, and no overlay), its wrapper
-  // shrinks to 0 so page content slides up to fill the gap. On desktop,
-  // the banner keeps its old behavior — reserved space, plain fade —
-  // since that's the intended look there.
-  const bannerCollapse = overlayActive || (isMobile && !bannerOpen)
-
-  // Drive both <main>'s padding (via the Tailwind classes below) and
-  // ItemInfoModal's top offset.
-  //  - Modal open: the banner's live height if it's still open, else 0
-  //    — same value on both breakpoints, since the banner itself
-  //    doesn't change height by screen size.
-  //  - Modal closed: Header's known constant height for that breakpoint.
-  const effectiveHeaderHeightMobile = overlayActive
-    ? bannerOpen
-      ? bannerHeight
-      : 0
-    : HEADER_BAR_HEIGHT_MOBILE
-
-  const effectiveHeaderHeightDesktop = overlayActive
-    ? bannerOpen
-      ? bannerHeight
-      : 0
-    : HEADER_BAR_HEIGHT_DESKTOP
+  // main's top padding only needs to reserve space for Header (which
+  // is unmounted, along with everything else, while the modal is
+  // open) — there's no more banner-height compensation to do here
+  // since the banner and modal are mutually exclusive now.
+  const effectiveHeaderHeightMobile = overlayActive ? 0 : HEADER_BAR_HEIGHT_MOBILE
+  const effectiveHeaderHeightDesktop = overlayActive ? 0 : HEADER_BAR_HEIGHT_DESKTOP
 
   // FIX: previously never passed to Header, so its (also previously
   // unwired) back button never rendered at all — there was no way to
@@ -144,23 +125,6 @@ function AccountShell({ children }: { children: React.ReactNode }) {
     void logout()
   }
 
-  // Fixed positioning removes the banner from flow entirely and pins it
-  // to the true viewport top, above the modal (z-30, matching Header's
-  // own z-index) and its backdrop, so it visibly floats above the
-  // overlay. Once the modal closes, it drops back to `relative` and
-  // resumes its normal spot above the content column.
-  //
-  // `mb-4` in the relative case keeps the banner from sitting flush
-  // against the page content below it while it's actually showing.
-  //
-  // Once bannerOpen is false, this wrapper also gets `pointer-events-
-  // none` directly (overlay case only), so a lingering collapsed-but-
-  // still-live hit target can't sit on top of the modal's own close
-  // button.
-  const bannerWrapperClass = overlayActive
-    ? `fixed inset-x-0 top-0 z-50 ${bannerOpen ? '' : 'pointer-events-none'}`
-    : `relative ${bannerOpen ? 'mb-4' : 'mt-8 lg:mt-0'}`
-
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       {!overlayActive && (
@@ -198,14 +162,19 @@ function AccountShell({ children }: { children: React.ReactNode }) {
         <section
           className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto pb-[72px] lg:pb-0"
         >
-          <div ref={bannerRef} className={bannerWrapperClass}>
-            <WelcomeBanner
-              open={bannerOpen}
-              onDismiss={() => setBannerDismissed(true)}
-              onDetails={() => router.push('/account/settings')}
-              collapse={bannerCollapse}
-            />
-          </div>
+          {/* WelcomeBanner is only ever rendered while the modal is
+              closed — no fixed/pushed positioning needed anymore, since
+              it and ItemInfoModal are never on screen at the same time. */}
+          {!overlayActive && (
+            <div ref={bannerRef} className={bannerOpen ? 'relative mb-4' : 'relative mt-8 lg:mt-0'}>
+              <WelcomeBanner
+                open={bannerOpen}
+                onDismiss={() => setBannerDismissed(true)}
+                onDetails={() => router.push('/account/settings')}
+                collapse={isMobile && !bannerOpen}
+              />
+            </div>
+          )}
 
           {children}
         </section>

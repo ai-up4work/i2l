@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, ChevronRight, Inbox, Search, SearchX } from "lucide-react"
+import { AlertTriangle, ChevronRight, Inbox, Ruler, Search, SearchX } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { REQUEST_SLA_HOURS, REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
@@ -186,6 +186,14 @@ export default function RequestsPage() {
               const accent = r.slaBreached ? "border-l-rose-500" : STATUS_TONE[r.status].accent
               const primaryDomain = r.items[0]?.sourceDomain ?? ""
               const someQuoted = r.items.some((i) => i.quote !== undefined)
+              // Set by confirmRequest in DashboardContext.tsx when the
+              // scrape that produced this item's draft was ogOnly (see
+              // Draft.needsVariantConfirmation's doc comment) — the item
+              // may come in sizes/colors that were never confirmed with
+              // the customer. Checked via the note prefix rather than a
+              // dedicated column since this table has no such column yet
+              // — see that same doc comment for the reasoning.
+              const needsVariantConfirmation = r.items.some((i) => i.note?.startsWith("[Confirm size/color with customer]"))
 
               return (
                 <div
@@ -224,6 +232,7 @@ export default function RequestsPage() {
 
                     <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                       {r.slaBreached && <SlaPill />}
+                      {needsVariantConfirmation && <VariantConfirmPill />}
                       <span className="text-xs text-ink/45">{r.ageLabel}</span>
                       <span className="text-xs text-ink/45">
                         Assigned to <span className="text-ink/70">{r.assignedStaffName}</span>

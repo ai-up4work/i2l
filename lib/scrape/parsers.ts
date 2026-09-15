@@ -1,7 +1,7 @@
 // lib/scrape/parsers.ts
 import * as cheerio from 'cheerio'
 import type { CheerioAPI } from 'cheerio'
-import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked, looksLikeJsRequiredShell, readErrorBodySnippet } from './shared'
+import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked, looksLikeJsRequiredShell, looksLikeShopifyPasswordWall, readErrorBodySnippet } from './shared'
 import { fetchRendered } from './browser-fetch'
 import { parseAmazon, extractAmazonOptions } from './extractors/amazon'
 import type { AmazonVariantDimension, AmazonSizeChartTable } from './extractors/amazon'
@@ -156,8 +156,9 @@ export type SiteId =
   | 'firstcry'
   | 'nykaa'
   | 'hopscotch'
-  | 'tataCliq'
+  | 'tatacliq'
   | 'Aliexpress'
+  | 'westside'
   | 'shopify'
   | 'woocommerce'
   | 'generic'
@@ -260,7 +261,7 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['firstcry', FIRSTCRY_SITE_ID],
   ['nykaa', NYKAA_SITE_ID],
   ['hopscotch', HOPSCOTCH_SITE_ID],
-  ['tatacliq', TATACLIQ_SITE_ID],
+  ['tatacliq', 'tatacliq'],
   ['aliexpress', ALIEXPRESS_SITE_ID],
 ]
 
@@ -1111,6 +1112,143 @@ function findRequestedVariant(
   return variants[0]
 }
 
+// ---------- Shopify theme-embedded product JSON (fallback when REST + Plus discovery both fail) ----------
+//
+// Most Shopify themes (the Dawn family especially, which the large
+// majority of stores are built on or derived from) embed the FULL
+// product object — every variant, real prices, compare-at price, every
+// image — directly in the server-rendered HTML, as
+// <script type="application/json" id="ProductJson-...">, purely so the
+// theme's own client-side JS (variant picker, cart) can read it without
+// an extra API call. This is genuinely the SAME data REST's
+// /products/{handle}.js would return, just already sitting in the page
+// — so a store that's blocked the live .js endpoint (Gymshark's case:
+// server-rendered theme, not headless, REST locked down) can often
+// still be read at FULL fidelity this way, not just the title/price/
+// one-image ceiling the generic OG/JSON-LD fallback is stuck with.
+//
+// Distinct from extractEmbeddedStateProduct() above: that's a generic
+// tree-walking scanner that scores ANY json blob against generic
+// PRICE_KEYS/NAME_KEYS heuristics and has no idea prices here are in
+// CENTS — Shopify's own convention, not a general one. Picking this up
+// through the generic path would silently produce a price 100x too
+// high. This extractor specifically recognizes Shopify's product JSON
+// shape (variants[].price + .available + .id, a numeric handle-bearing
+// product) and handles the cents conversion correctly, the same way
+// normaliseShopifyJsProduct in shopify.ts already does for REST's own
+// .js response — because structurally this IS that same response
+// shape, just delivered a different way.
+interface ShopifyThemeJsonVariant {
+  id: number | string
+  title?: string
+  price: number // cents
+  compare_at_price?: number | null
+  available: boolean
+  option1?: string | null
+  option2?: string | null
+  option3?: string | null
+}
+interface ShopifyThemeJsonProduct {
+  title: string
+  vendor?: string
+  images?: (string | { src: string })[]
+  featured_image?: string
+  variants: ShopifyThemeJsonVariant[]
+  options?: (string | { name: string; values?: string[] })[]
+}
+
+function looksLikeShopifyThemeProduct(node: any): node is ShopifyThemeJsonProduct {
+  return (
+    node &&
+    typeof node === 'object' &&
+    typeof node.title === 'string' &&
+    Array.isArray(node.variants) &&
+    node.variants.length > 0 &&
+    node.variants.every((v: any) => v && typeof v.price === 'number' && typeof v.available === 'boolean')
+  )
+}
+
+function extractShopifyThemeEmbeddedProduct($: CheerioAPI, html: string): ShopifyThemeJsonProduct | null {
+  // Tier 1: the id-tagged convention almost every Dawn-family theme
+  // uses — highest confidence, since the id itself names the intent.
+  let found: ShopifyThemeJsonProduct | null = null
+  $('script[type="application/json"]').each((_, el) => {
+    if (found) return
+    const id = $(el).attr('id') || ''
+    if (!/productjson|product-json/i.test(id)) return
+    const raw = $(el).html()
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw)
+      if (looksLikeShopifyThemeProduct(parsed)) found = parsed
+    } catch {
+      // not valid JSON — skip
+    }
+  })
+  if (found) return found
+
+  // Tier 2: no id-tagged script found — fall back to scanning every
+  // embedded JSON blob (same collector the generic path uses) for
+  // anything matching Shopify's specific product shape, in case this
+  // theme embeds it under a different tag/variable name.
+  const blobs = collectEmbeddedJsonBlobs($, html)
+  for (const blob of blobs) {
+    if (looksLikeShopifyThemeProduct(blob)) return blob
+    // Some themes nest it one level deep, e.g. {product: {...}}.
+    if (blob && typeof blob === 'object' && looksLikeShopifyThemeProduct((blob as any).product)) {
+      return (blob as any).product
+    }
+  }
+  return null
+}
+
+function normaliseShopifyThemeJsonProduct(p: ShopifyThemeJsonProduct, url: string): ScrapeResult {
+  const variant = p.variants[0]
+  const images = (p.images ?? [])
+    .map((img) => (typeof img === 'string' ? img : img.src))
+    .filter(Boolean)
+    .map(normalizeImageUrl)
+  const fallbackImage = p.featured_image ? normalizeImageUrl(p.featured_image) : null
+
+  const optionNames = (p.options ?? []).map((o) => (typeof o === 'string' ? o : o.name))
+  const options: Record<string, string> | null =
+    optionNames.length && variant
+      ? Object.fromEntries(
+          optionNames
+            .map((name, i) => [name, [variant.option1, variant.option2, variant.option3][i] ?? ''] as const)
+            .filter(([, v]) => v)
+        )
+      : null
+
+  return {
+    url,
+    site: 'shopify',
+    source: 'shopify_api',
+    title: p.title,
+    price: String(variant.price / 100),
+    mrp: variant.compare_at_price != null ? String(variant.compare_at_price / 100) : null,
+    // Neither the theme JSON nor REST's own .js response ever carries a
+    // currency field (see fetchShopifyShopCurrency's doc comment in
+    // shopify.ts for why) — domainCurrency is the same best-effort
+    // fallback used everywhere else in this file for an unrecognized
+    // host, and stays honestly null rather than guessing when even that
+    // gives no signal. Downstream (applyScrapeResultToDraft in
+    // DashboardContext.tsx) already refuses to auto-price a customer
+    // order off a null currencyCode — that safety net is what actually
+    // protects against a wrong guess here, not this function pretending
+    // to know.
+    currencyCode: domainCurrency(url),
+    rating: null,
+    review_count: null,
+    availability: p.variants.some((v) => v.available) ? 'In stock' : 'Out of stock',
+    seller: null,
+    brand: p.vendor ?? null,
+    images: images.length ? images : fallbackImage ? [fallbackImage] : [],
+    options,
+    unavailable: !p.variants.some((v) => v.available),
+  }
+}
+
 async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   const parsedHandle = extractShopifyHandle(url)
   if (!parsedHandle) {
@@ -1463,8 +1601,10 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   [FIRSTCRY_SITE_ID]: parseFirstCry,
   [NYKAA_SITE_ID]: parseNykaa,
   [HOPSCOTCH_SITE_ID]: parseHopscotch,
-  [TATACLIQ_SITE_ID]: parseTataCliq,
+  tatacliq: parseTataCliq,
   [ALIEXPRESS_SITE_ID]: parseAliExpress,
+  westside: parseGeneric,
+  
 }
 
 const SKIP_STRUCTURED_FALLBACK = new Set<SiteId>(
@@ -1569,14 +1709,26 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // of giving up, with `site` reassigned to 'generic' so the result
   // honestly reflects what actually happened rather than still claiming
   // 'shopify'.
+  // Tracked separately from `site` (which gets reassigned to 'generic'
+  // below) so the result can still be honestly marked ogOnly even
+  // though it didn't go through makeOgOnlyParser()/the SITE_HOST_MAP
+  // og-only registration — it has the exact same limitations (no
+  // variants, no MRP, no rating, often only one image), so it should
+  // read that way to anyone consuming the result, not look like richer
+  // data than it actually is just because the URL happened to guess
+  // 'shopify' first.
+  let fellBackFromStorePlatform = false
+
   if (site === 'shopify') {
     const shopifyResult = await scrapeShopifyProduct(url)
     if (!shopifyResult.error) return shopifyResult
     site = 'generic'
+    fellBackFromStorePlatform = true
   } else if (site === 'woocommerce') {
     const wooResult = await scrapeWooCommerceProduct(url)
     if (!wooResult.error) return wooResult
     site = 'generic'
+    fellBackFromStorePlatform = true
   } else {
     // Prefer the real eBay Browse API whenever credentials are configured —
     // it's authoritative data straight from eBay, not a DOM/JSON-LD guess.
@@ -1605,6 +1757,46 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
 
   if (error && error.startsWith('BLOCKED')) {
     return { url, site, error }
+  }
+
+  // This HTML was only fetched because REST + Plus discovery both
+  // failed (fellBackFromStorePlatform) — before trying to extract
+  // anything from it, rule out the one case where there's genuinely
+  // nothing to extract: the store itself is gated behind Shopify's own
+  // password/"coming soon" wall. This is a MERCHANT choice, not a bot
+  // block — no fetch tier can or should get past it (see
+  // looksLikeShopifyPasswordWall's doc comment) — so this returns a
+  // clear, specific error instead of letting it fall through to the
+  // theme-JSON/generic parsers, which would otherwise either find
+  // nothing and report a confusing generic "no title/price found", or
+  // worse, misparse the password page's own form/copy as if it were
+  // product content.
+  if (fellBackFromStorePlatform && looksLikeShopifyPasswordWall(html)) {
+    return {
+      url,
+      site,
+      error:
+        "This store is behind Shopify's password/\"coming soon\" wall — it hasn't launched publicly yet, or access is deliberately restricted. No scraping method can or should get past that; this isn't something to retry.",
+    }
+  }
+
+  // This HTML was only fetched because REST + Plus discovery both
+  // failed (fellBackFromStorePlatform) — before giving up to the fully
+  // generic OG/JSON-LD parse below, check whether the theme itself
+  // embedded the real product JSON (see extractShopifyThemeEmbeddedProduct's
+  // doc comment above). When it's there, this is strictly better data
+  // — real per-variant prices/stock/images, not a title+one-image
+  // ceiling — for the exact same page load, no extra request needed.
+  if (fellBackFromStorePlatform) {
+    try {
+      const $ = cheerio.load(html)
+      const themeProduct = extractShopifyThemeEmbeddedProduct($, html)
+      if (themeProduct) return normaliseShopifyThemeJsonProduct(themeProduct, url)
+    } catch {
+      // Fall through to the generic parse below — a malformed/unexpected
+      // theme JSON shape shouldn't take down the one fallback tier that
+      // was already working before this was added.
+    }
   }
 
   let parsed: Record<string, any>
@@ -1639,6 +1831,12 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const result: ScrapeResult = { url, site, source, ...parsed }
   if (error) result.warning = error
   if (ogOnly) result.ogOnly = true
+  if (fellBackFromStorePlatform) {
+    result.ogOnly = true
+    result.warning =
+      (result.warning ? result.warning + ' | ' : '') +
+      "Detected as Shopify/WooCommerce by URL shape, but neither the store's public API nor headless-store discovery worked — this data came from the page's own JSON-LD/OG tags only, same limitations as any generic site (no variants, MRP, or rating)."
+  }
 
   if (priceSource === 'meta_description') {
     result.warning = (result.warning ? result.warning + ' | ' : '') +
