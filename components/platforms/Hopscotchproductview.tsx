@@ -170,52 +170,6 @@ function SizeSelect({
   )
 }
 
-/**
- * Delivery box: heading + "CHECK PINCODE" link, then a checklist of
- * fulfillment promises with a check icon. The "Get it in N days"
- * turnaround badge and per-SKU ship time are decided per-pincode on
- * the real site and aren't part of the scrape schema, so that line is
- * kept generic/presentational rather than fabricating a number.
- * Returns/exchange rows prefer real scraped fields when present and
- * fall back to Hopscotch's standard 7-day policy otherwise.
- */
-function DeliveryBox({ result }: { result: ScrapeResult }) {
-  const returnsLine = result.returnsAccepted
-    ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-    : '7 Days Return'
-
-  return (
-    <div className="mt-5 rounded-xl border border-ink/10 p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-bold text-ink">Delivery</p>
-        <button type="button" className="text-xs font-bold text-purple-700 hover:underline">
-          CHECK PINCODE
-        </button>
-      </div>
-      <ul className="mt-3 flex flex-col gap-2 text-xs text-ink/65">
-        <li className="flex items-start gap-2">
-          <Check size={14} className="mt-0.5 flex-none text-purple-600" strokeWidth={2.5} />
-          <span>
-            Select a size and enter your pincode to see an estimated delivery date.
-            {result.availability && <span className="block text-ink/45">Availability: {result.availability}</span>}
-          </span>
-        </li>
-        <li className="flex items-center gap-2">
-          <Check size={14} className="flex-none text-purple-600" strokeWidth={2.5} />
-          {returnsLine}
-        </li>
-        <li className="flex items-center gap-2">
-          <Check size={14} className="flex-none text-purple-600" strokeWidth={2.5} />
-          7 Days Exchange
-        </li>
-        <li className="flex items-center gap-2">
-          <Check size={14} className="flex-none text-purple-600" strokeWidth={2.5} />
-          Cash On Delivery
-        </li>
-      </ul>
-    </div>
-  )
-}
 
 /**
  * Add to Cart (outline) + Buy Now (solid) side by side, matching the
@@ -527,17 +481,6 @@ export default function HopscotchProductView({
             loading={loading}
             canAct={canAct}
           />
-
-          <DeliveryBox result={result} />
-
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-purple-700"
-          >
-            Open original listing <ExternalLink size={12} />
-          </a>
         </div>
       </div>
 
