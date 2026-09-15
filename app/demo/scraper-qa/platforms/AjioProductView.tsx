@@ -21,6 +21,59 @@ function discountPercent(price: string | null | undefined, mrp: string | null | 
   return Math.round(((m - p) / m) * 100)
 }
 
+// ---------- Image dedupe/highest-quality helper (Ajio-specific) ----------
+// Ajio's product images come back with every srcset resolution as a
+// separate URL for the SAME photo, e.g.:
+//   .../PHk6/6a7b.../-78Wx98H-703819737-offwhite-MODEL.jpg    (thumbnail)
+//   .../PHk6/6a7b.../-288Wx360H-703819737-offwhite-MODEL.jpg  (small)
+//   .../PHk6/6a7b.../-1117Wx1400H-703819737-offwhite-MODEL.jpg (full-res)
+// Without this, `images[0]` (used as the hero image below) ends up being
+// a tiny 78x98 thumbnail instead of the full-res photo. This groups URLs
+// that only differ by their "-WxH-" resolution token and per-resolution
+// CDN hash folder, and keeps just the largest one per group, in
+// first-seen order — so downstream code always gets one clean, full-res
+// URL per distinct photo instead of 4 near-duplicates of each.
+const DIMENSION_TOKEN_RE = /-?(\d{2,5})[wW]?[xX](\d{2,5})[hH]?-?/g
+const HASH_SEGMENT_RE = /\/[0-9a-f]{6,}(?=\/)/gi
+
+function extractArea(url: string): number {
+  let maxArea = 0
+  let match: RegExpExecArray | null
+  const re = new RegExp(DIMENSION_TOKEN_RE)
+  while ((match = re.exec(url)) !== null) {
+    const area = Number(match[1]) * Number(match[2])
+    if (area > maxArea) maxArea = area
+  }
+  return maxArea
+}
+
+function normalizeImageKey(url: string): string {
+  return url.replace(DIMENSION_TOKEN_RE, '-').replace(HASH_SEGMENT_RE, '').toLowerCase()
+}
+
+function dedupeToHighestQuality(urls: string[]): string[] {
+  const bestForKey = new Map<string, { url: string; area: number; order: number }>()
+  const noSizeInfo: { url: string; order: number }[] = []
+
+  urls.forEach((url, order) => {
+    const area = extractArea(url)
+    if (area === 0) {
+      if (!noSizeInfo.some((u) => u.url === url)) noSizeInfo.push({ url, order })
+      return
+    }
+    const key = normalizeImageKey(url)
+    const existing = bestForKey.get(key)
+    if (!existing || area > existing.area) {
+      bestForKey.set(key, { url, area, order: existing?.order ?? order })
+    }
+  })
+
+  return [...Array.from(bestForKey.values()), ...noSizeInfo]
+    .sort((a, b) => a.order - b.order)
+    .map((entry) => entry.url)
+}
+// ---------- end image dedupe helper ----------
+
 function RatingBadge({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
   const value = rating ? parseFloat(rating) : NaN
   if (Number.isNaN(value)) return null
@@ -34,14 +87,16 @@ function RatingBadge({ rating, count }: { rating: string | null | undefined; cou
 }
 
 function ImageRail({ images, alt }: { images: string[]; alt: string }) {
-  if (!images.length) {
+  const cleanImages = dedupeToHighestQuality(images)
+
+  if (!cleanImages.length) {
     return (
       <div className="grid aspect-[3/4] place-items-center rounded-lg border border-dashed border-ink/15 bg-card text-xs font-medium text-ink/35">
         No images found
       </div>
     )
   }
-  const [main, ...rest] = images
+  const [main, ...rest] = cleanImages
   return (
     <div className="flex gap-2">
       {rest.length > 0 && (

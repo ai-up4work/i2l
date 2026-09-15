@@ -32,6 +32,12 @@ import {
   SUPPORTS_TLS_FINGERPRINT_FALLBACK as AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK,
   ajioTlsFingerprintConfigured,
   fetchAjioViaTlsFingerprint,
+  // Parse.bot tier — preferred path for Ajio when PARSE_API_KEY is set.
+  // See extractors/ajio.ts's "TIER 1" header comment for the full
+  // rationale/priority order across all three Ajio fetch tiers.
+  ajioParseBotConfigured,
+  fetchAjioViaParseBot,
+  mapParseBotProductToAjio,
 } from './extractors/ajio'
 import {
   parseJioMart,
@@ -40,6 +46,14 @@ import {
   REQUIRES_RENDER_FOR_VARIANTS as JIOMART_REQUIRES_RENDER_FOR_VARIANTS,
   consumeJioMartMeta,
 } from './extractors/jiomart'
+import {
+  SITE_ID as HOPSCOTCH_SITE_ID,
+  parseHopscotch,
+  extractHopscotchOptions,
+  REQUIRES_RENDER_FOR_VARIANTS as HOPSCOTCH_REQUIRES_RENDER_FOR_VARIANTS,
+  consumeHopscotchMeta,
+  hasHydratedHopscotchMarkup,
+} from './extractors/hopscotch'
 import {
   parseSnapdeal,
   SITE_ID as SNAPDEAL_SITE_ID,
@@ -67,7 +81,6 @@ import { parseFirstCry, SITE_ID as FIRSTCRY_SITE_ID } from './extractors/firstcr
 // needs variant pickers, MRP, or rating data that OG tags don't carry.
 import { consumeFirstCryMeta } from './extractors/firstcry'
 import { SITE_ID as NYKAA_SITE_ID, parseNykaa } from './extractors/nykaa'
-import { SITE_ID as HOPSCOTCH_SITE_ID, parseHopscotch } from './extractors/hopscotch'
 import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq } from './extractors/tataCliq'
 import { SITE_ID as ALIEXPRESS_SITE_ID, parseAliExpress } from './extractors/aliexpress'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
@@ -91,12 +104,15 @@ export type ScrapeResult = {
   sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable)[] | null
   error?: string
   warning?: string
-  // 'fingerprint_fetch' added alongside 'scraperapi' — both are
-  // last-resort tiers reached only after direct fetch + headless render
-  // have failed; the label just tells you which mechanism actually
-  // produced the successful result (a paid proxy API vs. a self-hosted
-  // TLS-fingerprint-matching fetch). See LAST_RESORT_FALLBACK below.
-  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
+  // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi' — all
+  // are non-'direct' tiers reached only after (or instead of) the plain
+  // fetch + headless-render pipeline. The label tells you which
+  // mechanism actually produced the result:
+  //   - 'scraperapi': paid residential-proxy API (Meesho)
+  //   - 'fingerprint_fetch': self-hosted TLS-fingerprint-matching fetch (Ajio, last resort)
+  //   - 'parsebot': Parse.bot hosted scraper API — a real HTTP call
+  //     returning structured JSON, not HTML scraping (Ajio, preferred)
+  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   /**
    * True when `site` is one of the OG-only platforms (see
@@ -705,7 +721,12 @@ async function primeCookies(
 // size/color pickers) only exists after client-side hydration. See
 // STATIC_CONTENT_SUFFICIENT below, which is what actually routes Ajio
 // into this tier despite its static fetch technically "succeeding".
-const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID])
+//
+// NOTE: this whole tier (and the TLS-fingerprint tier below it) is now
+// skipped entirely for Ajio whenever PARSE_API_KEY is set — see
+// scrapeProduct()'s routing near the bottom of this file, which checks
+// ajioParseBotConfigured() before ever reaching fetchDirectWithRetries.
+const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID])
 
 // Optional per-site selector to wait for before grabbing page.content(),
 // so the render tier doesn't snapshot the page before the bit we
@@ -713,11 +734,8 @@ const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_I
 const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
   meesho: 'h1, [class*="PriceContainer"]',
   ajio: 'h1.prod-name, div.prod-sp',
-  // Angular Universal SSR's shell for this component is a bare
-  // <app-productdetail-rvp></app-productdetail-rvp> with nothing inside
-  // until hydration — the price node is the cheapest confirmed signal
-  // that real content has landed (see extractors/firstcry.ts header).
   [FIRSTCRY_SITE_ID]: 'span.h1-name, span.prod-price',
+  [HOPSCOTCH_SITE_ID]: 'h1, [class*="price"]',
 }
 
 // Per-site check for whether a successful (200 OK, not blocked, not
@@ -733,12 +751,8 @@ const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
 // has actually hydrated.
 const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolean>> = {
   [AJIO_SITE_ID]: (html) => html.includes('class="prod-sp"') || html.includes('class="prod-name"'),
-  // Confirmed against two real, fully-SSR'd FirstCry PDPs: both markers
-  // are present whenever SSR actually succeeded. When SSR is skipped,
-  // the response is just the bare <app-productdetail-rvp> wrapper with
-  // neither marker present — see extractors/firstcry.ts's file header
-  // for the full writeup of when/why this happens.
   [FIRSTCRY_SITE_ID]: (html) => html.includes('class="h1-name"') && html.includes('prod-price'),
+  [HOPSCOTCH_SITE_ID]: hasHydratedHopscotchMarkup,
 }
 
 // ---------- Per-site last-resort fallback registry ----------
@@ -759,6 +773,8 @@ const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolea
 //     configured with IPs you control. Without that env var, this tier
 //     mainly helps by avoiding the blocked state in the first place on
 //     runs where only fingerprinting (not IP reputation) was the issue.
+//     NOTE: this tier is now only reached for Ajio when PARSE_API_KEY is
+//     unset — see the routing note on RENDER_FALLBACK_HOSTS above.
 //
 // `fetch` accepts an optional AbortSignal so a client disconnect (or the
 // caller's own overall deadline) can cancel an in-flight call instead of
@@ -1306,6 +1322,34 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
   return result
 }
 
+// ---------- Ajio via Parse.bot (real hosted-API call, no scraping) ----------
+//
+// Preferred path for Ajio whenever PARSE_API_KEY is configured (see
+// extractors/ajio.ts's "TIER 1" header comment). Bypasses fetch +
+// headless-render + TLS-fingerprint entirely: a single HTTP call to
+// Parse.bot returns structured product JSON directly, sourced from
+// Ajio's own Hybris/OCC backend rather than scraped HTML.
+async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> {
+  const { data, error } = await fetchAjioViaParseBot(url)
+  if (!data) {
+    return { url, site: AJIO_SITE_ID, error: error ?? 'Parse.bot request failed' }
+  }
+
+  const parsed = mapParseBotProductToAjio(data)
+  const meta = consumeAjioMeta(parsed as unknown as Record<string, any>)
+
+  const result: ScrapeResult = {
+    url,
+    site: AJIO_SITE_ID,
+    source: 'parsebot',
+    ...parsed,
+  }
+  if (meta.warning) result.warning = meta.warning
+  if (meta.unavailable) result.unavailable = true
+
+  return result
+}
+
 // ---------- Site-specific parsers ----------
 //
 // Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, and Snapdeal each
@@ -1326,6 +1370,11 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
 // path only — used when EBAY_APP_ID/EBAY_CERT_ID aren't configured. See
 // scrapeEbayProductViaApi above and scrapeProduct's routing below for the
 // preferred, credentialed path via eBay's real Browse API.
+//
+// Ajio's entry here (parseAjio/SITE_PARSERS.ajio) is similarly now the
+// FALLBACK path — used when PARSE_API_KEY isn't configured. See
+// scrapeAjioProductViaParseBot above and scrapeProduct's routing below
+// for the preferred Parse.bot path.
 
 function parseGeneric($: CheerioAPI, url: string) {
   const domainHint = domainCurrency(url)
@@ -1425,6 +1474,7 @@ const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
   ...(AJIO_REQUIRES_RENDER_FOR_VARIANTS ? [AJIO_SITE_ID] : []),
   ...(JIOMART_REQUIRES_RENDER_FOR_VARIANTS ? [JIOMART_SITE_ID] : []),
   ...(SNAPDEAL_REQUIRES_RENDER_FOR_VARIANTS ? [SNAPDEAL_SITE_ID] : []),
+  ...(HOPSCOTCH_REQUIRES_RENDER_FOR_VARIANTS ? [HOPSCOTCH_SITE_ID] : []),
 ])
 
 function hasVariantData(parsed: Record<string, any>): boolean {
@@ -1453,6 +1503,16 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // EBAY_CERT_ID aren't set, so this stays a zero-config upgrade.
   if (site === 'ebay' && ebayCredentialsConfigured()) {
     return await scrapeEbayProductViaApi(url)
+  }
+
+  // Prefer Parse.bot's hosted Ajio scraper whenever PARSE_API_KEY is
+  // configured — real structured JSON from Ajio's own backend, skipping
+  // fetch + headless-render + TLS-fingerprint entirely for this site.
+  // Falls through to the legacy scraping pipeline below only if
+  // PARSE_API_KEY is unset, so this is a zero-config upgrade just like
+  // the eBay branch above.
+  if (site === AJIO_SITE_ID && ajioParseBotConfigured()) {
+    return await scrapeAjioProductViaParseBot(url)
   }
 
   const { html, error, source } = await fetchDirectWithRetries(url, site, { signal })
@@ -1493,6 +1553,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const ajioMeta = consumeAjioMeta(parsed)
   const jiomartMeta = consumeJioMartMeta(parsed)
   const firstCryMeta = consumeFirstCryMeta(parsed)
+  const hopscotchMeta = consumeHopscotchMeta(parsed)
   const result: ScrapeResult = { url, site, source, ...parsed }
   if (error) result.warning = error
   if (ogOnly) result.ogOnly = true
@@ -1548,6 +1609,13 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     result.warning = (result.warning ? result.warning + ' | ' : '') + firstCryMeta.warning
   }
   if (firstCryMeta.unavailable) {
+    result.unavailable = true
+  }
+  
+  if (hopscotchMeta.warning) {
+    result.warning = (result.warning ? result.warning + ' | ' : '') + hopscotchMeta.warning
+  }
+  if (hopscotchMeta.unavailable) {
     result.unavailable = true
   }
   

@@ -1,3 +1,4 @@
+// lib/scrape/extractors/ajio.ts
 import type { CheerioAPI } from 'cheerio'
 import { cleanText, looksBlocked, looksLikeJsRequiredShell, readErrorBodySnippet } from '../shared'
 import { fetchWithTlsFingerprintRetries } from '../tls-fetch'
@@ -5,24 +6,30 @@ import { fetchWithTlsFingerprintRetries } from '../tls-fetch'
 // ---------------------------------------------------------------------
 // Ajio (www.ajio.com) product-page extractor.
 //
-// IMPORTANT CONTEXT (see parsers.ts's RENDER_FALLBACK_HOSTS /
-// STATIC_CONTENT_SUFFICIENT comments): Ajio's plain server response is a
-// normal 200 — never blocked, never caught by the generic
-// looksLikeJsRequiredShell() heuristic — but the actual product markup
-// (title, price, size/colour pickers) only exists once client-side JS has
-// hydrated the page. Because of that, `parseAjio` below will almost always
-// be handed HTML that already went through the headless-render fallback
-// tier (see RENDER_WAIT_SELECTOR.ajio = 'h1.prod-name, div.prod-sp' in
-// parsers.ts), not a raw fetch() response. Selectors here are written
-// against that fully-hydrated DOM.
+// THREE tiers exist for this site now, tried in this priority order by
+// parsers.ts's scrapeProduct():
+//
+//   1. Parse.bot hosted API (PARSE_BOT section below) — a real HTTP call
+//      to a pre-built scraper that returns structured JSON directly.
+//      Preferred whenever PARSE_API_KEY is configured: skips fetch,
+//      headless-render, AND the TLS-fingerprint fallback entirely.
+//   2. Direct fetch + headless-render (parseAjio/parseHtml below) — the
+//      original scraping path. Ajio's plain server response is a normal
+//      200 — never blocked, never caught by the generic
+//      looksLikeJsRequiredShell() heuristic — but the actual product
+//      markup (title, price, size/colour pickers) only exists once
+//      client-side JS has hydrated the page. See RENDER_FALLBACK_HOSTS /
+//      STATIC_CONTENT_SUFFICIENT in parsers.ts.
+//   3. Self-hosted TLS-fingerprint fetch (bottom of this file) — last
+//      resort if both of the above fail.
 //
 // Ajio's hashed/generated CSS class names do churn between deploys, so
-// every selector below is a fallback *chain* (try the most specific/
-// confirmed selector first, fall back to looser ones) rather than a single
-// bet. `prod-name` and `prod-sp` are the two classes parsers.ts already
-// confirmed against a real captured, fully-rendered PDP — everything else
-// here is best-effort and worth re-checking against a live page if a
-// field starts coming back consistently null.
+// every selector in the tier-2 path below is a fallback *chain* (try the
+// most specific/confirmed selector first, fall back to looser ones)
+// rather than a single bet. `prod-name` and `prod-sp` are the two classes
+// parsers.ts already confirmed against a real captured, fully-rendered
+// PDP — everything else here is best-effort and worth re-checking
+// against a live page if a field starts coming back consistently null.
 // ---------------------------------------------------------------------
 
 export const SITE_ID = 'ajio' as const
@@ -31,6 +38,8 @@ export const SITE_ID = 'ajio' as const
 // a plain static fetch (even once STATIC_CONTENT_SUFFICIENT passes for
 // title/price) won't reliably expose the full swatch list, so callers
 // that need `options`/`variants` should route through the render tier.
+// (Not a concern for the Parse.bot tier — that returns variants directly
+// in the JSON payload, see AjioParseBotParsed below.)
 export const REQUIRES_RENDER_FOR_VARIANTS = true
 
 // Single source of truth for "does this HTML actually contain Ajio's
@@ -256,7 +265,7 @@ function extractImages($: CheerioAPI): string[] {
   return [...urls]
 }
 
-// ---------- main parser ----------
+// ---------- main parser (tier 2: static fetch / headless render) ----------
 
 export function parseAjio($: CheerioAPI, _url: string): AjioParsed {
   const title = extractTitle($)
@@ -297,7 +306,7 @@ export function parseAjio($: CheerioAPI, _url: string): AjioParsed {
   return result
 }
 
-// ---------- size / colour options ----------
+// ---------- size / colour options (tier 2 only) ----------
 
 /**
  * Reads the currently-selected size and/or colour off a hydrated Ajio
@@ -351,6 +360,8 @@ export function extractAjioOptions($: CheerioAPI): Record<string, string> | null
  * withFallbacks-merged) parsed object and returns them as a plain
  * {warning, unavailable} pair for scrapeProduct to fold into the final
  * ScrapeResult — mirrors consumeMeeshoMeta / consumeMyntraMeta / etc.
+ * Also used by the Parse.bot tier below, since mapParseBotProductToAjio
+ * sets the same `_ajio*` fields for consistency.
  */
 export function consumeAjioMeta(parsed: Record<string, any>): {
   warning: string | null
@@ -366,11 +377,395 @@ export function consumeAjioMeta(parsed: Record<string, any>): {
 }
 
 // ---------------------------------------------------------------------
-// Self-hosted TLS-fingerprint fallback (no third-party scraping API)
+// TIER 1: Parse.bot hosted API (real HTTP call, not scraping)
 // ---------------------------------------------------------------------
-// Last-resort tier, reached only after both the direct static fetch AND
-// the shared headless-browser render tier (parsers.ts's
-// RENDER_FALLBACK_HOSTS) have failed to produce usable HTML.
+// Preferred tier for Ajio when PARSE_API_KEY is set: calls a pre-built
+// Parse.bot scraper (id below) that returns structured product JSON
+// directly, bypassing fetch + headless-render + TLS-fingerprint
+// entirely for this site — same idea as scrapeEbayProductViaApi /
+// scrapeShopifyProduct in parsers.ts, just backed by a third-party
+// hosted scraper instead of the platform's own public API.
+//
+// CONFIRMED response shape (from a real captured Parse.bot response for
+// this scraper — get_product_detail on Ajio, a jeans PDP with 4 colour
+// options and 4 sizes):
+//   { status: "success", data: {
+//       code: "{productCode}_{colorSlug}",       // currently-viewed option's code
+//       name, brandName,
+//       price: { value, currencyIso, displayformattedValue, discountPercent },
+//       wasPriceData: { value, displayformattedValue },
+//       images: [{ url, format, galleryIndex, imageType }],  // see note below
+//       baseOptions: [{ options: [                // <- COLOUR variants
+//         { code, color, modelImage: {url},
+//           priceData: { value, currencyIso },
+//           stock: { stockLevelStatus, stockLevel },
+//           variantOptionQualifiers: [{ qualifier: "color", value, swatchImage: {url} }],
+//           url }                                  // relative path, e.g. "/slug/p/{code}"
+//       ]}],
+//       selected: { ...same shape as one baseOptions[].options[] entry... },
+//       variantOptions: [{ code, stock: {stockLevel, stockLevelStatus},
+//         priceData: {value}, scDisplaySize }],    // <- SIZE variants
+//       ratingsResponse: { aggregateRating: { averageRating, numUserRatings,
+//         customerOpinionCount, ... } },
+//       stock: { stockLevelStatus, stockLevel },   // top-level, for the CURRENT option
+//   } }
+//
+// This is a standard SAP Hybris/Commerce Cloud (OCC) product API shape
+// — Ajio runs on Hybris, so Parse.bot is very likely just calling
+// Ajio's own backend with the right session/headers rather than
+// scraping HTML at all.
+//
+// `images` note: every photo (identified by `galleryIndex`) repeats once
+// per resolution tier (`cartIcon`/`thumbnail` ≈78x98 → `superZoomPdp`
+// ≈1117x1400) AND once per `imageType` (PRIMARY duplicates GALLERY's
+// galleryIndex-0 entries exactly). See pickBestAjioImages() below —
+// without it you get every photo repeated ~5x at the SMALLEST
+// resolution first (array order puts cartIcon/thumbnail before
+// superZoomPdp), which is exactly the "low quality, duplicated images"
+// symptom this was built to fix.
+//
+// `baseOptions` (colour variants): shape confirmed above and now wired
+// into `result.variants` as a "Color" dimension — see
+// buildAjioColorDimension() below. Each option's `url` is a relative
+// path (no origin) — toAbsoluteAjioUrl() below prefixes it with
+// https://www.ajio.com so it's directly usable by the QA tool's
+// onSelectVariant re-fetch, the same way every other platform's variant
+// tiles work.
+//
+// "selected" for SIZE is still not determinable from this schema (see
+// mapParseBotProductToAjio below) — the request is keyed by colour+code,
+// not by a specific size, and nothing in a real captured response marks
+// one variantOptions entry as current. COLOUR's "selected", by
+// contrast, *is* determinable: top-level `code` (or `selected.code`)
+// tells you exactly which baseOptions entry is currently being viewed.
+
+export const PARSE_BOT_SCRAPER_ID = '403a6af9-bd94-47a3-a922-1ea3484b2be8'
+const PARSE_BOT_SNAPSHOT_VERSION = '9'
+
+export function ajioParseBotConfigured(): boolean {
+  return Boolean(process.env.PARSE_API_KEY)
+}
+
+/**
+ * Ajio PDP URLs are https://www.ajio.com/{slug}/p/{productCode}_{colorSlug}
+ * — Parse.bot's product_id param wants exactly that trailing segment
+ * (confirmed against Parse.bot's own docs example:
+ * product_id=469544798_black).
+ */
+export function extractAjioParseBotProductId(url: string): string | null {
+  const m = url.match(/\/p\/([A-Za-z0-9]+_[A-Za-z0-9-]+)(?:[/?#]|$)/)
+  return m ? m[1] : null
+}
+
+export async function fetchAjioViaParseBot(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ data: Record<string, any> | null; error: string | null }> {
+  const productId = extractAjioParseBotProductId(url)
+  if (!productId) {
+    return {
+      data: null,
+      error:
+        "Couldn't find a /p/{productCode}_{colorSlug} segment in this Ajio URL — Parse.bot's product_id param needs exactly that.",
+    }
+  }
+
+  const apiKey = process.env.PARSE_API_KEY
+  if (!apiKey) {
+    return { data: null, error: 'PARSE_API_KEY is not set.' }
+  }
+
+  const endpoint = `https://api.parse.bot/scraper/${PARSE_BOT_SCRAPER_ID}/get_product_detail?product_id=${encodeURIComponent(productId)}`
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'X-API-Key': apiKey,
+        'API-Snapshot-Version': PARSE_BOT_SNAPSHOT_VERSION,
+      },
+      signal: opts.signal,
+    })
+
+    if (!res.ok) {
+      const snippet = await readErrorBodySnippet(res).catch(() => null)
+      return {
+        data: null,
+        error: `Parse.bot returned HTTP ${res.status}${snippet ? `: ${snippet}` : ''}`,
+      }
+    }
+
+    const json = await res.json()
+    if (json?.status && json.status !== 'success') {
+      return { data: null, error: `Parse.bot reported status "${json.status}" for product_id=${productId}` }
+    }
+
+    return { data: json, error: null }
+  } catch (e) {
+    return {
+      data: null,
+      error: `Parse.bot request failed: ${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
+}
+
+export type AjioVariantOption = {
+  label: string
+  price: string | null
+  currencyCode: string | null
+  image: string | null
+  url: string | null
+  selected: boolean
+  outOfStock?: boolean
+}
+
+export type AjioVariantDimension = { dimension: string; options: AjioVariantOption[] }
+
+export type AjioParseBotParsed = AjioParsed & { variants?: AjioVariantDimension[] }
+
+const OOS_STOCK_STATUSES = new Set(['outofstock', 'notifyme', 'discontinued'])
+
+function isVariantInStock(v: any): boolean {
+  const level = v?.stock?.stockLevel
+  const status = typeof v?.stock?.stockLevelStatus === 'string' ? v.stock.stockLevelStatus.toLowerCase() : null
+  if (typeof level === 'number') return level > 0
+  if (status) return !OOS_STOCK_STATUSES.has(status)
+  // Unknown/missing stock shape — don't assume out-of-stock off a field
+  // we can't actually read; let the top-level availability fall back to
+  // whatever the aggregate check below decides instead.
+  return true
+}
+
+// Ajio's PDP origin — every relative URL coming out of baseOptions[].
+// options[].url (colour variants) needs this prefix to become something
+// the QA tool's onSelectVariant re-fetch (and any real consumer) can
+// actually navigate to.
+const AJIO_ORIGIN = 'https://www.ajio.com'
+
+function toAbsoluteAjioUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  if (/^https?:\/\//i.test(path)) return path
+  return `${AJIO_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
+// Rank of each Parse.bot image `format` value by actual pixel
+// resolution, confirmed against a real captured response:
+//   cartIcon/thumbnail ≈ 78x98, mobileProductListingImage ≈ 288x360,
+//   product ≈ 473x593, superZoomPdp ≈ 1117x1400 (the real full-res one).
+// Any format not in this map (future/undocumented value) is treated as
+// rank 1 — better than the two smallest known tiers, worse than the two
+// largest, so a genuinely new format doesn't silently win over
+// superZoomPdp nor silently lose to a thumbnail.
+const AJIO_IMAGE_FORMAT_RANK: Record<string, number> = {
+  cartIcon: 0,
+  thumbnail: 0,
+  mobileProductListingImage: 1,
+  product: 2,
+  superZoomPdp: 3,
+}
+
+/**
+ * Ajio's Parse.bot `images` array repeats every photo once per
+ * resolution tier AND once per `imageType` (PRIMARY duplicates
+ * GALLERY's galleryIndex-0 entries exactly) — 15-20+ entries for what's
+ * usually 4-5 actual photos. Group by `galleryIndex` (the actual photo
+ * identity) and keep only the highest-resolution `format` per group, in
+ * galleryIndex order. Entries with no `galleryIndex` at all are kept
+ * as-is (deduped by exact URL) rather than dropped, since we can't tell
+ * if they're a duplicate of anything.
+ */
+function pickBestAjioImages(rawImages: any[]): string[] {
+  const bestByIndex = new Map<number, { url: string; rank: number }>()
+  const noIndexUrls: string[] = []
+
+  for (const img of rawImages) {
+    const url = img?.url
+    if (!url) continue
+    const idx = typeof img?.galleryIndex === 'number' ? img.galleryIndex : null
+    const rank = AJIO_IMAGE_FORMAT_RANK[img?.format as string] ?? 1
+
+    if (idx == null) {
+      if (!noIndexUrls.includes(url)) noIndexUrls.push(url)
+      continue
+    }
+
+    const existing = bestByIndex.get(idx)
+    if (!existing || rank > existing.rank) {
+      bestByIndex.set(idx, { url, rank })
+    }
+  }
+
+  return [
+    ...Array.from(bestByIndex.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([, v]) => v.url),
+    ...noIndexUrls,
+  ]
+}
+
+/**
+ * Builds the "Color" variant dimension from Parse.bot's `baseOptions`
+ * (see TIER 1 header comment for the confirmed shape). Returns null when
+ * there's nothing to show — either no baseOptions at all, or only a
+ * single color (nothing to actually pick between).
+ *
+ * `selectedCode` should be the top-level `code` (or `selected.code`,
+ * same value) from the raw payload — that's what tells us which color
+ * this specific URL/response is currently showing.
+ */
+function buildAjioColorDimension(
+  node: Record<string, any>,
+  fallbackCurrencyCode: string
+): AjioVariantDimension | null {
+  const baseOptionGroups: any[] = Array.isArray(node?.baseOptions) ? node.baseOptions : []
+  const colorOptionsRaw: any[] = baseOptionGroups.flatMap((g) => (Array.isArray(g?.options) ? g.options : []))
+  if (colorOptionsRaw.length < 2) return null // nothing to pick between
+
+  const selectedCode: string | null = node?.selected?.code ?? node?.code ?? null
+
+  return {
+    dimension: 'Color',
+    options: colorOptionsRaw.map((opt) => {
+      // Prefer the dedicated colour swatch image over the full model
+      // shot for the tile thumbnail — matches how a real colour swatch
+      // tile should look, same idea as Amazon's swatch tiles.
+      const colorQualifier = Array.isArray(opt?.variantOptionQualifiers)
+        ? opt.variantOptionQualifiers.find((q: any) => q?.qualifier === 'color' && q?.swatchImage?.url)
+        : null
+      const image = colorQualifier?.swatchImage?.url ?? opt?.modelImage?.url ?? null
+
+      const stockLevel = typeof opt?.stock?.stockLevel === 'number' ? opt.stock.stockLevel : null
+      const stockStatus =
+        typeof opt?.stock?.stockLevelStatus === 'string' ? opt.stock.stockLevelStatus.toLowerCase() : null
+      const outOfStock =
+        stockLevel != null ? stockLevel <= 0 : stockStatus ? OOS_STOCK_STATUSES.has(stockStatus) : false
+
+      // `color` comes through ALL CAPS ("BLUE") — title-case it for
+      // display ("Blue") rather than showing it shouty in the UI.
+      const rawLabel: string = opt?.color ?? colorQualifier?.value ?? 'Unknown'
+      const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1).toLowerCase()
+
+      return {
+        label,
+        price: opt?.priceData?.value != null ? String(opt.priceData.value) : null,
+        currencyCode: opt?.priceData?.currencyIso ?? fallbackCurrencyCode,
+        image,
+        url: toAbsoluteAjioUrl(opt?.url),
+        selected: !!selectedCode && opt?.code === selectedCode,
+        outOfStock,
+      }
+    }),
+  }
+}
+
+/**
+ * Maps Parse.bot's Hybris-shaped get_product_detail response into the
+ * shared AjioParsed shape (plus a `variants` extension for Color and
+ * Size). See the TIER 1 header comment above for the confirmed schema.
+ */
+export function mapParseBotProductToAjio(raw: Record<string, any>): AjioParseBotParsed {
+  // Parse.bot wraps the real payload in {data: {...}, status: "success"}.
+  const node = raw?.data ?? raw
+
+  const title: string | null = node?.name ?? null
+  const brand: string | null = node?.brandName ?? null
+
+  const price = node?.price?.value != null ? String(node.price.value) : null
+  const currencyCode: string = node?.price?.currencyIso ?? 'INR'
+  const mrp = node?.wasPriceData?.value != null ? String(node.wasPriceData.value) : null
+
+  const rating = node?.ratingsResponse?.aggregateRating?.averageRating
+  // numUserRatings ("6.1K") is "how many people left a star rating" —
+  // the right pairing for an average-rating badge like "3.0★ (6.1K)".
+  // customerOpinionCount ("2509") is a different, smaller number: how
+  // many left a full written review. Both are present in the raw
+  // response; this keeps the star-rating pairing, not a bug fix, just
+  // documenting the two numbers aren't interchangeable.
+  const review_count = node?.ratingsResponse?.aggregateRating?.numUserRatings
+
+  const images: string[] = Array.isArray(node?.images) ? pickBestAjioImages(node.images) : []
+
+  const variantOptions: any[] = Array.isArray(node?.variantOptions) ? node.variantOptions : []
+  let availability: string | null = null
+  let unavailable = false
+  if (variantOptions.length) {
+    const anyInStock = variantOptions.some(isVariantInStock)
+    availability = anyInStock ? 'In stock' : 'Out of stock'
+    unavailable = !anyInStock
+  } else if (node?.stock?.stockLevelStatus) {
+    // No per-size stock list at all (shouldn't normally happen, but
+    // don't leave availability null if the top-level stock object is
+    // there) — falls back to the stock for the specific option this
+    // response represents.
+    const topStatus = String(node.stock.stockLevelStatus).toLowerCase()
+    unavailable = OOS_STOCK_STATUSES.has(topStatus) || node.stock.stockLevel === 0
+    availability = unavailable ? 'Out of stock' : 'In stock'
+  }
+
+  const result: AjioParseBotParsed = {
+    title,
+    brand,
+    price,
+    mrp,
+    currencyCode,
+    rating: rating != null ? String(rating) : null,
+    review_count: review_count != null ? String(review_count) : null,
+    availability,
+    // Not present in this schema — Ajio is first-party retail, so a
+    // missing "seller" field is expected rather than a parsing miss.
+    seller: null,
+    images,
+  }
+
+  const dimensions: AjioVariantDimension[] = []
+
+  // Color first (matches the on-site left-to-right picker order: colour
+  // swatches above size tiles on a real Ajio PDP).
+  const colorDimension = buildAjioColorDimension(node, currencyCode)
+  if (colorDimension) dimensions.push(colorDimension)
+
+  if (variantOptions.length) {
+    dimensions.push({
+      dimension: 'Size',
+      options: variantOptions.map((v) => ({
+        label: v?.scDisplaySize ?? v?.code ?? 'Unknown',
+        price: v?.priceData?.value != null ? String(v.priceData.value) : null,
+        currencyCode,
+        image: null,
+        url: null, // size swap is in-page on Ajio, not a separate URL
+        // Can't determine which size was "selected" from this payload
+        // alone — the request is keyed by colour+code, not by size, and
+        // nothing in a real captured response marks one variantOptions
+        // entry as current (unlike colour, where top-level `code` tells
+        // us exactly). See TIER 1 header comment.
+        selected: false,
+        outOfStock: !isVariantInStock(v),
+      })),
+    })
+  }
+
+  if (dimensions.length) {
+    result.variants = dimensions
+  }
+
+  if (unavailable) {
+    result._ajioUnavailable = true
+  }
+
+  if (!title && price == null) {
+    result._ajioWarning = `Parse.bot returned a payload with neither name nor price for this product_id — check the id is valid and the response wasn't an error wrapped as HTTP 200.`
+  }
+
+  return result
+}
+
+// ---------------------------------------------------------------------
+// TIER 3 (last resort): self-hosted TLS-fingerprint fallback
+// ---------------------------------------------------------------------
+// Reached only after both the direct static fetch AND the shared
+// headless-browser render tier (parsers.ts's RENDER_FALLBACK_HOSTS) have
+// failed to produce usable HTML — and only if PARSE_API_KEY isn't set,
+// since tier 1 (Parse.bot) is now checked first in parsers.ts.
 //
 // HONEST SCOPE NOTE: per tls-fetch.ts's own header comment, this fixes
 // "Node's HTTP client has a detectably non-browser TLS fingerprint" —
