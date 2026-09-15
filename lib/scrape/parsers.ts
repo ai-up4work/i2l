@@ -104,6 +104,7 @@ export type ScrapeResult = {
   sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable)[] | null
   error?: string
   warning?: string
+  description?: string | null
   // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi' — all
   // are non-'direct' tiers reached only after (or instead of) the plain
   // fetch + headless-render pipeline. The label tells you which

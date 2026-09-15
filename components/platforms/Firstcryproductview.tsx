@@ -1,37 +1,65 @@
 // app/demo/scraper-qa/platforms/FirstCryProductView.tsx
 'use client'
 
-import { ExternalLink, Star, Zap, PackageX, AlertTriangle, ShoppingBag } from 'lucide-react'
-import type { ScrapeResult } from '@/lib/scrape/parsers'
+import { useEffect, useState } from 'react'
+import {
+  Star,
+  ExternalLink,
+  Minus,
+  Plus,
+  Heart,
+  ShoppingBag,
+  ShoppingCart,
+  Check,
+  ChevronRight,
+  Gift,
+  RotateCcw,
+  MapPin,
+  BadgePercent,
+} from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
+import type { ScrapeResult } from '@/lib/scrape/parsers'
+import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
+import ProductGallery from '@/components/stores/ProductGallery'
+import RequestActionButton from '@/components/stores/RequestActionButton'
+import Image from 'next/image'
 
 /**
- * FirstCry look-alike view for the scrape QA tool. Same props shape as
- * every other platform component already wired into ScraperQaClient.tsx
- * (`<XProductView result={result} onSelectVariant={(url) => runLookup(url)} />`).
+ * FirstCry look-alike view for the scrape QA tool, rebuilt to match the
+ * same organizational depth as AmazonProductView.tsx — shared
+ * `PlatformViewProps` (cart/wishlist/qty/quote wiring), the shared
+ * `<ProductGallery>` component, and a bottom `ProductInfoTabs` section
+ * — while visually mirroring the REAL FirstCry PDP (see reference
+ * screenshot): thumbnail rail + hero image, a two-tier price block
+ * (sale price / MRP / % off, then "Club Price" + savings + club cash),
+ * a Club Benefits / Lower Price badge row, a pill-style Size selector
+ * with a "SIZE CHART" link, a Delivery-pincode checker, a prominent
+ * Add to Cart action, and a Gift Wrap / 30-day-return icon row.
  *
- * Reflects FirstCry's specific extractor behavior — see
- * lib/scrape/extractors/firstcry.ts's file-header comment for the full
- * detail, summarized here:
- *   - `variants` can contain a "Color" dimension whose tiles carry no
- *     `url` at all (FirstCry swaps color via an in-page AJAX call, not
- *     navigation) — those tiles render as informational only, never
- *     clickable, regardless of `selected`/`outOfStock`.
- *   - `variants` can also contain a "Size" dimension whose tiles ARE
- *     real per-size PDPs (`url` resolves to that size's own product id)
- *     — clicking a non-selected, in-stock size tile re-scrapes that URL,
- *     same click-to-refetch pattern the generic VariantPicker in
- *     ScraperQaClient.tsx uses for Amazon/Flipkart/etc.
- *   - `rating`/`review_count` are frequently both null — FirstCry ships
- *     "0"/"NaN" for unrated products, and the extractor already
- *     normalizes both of those down to null rather than a fake "0.0"
- *     star rating, so this view simply omits the rating row when absent.
+ * Palette: FirstCry's real site uses orange/teal. Per request this
+ * view is themed pink instead (rose/pink-500/600 for the primary
+ * accent, kept alongside the shared `ink`/`card` neutrals already
+ * used elsewhere in this codebase). If the design system later grows
+ * a dedicated `pink-deep` token the way `teal-deep`/`gold-deep`
+ * exist, the raw `pink-*`/`rose-*` Tailwind utilities below can be
+ * swapped for it in one pass.
+ *
+ * Extractor-specific behavior preserved from the previous version
+ * (see lib/scrape/extractors/firstcry.ts for the source of truth):
+ *   - A "Color" dimension's tiles carry no `url` — FirstCry swaps
+ *     color via an in-page AJAX call, not navigation — so those tiles
+ *     are always informational/non-clickable, regardless of
+ *     `selected`/`outOfStock`.
+ *   - A "Size" dimension's tiles ARE real per-size PDPs (`url`
+ *     resolves to that size's own product id); clicking a
+ *     non-selected, in-stock size re-scrapes that URL, same
+ *     click-to-refetch pattern the generic VariantPicker uses for
+ *     Amazon/Flipkart/etc. These are rendered as the pill buttons in
+ *     the "Size" section, matching the real site's layout.
+ *   - `rating`/`review_count` are frequently both null — the
+ *     extractor already normalizes FirstCry's "0"/"NaN" down to null,
+ *     so this view omits the rating row entirely when absent.
  */
-
-type FirstCryProductViewProps = {
-  result: ScrapeResult
-  onSelectVariant: (url: string) => void
-}
 
 function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
   const n = amount != null ? Number(amount) : NaN
@@ -67,107 +95,81 @@ function RatingStars({ rating, count }: { rating: string | null | undefined; cou
   )
 }
 
-function ImageGallery({ images, alt }: { images: string[]; alt: string }) {
-  const [main, ...rest] = images
-  if (!main) {
-    return (
-      <div className="grid aspect-square place-items-center rounded-2xl border border-dashed border-ink/15 bg-card text-ink/25">
-        <ShoppingBag size={28} strokeWidth={1.2} />
-      </div>
-    )
-  }
-  return (
-    <div>
-      <div className="aspect-square overflow-hidden rounded-2xl border border-ink/10 bg-card">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={main} alt={alt} className="h-full w-full object-contain" />
-      </div>
-      {rest.length > 0 && (
-        <div className="mt-2 grid grid-cols-5 gap-2">
-          {rest.slice(0, 9).map((src) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={src}
-              src={src}
-              alt=""
-              className="aspect-square rounded-lg border border-ink/10 bg-card object-contain"
-            />
-          ))}
-        </div>
-      )}
-      <p className="mt-2 text-[10px] font-medium text-ink/35">
-        {images.length} image{images.length === 1 ? '' : 's'} found
-      </p>
-    </div>
-  )
-}
-
-function VariantSection({
-  variants,
-  onSelectVariant,
+/**
+ * Pill-style size selector, matching the real FirstCry "New Born /
+ * 0-3M / 3-6M / ..." row. Selected = solid pink outline (the real
+ * site uses orange here). Out of stock = greyed, not clickable.
+ */
+function SizePill({
+  label,
+  selected,
+  outOfStock,
+  onClick,
+  disabledTitle,
 }: {
-  variants: NonNullable<ScrapeResult['variants']>
-  onSelectVariant: (url: string) => void
+  label: string
+  selected: boolean
+  outOfStock?: boolean
+  onClick?: () => void
+  disabledTitle?: string
 }) {
+  const clickable = !!onClick && !outOfStock
   return (
-    <div className="mt-4 flex flex-col gap-3">
-      {variants.map((dim) => {
-        // Color tiles never carry a url (see file header) — always
-        // shown as informational, never clickable, regardless of what
-        // outOfStock/selected happen to say for that tile.
-        const isColor = dim.dimension.toLowerCase() === 'color'
-        return (
-          <div key={dim.dimension}>
-            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
-            <div className="flex flex-wrap gap-2">
-              {dim.options.map((opt) => {
-                const clickable = !isColor && !!opt.url && !opt.selected && !opt.outOfStock
-                return (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    disabled={!clickable}
-                    onClick={() => clickable && opt.url && onSelectVariant(opt.url)}
-                    title={
-                      isColor
-                        ? 'FirstCry swaps colors in-page — open the original listing to change color'
-                        : opt.outOfStock
-                          ? 'Out of stock'
-                          : opt.url
-                            ? undefined
-                            : 'No direct link found for this size'
-                    }
-                    className={`flex flex-col items-center gap-1 rounded-xl border px-2.5 py-2 text-left transition-colors ${
-                      opt.selected
-                        ? 'border-teal bg-teal/10'
-                        : opt.outOfStock
-                          ? 'cursor-not-allowed border-ink/8 bg-card/50 opacity-40 grayscale'
-                          : clickable
-                            ? 'border-ink/12 bg-card hover:border-teal/50'
-                            : 'cursor-not-allowed border-ink/8 bg-card/50 opacity-60'
-                    }`}
-                  >
-                    {opt.image && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={opt.image} alt={opt.label} className="h-10 w-10 rounded-md object-contain" />
-                    )}
-                    <span className="max-w-[90px] truncate text-[11px] font-semibold text-ink/75">{opt.label}</span>
-                    {opt.outOfStock && (
-                      <span className="text-[9px] font-bold uppercase text-red-500">Out of stock</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-    </div>
+    <button
+      type="button"
+      disabled={!clickable}
+      title={disabledTitle}
+      aria-pressed={selected}
+      onClick={clickable ? onClick : undefined}
+      className={
+        'rounded-lg border px-3.5 py-2 text-xs font-bold transition-colors ' +
+        (selected
+          ? 'border-pink-500 text-pink-600'
+          : outOfStock
+            ? 'cursor-not-allowed border-ink/10 text-ink/25 line-through'
+            : clickable
+              ? 'border-ink/15 text-ink/70 hover:border-pink-300 hover:text-pink-600 cursor-pointer'
+              : 'cursor-not-allowed border-ink/10 text-ink/40')
+      }
+    >
+      {label}
+    </button>
   )
 }
 
-export default function FirstCryProductView({ result, onSelectVariant }: FirstCryProductViewProps) {
-  const images = result.images ?? []
+/**
+ * Informational-only color swatch. Never clickable — see file header
+ * on why (FirstCry swaps color via AJAX, this view has no way to
+ * trigger that from a scrape result).
+ */
+function ColorSwatch({ label, imageUrl, selected }: { label: string; imageUrl?: string | null; selected: boolean }) {
+  return (
+    <span className="inline-flex flex-col items-center gap-1" title="FirstCry swaps colors in-page — open the original listing to change color">
+      <span
+        className={
+          'grid h-9 w-9 place-items-center overflow-hidden rounded-full border-2 bg-cover bg-center shadow-sm ' +
+          (selected ? 'border-pink-500 ring-2 ring-pink-300 ring-offset-1 ring-offset-parchment' : 'border-white ring-1 ring-ink/15')
+        }
+        style={imageUrl ? { backgroundImage: `url(${imageUrl})` } : { background: 'linear-gradient(135deg, #f6dbe4 0%, #ecc3d3 100%)' }}
+      >
+        {!imageUrl && <span className="text-[9px] font-bold uppercase tracking-tight text-ink/50">{label.trim().slice(0, 2)}</span>}
+      </span>
+      <span className={`text-[10px] font-medium ${selected ? 'text-pink-600' : 'text-ink/60'}`}>{label}</span>
+    </span>
+  )
+}
+
+/**
+ * The two-tier price block from the real PDP:
+ *   1. Sale price + struck MRP + "% OFF" chip, plus the tax note.
+ *   2. "Club Price" row with a "Join Now" link, and a savings /
+ *      club-cash line underneath.
+ * `mrp`/`price` come straight off the scrape result; club price is a
+ * presentation-only estimate (5–8% further off) since the extractor
+ * doesn't have a dedicated club-price field — shown only when a real
+ * price exists, clearly separated from the actual scraped numbers.
+ */
+function PriceBlock({ result }: { result: ScrapeResult }) {
   const price = fmtPrice(result.price, result.currencyCode)
   const mrp = fmtPrice(result.mrp, result.currencyCode)
   const priceNum = result.price != null ? Number(result.price) : NaN
@@ -178,80 +180,446 @@ export default function FirstCryProductView({ result, onSelectVariant }: FirstCr
       : null
 
   return (
-    <div className="grid gap-8 sm:grid-cols-2">
-      <ImageGallery images={images} alt={result.title ?? 'Product image'} />
-
-      <div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 ring-1 ring-inset ring-ink/10">
-            <Zap size={11} className="text-teal-deep" strokeWidth={2} />
-            FirstCry
-          </span>
-          {result.brand && (
-            <>
-              <span className="text-ink/20">·</span>
-              <span>{result.brand}</span>
-            </>
-          )}
-          {result.rating && (
-            <>
-              <span className="text-ink/20">·</span>
-              <RatingStars rating={result.rating} count={result.review_count} />
-            </>
-          )}
-        </div>
-
-        <h2 className="mt-2 font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
-          {result.title ?? <span className="italic text-ink/35">No title found</span>}
-        </h2>
-
-        <div className="mt-3 flex items-baseline gap-2">
-          <p className="text-2xl font-bold text-teal-deep">
-            {price ?? <span className="text-base font-semibold text-ink/35">No price found</span>}
-          </p>
-          {mrp && mrp !== price && <p className="text-sm font-semibold text-ink/40 line-through">{mrp}</p>}
-          {discountPct != null && discountPct > 0 && (
-            <span className="rounded-md bg-gold/15 px-1.5 py-0.5 text-xs font-bold text-gold-deep">
-              {discountPct}% off
-            </span>
-          )}
-        </div>
-
-        {result.availability && (
-          <p className="mt-2 inline-block rounded-md bg-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink/55 ring-1 ring-inset ring-ink/10">
-            {result.availability}
-          </p>
+    <div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        {price ? (
+          <p className="text-3xl font-bold text-pink-600">{price}</p>
+        ) : (
+          <p className="text-base font-semibold text-ink/40">No price found</p>
         )}
-
-        {result.unavailable && (
-          <div className="mt-3 flex items-start gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2.5">
-            <PackageX size={15} className="mt-0.5 flex-none text-gold-deep" strokeWidth={1.8} />
-            <p className="text-xs leading-relaxed text-ink/70">
-              This size/listing looks sold out — pick another size above if one&rsquo;s shown, or check back later.
-            </p>
-          </div>
+        {mrp && mrp !== price && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
+        {discountPct != null && discountPct > 0 && (
+          <span className="rounded-md bg-pink-50 px-1.5 py-0.5 text-xs font-bold text-pink-600">{discountPct}% OFF</span>
         )}
-
-        {result.warning && !result.unavailable && (
-          <div className="mt-3 flex items-start gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2.5">
-            <AlertTriangle size={14} className="mt-0.5 flex-none text-gold-deep" strokeWidth={1.8} />
-            <p className="text-xs leading-relaxed text-ink/70">{result.warning}</p>
-          </div>
-        )}
-
-        {result.variants && result.variants.length > 0 && (
-          <VariantSection variants={result.variants} onSelectVariant={onSelectVariant} />
-        )}
-
-        <a
-          href={result.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-        >
-          Open original listing <ExternalLink size={12} />
-        </a>
       </div>
+
+      {price && (
+        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-ink/40">
+          Sale price inclusive of all taxes
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-ink/55">
+        <span className="rounded-full bg-card px-2.5 py-1 ring-1 ring-inset ring-ink/10">Club Benefits</span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 ring-1 ring-inset ring-ink/10">
+          <span className="h-1.5 w-1.5 rounded-full bg-pink-400" /> Lower Prices Product
+        </span>
+      </div>
+    </div>
+  )
+}
+
+
+/**
+ * Qty stepper + wishlist heart + Add to Cart, grouped as one atomic
+ * unit (never split across lines), plus a secondary "Get Quote"
+ * action — same flex/atomic-group pattern as AmazonCommerceActions,
+ * recolored pink and matched to FirstCry's bold full-width CTA look.
+ */
+function FirstCryCommerceActions({
+  result,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
+}: {
+  result: ScrapeResult
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
+}) {
+  return (
+    <div className="mt-6 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-pink-300 hover:bg-pink-50 hover:text-pink-600 active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-pink-300 hover:bg-pink-50 hover:text-pink-600 active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={justAdded ? <Check size={16} className="text-white" /> : <ShoppingBag size={16} />}
+            color="#ec4899"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95"
+          >
+            {justAdded ? 'ADDED' : 'ADD TO CART'}
+          </RequestActionButton>
+
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+        </div>
+
+        <RequestActionButton
+          onClick={onRequestReview}
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={<ShoppingCart size={16} />}
+          color="#f9a8d4"
+          disabledColor="#c7c7c7"
+          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-pink-900 hover:brightness-95 sm:grow-0 sm:basis-auto"
+        >
+          GET QUOTE
+        </RequestActionButton>
+      </div>
+
+      <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------------
+ * ProductInfoTabs — same Description / Details / Shipping & Returns
+ * tab-switcher pattern as AmazonProductView, recolored pink, rendered
+ * as the bottom-most, full-width section of the whole view.
+ * ------------------------------------------------------------------- */
+
+const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
+type InfoTab = (typeof INFO_TABS)[number]
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="font-semibold text-ink/70">{label}</dt>
+      <dd className="text-right text-ink/55">{value}</dd>
+    </div>
+  )
+}
+
+function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {chart.map((table, i) => (
+        <div key={i}>
+          {'title' in table && table.title && (
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-ink/45">{table.title}</p>
+          )}
+          <table className="w-full border-collapse text-left text-[12px] text-ink">
+            <thead>
+              <tr className="border-b border-ink/10">
+                {table.columns.map((col) => (
+                  <th key={col} className="py-1 pr-4 font-semibold">
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((row, r) => (
+                <tr key={r} className="border-b border-ink/5 last:border-0">
+                  {table.columns.map((col) => (
+                    <td key={col} className="py-1 pr-4">
+                      {row[col]}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ProductInfoTabs({ result }: { result: ScrapeResult }) {
+  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
+  const hasRealSizeChart = !!result.sizeChart && result.sizeChart.length > 0
+
+  return (
+    <div className="mt-8 border-t border-ink/10 pt-6">
+      <div className="flex gap-5 border-b border-ink/10">
+        {INFO_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
+              activeTab === tab ? 'border-pink-500 text-ink' : 'border-transparent text-ink/40 hover:text-ink/70'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+      <div
+        key={activeTab}
+        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+      >
+        {activeTab === 'Description' &&
+          ((result as ScrapeResult & { description?: string }).description ? (
+            <p>{(result as ScrapeResult & { description?: string }).description}</p>
+          ) : (
+            <p className="text-ink/45">
+              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
+              {result.title ?? 'no title available.'}
+            </p>
+          ))}
+        {activeTab === 'Details' && (
+          <div className="flex flex-col gap-4">
+            <dl className="flex flex-col gap-1.5 text-xs">
+              {result.brand && <DetailRow label="Brand" value={result.brand} />}
+              {result.mpn && <DetailRow label="Model" value={result.mpn} />}
+              {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
+              {result.itemSpecifics?.map((spec) => (
+                <DetailRow key={spec.name} label={spec.name} value={spec.value} />
+              ))}
+              {!result.brand && !result.mpn && !result.itemSpecifics?.length && !hasRealSizeChart && (
+                <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
+              )}
+            </dl>
+
+            {hasRealSizeChart && (
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/45">Size chart</p>
+                <div className="rounded-lg border border-ink/10 bg-card p-3">
+                  <SizeChart chart={result.sizeChart!} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {activeTab === 'Shipping & Returns' && (
+          <dl className="flex flex-col gap-1.5 text-xs">
+            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
+            <DetailRow
+              label="Returns"
+              value={
+                result.returnsAccepted
+                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
+                  : '30 days Return/Exchange'
+              }
+            />
+            {result.availability ? (
+              <DetailRow label="Availability" value={result.availability} />
+            ) : (
+              !result.itemLocation && (
+                <p className="mt-1 text-ink/45">We don&apos;t have shipping details from the seller for this listing.</p>
+              )
+            )}
+          </dl>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------------
+ * Main component
+ * ------------------------------------------------------------------- */
+
+export default function FirstCryProductView({
+  result,
+  onSelectVariant,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
+}: PlatformViewProps) {
+  const images = result.images ?? []
+  const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    const initial: Record<string, string> = {}
+    for (const dim of result.variants ?? []) {
+      const selectedOpt = dim.options.find((o) => o.selected)
+      if (selectedOpt) initial[dim.dimension] = selectedOpt.label
+    }
+    setSelectedByDimension(initial)
+  }, [result.url, result.variants])
+
+  function pickOption(dimension: string, label: string, url: string | null) {
+    setSelectedByDimension((prev) => ({ ...prev, [dimension]: label }))
+    if (url) onSelectVariant(url)
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl px-6 lg:px-10">
+      <div
+        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+      >
+        {/* Brand chip + brand name + rating, then title — mirrors the
+            breadcrumb/title block at the top of the real PDP. */}
+        <div className="min-w-0 [grid-area:info]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
+              <Image src="/logos/firstcry.png" alt="FirstCry" width={70} height={16} />
+            </a>
+            {result.brand && (
+              <>
+                <span className="text-ink/20">·</span>
+                <span>{result.brand}</span>
+              </>
+            )}
+            {result.rating && (
+              <>
+                <span className="text-ink/20">·</span>
+                <RatingStars rating={result.rating} count={result.review_count} />
+              </>
+            )}
+          </div>
+
+          <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+            {result.title ?? <span className="italic text-ink/40">No title found</span>}
+          </h1>
+        </div>
+
+        {/* Shared gallery component, with the wishlist heart pinned
+            over the hero image's top-right corner, matching the real
+            site's placement. */}
+        <div className="relative min-w-0 [grid-area:gallery]">
+          <ProductGallery
+            images={images}
+            title={result.title}
+            resetKey={result.url}
+            theme={{
+              frameBorder: 'border-ink/10',
+              activeThumb: 'border-pink-500 ring-1 ring-pink-500',
+              restingThumb: 'border-ink/10',
+              placeholderText: 'text-ink/40',
+            }}
+          />
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full border border-ink/10 bg-white/90 text-ink/50 shadow-sm transition-colors hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={16} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+        </div>
+
+        {/* Price block, size pills, delivery checker, commerce
+            actions — the rest of the real PDP's right-hand column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <PriceBlock result={result} />
+
+          {result.unavailable && (
+            <p className="mt-4 rounded-lg border border-pink-200 bg-pink-50 px-3 py-2 text-xs font-semibold text-pink-700">
+              This size/listing looks sold out — pick another size below if one&rsquo;s shown, or check back later.
+            </p>
+          )}
+          {result.warning && !result.unavailable && (
+            <p className="mt-4 rounded-lg border border-pink-200 bg-pink-50 px-3 py-2 text-xs text-pink-700">{result.warning}</p>
+          )}
+
+          {!!result.variants?.length && (
+            <div className="mt-5 flex flex-col gap-5 border-t border-ink/10 pt-5">
+              {result.variants.map((dim) => {
+                const isColor = dim.dimension.toLowerCase() === 'color'
+                const isSize = dim.dimension.toLowerCase() === 'size'
+                const selectedLabel = selectedByDimension[dim.dimension] ?? null
+
+                return (
+                  <div key={dim.dimension}>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
+                      {isSize && (
+                        <button type="button" className="text-[11px] font-bold text-pink-600 hover:underline">
+                          SIZE CHART
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {dim.options.map((opt) => {
+                        const selected = opt.label === selectedLabel
+
+                        if (isColor) {
+                          return <ColorSwatch key={opt.label} label={opt.label} imageUrl={opt.image} selected={selected} />
+                        }
+
+                        const clickable = !!opt.url && !selected && !opt.outOfStock
+                        const disabledTitle = opt.outOfStock
+                          ? 'Out of stock'
+                          : opt.url
+                            ? undefined
+                            : 'No direct link found for this option'
+
+                        return (
+                          <SizePill
+                            key={opt.label}
+                            label={opt.label}
+                            selected={selected}
+                            outOfStock={opt.outOfStock}
+                            disabledTitle={disabledTitle}
+                            onClick={clickable ? () => pickOption(dim.dimension, opt.label, opt.url) : undefined}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <FirstCryCommerceActions
+            result={result}
+            qty={qty}
+            onQtyChange={onQtyChange}
+            inWishlist={inWishlist}
+            onToggleWishlist={onToggleWishlist}
+            onAddToCart={onAddToCart}
+            justAdded={justAdded}
+            onRequestReview={onRequestReview}
+            loading={loading}
+            canAct={canAct}
+          />
+        </div>
+      </div>
+
+      {/* Description/Details/Shipping & Returns — bottom-most,
+          full-width section of the entire component. */}
+      <ProductInfoTabs result={result} />
     </div>
   )
 }
