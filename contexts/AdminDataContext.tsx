@@ -273,19 +273,44 @@ function usePersistentState<T>(key: string, initial: T) {
 /* Reference data                                                      */
 /* ------------------------------------------------------------------ */
 
+// IDs below MUST match data/wishdrop-seed-staff-sites.sql exactly — that
+// file seeds real `sites`/`staff_accounts` rows at these fixed UUIDs
+// specifically so this mock role-switcher can write real data. Before
+// this fix, these three constants still used old placeholder strings
+// ("site_colombo", "u_mgr_1", etc.) — not valid UUIDs at all, let alone
+// ones that exist in staff_accounts. Any write that includes
+// currentUser.id as a staff id (createQcIssue's staffId, addInternalNote,
+// setOrderStage, setWarehouseSubstage, ...) failed immediately with
+// "invalid input syntax for type uuid" before Postgres even got to check
+// the foreign key — and because none of those calls are awaited/
+// error-handled at their call sites (see e.g. qc/[id]/page.tsx's save()),
+// the failure was completely silent: the UI said "Saved" and navigated
+// back, but no order_item_issues/order_internal_notes/order_stage_history
+// row was ever actually written. That's why a flagged item never showed
+// up on /admin/qc-issues, and why it also vanished from every other
+// queue (loadRealOrders' next re-fetch has nothing to show it as
+// belonging to, since the write that would keep it findable never
+// landed). Run data/wishdrop-seed-staff-sites.sql against your Supabase
+// project once, then these IDs will resolve to real rows and every
+// staff-attributed write will actually persist.
 const SITES: Site[] = [
-  { id: "site_colombo", name: "Colombo Hub", location: "Colombo, LK" },
-  { id: "site_kandy", name: "Kandy Hub", location: "Kandy, LK" },
-  { id: "site_galle", name: "Galle Hub", location: "Galle, LK" },
+  { id: "e166db30-47fe-466d-b5ee-2f600300c50f", name: "Colombo Hub", location: "Colombo, LK" },
+  { id: "925ea5ba-e910-4d7b-a351-13b06cda235f", name: "Kandy Hub", location: "Kandy, LK" },
+  { id: "ef990cda-4177-419d-967a-f9e966bf389e", name: "Galle Hub", location: "Galle, LK" },
 ]
 
 // One mock logged-in user per role. RoleSwitcher flips `role`, and
 // currentUser is derived from this map — switching to Warehouse always
 // hands you a user already scoped to a site, same as production.
 const MOCK_USERS: Record<Role, CurrentUser> = {
-  manager: { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
-  sales: { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
-  warehouse: { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
+  manager: { id: "20910cf1-6c79-4891-b7b0-15fcf8fd636a", name: "Amara Perera", role: "manager" },
+  sales: { id: "857f794e-d28d-4800-b17e-4b1393461dda", name: "Nadia Fernando", role: "sales" },
+  warehouse: {
+    id: "00af059b-624d-4b31-9956-ed1c0feff14e",
+    name: "Kasun Silva",
+    role: "warehouse",
+    siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
+  },
 }
 
 // Reference roster for the reassign-request dropdown AND the Reports
@@ -294,13 +319,33 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
 // meaningful for warehouse entries — sales/manager aren't site-scoped,
 // same convention as CurrentUser.siteId.
 const STAFF_DIRECTORY: StaffMember[] = [
-  { id: "u_sales_1", name: "Nadia Fernando", role: "sales" },
-  { id: "u_sales_2", name: "Ruvindi Jayasekara", role: "sales" },
-  { id: "u_mgr_1", name: "Amara Perera", role: "manager" },
-  { id: "u_wh_1", name: "Kasun Silva", role: "warehouse", siteId: "site_colombo" },
-  { id: "u_wh_2", name: "Dimuthu Rajapaksha", role: "warehouse", siteId: "site_kandy" },
-  { id: "u_wh_3", name: "Harshani Weerasinghe", role: "warehouse", siteId: "site_galle" },
-  { id: "u_wh_4", name: "Pasan Gunathilaka", role: "warehouse", siteId: "site_colombo" },
+  { id: "857f794e-d28d-4800-b17e-4b1393461dda", name: "Nadia Fernando", role: "sales" },
+  { id: "e03e6489-a4d4-43ca-a43c-d415403ce80c", name: "Ruvindi Jayasekara", role: "sales" },
+  { id: "20910cf1-6c79-4891-b7b0-15fcf8fd636a", name: "Amara Perera", role: "manager" },
+  {
+    id: "00af059b-624d-4b31-9956-ed1c0feff14e",
+    name: "Kasun Silva",
+    role: "warehouse",
+    siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
+  },
+  {
+    id: "6e37890f-346f-4a55-a779-8320765a452d",
+    name: "Dimuthu Rajapaksha",
+    role: "warehouse",
+    siteId: "925ea5ba-e910-4d7b-a351-13b06cda235f",
+  },
+  {
+    id: "3ed33c0b-b888-4660-9360-418f36e556ac",
+    name: "Harshani Weerasinghe",
+    role: "warehouse",
+    siteId: "ef990cda-4177-419d-967a-f9e966bf389e",
+  },
+  {
+    id: "12f50202-9165-4dd3-accf-6116137ce9c1",
+    name: "Pasan Gunathilaka",
+    role: "warehouse",
+    siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
+  },
 ]
 
 const ROLE_PERMISSIONS: Record<Role, Permissions> = {
@@ -409,6 +454,8 @@ import {
   type DbOrderStage,
 } from "@/lib/supabase/orders-admin"
 
+import { fetchQcIssuesForItems } from "@/lib/supabase/qc-issues"
+
 import {
   fetchAdminRequests,
   fetchAdminChatThreads,
@@ -496,6 +543,32 @@ function mapToOrder(
   const pickedUpAt = isPickedUp ? o.substageAt ?? o.stageEnteredAt : undefined
   const deliveredAt = o.stage === "delivered" ? o.stageEnteredAt : undefined
 
+  // Real order_stage_history rows only ever get written from
+  // setOrderStage() — i.e. from the moment an admin explicitly changes
+  // stage, or an automated transition like "Mark shipped" calls it.
+  // Nothing writes a row for an order's initial creation, so a
+  // never-transitioned order legitimately has zero real history rows —
+  // that's expected, not a bug. Separately: every setOrderStage() call
+  // before the SITES/MOCK_USERS/STAFF_DIRECTORY id fix (see that
+  // block's comment) was failing outright ("invalid input syntax for
+  // type uuid") because currentUser.id wasn't a real UUID yet, so any
+  // order that DID transition stage before that fix still has no real
+  // row for those past transitions — this doesn't retroactively create
+  // them, only future transitions log correctly now. Either way, a
+  // timeline with literally nothing in it reads as broken rather than
+  // "nothing has happened yet" — so always guarantee at least one
+  // synthetic "Ordered" entry, timestamped to the order's real creation
+  // time, when the real history doesn't already have one.
+  const mappedStageHistory = stageHistory.map((h) => ({
+    stage: (mapDbStageToOrderStage(h.stage as DbOrderStage) ?? "Ordered") as OrderStage,
+    at: h.at,
+    by: h.byStaffName ?? "System",
+  }))
+  const hasOrderedEntry = mappedStageHistory.some((h) => h.stage === "Ordered")
+  const fullStageHistory = hasOrderedEntry
+    ? mappedStageHistory
+    : [{ stage: "Ordered" as OrderStage, at: o.createdAt, by: "System" }, ...mappedStageHistory]
+
   return {
     id: o.displayId,
     customerName: o.customerName,
@@ -508,11 +581,7 @@ function mapToOrder(
     delayed: o.delayed,
     isManualQuote: o.channel === 3,
     items: o.items.map(mapAdminItemToOrderItem),
-    stageHistory: stageHistory.map((h) => ({
-      stage: (mapDbStageToOrderStage(h.stage as DbOrderStage) ?? "Ordered") as OrderStage,
-      at: h.at,
-      by: h.byStaffName ?? "System",
-    })),
+    stageHistory: fullStageHistory,
     internalNotes: internalNotes.map((n) => ({
       id: n.id,
       body: n.text,
@@ -544,8 +613,27 @@ function mapToOrder(
  * sharing the order's real purchase/QC status — see GRANULARITY NOTE
  * above). `realPurchase` is this order's row from the real `purchases`
  * table, if one exists yet (it won't for an order still at 'ordered').
+ *
+ * `flaggedItemIds` is the one exception to the GRANULARITY NOTE's "no
+ * per-item state" limitation: `order_item_issues` DOES carry a real
+ * order_item_id (see lib/supabase/qc-issues.ts), created the moment a
+ * specific item is flagged on /admin/qc/[id]/page.tsx's save(). Before
+ * this parameter existed, `isFlagged` below read purely off the ORDER's
+ * `delayed` flag — but flagging any one item sets `delayed` on the whole
+ * order (see submitQcResult), so every sibling item in that order was
+ * incorrectly shown as "flagged" too, even ones nobody had reviewed.
+ * `flaggedItemIds` lets each item check its OWN real status instead of
+ * inheriting the order's. "passed" still can't be made per-item this way
+ * — there's no per-item table row written when an item passes, only the
+ * order-level `qc_passed` substage marker — so that half of the
+ * GRANULARITY NOTE limitation still stands; only "flagged" is fixable
+ * without a schema change, because order_item_issues already exists.
  */
-function mapToPurchases(o: AdminOrder, realPurchase: AdminPurchase | undefined): Purchase[] {
+function mapToPurchases(
+  o: AdminOrder,
+  realPurchase: AdminPurchase | undefined,
+  flaggedItemIds: Set<string>
+): Purchase[] {
   const now = new Date().toISOString()
   const fallbackUnitPrice = Math.round(o.totalValue / Math.max(o.items.length, 1))
 
@@ -563,38 +651,47 @@ function mapToPurchases(o: AdminOrder, realPurchase: AdminPurchase | undefined):
   const purchasedAt = realPurchase?.createdAt ?? o.stageEnteredAt
   const purchaseReference = realPurchase?.receiptRef ?? undefined
 
-  // Flagged: a QC-flagged order stays 'quality_check' + delayed, with no
-  // 'qc_passed' substage set yet — see submitQcResult below for the write.
-  const isFlagged = o.stage === "quality_check" && o.delayed && o.substage !== "qc_passed"
+  // Per-item QC status. `flaggedItemIds.has(item.id)` is a real signal
+  // and always wins — an item with a genuinely OPEN issue on file never
+  // gets silently reported as "passed" just because the rest of the
+  // order moved on. `flaggedItemIds` only contains items whose issue is
+  // still `resolution: 'pending'` (see loadRealOrders below) — a
+  // resolved 'retry_same' item falls out of this set on purpose, so it
+  // naturally reads as "pending" again via the order-level fallback the
+  // moment its physical replacement shows up for re-inspection, instead
+  // of being stuck reading "flagged" forever. Everything else falls
+  // back to the order-level heuristic this always used, since there's
+  // nothing more precise to read for "passed"/"pending".
+  const qcStatusForItem = (itemId: string): QCStatus | undefined => {
+    if (flaggedItemIds.has(itemId)) return "flagged"
+    if (o.stage === "shipped" || o.stage === "delivered" || o.substage === "qc_passed") return "passed"
+    if (o.stage === "quality_check") return "pending"
+    return undefined
+  }
 
-  const qcStatus: QCStatus | undefined =
-    o.stage === "shipped" || o.stage === "delivered" || o.substage === "qc_passed"
-      ? "passed"
-      : isFlagged
-        ? "flagged"
-        : o.stage === "quality_check"
-          ? "pending"
-          : undefined
-
-  const flaggedNote = isFlagged
-    ? [...(o.items.length ? [] : [])] // placeholder, real note text pulled by the QC page itself via internal notes
-    : undefined
-
-  return o.items.map((item) => ({
-    id: `${o.id}:${item.id}`,
-    orderId: o.displayId,
-    orderItemId: item.id,
-    status: "purchased" as PurchaseStatus,
-    enteredQueueAt: o.createdAt,
-    actualUnitPriceINR: item.unitPrice ?? fallbackUnitPrice,
-    purchaseReference,
-    purchasedAt,
-    enteredQcAt: o.stage === "quality_check" || o.stage === "shipped" || o.stage === "delivered" ? o.stageEnteredAt : undefined,
-    qcStatus,
-    qcPhotoCount: 0,
-    qcResolvedAt: qcStatus === "passed" ? o.stageEnteredAt : undefined,
-    issueNote: flaggedNote ? "See order's internal notes for the QC flag reason." : undefined,
-  }))
+  return o.items.map((item) => {
+    const qcStatus = qcStatusForItem(item.id)
+    return {
+      id: `${o.id}:${item.id}`,
+      orderId: o.displayId,
+      orderItemId: item.id,
+      status: "purchased" as PurchaseStatus,
+      enteredQueueAt: o.createdAt,
+      actualUnitPriceINR: item.unitPrice ?? fallbackUnitPrice,
+      purchaseReference,
+      purchasedAt,
+      enteredQcAt: o.stage === "quality_check" || o.stage === "shipped" || o.stage === "delivered" ? o.stageEnteredAt : undefined,
+      qcStatus,
+      qcPhotoCount: 0,
+      qcResolvedAt: qcStatus === "passed" ? o.stageEnteredAt : undefined,
+      // Real per-item note text isn't stored on this synthesized row —
+      // the QC page itself pulls the actual note from order_item_issues
+      // (staffNote/customerNote) for the item being viewed, this is just
+      // a "go look" pointer for list views. Only set when THIS item is
+      // the one actually flagged, not whenever the order has any flag.
+      issueNote: qcStatus === "flagged" ? "See order's internal notes for the QC flag reason." : undefined,
+    }
+  })
 }
 
 const INITIAL_ORDERS: Order[] = []
@@ -970,6 +1067,30 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     realOrderIdByDisplayId.current = new Map(adminOrders.map((o) => [o.displayId, o.id]))
     const purchaseByOrderId = new Map(realPurchases.map((p) => [p.orderId, p]))
 
+    // Real per-item QC signal — see mapToPurchases' doc comment for why
+    // this is the one piece of genuinely per-item state the schema has
+    // (order_item_issues.order_item_id), fetched once here in a single
+    // batch across every order rather than per-order, same pattern as
+    // the customer-facing OrdersHubPage/track page use.
+    const allItemIds = adminOrders.flatMap((o) => o.items.map((i) => i.id))
+    const qcIssuesByItemId = await fetchQcIssuesForItems(allItemIds)
+    // Only an OPEN issue (resolution still 'pending', i.e. nobody has
+    // decided what to do about it yet) should keep an item pinned as
+    // "flagged" on the QC page. Once ops resolves it — including
+    // 'retry_same', where a fresh replacement unit is being re-bought
+    // from the seller — the item needs to fall back to normal QC
+    // status so it naturally re-enters the "needs inspection" queue the
+    // moment the replacement physically arrives, rather than staying
+    // permanently stuck as "flagged" forever just because it once had
+    // an issue on file. (coupon_issued/shipped_as_is are genuinely
+    // final — the item never comes back for re-inspection either way,
+    // so excluding them here doesn't create a false "pending" either;
+    // see the GRANULARITY NOTE below for why "passed" still can't be
+    // tracked more precisely than that for those cases.)
+    const flaggedItemIds = new Set(
+      [...qcIssuesByItemId.entries()].filter(([, issue]) => issue.resolution === "pending").map(([itemId]) => itemId)
+    )
+
     const [histories, notesLists, packageDetailsList] = await Promise.all([
       Promise.all(adminOrders.map((o) => fetchOrderStageHistory(o.id))),
       Promise.all(adminOrders.map((o) => fetchOrderInternalNotes(o.id))),
@@ -982,7 +1103,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       const mapped = mapToOrder(o, histories[i], notesLists[i], packageDetailsList[i])
       if (mapped) {
         nextOrders.push(mapped)
-        nextPurchases.push(...mapToPurchases(o, purchaseByOrderId.get(o.id)))
+        nextPurchases.push(...mapToPurchases(o, purchaseByOrderId.get(o.id), flaggedItemIds))
       }
     })
 

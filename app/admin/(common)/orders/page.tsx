@@ -104,6 +104,22 @@ function DelayedPill() {
   )
 }
 
+// Distinct from DelayedPill — "Delayed" is a generic catch-all (could be
+// customs, a stuck courier, anything), so seeing it alone doesn't tell
+// ops WHY. This pill specifically means "at least one item on this
+// order has an open QC fault" — computed from `purchases` (per-item
+// qcStatus, see AdminDataContext's mapToPurchases fix), not from
+// order.delayed, so it stays accurate even though flagging an item also
+// happens to set order.delayed as a side effect.
+function QcIssuePill() {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
+      <Flag size={11} className="shrink-0" />
+      QC issue
+    </span>
+  )
+}
+
 function StatCard({
   label,
   value,
@@ -159,7 +175,19 @@ export default function OrdersPage() {
     reassignSite,
     toggleDelayed,
     bulkFlagDelayed,
+    purchases,
   } = useAdminData()
+
+  // Orders with at least one item currently sitting "flagged" per the
+  // real per-item QC signal — same set the QC page itself reads, so
+  // this list agrees with /admin/qc and /admin/qc-issues about which
+  // orders actually have an open fault, rather than relying on the
+  // generic order.delayed flag (which flagging also sets, but which
+  // other things — shipping delays, customs — set too).
+  const qcFlaggedOrderIds = useMemo(
+    () => new Set(purchases.filter((p) => p.qcStatus === "flagged").map((p) => p.orderId)),
+    [purchases]
+  )
 
   const [search, setSearch] = useState("")
   const [channelFilter, setChannelFilter] = useState<"all" | Channel>("all")
@@ -455,6 +483,7 @@ export default function OrdersPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-display text-sm font-semibold text-ink">{o.id}</span>
+                            {qcFlaggedOrderIds.has(o.id) && <QcIssuePill />}
                             {o.delayed && <DelayedPill />}
                           </div>
                           <p className="mt-0.5 truncate text-xs text-ink/55">

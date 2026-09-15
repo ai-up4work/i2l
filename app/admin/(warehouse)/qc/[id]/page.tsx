@@ -12,12 +12,15 @@ import {
   CheckCircle2,
   ExternalLink,
   Flag,
+  Loader2,
   Store,
+  X,
 } from "lucide-react"
 
 import { useAdminData, isOrderAgeBreached } from "@/contexts/AdminDataContext"
 import { fetchOrderIdentity } from "@/lib/supabase/orders-admin"
 import { createQcIssue } from "@/lib/supabase/qc-issues"
+import { useImageUpload } from "@/lib/upload/useImageUpload"
 import { CHANNEL_LABEL, QC_STATUS_LABEL, type QCStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass, groupClass, SectionHeading } from "@/components/admin/seller/shared"
@@ -75,8 +78,32 @@ export default function QCDetailPage() {
 
   const [status, setStatus] = useState<QCStatus>(line?.status ?? "pending")
   const [note, setNote] = useState(line?.note ?? "")
+  // Customer-facing note — distinct from `note` above (the internal
+  // inspection note). Written to order_item_issues.customer_note and
+  // surfaced verbatim on the customer's order tracking page via
+  // QcIssueBanner. Never mix these two into one field/input: the
+  // internal note can freely mention supplier names, costs, or ops
+  // shorthand that should never reach a customer.
+  const [customerNote, setCustomerNote] = useState("")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Real upload, not the old local-only photoCount bump. One photo per
+  // QC issue (order_item_issues.photo_url is a single text column), so
+  // this holds the most recently uploaded photo rather than a list.
+  const { uploading, error: uploadError, upload } = useImageUpload()
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+
+  async function handlePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = "" // allow re-selecting the same file later
+    if (!file || !line) return
+    const url = await upload(file, "qc")
+    if (url) {
+      setPhotoUrl(url)
+      addQcPhoto(line.purchaseId) // keeps the existing local photoCount UI in sync
+    }
+  }
 
   if (dataLoading) {
     return (
@@ -108,23 +135,45 @@ export default function QCDetailPage() {
   const tone = STATUS_TONE_FOR[status]
   const purchaseLineId = `${line.orderId}:${line.orderItemId}`
 
-  function save() {
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  async function save() {
     if (status === "pending" || !canAct) return
+    setSaveError(null)
     setSaving(true)
     submitQcResult(line!.purchaseId, status, note)
+
+    // The real per-item record (order_item_issues) only gets written
+    // when flagging — this used to fire-and-forget with no await and no
+    // error handling at all, so a failed insert (RLS, a bad staff-id FK,
+    // an order lookup miss) looked identical to success: the UI still
+    // said "Saved" and navigated back, while /admin/qc-issues silently
+    // never got the row. Now this genuinely blocks on the real write and
+    // surfaces a failure instead of pretending it worked.
     if (status === "flagged") {
-      fetchOrderIdentity(line!.orderId).then((identity) => {
-        if (!identity) return
-        createQcIssue({
-          orderId: identity.orderId,
-          orderItemId: line!.orderItemId,
-          userId: identity.userId,
-          issueType: "faulty_unit",
-          staffNote: note,
-          staffId: currentUser.id,
-        })
+      const identity = await fetchOrderIdentity(line!.orderId)
+      if (!identity) {
+        setSaving(false)
+        setSaveError("Could not find this order in the database — nothing was saved. Try again, or check the order still exists.")
+        return
+      }
+      const result = await createQcIssue({
+        orderId: identity.orderId,
+        orderItemId: line!.orderItemId,
+        userId: identity.userId,
+        issueType: "faulty_unit",
+        staffNote: note,
+        customerNote: customerNote.trim() || undefined,
+        photoUrl: photoUrl ?? undefined,
+        staffId: currentUser.id,
       })
+      if (!result.ok) {
+        setSaving(false)
+        setSaveError(result.error ?? "Could not save this QC issue. It won't show up on QC Issues or the customer's order until this succeeds.")
+        return
+      }
     }
+
     window.setTimeout(() => {
       setSaving(false)
       setSaved(true)
@@ -204,14 +253,14 @@ export default function QCDetailPage() {
 
             <div className="border-t border-ink/10 pt-5">
               <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-ink/35">
-                Inspection note
+                Inspection note <span className="normal-case font-normal text-ink/35">(internal only — ops eyes only)</span>
               </label>
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
                 disabled={!canAct}
-                placeholder="Describe any defect, or leave a note for the customer chat"
+                placeholder="Describe any defect for the internal record — this never reaches the customer"
                 className="w-full resize-none rounded-xl border border-ink/10 bg-white/60 p-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-60"
               />
               {status === "flagged" && !note.trim() && (
@@ -221,17 +270,71 @@ export default function QCDetailPage() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => canAct && addQcPhoto(line.purchaseId)}
-              disabled={!canAct}
-              className={`flex items-center gap-2 p-3 text-left text-sm text-ink/50 transition-colors hover:bg-ink/[0.02] hover:text-ink border-dashed disabled:cursor-not-allowed disabled:opacity-60 ${groupClass}`}
-            >
-              <Camera size={15} className="flex-none" />
-              {line.photoCount > 0
-                ? `${line.photoCount} photo${line.photoCount > 1 ? "s" : ""} attached — add more`
-                : "Attach inspection photo"}
-            </button>
+            {status === "flagged" && (
+              <div className="border-t border-ink/10 pt-5">
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-ink/35">
+                  Note for the customer <span className="normal-case font-normal text-ink/35">(optional — they will see this)</span>
+                </label>
+                <textarea
+                  value={customerNote}
+                  onChange={(e) => setCustomerNote(e.target.value)}
+                  rows={2}
+                  disabled={!canAct}
+                  placeholder='Plain-language explanation the customer will see on their order page, e.g. \"The zipper on this item arrived stuck.\"'
+                  className="w-full resize-none rounded-xl border border-ink/10 bg-white/60 p-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-60"
+                />
+              </div>
+            )}
+
+            <div className="border-t border-ink/10 pt-5">
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-ink/35">
+                Inspection photo
+              </label>
+
+              {photoUrl ? (
+                <div className="relative w-fit">
+                  <Image
+                    src={photoUrl}
+                    alt="QC inspection photo"
+                    width={120}
+                    height={120}
+                    className="h-28 w-28 rounded-xl border border-ink/10 object-cover"
+                  />
+                  {canAct && (
+                    <button
+                      type="button"
+                      onClick={() => setPhotoUrl(null)}
+                      aria-label="Remove photo"
+                      className="absolute -right-2 -top-2 grid h-6 w-6 place-items-center rounded-full bg-ink text-parchment shadow-[0_2px_6px_rgba(32,36,43,0.3)] transition-opacity hover:opacity-90"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <label
+                  className={`flex items-center gap-2 p-3 text-left text-sm text-ink/50 transition-colors hover:bg-ink/[0.02] hover:text-ink border-dashed ${
+                    !canAct || uploading ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                  } ${groupClass}`}
+                >
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={handlePhotoSelected}
+                    disabled={!canAct || uploading}
+                    className="hidden"
+                  />
+                  {uploading ? <Loader2 size={15} className="flex-none animate-spin" /> : <Camera size={15} className="flex-none" />}
+                  {uploading ? "Uploading…" : "Attach inspection photo"}
+                </label>
+              )}
+              {uploadError && <p className="mt-1.5 text-xs text-rose-600">{uploadError}</p>}
+              {status === "flagged" && (
+                <p className="mt-1.5 text-xs text-ink/40">
+                  If attached, this photo is shown to the customer alongside the note above.
+                </p>
+              )}
+            </div>
           </section>
 
           {/* ---------------- Verdict ---------------- */}
@@ -287,6 +390,11 @@ export default function QCDetailPage() {
                 "Save QC result"
               )}
             </button>
+            {saveError && (
+              <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
+                {saveError}
+              </p>
+            )}
           </section>
         </div>
       </div>

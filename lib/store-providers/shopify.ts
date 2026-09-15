@@ -3,6 +3,13 @@ import type { StoreProduct } from '@/lib/store.types';
 import type { ShopifyProviderConfig } from '@/lib/store-config';
 import type { ProviderFetchParams, ProviderFetchResult } from './types';
 import { applySort, detectGender, extractColors, extractSizes, stripHtml } from './types';
+import {
+  discoverShopifyPlusConfig,
+  fetchShopifyPlusProduct,
+  fetchShopifyPlusProducts,
+  fetchShopifyPlusCollections,
+  isKnownShopifyPlusStore,
+} from './shopify-plus';
 
 const CACHE_SECONDS = 60 * 60 * 24; // 24 hours
 const HEADERS = {
@@ -111,7 +118,7 @@ interface ShopifyProductsResponse {
  * Shape of Shopify's public `/products/{handle}.js` endpoint (the Ajax
  * cart/product-JS endpoint), as opposed to `/products/{handle}.json`.
  *
- * This is used ONLY for the single-product lookup (fetchShopifyProduct),
+ * This is used ONLY for the single-product lookup (fetchShopifyProductRest),
  * not the listing endpoint. Reason: `.json` product objects on some
  * stores/themes simply omit `available` on each variant (it's not part of
  * that endpoint's guaranteed schema), which silently makes every variant
@@ -392,14 +399,14 @@ export function normaliseShopifyProduct(
     // (body_html) — no separate short/long split like WooCommerce's
     // short_description vs description — so fullDescription stays unset
     // here rather than duplicating `description`. This normaliser only
-    // feeds the catalog listing/grid (fetchShopifyProducts), which never
+    // feeds the catalog listing/grid (fetchShopifyProductsRest), which never
     // renders raw HTML, so there's no need for an unstripped copy here —
     // contrast with normaliseShopifyJsProduct below, which does set it.
   };
 }
 
 /**
- * Normaliser for the `.js` product shape — used only by fetchShopifyProduct.
+ * Normaliser for the `.js` product shape — used only by fetchShopifyProductRest.
  * Mirrors normaliseShopifyProduct's output shape exactly, so the product
  * detail page doesn't need to know which endpoint the data came from.
  */
@@ -458,7 +465,7 @@ function normaliseShopifyJsProduct(
     category: normaliseProductType(p.type) ?? 'General',
     condition: 'New',
     description: stripHtml(p.description ?? ''),
-    // Product DETAIL page (this function only — see fetchShopifyProduct)
+    // Product DETAIL page (this function only — see fetchShopifyProductRest)
     // renders description as real HTML via dangerouslySetInnerHTML +
     // DOMPurify (ProductInfoTabs), so the raw markup needs to survive
     // somewhere. `description` above stays plain/stripped for anywhere
@@ -501,17 +508,23 @@ function normaliseShopifyJsProduct(
  *   reporting "48+". If that search can't complete (huge or misbehaving
  *   catalog) it returns null and we fall back to the honest lower-bound
  *   behavior exactly as before.
+ * - Nothing published only through a headless/Storefront-API-only setup
+ *   (no Online Store channel — see shopify-plus.ts) will ever show up
+ *   here: this call will just come back with an empty `products` array,
+ *   200 OK. That's exactly what the caller (fetchShopifyProducts below)
+ *   uses as the trigger to try the GraphQL tier instead of treating an
+ *   empty page as "this store has no products".
  *
  * Currency here still comes from config.currency (a configured/guessed
  * value), NOT fetchShopifyShopCurrency — that lookup is only wired into
  * the single-product path below. Worth doing here too eventually (see
- * note on fetchShopifyProducts), but a listing grid is more tolerant of
+ * note on fetchShopifyProductsRest), but a listing grid is more tolerant of
  * an occasionally-wrong currency label than a product detail page's
  * prominent price display is, and adding a /cart.js call to a
  * multi-page catalog listing flow is a bigger cost/risk trade-off than
  * adding one to a single-product lookup.
  */
-export async function fetchShopifyProducts(
+async function fetchShopifyProductsRest(
   platform: string,
   config: ShopifyProviderConfig,
   storeName: string,
@@ -530,7 +543,7 @@ export async function fetchShopifyProducts(
     if (config.collectionMap?.[params.category]) {
       collectionHandle = config.collectionMap[params.category];
     } else {
-      const knownCollections = await fetchShopifyCollections(config.baseUrl, mergedHeaders);
+      const knownCollections = await fetchShopifyCollectionsRest(config.baseUrl, mergedHeaders);
       collectionHandle = knownCollections.find((c) => c.handle === params.category)?.handle;
     }
   }
@@ -621,6 +634,70 @@ export async function fetchShopifyProducts(
 }
 
 /**
+ * Public entry point for catalog/collection listing. Tries the REST
+ * /products.json tier first (fast, no auth, no render) and only falls
+ * through to the Storefront GraphQL tier (shopify-plus.ts) when REST's
+ * result looks like the headless signature: a 200 OK with zero products
+ * on page 1 (mirrors the original westside.com investigation — REST
+ * genuinely returns `{"products":[]}` on those stores, not an error), or
+ * REST throws outright (some headless domains 403/404 the .json path at
+ * a WAF layer instead of returning an empty array).
+ *
+ * A previously-confirmed headless store (isKnownShopifyPlusStore) skips
+ * straight to GraphQL, skipping the doomed REST round-trip on every
+ * subsequent call.
+ */
+export async function fetchShopifyProducts(
+  platform: string,
+  config: ShopifyProviderConfig,
+  storeName: string,
+  params: ProviderFetchParams
+): Promise<ProviderFetchResult> {
+  // Discovery is anchored to the actual page being requested (a
+  // collection page when we can resolve one) rather than the bare
+  // origin — a homepage frequently never fires a client-side Storefront
+  // GraphQL call at all, while a real collection/listing page almost
+  // always does. See shopify-plus.ts's discoverShopifyPlusConfig doc
+  // comment for why this matters and what it falls back to.
+  const discoveryTargetUrl = params.category
+    ? `${config.baseUrl}/collections/${encodeURIComponent(params.category)}`
+    : config.baseUrl;
+
+  if (isKnownShopifyPlusStore(config.baseUrl)) {
+    const plusConfig = await discoverShopifyPlusConfig(discoveryTargetUrl);
+    if (plusConfig) {
+      return fetchShopifyPlusProducts(platform, plusConfig, storeName, params, config.defaultGender);
+    }
+  }
+
+  let restResult: ProviderFetchResult | null = null;
+  try {
+    restResult = await fetchShopifyProductsRest(platform, config, storeName, params);
+  } catch {
+    // fall through to GraphQL discovery below — some headless domains
+    // block/404 .json at a WAF layer rather than returning an empty array
+  }
+
+  // Only page 1 with zero results is a trustworthy "this might be
+  // headless" signal — an empty page 2+ just means we've paged past the
+  // real end of a normal REST-backed catalog, which is expected and
+  // should NOT trigger a discovery attempt on every deep-page request.
+  if (restResult && (restResult.products.length > 0 || params.page > 1)) {
+    return restResult;
+  }
+
+  const plusConfig = await discoverShopifyPlusConfig(discoveryTargetUrl);
+  if (!plusConfig) {
+    // Not a headless store after all — this is a legitimately empty
+    // result (or we need to surface the original REST error).
+    if (restResult) return restResult;
+    return fetchShopifyProductsRest(platform, config, storeName, params);
+  }
+
+  return fetchShopifyPlusProducts(platform, plusConfig, storeName, params, config.defaultGender);
+}
+
+/**
  * Single-product lookup for the product detail page, via Shopify's public
  * /products/{handle}.js endpoint (NOT .json — see the ShopifyJsProduct
  * comment above for why: .json variants can silently omit `available`,
@@ -645,7 +722,7 @@ export async function fetchShopifyProducts(
  * ever undesirable for a specific store, gate this behind something
  * like `config.trustShopCurrency !== false`.
  */
-export async function fetchShopifyProduct(
+async function fetchShopifyProductRest(
   platform: string,
   config: ShopifyProviderConfig,
   storeName: string,
@@ -669,6 +746,60 @@ export async function fetchShopifyProduct(
   const currency = realCurrency ?? config.currency ?? 'USD';
 
   return normaliseShopifyJsProduct(product, platform, currency, storeName, config);
+}
+
+/**
+ * Public entry point for a single product detail page. Tries the REST
+ * .js tier first; a REST 404 on a store that turns out to be
+ * Storefront-API-only (see shopify-plus.ts) is exactly the situation
+ * that motivated this — a REST 404 there does NOT mean "no such
+ * product", it means "this product isn't published to the Online Store
+ * channel", so we confirm via discovery before returning null.
+ *
+ * A previously-confirmed headless store skips REST entirely.
+ */
+export async function fetchShopifyProduct(
+  platform: string,
+  config: ShopifyProviderConfig,
+  storeName: string,
+  handle: string
+): Promise<StoreProduct | null> {
+  // Discovery is anchored to the ACTUAL product page, not the bare
+  // origin — see shopify-plus.ts's discoverShopifyPlusConfig doc
+  // comment. A PDP is by far the most likely page on a headless store
+  // to fire a client-side Storefront GraphQL call (variant switching,
+  // recommendations, reviews widgets), so this is deliberately the
+  // product URL rather than config.baseUrl.
+  const discoveryTargetUrl = `${config.baseUrl}/products/${encodeURIComponent(handle)}`;
+
+  if (isKnownShopifyPlusStore(config.baseUrl)) {
+    const plusConfig = await discoverShopifyPlusConfig(discoveryTargetUrl);
+    if (plusConfig) {
+      return fetchShopifyPlusProduct(platform, plusConfig, storeName, handle, config.defaultGender);
+    }
+  }
+
+  let restResult: StoreProduct | null = null;
+  let restThrew = false;
+  try {
+    restResult = await fetchShopifyProductRest(platform, config, storeName, handle);
+  } catch {
+    restThrew = true;
+  }
+
+  if (restResult) return restResult;
+
+  // REST came back null/errored — check whether this is actually a
+  // headless store before concluding "no such product".
+  const plusConfig = await discoverShopifyPlusConfig(discoveryTargetUrl);
+  if (!plusConfig) {
+    // Confirmed not headless: a REST throw here is a real upstream
+    // error worth surfacing, not a silent null.
+    if (restThrew) return fetchShopifyProductRest(platform, config, storeName, handle);
+    return null; // genuine 404
+  }
+
+  return fetchShopifyPlusProduct(platform, plusConfig, storeName, handle, config.defaultGender);
 }
 
 export interface ShopifyCollectionSummary {
@@ -725,7 +856,7 @@ async function fetchShopifyCollectionHandlesFromSitemap(
   }
 }
 
-export async function fetchShopifyCollections(
+async function fetchShopifyCollectionsRest(
   baseUrl: string,
   headers: Record<string, string> = HEADERS
 ): Promise<ShopifyCollectionSummary[]> {
@@ -767,4 +898,29 @@ export async function fetchShopifyCollections(
   }
 
   return collections;
+}
+
+/**
+ * Public entry point for the full collection list. REST's
+ * /collections.json + sitemap merge runs first; an empty result (the
+ * headless signature — same reasoning as fetchShopifyProducts above)
+ * triggers a GraphQL discovery attempt before concluding the store
+ * really has zero collections.
+ */
+export async function fetchShopifyCollections(
+  baseUrl: string,
+  headers: Record<string, string> = HEADERS
+): Promise<ShopifyCollectionSummary[]> {
+  if (isKnownShopifyPlusStore(baseUrl)) {
+    const plusConfig = await discoverShopifyPlusConfig(baseUrl);
+    if (plusConfig) return fetchShopifyPlusCollections(plusConfig);
+  }
+
+  const restCollections = await fetchShopifyCollectionsRest(baseUrl, headers);
+  if (restCollections.length > 0) return restCollections;
+
+  const plusConfig = await discoverShopifyPlusConfig(baseUrl);
+  if (!plusConfig) return restCollections; // confirmed not headless — genuinely empty
+
+  return fetchShopifyPlusCollections(plusConfig);
 }

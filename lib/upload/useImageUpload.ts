@@ -13,7 +13,7 @@ import { useState } from 'react'
 // Keep in sync with FOLDER_CONFIG in app/api/upload/route.ts — this is
 // just the client-side type, the route is the source of truth for which
 // folders actually exist and how they're scoped.
-export type UploadFolder = 'avatars' | 'reviews' | 'products' | 'banners'
+export type UploadFolder = 'avatars' | 'reviews' | 'products' | 'banners' | 'qc'
 
 export function useImageUpload() {
   const [uploading, setUploading] = useState(false)

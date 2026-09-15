@@ -29,6 +29,7 @@ import {
   Store,
   User,
   Receipt,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   OrdersProvider,
@@ -44,8 +45,10 @@ import {
   type OrderItem,
 } from '@/contexts/Ordercontexts'
 import { ItemImageStack } from '@/components/dashboard/ItemImageStack'
+import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from '@/lib/supabase/qc-issues'
+import QcIssueBanner from '@/components/shared/QcIssueBanner'
 
-const PAGE_SIZE = 4
+const PAGE_SIZE = 10
 
 // DESIGN PASS: a left-edge accent per status, on top of the existing
 // STATUS_BADGE pill. A repeated list of otherwise-identical cards is
@@ -79,8 +82,24 @@ function OrdersPageContent() {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All')
   const [page, setPage] = useState(1)
 
+  // QC issues, keyed by order_items.id, across every one of this
+  // customer's orders — fetched once up front (not per-page/per-filter)
+  // so a flagged item is visible no matter which status filter is
+  // active. A QC issue can outlive the 'Quality Check' status itself
+  // (the order keeps moving through Shipped/Delivered while the issue
+  // is still pending or getting resolved), so gating this on
+  // order.status would hide real, open issues from the default "All"
+  // view — the thing this was built to fix.
+  const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
+
+  useEffect(() => {
+    const itemIds = orders.flatMap((o) => o.items.map((i) => i.id).filter((id): id is string => !!id))
+    if (!itemIds.length) return
+    fetchQcIssuesForItems(itemIds).then(setQcIssuesByItemId)
+  }, [orders])
+
   const filtered = useMemo(() => {
-    return orders.filter((o) => {
+    const matches = orders.filter((o) => {
       const matchesFilter = filter === 'All' || o.status === filter
       const q = query.trim().toLowerCase()
       const matchesQuery =
@@ -89,7 +108,22 @@ function OrdersPageContent() {
         o.items.some((it) => it.name.toLowerCase().includes(q))
       return matchesFilter && matchesQuery
     })
-  }, [query, filter, orders])
+
+    // Bubble QC-flagged orders to the front, ahead of plain recency sort.
+    // Without this, a flagged order that isn't among the customer's most
+    // recent PAGE_SIZE orders sits unseen a page or more deep in "All" —
+    // it's still IN the filtered list (the matchesFilter check above
+    // never excludes it), but paginated out of sight, which is
+    // functionally invisible to anyone who doesn't click through pages.
+    // Narrowing to the "Quality Check" tab shrinks the list enough that
+    // the same order lands on page 1, which is exactly what made it look
+    // like flagged orders "only show under QC" — they were always in the
+    // data, just buried. This sort keeps everything else in its original
+    // (already recency-sorted) order — flagged orders move to the front
+    // as a block, nothing else's relative order changes.
+    const hasIssue = (o: Order) => o.items.some((it) => it.id && qcIssuesByItemId.has(it.id))
+    return [...matches].sort((a, b) => Number(hasIssue(b)) - Number(hasIssue(a)))
+  }, [query, filter, orders, qcIssuesByItemId])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageOrders = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -162,7 +196,9 @@ function OrdersPageContent() {
               </p>
             </div>
           ) : (
-            pageOrders.map((order) => <OrderCard key={order.id} order={order} />)
+            pageOrders.map((order) => (
+              <OrderCard key={order.id} order={order} qcIssuesByItemId={qcIssuesByItemId} />
+            ))
           )}
         </div>
 
@@ -209,13 +245,26 @@ function OrdersPageContent() {
   )
 }
 
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({
+  order,
+  qcIssuesByItemId,
+}: {
+  order: Order
+  qcIssuesByItemId: Map<string, CustomerVisibleQcIssue>
+}) {
   const router = useRouter()
   const [showBreakdown, setShowBreakdown] = useState(false)
   const isMultiItem = order.items.length > 1
   const primary = order.items[0]
   const currentStepIndex = order.status === 'Shipped' ? 2 : order.status === 'Delivered' ? 3 : -1
-  const statusAccent = STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
+  // A different accent color when this order has any open QC issue,
+  // regardless of its current pipeline status — an order that's already
+  // moved on to Shipped can still have an unresolved quality issue
+  // trailing it, and that should keep reading as "needs attention"
+  // rather than fading back to the plain Shipped accent.
+  const flaggedItems = order.items.filter((it) => it.id && qcIssuesByItemId.has(it.id))
+  const hasQcIssue = flaggedItems.length > 0
+  const statusAccent = hasQcIssue ? 'border-l-rose-500' : STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
 
   const goToTracking = () => router.push(`/account/orders/track?order=${order.id}`)
   const goToDetails = () => router.push(`/account/orders/track?order=${order.id}&tab=details`)
@@ -241,14 +290,17 @@ function OrderCard({ order }: { order: Order }) {
           --------------------------------------------------------------- */}
       <div className="min-w-0 p-5 lg:hidden">
         {/* Header row */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-2">
           <div>
             <div className="text-xs font-semibold tracking-wide text-ink">ORDER #{order.id}</div>
             <div className="mt-0.5 text-xs text-ink/60">{order.date}</div>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
-            {order.status}
-          </span>
+          <div className="flex flex-none items-center gap-1.5">
+            {hasQcIssue && <QcIssueBadge count={flaggedItems.length} />}
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
+              {order.status}
+            </span>
+          </div>
         </div>
 
         {isMultiItem ? (
@@ -300,6 +352,14 @@ function OrderCard({ order }: { order: Order }) {
           </div>
         )}
 
+        {/* QC issue(s) — shown regardless of order.status, so a flagged
+            item stays visible here even once the order has moved on to
+            Shipped/Delivered, and regardless of which status filter is
+            active on the list above (including the default "All"). */}
+        {flaggedItems.map((item) => (
+          <QcIssueBanner key={item.id} issue={qcIssuesByItemId.get(item.id!)!} />
+        ))}
+
         {/* Shipping progress */}
         {order.status === 'Shipped' && <ShippingProgress currentStepIndex={currentStepIndex} />}
 
@@ -329,14 +389,17 @@ function OrderCard({ order }: { order: Order }) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Header row */}
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between gap-2">
             <div>
               <div className="text-xs font-semibold tracking-wide text-ink">ORDER #{order.id}</div>
               <div className="mt-0.5 text-xs text-ink/60">{order.date}</div>
             </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
-              {order.status}
-            </span>
+            <div className="flex flex-none items-center gap-1.5">
+              {hasQcIssue && <QcIssueBadge count={flaggedItems.length} />}
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
+                {order.status}
+              </span>
+            </div>
           </div>
 
           {/* Product info */}
@@ -369,6 +432,12 @@ function OrderCard({ order }: { order: Order }) {
             </div>
           )}
 
+          {/* QC issue(s) — same reasoning as the mobile layout above:
+              visible regardless of order.status or the active filter. */}
+          {flaggedItems.map((item) => (
+            <QcIssueBanner key={item.id} issue={qcIssuesByItemId.get(item.id!)!} />
+          ))}
+
           {/* Shipping progress */}
           {order.status === 'Shipped' && <ShippingProgress currentStepIndex={currentStepIndex} />}
 
@@ -383,6 +452,20 @@ function OrderCard({ order }: { order: Order }) {
         <OrderPriceBreakdownOverlay order={order} onClose={() => setShowBreakdown(false)} />
       )}
     </div>
+  )
+}
+
+// Compact pill next to the status badge flagging that this order has at
+// least one open/resolved QC issue on file — intentionally independent
+// of `order.status` (see hasQcIssue above) so it still shows once the
+// order has moved on to Shipped/Delivered, and shows under every filter
+// tab including "All", not just while filtered to "Quality Check".
+function QcIssueBadge({ count }: { count: number }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
+      <AlertTriangle size={11} className="flex-none" />
+      {count > 1 ? `${count} items flagged` : 'Quality issue'}
+    </span>
   )
 }
 

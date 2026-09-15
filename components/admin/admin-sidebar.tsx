@@ -15,6 +15,7 @@ import {
   Percent,
   ShoppingCart,
   CheckCircle2,
+  AlertTriangle,
   PackageCheck,
   Warehouse,
   Truck,
@@ -124,6 +125,12 @@ function getGroups(role: Role): Group[] {
       label: "Warehouse",
       items: [
         { label: "Quality check", href: "/admin/qc", icon: CheckCircle2, roles: ["manager", "warehouse"] },
+        // Resolution queue for items flagged during QC above — same
+        // access as QC itself (Sales & Purchase gets none of the QC
+        // group per the permission matrix, Manager sees all sites,
+        // Warehouse is scoped to their own site by canActOnQcLine-style
+        // logic inside the page).
+        { label: "QC Issues", href: "/admin/qc-issues", icon: AlertTriangle, roles: ["manager", "warehouse"] },
         { label: "Pack & label", href: "/admin/pack-label", icon: PackageCheck, roles: ["manager", "warehouse"] },
         { label: "Export bin", href: "/admin/export-bin", icon: Warehouse, roles: ["manager", "warehouse"] },
         { label: "In transit", href: "/admin/in-transit", icon: Truck, roles: ["manager", "warehouse"] },
@@ -159,8 +166,13 @@ export function AdminSidebar() {
   const topItems = getTopItems(role)
   const groups = getGroups(role)
 
+  // Exact match, or a real sub-path (boundary on "/") — plain startsWith
+  // would make "/admin/qc" read as active while actually on
+  // "/admin/qc-issues" (or "/admin/qc-issues/[issueId]"), since one href
+  // is a literal string-prefix of the other. That wasn't reachable
+  // before "QC Issues" existed as its own nav item.
   const isActive = (href: string) =>
-    href === "/admin" ? pathname === href : pathname.startsWith(href)
+    href === "/admin" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
 
   return (
     <aside

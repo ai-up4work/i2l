@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Page } from 'playwright-core'
+import type { Browser, BrowserContext, Page, Request } from 'playwright-core'
 
 let browserPromise: Promise<Browser> | null = null
 
@@ -341,6 +341,7 @@ export async function fetchRendered(
     waitForSelector,
     settleMs = 800,
     postNavigate,
+    onRequest,
   }: {
     timeoutMs?: number
     waitForSelector?: string
@@ -365,6 +366,27 @@ export async function fetchRendered(
      * outcome elsewhere in this pipeline too.
      */
     postNavigate?: (page: Page) => Promise<void>
+    /**
+     * Optional hook fired for EVERY outgoing network request the page
+     * makes, registered via page.on('request', ...) BEFORE navigation
+     * starts, so nothing fired during initial load is missed. Intended
+     * for callers that need to observe a request itself (URL, headers)
+     * rather than the final rendered DOM — e.g. shopify-plus.ts's
+     * discovery step, which needs to see the outgoing Storefront
+     * GraphQL call and its access-token header, not anything visible in
+     * page.content().
+     *
+     * Purely observational: this does NOT intercept/mutate/abort
+     * requests (page.route would be needed for that) and does not
+     * affect the normal html/waitForSelector/postNavigate flow below —
+     * a caller only interested in request data can ignore the returned
+     * html entirely. Sync callback (matches Playwright's Page 'request'
+     * event); if a caller needs to do async work per-request, have it
+     * push into a queue/promise it resolves itself rather than
+     * returning a promise here, since 'request' listeners aren't
+     * awaited by Playwright.
+     */
+    onRequest?: (request: Request) => void
   } = {}
 ): Promise<BrowserFetchResult> {
   let context: BrowserContext | null = null
@@ -372,6 +394,8 @@ export async function fetchRendered(
     const browser = await getBrowser()
     context = await newStealthContext(browser)
     const page = await context.newPage()
+
+    if (onRequest) page.on('request', onRequest)
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
 

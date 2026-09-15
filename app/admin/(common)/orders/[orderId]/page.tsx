@@ -1,15 +1,17 @@
 // app/admin/orders/[orderId]/page.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, ChevronRight, MessageSquare, PencilLine } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ChevronRight, MessageSquare, PencilLine } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import { STAGE_ORDER, CHANNEL_LABEL, type OrderStage } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
+import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
+import QcIssueBanner from "@/components/shared/QcIssueBanner"
 
 // Order detail — restyled to match the card language now shared with
 // /admin/orders and the customer-facing "My Orders" page: a left-edge
@@ -59,6 +61,20 @@ function DelayedPill() {
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
       <span className="h-1.5 w-1.5 rounded-full bg-rose-600" />
       Delayed
+    </span>
+  )
+}
+
+// Same distinction as the list page's QcIssuePill — "Delayed" alone
+// doesn't say why. Only shown for a still-OPEN issue (resolution ===
+// 'pending'); once ops resolves it (coupon issued, shipped as-is, or a
+// replacement is on the way via retry_same), the order isn't actively
+// "in trouble" anymore even if order.delayed is still true from before.
+function QcIssuePill() {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
+      <AlertTriangle size={11} className="shrink-0" />
+      QC issue
     </span>
   )
 }
@@ -151,6 +167,22 @@ export default function OrderDetailPage() {
   const [advanceError, setAdvanceError] = useState<string | null>(null)
   const [rollbackError, setRollbackError] = useState<string | null>(null)
 
+  // QC issues for this order's items — fetched the same way the
+  // customer-facing order pages do (fetchQcIssuesForItems, batched by
+  // order_items.id), so ops sees the exact same photo/note/resolution
+  // the customer sees, plus a link through to the full internal view on
+  // /admin/qc-issues/[id] (staff note, WhatsApp status, etc. — not
+  // included in this customer-safe fetch). Declared before the
+  // dataLoading/not-found early returns below since hooks can't be
+  // conditional; the effect itself no-ops until `order` exists.
+  const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
+  useEffect(() => {
+    if (!order) return
+    const itemIds = order.items.map((i) => i.id).filter((id): id is string => !!id)
+    if (!itemIds.length) return
+    fetchQcIssuesForItems(itemIds).then(setQcIssuesByItemId)
+  }, [order])
+
   if (dataLoading) {
     return (
       <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
@@ -186,6 +218,7 @@ export default function OrderDetailPage() {
   const stageIdx = STAGE_ORDER.indexOf(order.stage)
   const advanceCheck = canAdvanceStage(order.id)
   const accent = orderAccent(order.stage, order.delayed)
+  const hasOpenQcIssue = [...qcIssuesByItemId.values()].some((issue) => issue.resolution === "pending")
 
   const handleAdvance = () => {
     const result = advanceStage(order.id)
@@ -221,6 +254,7 @@ export default function OrderDetailPage() {
                 <div>
                   <div className="flex items-center gap-2.5">
                     <h1 className="font-display text-2xl text-ink">{order.id}</h1>
+                    {hasOpenQcIssue && <QcIssuePill />}
                     {order.delayed && <DelayedPill />}
                   </div>
                   <p className="mt-1.5 text-sm text-ink/55">
@@ -311,31 +345,54 @@ export default function OrderDetailPage() {
             {/* Items — channel-aware, now with a thumbnail per row */}
             <SectionCard title="Items">
               <ul className="space-y-2.5">
-                {order.items.map((item) => (
-                  <li key={item.id} className="flex gap-3 rounded-xl border border-ink/[0.06] bg-parchment/40 p-3.5 text-sm">
-                    <img
-                      src={item.productImage ?? FALLBACK_PRODUCT_IMAGE}
-                      alt={item.title}
-                      className="h-14 w-14 flex-none rounded-lg bg-ink/5 object-contain"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium text-ink">{item.title}</span>
-                        <span className="shrink-0 text-ink/40">×{item.quantity}</span>
+                {order.items.map((item) => {
+                  const issue = qcIssuesByItemId.get(item.id)
+                  return (
+                    <li key={item.id} className="rounded-xl border border-ink/[0.06] bg-parchment/40 p-3.5 text-sm">
+                      <div className="flex gap-3">
+                        <img
+                          src={item.productImage ?? FALLBACK_PRODUCT_IMAGE}
+                          alt={item.title}
+                          className="h-14 w-14 flex-none rounded-lg bg-ink/5 object-contain"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-ink">{item.title}</span>
+                            <span className="shrink-0 text-ink/40">×{item.quantity}</span>
+                          </div>
+                          {item.variant && <p className="mt-1 text-xs text-ink/50">{item.variant}</p>}
+                          {item.sku && <p className="mt-1 text-xs text-ink/45">Catalog SKU: {item.sku}</p>}
+                          {item.sourceSnapshot && (
+                            <p className="mt-1 text-xs text-ink/45">Source snapshot: {item.sourceSnapshot}</p>
+                          )}
+                          {item.requestLink && (
+                            <p className="mt-1 text-xs text-ink/45">
+                              Original request link: <span className="underline">{item.requestLink}</span>
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      {item.variant && <p className="mt-1 text-xs text-ink/50">{item.variant}</p>}
-                      {item.sku && <p className="mt-1 text-xs text-ink/45">Catalog SKU: {item.sku}</p>}
-                      {item.sourceSnapshot && (
-                        <p className="mt-1 text-xs text-ink/45">Source snapshot: {item.sourceSnapshot}</p>
+
+                      {/* Same customer-facing photo/note/resolution the
+                          customer sees on their own order page — plus a
+                          link through to the full internal view (staff
+                          note, seller-refund/WhatsApp status) that this
+                          customer-safe fetch deliberately doesn't
+                          include. */}
+                      {issue && (
+                        <div className="mt-3 border-t border-ink/[0.06] pt-3">
+                          <QcIssueBanner issue={issue} />
+                          <Link
+                            href={`/admin/qc-issues/${issue.id}`}
+                            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
+                          >
+                            Manage this QC issue <ChevronRight size={12} />
+                          </Link>
+                        </div>
                       )}
-                      {item.requestLink && (
-                        <p className="mt-1 text-xs text-ink/45">
-                          Original request link: <span className="underline">{item.requestLink}</span>
-                        </p>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
               <Link
                 href="/admin/purchases"

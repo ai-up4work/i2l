@@ -41,7 +41,7 @@ function buildCustomerWhatsAppLink(phone: string | null, message: string): strin
 export default function QcIssueDetailPage() {
   const params = useParams<{ issueId: string }>()
   const router = useRouter()
-  const { currentUser } = useAdminData()
+  const { currentUser, addInternalNote } = useAdminData()
 
   const [issue, setIssue] = useState<QcIssueWithContext | null>(null)
   const [itemPrice, setItemPrice] = useState<number | null>(null)
@@ -58,6 +58,15 @@ export default function QcIssueDetailPage() {
       const price = await fetchOrderItemPrice(data.orderItemId)
       setItemPrice(price)
       setCouponAmount(price != null ? String(price) : "")
+      // BUG FIX: this used to stay null forever — the real phone number
+      // comes back on `data.customerPhone` (joined from `profiles.phone`
+      // in fetchQcIssueWithContext), but nothing ever copied it into the
+      // editable `customerPhone` field below, so the WhatsApp deep-link
+      // button silently never rendered and every issue looked like it
+      // needed a manually-typed number. Only fill it on the first load
+      // so a staffer's own manual correction isn't clobbered by a
+      // background refresh.
+      setCustomerPhone((prev) => prev ?? data.customerPhone)
     }
     setLoading(false)
   }
@@ -135,8 +144,30 @@ export default function QcIssueDetailPage() {
     setBusy(true)
     const res = await resolveRetrySame(issue!.id, issue!.userId, issue!.orderDisplayId)
     setBusy(false)
-    if (res.ok) router.push("/admin/qc-issues")
-    else alert(res.error ?? "Could not resolve")
+    if (!res.ok) {
+      alert(res.error ?? "Could not resolve")
+      return
+    }
+    // The customer is already notified by resolveRetrySame above. This
+    // note is the other half: a visible, actionable trail on the order
+    // itself for Sales & Purchase to actually go re-buy the item — the
+    // real `purchases` table has no per-item column to open a proper
+    // re-purchase record against (see mapToPurchases' GRANULARITY NOTE),
+    // so an internal note is the most honest thing to write today
+    // without a schema change. Once the replacement is bought and
+    // physically arrives, this item falls back to "pending" on
+    // /admin/qc automatically (loadRealOrders excludes resolved issues
+    // from flaggedItemIds) — no separate "mark received" step needed,
+    // ops just inspects it again like any other arrival. If ALL of this
+    // order's items (including this one, once re-inspected) end up
+    // "passed", the order surfaces on Pack & Label the same way any
+    // fully-passed order already does — that gating was already
+    // order-level ("every item passed"), so nothing else changes there.
+    addInternalNote(
+      issue!.orderDisplayId,
+      `🔁 Replacement needed: "${issue!.itemTitle}" didn't pass QC — re-buy from the same seller. Once it arrives, it'll show back up in Quality check for a fresh inspection.`
+    )
+    router.push("/admin/qc-issues")
   }
 
   return (
@@ -168,7 +199,32 @@ export default function QcIssueDetailPage() {
             </div>
             <p className="mt-1 text-sm text-ink/70">{issue.itemTitle}</p>
             <p className="text-xs text-ink/45">{issue.customerName}</p>
-            {issue.staffNote && <p className="mt-2 rounded-lg bg-parchment/70 p-2.5 text-xs text-ink/60">{issue.staffNote}</p>}
+
+            {issue.staffNote && (
+              <div className="mt-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/35">Internal note (ops only)</p>
+                <p className="mt-1 rounded-lg bg-parchment/70 p-2.5 text-xs text-ink/60">{issue.staffNote}</p>
+              </div>
+            )}
+
+            {issue.customerNote && (
+              <div className="mt-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/35">Note shown to customer</p>
+                <p className="mt-1 rounded-lg bg-teal/[0.06] p-2.5 text-xs text-teal-deep">{issue.customerNote}</p>
+              </div>
+            )}
+
+            {issue.photoUrl && (
+              <div className="mt-3">
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink/35">Inspection photo</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={issue.photoUrl}
+                  alt="Quality check inspection photo"
+                  className="h-28 w-28 rounded-xl border border-ink/10 object-cover"
+                />
+              </div>
+            )}
           </div>
         </div>
 

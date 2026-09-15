@@ -233,6 +233,20 @@ export const affiliatedStores: AffiliatedStore[] = [
     sampleProductUrl: `https://www.hopscotch.in/product/1319830/girl's-peach-party-dresses`,
     sampleProductLabel: 'Ruffled Bow Applique Dress',
   },
+  {
+    platform: 'Westside',
+    name: 'Westside',
+    logo: '/logos/westside-squared.png',
+    url: 'https://www.westside.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: "India's fashion and lifestyle brand — apparel, footwear, and accessories for men, women, and kids.",
+    categories: ['Fashion', 'Footwear', 'Accessories'],
+    storeType: 'marketplace',
+    sampleProductUrl:
+      'https://westside.com/products/superstar-dark-brown-heart-detail-hooded-cotton-jacket-301087456?Color=Brown&Size=S',
+    sampleProductLabel: 'Superstar Dark Brown Heart-Detail Hooded Cotton Jacket',
+  },
   // {
   //   platform: 'ebay',
   //   name: 'eBay',
