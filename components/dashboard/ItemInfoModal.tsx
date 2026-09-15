@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion } from 'lucide-react'
+import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2 } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
@@ -71,12 +71,14 @@ import Image from 'next/image'
  * & send request" (handleConfirmRequest) are two independent commitments
  * — a cart line lives in CartContext and is checked out from
  * /account/cart; a request lives in DashboardContext.requests and is
- * submitted via onRequestItem (backed by saveItemInfo/confirmRequest,
- * which read only from `draft` — never from cart state). They used to
- * both write to CartContext, which meant confirming a request also
- * silently created a cart line for the same product — and if that cart
- * was later checked out, it would mint a SECOND, duplicate request. Only
- * handleAddToCart touches cart.addItem now.
+ * submitted via onSubmitRequest (DashboardContext's confirmRequest,
+ * called directly — see that prop's own doc comment for why there's no
+ * separate confirm/preview page anymore), which read only from `draft`
+ * — never from cart state. They used to both write to CartContext, which
+ * meant confirming a request also silently created a cart line for the
+ * same product — and if that cart was later checked out, it would mint a
+ * SECOND, duplicate request. Only handleAddToCart touches cart.addItem
+ * now.
  */
 
 type ItemOverlayProps = {
@@ -84,11 +86,41 @@ type ItemOverlayProps = {
   result?: ScrapeResult | null
   estimatedPrice?: string
   estimatedPriceNote?: string
+  /**
+   * Best-effort LKR estimate for the current draft (see
+   * Draft.estimatedPriceLKR's doc comment) — shown in the review step
+   * as "About LKR X,XXX, final price confirmed by our team" so the
+   * customer sees SOME number before sending a request, even for a
+   * generic/ogOnly item that can't be auto-priced for checkout. Null
+   * when currency genuinely couldn't be determined — shown as "price
+   * to be confirmed" rather than guessing.
+   */
+  estimatedPriceLKR?: number | null
   onSelectVariant?: (url: string) => void
   qty: number
   onQtyChange: (qty: number) => void
   onClose: () => void
-  onRequestItem: () => void
+  /**
+   * Directly performs the request/order write (DashboardContext's
+   * confirmRequest) and returns whether it succeeded — no separate
+   * confirm/preview page in between anymore. Previously this was
+   * onRequestItem: () => void, backed by saveItemInfo, which persisted
+   * the draft to localStorage and navigated to /account/requests/confirm
+   * — a page whose two consent checkboxes duplicated the ones already
+   * rendered right here in the review step below (confirmsRestrictions/
+   * confirmsPreowned), and whose price display used draft.unitPrice
+   * directly, which is 0 for any ogOnly/unpriced item by design (see
+   * applyScrapeResultToDraft) — so that page showed a bare "$0.00" for
+   * exactly the cases that most needed a real number. confirmRequest
+   * itself already ends by routing to /account/messages for the
+   * unpriced case (or Orders Hub for a real Channel 2 order) — calling
+   * it here directly means clicking "Confirm & send request" does
+   * exactly that, immediately, with nothing in between. The old
+   * /account/requests/confirm and /preview pages are unreachable from
+   * this flow now — left in place rather than deleted, in case anything
+   * else still links to them directly.
+   */
+  onSubmitRequest: () => Promise<{ ok: boolean; error?: string }>
   loading?: boolean
 }
 
@@ -219,9 +251,6 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
   )
 }
 
-// Pulsing placeholder shown while the listing is being scraped/read.
-// Shaped like the eventual two-column layout (image + details) plus a
-// tabs section, so there's no layout jump once real content lands.
 // Some sites (bot-protection on Gymshark's included) can't be read with
 // a plain fetch and fall through to slower tiers — a headless render,
 // then a paid residential-proxy fallback — that can legitimately take
@@ -246,6 +275,9 @@ function SlowLoadNotice() {
   )
 }
 
+// Pulsing placeholder shown while the listing is being scraped/read.
+// Shaped like the eventual two-column layout (image + details) plus a
+// tabs section, so there's no layout jump once real content lands.
 function ProductSkeleton() {
   return (
     <div
@@ -295,17 +327,20 @@ export default function ItemInfoModal({
   result,
   estimatedPrice,
   estimatedPriceNote = 'Incl. all charges & doorstep delivery',
+  estimatedPriceLKR,
   onSelectVariant,
   qty,
   onQtyChange,
   onClose,
-  onRequestItem,
+  onSubmitRequest,
   loading = false,
 }: ItemOverlayProps) {
   const [step, setStep] = useState<Step>('listing')
   const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
   const [confirmsPreowned, setConfirmsPreowned] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const cart = useCart()
   const wishlist = useWishlist()
 
@@ -355,8 +390,8 @@ export default function ItemInfoModal({
     setJustAdded(true)
   }
 
-  function handleConfirmRequest() {
-    // Submitting a request only needs onRequestItem() — everything it
+  async function handleConfirmRequest() {
+    // Submitting a request only needs onSubmitRequest() — everything it
     // needs (name/url/qty/unitPrice/image) already lives in
     // DashboardContext's `draft`, populated earlier by
     // beginRequestForUrl/selectVariant. This no longer touches
@@ -364,7 +399,25 @@ export default function ItemInfoModal({
     // created a cart line for the same product, which could later be
     // checked out into a second, duplicate request. Cart and requests
     // are separate commitments now — see the file-level doc comment.
-    onRequestItem()
+    //
+    // Called directly, awaited, right here — no separate confirm/
+    // preview page anymore (see onSubmitRequest's own doc comment for
+    // why that page was redundant). On success, onSubmitRequest's own
+    // implementation (confirmRequest in DashboardContext.tsx) already
+    // navigates away (to /account/messages for the usual unpriced case,
+    // or Orders Hub for a real Channel 2 order) — this only needs to
+    // close the modal itself, not decide where to go next. On failure,
+    // stay right here on the review step with the error visible instead
+    // of silently losing the customer's place.
+    setSubmitError(null)
+    setSubmitting(true)
+    const result = await onSubmitRequest()
+    setSubmitting(false)
+    if (!result.ok) {
+      setSubmitError(result.error ?? 'Something went wrong sending your request. Please try again.')
+      return
+    }
+    onClose()
     setStep('listing')
     setConfirmsRestrictions(false)
     setConfirmsPreowned(false)
@@ -537,13 +590,23 @@ export default function ItemInfoModal({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{result!.title ?? 'Untitled item'}</p>
                   <p className="mt-1 text-xs text-ink/45">Quantity: {qty}</p>
-                  {estimatedPrice && (
+                  {estimatedPrice ? (
                     <div className="mt-2">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
                         Estimated total
                       </span>
                       <p className="font-display text-lg text-ink">{estimatedPrice}</p>
                     </div>
+                  ) : estimatedPriceLKR != null ? (
+                    <div className="mt-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
+                        About
+                      </span>
+                      <p className="font-display text-lg text-ink">LKR {estimatedPriceLKR.toLocaleString('en-LK')}</p>
+                      <p className="text-xs text-ink/40">Final price confirmed by our team before anything is charged.</p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-ink/40">Price to be confirmed by our team.</p>
                   )}
                 </div>
               </div>
@@ -560,6 +623,12 @@ export default function ItemInfoModal({
                 </ConfirmCheckbox>
               </div>
 
+              {submitError && (
+                <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
+                  {submitError}
+                </p>
+              )}
+
               <div
                 className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2.5 border-t border-ink/10 bg-parchment/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm
                   sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
@@ -568,18 +637,23 @@ export default function ItemInfoModal({
                   <button
                     type="button"
                     onClick={() => setStep('listing')}
-                    className="flex-none rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
+                    disabled={submitting}
+                    className="flex-none rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Back
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmRequest}
-                    disabled={!canSubmitReview}
+                    disabled={!canSubmitReview || submitting}
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
                   >
-                    <ShoppingCart size={16} />
-                    Confirm & send request
+                    {submitting ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <ShoppingCart size={16} />
+                    )}
+                    {submitting ? 'Sending…' : 'Confirm & send request'}
                   </button>
                 </div>
                 <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>

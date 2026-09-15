@@ -351,7 +351,7 @@ export default function QCDetailPage() {
                   onChange={(e) => setCustomerNote(e.target.value)}
                   rows={2}
                   disabled={!canAct}
-                  placeholder='Plain-language explanation the customer will see on their order page, e.g. "The zipper on this item arrived stuck."'
+                  placeholder="Plain-language explanation the customer will see on their order page, e.g. “The zipper on this item arrived stuck.”"
                   className="w-full resize-none rounded-xl border border-ink/10 bg-white/60 p-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-60"
                 />
               </div>

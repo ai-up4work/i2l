@@ -109,6 +109,18 @@ type DashboardContextValue = {
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
 
+// Combines the variant-confirmation tag and the customer-visible LKR
+// estimate into requests.note — so ops sees BOTH while scanning the
+// admin queue/request detail page, without having to open the chat
+// thread first to find the estimate that was actually shown to the
+// customer. The tag prefix is also what VariantConfirmPill on the
+// admin requests list page matches against (see that file).
+function buildRequestNote(draft: Draft): string {
+  const tag = draft.needsVariantConfirmation ? '[Confirm size/color with customer] ' : ''
+  const estimate = draft.estimatedPriceLKR != null ? ` (customer's estimate: LKR ${draft.estimatedPriceLKR.toLocaleString('en-LK')})` : ''
+  return `${tag}${draft.name}${estimate}`
+}
+
 function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
   const price = result.price != null ? Number(result.price) : null
   // A scraped price is only trustworthy enough to auto-price a real
@@ -141,6 +153,14 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
   // which reads needsVariantConfirmation (set below) to make that
   // explicit in the seeded chat message and the request note.
   const trustedPrice = price != null && Number.isFinite(price) && !!result.currencyCode && !result.ogOnly ? price : null
+  // Same currency-known gate as trustedPrice above, but WITHOUT the
+  // ogOnly exclusion — an ogOnly result's price can still be shown as a
+  // rough estimate (see Draft.estimatedPriceLKR's doc comment), it's
+  // only unsafe to silently charge against.
+  const estimatedPriceLKR =
+    price != null && Number.isFinite(price) && !!result.currencyCode
+      ? Math.round(price * rateToLKR(result.currencyCode))
+      : null
   return {
     ...current,
     url: result.url ?? current.url,
@@ -152,6 +172,7 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
     // should reflect THIS result's own ogOnly status, not linger from
     // an earlier attempt.
     needsVariantConfirmation: result.ogOnly === true,
+    estimatedPriceLKR,
   }
 }
 
@@ -375,6 +396,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         const variantNote = draft.needsVariantConfirmation
           ? "\n\nNote: this item may come in different sizes/colors — please let us know which one you'd like when you get a chance."
           : ''
+        const estimateNote =
+          draft.estimatedPriceLKR != null
+            ? `\n\nEstimated price: LKR ${draft.estimatedPriceLKR.toLocaleString('en-LK')} (we'll confirm the exact price once we check availability/variants).`
+            : ''
 
         const { data: thread, error: threadError } = await supabase
           .from('chat_threads')
@@ -388,7 +413,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           .insert({
             user_id: user.id,
             link: draft.url,
-            note: draft.needsVariantConfirmation ? `[Confirm size/color with customer] ${draft.name}` : draft.name,
+            note: buildRequestNote(draft),
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
             chat_thread_id: thread.id,
@@ -412,7 +437,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           threadId: thread.id,
           sender: 'customer',
           senderName: user.name,
-          text: `I'd like to order this: ${displayTitle}\n${draft.url}${variantNote}`,
+          text: `I'd like to order this: ${displayTitle}\n${draft.url}${variantNote}${estimateNote}`,
           attachmentUrl: screenshotUrl ?? null,
           requestId: newRequest.id,
         })

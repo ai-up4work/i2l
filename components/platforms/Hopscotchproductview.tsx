@@ -440,22 +440,6 @@ export default function HopscotchProductView({
               placeholderText: 'text-ink/40',
             }}
           />
-          {/* Decorative "See similar" pill — Hopscotch shows this on
-              every PDP image; the scrape result has no matching-items
-              data to back a real click, so it renders inert. */}
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white px-3 py-1.5 text-xs font-bold text-purple-700 shadow-sm">
-            <Sparkles size={13} /> SEE SIMILAR
-          </span>
-          <button
-            type="button"
-            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
-            aria-pressed={inWishlist}
-            onClick={onToggleWishlist}
-            disabled={!canAct}
-            className="absolute right-3 top-14 grid h-9 w-9 place-items-center rounded-full border border-ink/10 bg-white/90 text-ink/50 shadow-sm transition-colors hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Heart size={16} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
-          </button>
         </div>
 
         <div className="min-w-0 [grid-area:rest]">

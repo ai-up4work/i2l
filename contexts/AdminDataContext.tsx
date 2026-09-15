@@ -2186,6 +2186,24 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     setOrders((prev) => [...prev, newOrder])
     setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: "confirmed" } : r)))
 
+    // Confirming used to leave the customer with zero signal that
+    // anything happened — the request just silently flipped to
+    // "confirmed" behind the scenes with nothing in their chat telling
+    // them the order is real, what it's for, or what the final total
+    // is. This is the one moment in the whole Channel 3 flow that
+    // actually matters most to the customer (their item is now really
+    // being bought), so it gets a real message, not just a status
+    // change nobody sees without refreshing a page. Uses the same
+    // sendChatMessage wrapper every other admin->customer message in
+    // this file goes through (local state + real DB write), not a
+    // bespoke one-off — see that function just above for what it does.
+    sendChatMessage(
+      request.chatThreadId,
+      `Your order is confirmed! Total: Rs. ${totalValue.toLocaleString()} for ${request.items.length} item${
+        request.items.length === 1 ? "" : "s"
+      }. You can track it from your Orders page.`
+    )
+
     // Real write: creates the actual channel=3 `orders` row (the only
     // place that happens) and flips the real request to 'confirmed'.
     // Fire-and-forget like every other mutator here, but this one also

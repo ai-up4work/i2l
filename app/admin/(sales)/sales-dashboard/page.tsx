@@ -1,13 +1,14 @@
 // app/admin/(sales)/sales-dashboard/page.tsx
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Flag, Inbox, MessageSquare, ShoppingBag } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { CHANNEL_LABEL, type Channel } from "@/types/admin"
-import { INITIAL_DOMAINS, isDomainFlagged, daysAgo as domainDaysAgo } from "@/data/scrape-health/data"
+import { isDomainFlagged, daysAgo as domainDaysAgo } from "@/data/scrape-health/data"
+import { fetchDomainHealth } from "@/lib/supabase/scrape-health-admin"
 import { panelClass } from "@/components/admin/seller/shared"
 import { AttentionList, LinkCard, QueueCard, StatCard, type AttentionItem } from "@/components/admin/dashboard/shared"
 
@@ -74,13 +75,22 @@ export default function SalesDashboardPage() {
   // threshold with no decision made — these are exactly what keeps
   // generating Channel 3 manual requests for Sales to handle by hand,
   // so a build-extractor/pursue-affiliate decision here directly cuts
-  // their future workload. Note: this reads INITIAL_DOMAINS directly
-  // (see data/scrape-health/data.ts) rather than a live context — the
-  // Scrape health page has its own local useState, so a status change
-  // made there won't be reflected here until a real ScrapeHealthContext
-  // exists to share that state the way AdminDataContext does for orders.
+  // their future workload. Real data now (fetchDomainHealth, reading
+  // the actual `requests` + `scrape_health` tables — see
+  // lib/supabase/scrape-health-admin.ts) — this used to read a
+  // hardcoded mock array (INITIAL_DOMAINS) that never matched whatever
+  // was actually happening in production. A decision made on the
+  // Scrape health page now persists for real (updateDomainDecision),
+  // so this list reflects it on next load too, not just within that
+  // one page's session.
+  const [scrapeHealthDomains, setScrapeHealthDomains] = useState<Awaited<ReturnType<typeof fetchDomainHealth>>>([])
+  useEffect(() => {
+    fetchDomainHealth().then(setScrapeHealthDomains)
+  }, [])
+
   const scrapeHealthAttention = useMemo<AttentionItem[]>(() => {
-    return INITIAL_DOMAINS.filter(isDomainFlagged)
+    return scrapeHealthDomains
+      .filter(isDomainFlagged)
       .sort((a, b) => b.requests30d - a.requests30d)
       .slice(0, 5)
       .map((d) => ({
@@ -91,8 +101,11 @@ export default function SalesDashboardPage() {
         href: "/admin/scrape-health",
         tone: "rose" as const,
       }))
-  }, [])
-  const scrapeHealthFlaggedCount = useMemo(() => INITIAL_DOMAINS.filter(isDomainFlagged).length, [])
+  }, [scrapeHealthDomains])
+  const scrapeHealthFlaggedCount = useMemo(
+    () => scrapeHealthDomains.filter(isDomainFlagged).length,
+    [scrapeHealthDomains]
+  )
 
   // Guard comes AFTER every hook above so hook call order never changes
   // between renders, even as currentUser.role flips via the role switcher.

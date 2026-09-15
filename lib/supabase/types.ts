@@ -1038,6 +1038,8 @@ export interface Database {
           success_count: number
           last_failure: string | null
           linked_seller_id: string | null
+          decision: string
+          ops_note: string | null
         }
         Insert: {
           domain: string
@@ -1045,6 +1047,8 @@ export interface Database {
           success_count?: number
           last_failure?: string | null
           linked_seller_id?: string | null
+          decision?: string
+          ops_note?: string | null
         }
         Update: Partial<Database['public']['Tables']['scrape_health']['Insert']>
         Relationships: []

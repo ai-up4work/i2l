@@ -10,7 +10,7 @@ export default function ProductRequestOverlay() {
     setDraft,
     modalOpen,
     closeModal,
-    saveItemInfo,
+    confirmRequest,
     lookupLoading,
     scrapeResult,
     selectVariant,
@@ -25,7 +25,8 @@ export default function ProductRequestOverlay() {
       qty={draft.qty}
       onQtyChange={(qty) => setDraft({ ...draft, qty })}
       onClose={closeModal}
-      onRequestItem={() => saveItemInfo({ preventDefault: () => {} } as React.FormEvent)}
+      onSubmitRequest={confirmRequest}
+      estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
       loading={lookupLoading}
       onSelectVariant={(url) => {
         if (url) selectVariant(url)

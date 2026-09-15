@@ -158,6 +158,7 @@ export type SiteId =
   | 'nykaa'
   | 'hopscotch'
   | 'tatacliq'
+  | 'tataCliq'
   | 'Aliexpress'
   | 'westside'
   | 'shopify'
@@ -1603,6 +1604,7 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   [NYKAA_SITE_ID]: parseNykaa,
   [HOPSCOTCH_SITE_ID]: parseHopscotch,
   tatacliq: parseTataCliq,
+  tataCliq: parseTataCliq,
   [ALIEXPRESS_SITE_ID]: parseAliExpress,
   westside: parseGeneric,
   

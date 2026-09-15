@@ -118,6 +118,7 @@ export type Draft = {
   image: string
   isLiquid: boolean | null
   hasBatteries: boolean | null
+  estimatedPriceLKR: number | null
   /**
    * True when the most recent scrape for this draft came back ogOnly
    * (see ScrapeResult.ogOnly's own doc comment) — meaning whatever

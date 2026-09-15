@@ -94,15 +94,17 @@ export default function RequestDetailPage() {
 
   if (!request) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <p className="text-sm text-ink/50">Request not found.</p>
-        <button
-          type="button"
-          onClick={() => router.push("/admin/requests")}
-          className="mt-4 text-sm font-semibold text-teal-deep hover:underline"
-        >
-          Back to Requests
-        </button>
+      <div className="h-full overflow-y-auto bg-parchment">
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <p className="text-sm text-ink/50">Request not found.</p>
+          <button
+            type="button"
+            onClick={() => router.push("/admin/requests")}
+            className="mt-4 text-sm font-semibold text-teal-deep hover:underline"
+          >
+            Back to Requests
+          </button>
+        </div>
       </div>
     )
   }
@@ -125,6 +127,7 @@ export default function RequestDetailPage() {
   }
 
   return (
+    <div className="h-full overflow-y-auto bg-parchment">
     <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
       <button
         type="button"
@@ -356,6 +359,7 @@ export default function RequestDetailPage() {
           </button>
         </div>
       </div>
+    </div>
     </div>
   )
 }

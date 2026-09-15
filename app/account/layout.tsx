@@ -32,7 +32,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
     setDraft,
     modalOpen,
     closeModal,
-    saveItemInfo,
+    confirmRequest,
     lookupLoading,
     lookupError,
     autoFilled,
@@ -202,7 +202,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
             qty={draft.qty}
             onQtyChange={(qty) => setDraft({ ...draft, qty })}
             onClose={closeModal}
-            onRequestItem={() => saveItemInfo({ preventDefault: () => {} } as React.FormEvent)}
+            onSubmitRequest={confirmRequest}
+            estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
             loading={lookupLoading}
             onSelectVariant={(url) => {
               if (url) selectVariant(url)

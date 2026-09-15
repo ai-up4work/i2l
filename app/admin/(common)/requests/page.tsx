@@ -41,6 +41,20 @@ function Pill({ status }: { status: RequestStatus }) {
   )
 }
 
+// Visible while scanning the queue, not just after opening a request —
+// this item's price came from a scrape that never had a chance to check
+// for a size/color picker (see Draft.needsVariantConfirmation's doc
+// comment in components/dashboard/types.ts), so it needs confirming
+// with the customer before this gets quoted/confirmed as a real order.
+function VariantConfirmPill() {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30">
+      <Ruler size={11} />
+      Confirm variant
+    </span>
+  )
+}
+
 function SlaPill() {
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
