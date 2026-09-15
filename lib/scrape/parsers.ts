@@ -1048,6 +1048,69 @@ function buildStoreVariantDimensions(
   })
 }
 
+/**
+ * Resolves which variant a scrape request is actually asking for.
+ *
+ * Storefronts encode the selected variant in a product URL two
+ * different ways:
+ *   1. Shopify's own numeric variant id — `?variant=41234567890123`
+ *   2. Human-readable option query params — `?Color=Brown&Size=S`
+ *      (common on headless/custom-frontend stores, e.g. westside.com)
+ *
+ * Previously this only checked (1), so any URL using form (2) silently
+ * fell through to `variants[0]` — an arbitrary "whatever the API
+ * happened to return first" variant, which may be out of stock even
+ * when the variant the URL actually names is available. That produced
+ * false "unavailable" results for in-stock products (see the Westside
+ * "Superstar Dark Brown Heart-Detail Hooded Cotton Jacket" QA case:
+ * ?Color=Brown&Size=S was resolving to Brown/XS — out of stock —
+ * instead of Brown/S, which is in stock).
+ */
+function findRequestedVariant(
+  url: string,
+  product: StoreProduct
+): NonNullable<StoreProduct['variants']>[number] | undefined {
+  const parsedUrl = new URL(url)
+  const variants = product.variants
+  if (!variants?.length) return undefined
+
+  // 1. Shopify's own numeric variant id, when present — most authoritative.
+  const requestedVariantId = parsedUrl.searchParams.get('variant')
+  if (requestedVariantId) {
+    const byId = variants.find((v) => v.id === requestedVariantId)
+    if (byId) return byId
+  }
+
+  // 2. Fall back to matching option name=value query params (e.g.
+  // Color=Brown&Size=S) against product.options, case-insensitively —
+  // how storefronts encode the selected variant when they don't use
+  // Shopify's numeric id in the URL.
+  if (product.options?.length) {
+    const requested: Record<string, string> = {}
+    for (const opt of product.options) {
+      for (const [key, value] of parsedUrl.searchParams.entries()) {
+        if (key.toLowerCase() === opt.name.toLowerCase()) {
+          requested[opt.name] = value
+          break
+        }
+      }
+    }
+    if (Object.keys(requested).length) {
+      const matched = variants.find((v) =>
+        product.options!.every((opt, i) => {
+          const want = requested[opt.name]
+          return want == null || v.options[i]?.toLowerCase() === want.toLowerCase()
+        })
+      )
+      if (matched) return matched
+    }
+  }
+
+  // 3. Nothing in the URL told us which variant was intended — first
+  // variant is the least-bad default, same as the old behavior.
+  return variants[0]
+}
+
 async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   const parsedHandle = extractShopifyHandle(url)
   if (!parsedHandle) {
@@ -1077,10 +1140,7 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
     }
   }
 
-  const requestedVariantId = new URL(url).searchParams.get('variant')
-  const currentVariant =
-    (requestedVariantId && product.variants?.find((v) => v.id === requestedVariantId)) ||
-    product.variants?.[0]
+  const currentVariant = findRequestedVariant(url, product)
 
   const currentOptions: Record<string, string> | null =
     product.options && currentVariant
@@ -1484,35 +1544,57 @@ function hasVariantData(parsed: Record<string, any>): boolean {
 export async function scrapeProduct(url: string, options: ScrapeProductOptions = {}): Promise<ScrapeResult> {
   const { needVariants = false, signal } = options
 
-  const site = detectSite(url)
+  let site = detectSite(url)
   if (!site) {
     return { url, site: null, error: 'Invalid URL' }
   }
 
+  // detectSite's 'shopify'/'woocommerce' classification for an
+  // unrecognized host is a URL-SHAPE GUESS ONLY (any /products/{x} path
+  // -> 'shopify', any /product/{x} path -> 'woocommerce' — see
+  // SHOPIFY_PRODUCT_PATH_RE / WOOCOMMERCE_PRODUCT_PATH_RE above), not a
+  // confirmed fact about the site's actual platform. Plenty of
+  // non-Shopify/non-WooCommerce stores use the exact same URL
+  // convention — and even a CONFIRMED real Shopify store might be a
+  // headless Shopify Plus setup (Hydrogen/Oxygen), which
+  // scrapeShopifyProduct() -> fetchShopifyProduct() already tries via
+  // REST first and the Storefront GraphQL discovery tier second (see
+  // lib/store-providers/shopify-plus.ts) — so a Shopify failure at this
+  // point has already exhausted both of Shopify's own tiers, not just
+  // the basic one. What it HASN'T tried is the possibility that this
+  // isn't a Shopify store at all, which the generic HTML-scraping
+  // pipeline below can often still read something out of (title/image
+  // at minimum, same as any other 'generic' site — see og-only.ts). A
+  // failed attempt now falls through into that generic pipeline instead
+  // of giving up, with `site` reassigned to 'generic' so the result
+  // honestly reflects what actually happened rather than still claiming
+  // 'shopify'.
   if (site === 'shopify') {
-    return await scrapeShopifyProduct(url)
-  }
+    const shopifyResult = await scrapeShopifyProduct(url)
+    if (!shopifyResult.error) return shopifyResult
+    site = 'generic'
+  } else if (site === 'woocommerce') {
+    const wooResult = await scrapeWooCommerceProduct(url)
+    if (!wooResult.error) return wooResult
+    site = 'generic'
+  } else {
+    // Prefer the real eBay Browse API whenever credentials are configured —
+    // it's authoritative data straight from eBay, not a DOM/JSON-LD guess.
+    // Falls through to the legacy scraper below only if EBAY_APP_ID /
+    // EBAY_CERT_ID aren't set, so this stays a zero-config upgrade.
+    if (site === 'ebay' && ebayCredentialsConfigured()) {
+      return await scrapeEbayProductViaApi(url)
+    }
 
-  if (site === 'woocommerce') {
-    return await scrapeWooCommerceProduct(url)
-  }
-
-  // Prefer the real eBay Browse API whenever credentials are configured —
-  // it's authoritative data straight from eBay, not a DOM/JSON-LD guess.
-  // Falls through to the legacy scraper below only if EBAY_APP_ID /
-  // EBAY_CERT_ID aren't set, so this stays a zero-config upgrade.
-  if (site === 'ebay' && ebayCredentialsConfigured()) {
-    return await scrapeEbayProductViaApi(url)
-  }
-
-  // Prefer Parse.bot's hosted Ajio scraper whenever PARSE_API_KEY is
-  // configured — real structured JSON from Ajio's own backend, skipping
-  // fetch + headless-render + TLS-fingerprint entirely for this site.
-  // Falls through to the legacy scraping pipeline below only if
-  // PARSE_API_KEY is unset, so this is a zero-config upgrade just like
-  // the eBay branch above.
-  if (site === AJIO_SITE_ID && ajioParseBotConfigured()) {
-    return await scrapeAjioProductViaParseBot(url)
+    // Prefer Parse.bot's hosted Ajio scraper whenever PARSE_API_KEY is
+    // configured — real structured JSON from Ajio's own backend, skipping
+    // fetch + headless-render + TLS-fingerprint entirely for this site.
+    // Falls through to the legacy scraping pipeline below only if
+    // PARSE_API_KEY is unset, so this is a zero-config upgrade just like
+    // the eBay branch above.
+    if (site === AJIO_SITE_ID && ajioParseBotConfigured()) {
+      return await scrapeAjioProductViaParseBot(url)
+    }
   }
 
   const { html, error, source } = await fetchDirectWithRetries(url, site, { signal })

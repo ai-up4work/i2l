@@ -970,6 +970,8 @@ interface AdminDataContextValue {
   canAdvanceStage: (orderId: string) => { allowed: boolean; reason?: string }
   reassignSite: (orderId: string, siteId: string) => void
   toggleDelayed: (orderId: string) => void
+  /** Explicit version of toggleDelayed — sets rather than flips, for callers (like closing out a QC issue) that need to conditionally clear it rather than blindly toggle. */
+  setOrderDelayedExplicit: (orderId: string, delayed: boolean) => void
   bulkFlagDelayed: (orderIds: string[]) => void
   addInternalNote: (orderId: string, body: string) => void
   purchaseLines: PurchaseLine[]
@@ -977,6 +979,14 @@ interface AdminDataContextValue {
   getPurchaseLine: (id: string) => PurchaseLine | undefined
   canActOnPurchaseLine: (line: PurchaseLine) => boolean
   markPurchased: (orderId: string, orderItemId: string, actualUnitPriceINR: number, purchaseReference?: string) => void
+  /**
+   * Resets one item's purchase record back to "needs_purchase" so it
+   * reappears on the Purchases queue as its own actionable line — the
+   * real per-item mechanism behind "Retry with a new unit" on a QC
+   * issue. See its implementation for why this is safe to do purely in
+   * local Purchase state without a schema change.
+   */
+  reorderFaultyItem: (orderId: string, orderItemId: string, issueNote: string) => void
   flagUnavailable: (orderId: string, orderItemId: string, issueNote: string) => void
   qcLines: QCLine[]
   visibleQcLines: QCLine[]
@@ -1365,6 +1375,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     if (realId) realSetOrderDelayed(realId, !wasDelayed)
   }
 
+  const setOrderDelayedExplicit = (orderId: string, delayed: boolean) => {
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, delayed } : o)))
+    const realId = resolveRealId(orderId)
+    if (realId) realSetOrderDelayed(realId, delayed)
+  }
+
   const bulkFlagDelayed = (orderIds: string[]) => {
     const idSet = new Set(orderIds)
     setOrders((prev) => prev.map((o) => (idSet.has(o.id) ? { ...o, delayed: true } : o)))
@@ -1460,9 +1476,33 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * setPurchases updater just built, rather than re-reading state.
    */
   const markPurchased = (orderId: string, orderItemId: string, actualUnitPriceINR: number, purchaseReference?: string) => {
+    // Computed here, outside setPurchases' updater, specifically so the
+    // addInternalNote side effect below (a real network write) only
+    // ever fires once per actual call — an updater function itself can
+    // be invoked more than once by React (e.g. Strict Mode), so a side
+    // effect that lives inside one isn't safe to assume "runs exactly
+    // once". The order.stage === "Ordered" branch further down already
+    // has this same issue with its own real writes (pre-existing, not
+    // introduced here) — not fixing that one now, out of scope, but not
+    // repeating the same mistake in new code either.
+    const orderForNote = orders.find((o) => o.id === orderId)
+    const isReorderForNote = orderForNote != null && orderForNote.stage !== "Ordered"
+
     setPurchases((prev) => {
       const existing = prev.find((p) => p.orderId === orderId && p.orderItemId === orderItemId)
       const now = new Date().toISOString()
+
+      // A re-purchase for a specific item (see reorderFaultyItem below)
+      // happens on an order that's already well past "Ordered" — the
+      // "every item purchased -> enter QC" logic further down only
+      // fires from the "Ordered" stage, so without this, a reordered
+      // item would sit at "purchased" forever and never reach an
+      // inspector. If the order isn't "Ordered" anymore, there's no
+      // bulk-order transition waiting on this purchase — the only
+      // reason an item would still be "needs_purchase" at that point is
+      // a deliberate reorder, so route it straight into QC itself.
+      const order = orders.find((o) => o.id === orderId)
+      const isReorderPurchase = order != null && order.stage !== "Ordered"
 
       let updated: Purchase[] = existing
         ? prev.map((p) =>
@@ -1475,6 +1515,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
                   purchasedBy: currentUser.name,
                   purchasedAt: now,
                   issueNote: undefined,
+                  ...(isReorderPurchase
+                    ? { enteredQcAt: now, qcStatus: "pending" as QCStatus, qcPhotoCount: 0, qcNote: undefined, qcResolvedAt: undefined }
+                    : {}),
                 }
               : p
           )
@@ -1493,7 +1536,6 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
             },
           ]
 
-      const order = orders.find((o) => o.id === orderId)
       if (order && order.stage === "Ordered") {
         const allPurchased = order.items.every(
           (item) => updated.find((p) => p.orderId === orderId && p.orderItemId === item.id)?.status === "purchased"
@@ -1533,6 +1575,70 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
       return updated
     })
+
+    // Real, permanent trail on the order (unlike this function's own
+    // Purchase-state changes above, which are local-only — see
+    // reorderFaultyItem's doc comment) marking the moment the
+    // replacement was actually bought, so /admin/orders/[orderId] shows
+    // the full arc: flagged -> reordered -> re-purchased -> (once
+    // re-QC'd) resolved, not just the first step. Runs once per actual
+    // markPurchased call, not tied to setPurchases' updater.
+    if (isReorderForNote && orderForNote) {
+      const itemTitle = orderForNote.items.find((i) => i.id === orderItemId)?.title ?? "item"
+      addInternalNote(
+        orderId,
+        `🛒 Replacement re-purchased for "${itemTitle}" — ₹${actualUnitPriceINR.toLocaleString("en-IN")}${purchaseReference ? `, ref ${purchaseReference}` : ""}. Back in Quality check.`
+      )
+    }
+  }
+
+  /**
+   * The real per-item mechanism behind a QC issue's "Retry with a new
+   * unit" — resets this ONE item's Purchase record to "needs_purchase"
+   * so it reappears on the Purchases queue as its own actionable line,
+   * distinct from its siblings on the same order. Deliberately does
+   * NOT touch order.stage or any other item on the order: the rest of
+   * the order can already be sitting "passed" in QC or even packed —
+   * this only pulls the one faulty item itself back a stage.
+   *
+   * Why local-only state is fine here, not a shortcut: the real
+   * `purchases` table has no per-item column at all (see mapToPurchases'
+   * GRANULARITY NOTE) — every mutator on this queue (markPurchased,
+   * flagUnavailable, this function) already only exists in local
+   * Purchase[] state, with a real DB write only firing once, in bulk,
+   * the moment every item on the order is purchased (see the
+   * realUpsertPurchaseForOrder call above). This function has the exact
+   * same durability profile as the rest of the Purchases queue already
+   * has today — it survives client-side navigation within this session,
+   * same as every other purchase-queue action, but (like the rest of
+   * this queue) doesn't survive a hard refresh without a real
+   * `order_item_id` column on `purchases`, which is the actual
+   * schema-change fix if/when this needs to be durable.
+   *
+   * Clearing enteredQcAt/qcStatus here is what makes the item vanish
+   * from /admin/qc (and therefore keeps its ORDER out of Pack & label,
+   * since that still requires every item's qcStatus === "passed") until
+   * it's bought again and re-inspected — matching "it has to wait until
+   * either I reorder and get and delivered".
+   */
+  const reorderFaultyItem = (orderId: string, orderItemId: string, issueNote: string) => {
+    setPurchases((prev) =>
+      prev.map((p) =>
+        p.orderId === orderId && p.orderItemId === orderItemId
+          ? {
+              ...p,
+              status: "needs_purchase" as PurchaseStatus,
+              issueNote,
+              enteredQueueAt: new Date().toISOString(),
+              enteredQcAt: undefined,
+              qcStatus: undefined,
+              qcNote: undefined,
+              qcPhotoCount: 0,
+              qcResolvedAt: undefined,
+            }
+          : p
+      )
+    )
   }
 
   const flagUnavailable = (orderId: string, orderItemId: string, issueNote: string) => {
@@ -2209,6 +2315,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     canAdvanceStage,
     reassignSite,
     toggleDelayed,
+    setOrderDelayedExplicit,
     bulkFlagDelayed,
     addInternalNote,
     purchaseLines,
@@ -2216,6 +2323,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     getPurchaseLine,
     canActOnPurchaseLine,
     markPurchased,
+    reorderFaultyItem,
     flagUnavailable,
     qcLines,
     visibleQcLines,

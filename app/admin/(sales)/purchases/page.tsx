@@ -325,7 +325,17 @@ function PurchaseRow({
           <Image src={line.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold text-ink">{line.productTitle}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="block truncate text-sm font-semibold text-ink">{line.productTitle}</span>
+            {line.issueNote && (
+              <span
+                title={line.issueNote}
+                className="inline-flex flex-none items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200"
+              >
+                Reorder
+              </span>
+            )}
+          </span>
           {line.variant && <span className="block truncate text-xs text-ink/40">{line.variant}</span>}
         </span>
       </span>

@@ -32,6 +32,14 @@ import {
   type TimelineIconKey,
 } from '@/contexts/Ordercontexts'
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from '@/lib/supabase/qc-issues'
+
+// Same rule as OrdersHubPage.tsx — a 'retry_same' issue whose
+// replacement already passed a fresh QC pass is closed out to
+// 'replacement_resolved', and stops showing here since there's nothing
+// left for the customer to act on. Row itself is never deleted.
+function isOpenQcIssue(issue: CustomerVisibleQcIssue): boolean {
+  return issue.resolution !== 'replacement_resolved'
+}
 import QcIssueBanner from '@/components/shared/QcIssueBanner'
 
 // DESIGN PASS: same status → accent mapping used on the My Orders list
@@ -684,7 +692,7 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
                           {currencySymbol} {(item.qty * item.unitPrice).toLocaleString()}
                         </p>
                       </div>
-                      {item.id && qcIssuesByItemId.get(item.id) && (
+                      {item.id && qcIssuesByItemId.get(item.id) && isOpenQcIssue(qcIssuesByItemId.get(item.id)!) && (
                         <QcIssueBanner issue={qcIssuesByItemId.get(item.id)!} />
                       )}
                     </div>

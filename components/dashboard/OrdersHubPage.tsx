@@ -47,8 +47,21 @@ import {
 import { ItemImageStack } from '@/components/dashboard/ItemImageStack'
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from '@/lib/supabase/qc-issues'
 import QcIssueBanner from '@/components/shared/QcIssueBanner'
+import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 
-const PAGE_SIZE = 10
+// A 'retry_same' issue whose replacement has actually passed a fresh QC
+// pass is closed out to 'replacement_resolved' (see
+// lib/supabase/qc-issues.ts's closeRetryIssue) — once that's happened,
+// there's nothing left for the customer to act on or worry about, so it
+// stops counting as an "open" issue for badge/banner purposes here. The
+// row itself is never deleted (ops still needs it for history/
+// analytics — see the admin QC Issues page's Resolved section), this
+// only affects what surfaces on the CUSTOMER-facing pages.
+function isOpenQcIssue(issue: CustomerVisibleQcIssue): boolean {
+  return issue.resolution !== 'replacement_resolved'
+}
+
+const PAGE_SIZE = 4
 
 // DESIGN PASS: a left-edge accent per status, on top of the existing
 // STATUS_BADGE pill. A repeated list of otherwise-identical cards is
@@ -121,7 +134,7 @@ function OrdersPageContent() {
     // data, just buried. This sort keeps everything else in its original
     // (already recency-sorted) order — flagged orders move to the front
     // as a block, nothing else's relative order changes.
-    const hasIssue = (o: Order) => o.items.some((it) => it.id && qcIssuesByItemId.has(it.id))
+    const hasIssue = (o: Order) => o.items.some((it) => it.id && qcIssuesByItemId.get(it.id) && isOpenQcIssue(qcIssuesByItemId.get(it.id)!))
     return [...matches].sort((a, b) => Number(hasIssue(b)) - Number(hasIssue(a)))
   }, [query, filter, orders, qcIssuesByItemId])
 
@@ -262,12 +275,43 @@ function OrderCard({
   // moved on to Shipped can still have an unresolved quality issue
   // trailing it, and that should keep reading as "needs attention"
   // rather than fading back to the plain Shipped accent.
-  const flaggedItems = order.items.filter((it) => it.id && qcIssuesByItemId.has(it.id))
+  const flaggedItems = order.items.filter((it) => it.id && qcIssuesByItemId.get(it.id) && isOpenQcIssue(qcIssuesByItemId.get(it.id)!))
   const hasQcIssue = flaggedItems.length > 0
   const statusAccent = hasQcIssue ? 'border-l-rose-500' : STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
 
   const goToTracking = () => router.push(`/account/orders/track?order=${order.id}`)
   const goToDetails = () => router.push(`/account/orders/track?order=${order.id}&tab=details`)
+
+  // "Buy Again" (Delivered) / "Reorder" (Cancelled) — previously dead
+  // buttons with no onClick at all. Rebuilds each item from this
+  // historical order as a live cart line (name/image/price/variant
+  // carried over from the order snapshot, since OrderItem has no live
+  // catalog product id to re-fetch from) and adds it to the cart, then
+  // sends the customer straight to /account/cart — the cart page itself
+  // is the confirmation, same "redirect to cart" pattern the rest of
+  // checkout already uses (see Header.tsx's mini-cart Checkout button).
+  const cart = useCart()
+  const handleReorder = () => {
+    order.items.forEach((item) => {
+      if (!item.id) return // no stable identity to re-add — nothing to build a cart line from
+      const id = item.storeUrl ?? `reorder:${order.id}:${item.id}`
+      const product: CartProduct = {
+        id,
+        url: item.storeUrl ?? id,
+        site: item.sellerName ?? undefined,
+        title: item.name,
+        image: item.image,
+        currencyCode: order.currency,
+        sourcePrice: String(item.unitPrice),
+        estimatedPrice: null,
+        weightKg: null,
+        source: 'link',
+        selectedOptions: item.variant ? { Variant: item.variant } : undefined,
+      }
+      cart.addItem(product, item.qty)
+    })
+    router.push('/account/cart')
+  }
 
   return (
     <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${statusAccent}`}>
@@ -365,7 +409,7 @@ function OrderCard({
 
         {/* Actions */}
         <div className="mt-5 flex gap-2">
-          <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} />
+          <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} onReorder={handleReorder} />
         </div>
       </div>
 
@@ -443,7 +487,7 @@ function OrderCard({
 
           {/* Actions — pinned to the bottom of the column */}
           <div className="mt-auto flex gap-2 pt-5">
-            <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} />
+            <OrderCardActions order={order} onGoToTracking={goToTracking} onGoToDetails={goToDetails} onReorder={handleReorder} />
           </div>
         </div>
       </div>
@@ -750,10 +794,12 @@ function OrderCardActions({
   order,
   onGoToTracking,
   onGoToDetails,
+  onReorder,
 }: {
   order: Order
   onGoToTracking: () => void
   onGoToDetails: () => void
+  onReorder: () => void
 }) {
   if (order.status === 'Quality Check' || order.status === 'Shipped') {
     return (
@@ -767,7 +813,7 @@ function OrderCardActions({
     return (
       <>
         <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
-        <PrimaryButton>Buy Again</PrimaryButton>
+        <PrimaryButton onClick={onReorder}>Buy Again</PrimaryButton>
       </>
     )
   }
@@ -775,7 +821,7 @@ function OrderCardActions({
     return (
       <>
         <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
-        <PrimaryButton>Reorder</PrimaryButton>
+        <PrimaryButton onClick={onReorder}>Reorder</PrimaryButton>
       </>
     )
   }

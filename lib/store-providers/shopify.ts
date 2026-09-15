@@ -1,4 +1,3 @@
-// lib/store-providers/shopify.ts
 import type { StoreProduct } from '@/lib/store.types';
 import type { ShopifyProviderConfig } from '@/lib/store-config';
 import type { ProviderFetchParams, ProviderFetchResult } from './types';

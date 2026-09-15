@@ -41,7 +41,7 @@ function buildCustomerWhatsAppLink(phone: string | null, message: string): strin
 export default function QcIssueDetailPage() {
   const params = useParams<{ issueId: string }>()
   const router = useRouter()
-  const { currentUser, addInternalNote } = useAdminData()
+  const { currentUser, addInternalNote, reorderFaultyItem, purchases } = useAdminData()
 
   const [issue, setIssue] = useState<QcIssueWithContext | null>(null)
   const [itemPrice, setItemPrice] = useState<number | null>(null)
@@ -100,6 +100,29 @@ export default function QcIssueDetailPage() {
   }
 
   const alreadyResolved = issue.resolution !== "pending"
+  // For a 'retry_same' issue specifically: is the replacement done yet?
+  // Cross-references this item's CURRENT local purchase state (not the
+  // issue row itself, which never changes once written) — "purchased"
+  // means it's been bought again and is either awaiting delivery or
+  // sitting in QC; "passed" means it's fully done. Reading straight off
+  // `purchases` here (rather than re-deriving from order.stage) is what
+  // lets this page describe the live in-progress state instead of a
+  // static "resolved" badge — matching "that qc issue has to be there
+  // so I can see [it]" until the replacement is actually through.
+  const replacementPurchase =
+    issue.resolution === "retry_same"
+      ? purchases.find((p) => p.orderId === issue.orderDisplayId && p.orderItemId === issue.orderItemId)
+      : undefined
+  const replacementStatus: "awaiting_purchase" | "awaiting_qc" | "passed" | "flagged_again" | null =
+    replacementPurchase == null
+      ? null
+      : replacementPurchase.qcStatus === "passed"
+        ? "passed"
+        : replacementPurchase.qcStatus === "flagged"
+          ? "flagged_again"
+          : replacementPurchase.status === "purchased"
+            ? "awaiting_qc"
+            : "awaiting_purchase"
   const whatsappMessage =
     issue.sellerRefundObtained === true
       ? `Hi ${issue.customerName}, one item from your order ${issue.orderDisplayId} (${issue.itemTitle}) didn't pass our quality check. We've arranged a refund from the seller, so we'll add a coupon of equal value to your account for your next order. Sorry for the inconvenience!`
@@ -149,23 +172,25 @@ export default function QcIssueDetailPage() {
       return
     }
     // The customer is already notified by resolveRetrySame above. This
-    // note is the other half: a visible, actionable trail on the order
-    // itself for Sales & Purchase to actually go re-buy the item — the
-    // real `purchases` table has no per-item column to open a proper
-    // re-purchase record against (see mapToPurchases' GRANULARITY NOTE),
-    // so an internal note is the most honest thing to write today
-    // without a schema change. Once the replacement is bought and
-    // physically arrives, this item falls back to "pending" on
-    // /admin/qc automatically (loadRealOrders excludes resolved issues
-    // from flaggedItemIds) — no separate "mark received" step needed,
-    // ops just inspects it again like any other arrival. If ALL of this
-    // order's items (including this one, once re-inspected) end up
-    // "passed", the order surfaces on Pack & Label the same way any
-    // fully-passed order already does — that gating was already
-    // order-level ("every item passed"), so nothing else changes there.
+    // is the real per-item mechanism: resets this ONE item's purchase
+    // record so it reappears on the Purchases queue as its own
+    // actionable "needs_purchase" line (see reorderFaultyItem's own doc
+    // comment for exactly what it does and doesn't persist). The order
+    // itself doesn't advance anywhere else — this item alone drops back
+    // out of QC/Pack & label until it's bought again and re-inspected,
+    // so the rest of the order can keep moving (or sit ready) without
+    // this one faulty item silently slipping through.
+    reorderFaultyItem(
+      issue!.orderDisplayId,
+      issue!.orderItemId,
+      `Faulty — QC flagged this unit (issue ${issue!.id.slice(0, 8)}). Re-buying a replacement from the same seller.`
+    )
+    // Internal note is a secondary, permanent trail on the order itself
+    // (unlike the Purchases-queue reset above, this one IS a real write
+    // — see addInternalNote — so it survives even a hard refresh).
     addInternalNote(
       issue!.orderDisplayId,
-      `🔁 Replacement needed: "${issue!.itemTitle}" didn't pass QC — re-buy from the same seller. Once it arrives, it'll show back up in Quality check for a fresh inspection.`
+      `🔁 Replacement needed: "${issue!.itemTitle}" didn't pass QC — now back on the Purchases queue for re-buying from the same seller.`
     )
     router.push("/admin/qc-issues")
   }
@@ -229,12 +254,51 @@ export default function QcIssueDetailPage() {
         </div>
 
         {alreadyResolved ? (
-          <div className="mt-6 rounded-2xl border border-teal/25 bg-teal/[0.06] p-6 text-center">
-            <CheckCircle2 className="mx-auto text-teal-deep" size={24} />
-            <p className="mt-2 text-sm font-semibold text-teal-deep">
-              This issue was resolved via {issue.resolution.replace("_", " ")}.
-            </p>
-          </div>
+          issue.resolution === "retry_same" ? (
+            <div className="mt-6 rounded-2xl border border-gold/30 bg-gold/[0.06] p-6 text-center">
+              {replacementStatus === "passed" ? (
+                <>
+                  <CheckCircle2 className="mx-auto text-teal-deep" size={24} />
+                  <p className="mt-2 text-sm font-semibold text-teal-deep">
+                    The replacement unit passed QC — this item is clear.
+                  </p>
+                </>
+              ) : replacementStatus === "flagged_again" ? (
+                <>
+                  <XCircle className="mx-auto text-rose-600" size={24} />
+                  <p className="mt-2 text-sm font-semibold text-rose-700">
+                    The replacement unit was flagged again on QC — see /admin/qc for the new inspection.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="mx-auto text-gold-deep" size={24} />
+                  <p className="mt-2 text-sm font-semibold text-gold-deep">
+                    {replacementStatus === "awaiting_qc"
+                      ? "Replacement bought — waiting for it to clear Quality check."
+                      : "Waiting on a replacement — back on the Purchases queue."}
+                  </p>
+                </>
+              )}
+              <p className="mt-1 text-xs text-ink/45">
+                This item's order and its other items aren't blocked — only "{issue.itemTitle}" itself is held back from
+                Pack &amp; label until this replacement clears QC.
+              </p>
+              <Link
+                href="/admin/purchases"
+                className="mt-3 inline-block text-xs font-semibold text-teal-deep hover:underline"
+              >
+                View in Purchases →
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-2xl border border-teal/25 bg-teal/[0.06] p-6 text-center">
+              <CheckCircle2 className="mx-auto text-teal-deep" size={24} />
+              <p className="mt-2 text-sm font-semibold text-teal-deep">
+                This issue was resolved via {issue.resolution.replace("_", " ")}.
+              </p>
+            </div>
+          )
         ) : (
           <>
             {/* Option: retry same item — no refund decision needed at all */}

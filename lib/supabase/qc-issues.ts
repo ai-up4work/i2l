@@ -23,7 +23,7 @@
 import { createClient } from '@/lib/supabase/client'
 
 export type QcIssueType = 'faulty_unit' | 'inventory_rejected' | 'customer_declined'
-export type QcIssueResolution = 'pending' | 'retry_same' | 'coupon_issued' | 'shipped_as_is'
+export type QcIssueResolution = 'pending' | 'retry_same' | 'coupon_issued' | 'shipped_as_is' | 'replacement_resolved'
 
 export interface QcIssue {
   id: string
@@ -179,12 +179,12 @@ export async function fetchQcIssuesForOrder(orderId: string): Promise<QcIssue[]>
   return (data ?? []).map((r) => mapRow(r as QcIssueRow))
 }
 
-export async function fetchAllOpenQcIssues(): Promise<QcIssue[]> {
+export async function fetchAllOpenQcIssues(resolutions: QcIssueResolution[] = ['pending']): Promise<QcIssue[]> {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('order_item_issues')
     .select(ISSUE_SELECT)
-    .eq('resolution', 'pending')
+    .in('resolution', resolutions)
     .order('created_at', { ascending: false })
   if (error) {
     console.error('[fetchAllOpenQcIssues]', error)
@@ -278,9 +278,9 @@ export interface QcIssueWithContext extends QcIssue {
 }
 
 /** Same as fetchAllOpenQcIssues, but joined with order/item/customer info for the admin queue list — the raw QcIssue only has real uuids, not anything human-readable. */
-export async function fetchOpenQcIssuesWithContext(): Promise<QcIssueWithContext[]> {
+export async function fetchOpenQcIssuesWithContext(resolutions: QcIssueResolution[] = ['pending']): Promise<QcIssueWithContext[]> {
   const supabase = createClient()
-  const issues = await fetchAllOpenQcIssues()
+  const issues = await fetchAllOpenQcIssues(resolutions)
   if (!issues.length) return []
 
   const orderIds = [...new Set(issues.map((i) => i.orderId))]
@@ -388,4 +388,32 @@ export async function resolveRetrySame(
   })
 
   return { ok: true }
+}
+
+/**
+ * Closes out a 'retry_same' issue once its replacement unit has
+ * actually passed a fresh QC inspection — called from
+ * /admin/qc/[id]/page.tsx's save() the moment a "passed" verdict is
+ * recorded for an item that has an open retry_same issue on file.
+ *
+ * This is the real, durable signal the customer-facing pages need:
+ * QcIssueBanner stops rendering for an item once its issue reads
+ * 'replacement_resolved' (see OrdersHubPage.tsx / track/page.tsx), so
+ * the customer stops seeing "there was an issue with this item" once
+ * it's actually been made right — without this, that banner would
+ * otherwise show forever, since resolveRetrySame's resolution value
+ * never changes again on its own.
+ *
+ * Deliberately does NOT delete or otherwise erase the row — ops still
+ * needs this for analytics (see the QC Issues page's "Resolved"
+ * history section) and it's the only record that a fault happened on
+ * this order/item at all.
+ */
+export async function closeRetryIssue(issueId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('order_item_issues')
+    .update({ resolution: 'replacement_resolved', resolved_at: new Date().toISOString() })
+    .eq('id', issueId)
+  return error ? { ok: false, error: error.message } : { ok: true }
 }

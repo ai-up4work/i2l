@@ -1,7 +1,7 @@
 // app/admin/qc/[id]/page.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { useParams, useRouter } from "next/navigation"
@@ -19,7 +19,7 @@ import {
 
 import { useAdminData, isOrderAgeBreached } from "@/contexts/AdminDataContext"
 import { fetchOrderIdentity } from "@/lib/supabase/orders-admin"
-import { createQcIssue } from "@/lib/supabase/qc-issues"
+import { createQcIssue, closeRetryIssue, fetchQcIssuesForItems, fetchQcIssuesForOrder, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 import { useImageUpload } from "@/lib/upload/useImageUpload"
 import { CHANNEL_LABEL, QC_STATUS_LABEL, type QCStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
@@ -65,7 +65,7 @@ const STATUS_TONE_FOR: Record<QCStatus, StatusTone> = {
 export default function QCDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
-  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading, currentUser } = useAdminData()
+  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading, currentUser, addInternalNote, setOrderDelayedExplicit } = useAdminData()
   // qcLines[].id is `${orderUuid}:${itemUuid}` (see AdminDataContext's
   // purchaseLines/qcLines derivation) — the colon can arrive
   // percent-encoded depending on how it was navigated to, exactly like
@@ -93,6 +93,24 @@ export default function QCDetailPage() {
   // this holds the most recently uploaded photo rather than a list.
   const { uploading, error: uploadError, upload } = useImageUpload()
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Is this item currently mid-reorder — i.e. does it have an open
+  // 'retry_same' issue on file already? Fetched unconditionally
+  // (before the early returns below) same as every other hook here.
+  // Used two ways: (1) a small banner telling the inspector this is a
+  // replacement unit, not the original, and (2) on a "passed" verdict,
+  // save() closes this issue out for real (closeRetryIssue) instead of
+  // leaving it silently stuck on 'retry_same' forever — see that
+  // function's own doc comment for why that matters to the customer.
+  const [openRetryIssue, setOpenRetryIssue] = useState<CustomerVisibleQcIssue | null>(null)
+  useEffect(() => {
+    if (!line) return
+    fetchQcIssuesForItems([line.orderItemId]).then((map) => {
+      const issue = map.get(line.orderItemId)
+      setOpenRetryIssue(issue && issue.resolution === "retry_same" ? issue : null)
+    })
+  }, [line])
 
   async function handlePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -135,8 +153,6 @@ export default function QCDetailPage() {
   const tone = STATUS_TONE_FOR[status]
   const purchaseLineId = `${line.orderId}:${line.orderItemId}`
 
-  const [saveError, setSaveError] = useState<string | null>(null)
-
   async function save() {
     if (status === "pending" || !canAct) return
     setSaveError(null)
@@ -171,6 +187,56 @@ export default function QCDetailPage() {
         setSaving(false)
         setSaveError(result.error ?? "Could not save this QC issue. It won't show up on QC Issues or the customer's order until this succeeds.")
         return
+      }
+
+      // This is a SECOND fault on an item that was already mid-reorder
+      // — createQcIssue above just created a fresh issue row for it, so
+      // leave the OLD retry_same row exactly as it is (still real
+      // history that a first replacement was needed too) and just note
+      // it on the order for whoever picks this up next.
+      if (openRetryIssue) {
+        addInternalNote(
+          line!.orderId,
+          `⚠️ Replacement for "${line!.productTitle}" also failed QC — see the new QC issue for details.`
+        )
+      }
+    }
+
+    // The replacement unit passed — if this item had an open retry_same
+    // issue, close it out for real. This is the durable signal the
+    // customer-facing order pages read to stop showing "there was an
+    // issue with this item" (see closeRetryIssue's own doc comment) —
+    // without this, that banner would otherwise never go away on its
+    // own. Also leaves a real, permanent trail on the order itself
+    // (unlike the Purchases-queue state, addInternalNote is a real DB
+    // write) so /admin/orders/[orderId] shows the full arc: flagged →
+    // reordered → replacement passed.
+    if (status === "passed" && openRetryIssue) {
+      const closeResult = await closeRetryIssue(openRetryIssue.id)
+      if (!closeResult.ok) {
+        setSaving(false)
+        setSaveError(closeResult.error ?? "QC result saved, but couldn't close out the original QC issue — it may still show as awaiting replacement.")
+        return
+      }
+      addInternalNote(
+        line!.orderId,
+        `✅ Replacement for "${line!.productTitle}" passed QC — quality issue resolved.`
+      )
+
+      // "Delayed" was set the moment the ORIGINAL fault was flagged
+      // (see submitQcResult's flagged branch) and nothing ever clears
+      // it back — so without this, the order keeps reading as
+      // "Delayed" on /admin/orders forever, even once it's sitting
+      // correctly in Pack & label. Only clear it if THIS was the only
+      // open issue on the order — a sibling item could still have its
+      // own unresolved fault, and this shouldn't paper over that.
+      const identity = await fetchOrderIdentity(line!.orderId)
+      if (identity) {
+        const allIssues = await fetchQcIssuesForOrder(identity.orderId)
+        const otherOpenIssues = allIssues.some(
+          (i) => i.id !== openRetryIssue.id && (i.resolution === "pending" || i.resolution === "retry_same")
+        )
+        if (!otherOpenIssues) setOrderDelayedExplicit(line!.orderId, false)
       }
     }
 
@@ -207,6 +273,11 @@ export default function QCDetailPage() {
                 </span>
               </div>
               {line.variant && <p className="mt-1 text-sm text-ink/50">{line.variant}</p>}
+              {openRetryIssue && (
+                <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30">
+                  Replacement unit — a fresh pass here closes out the original QC issue
+                </p>
+              )}
             </div>
           </div>
 
@@ -280,7 +351,7 @@ export default function QCDetailPage() {
                   onChange={(e) => setCustomerNote(e.target.value)}
                   rows={2}
                   disabled={!canAct}
-                  placeholder='Plain-language explanation the customer will see on their order page, e.g. \"The zipper on this item arrived stuck.\"'
+                  placeholder='Plain-language explanation the customer will see on their order page, e.g. "The zipper on this item arrived stuck."'
                   className="w-full resize-none rounded-xl border border-ink/10 bg-white/60 p-3 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-60"
                 />
               </div>
