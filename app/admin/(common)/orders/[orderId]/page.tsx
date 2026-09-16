@@ -159,6 +159,7 @@ export default function OrderDetailPage() {
     canAdvanceStage,
     reassignSite,
     addInternalNote,
+    deleteOrder,
     dataLoading,
   } = useAdminData()
 
@@ -166,6 +167,7 @@ export default function OrderDetailPage() {
   const [noteDraft, setNoteDraft] = useState("")
   const [advanceError, setAdvanceError] = useState<string | null>(null)
   const [rollbackError, setRollbackError] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   // QC issues for this order's items — fetched the same way the
   // customer-facing order pages do (fetchQcIssuesForItems, batched by
@@ -230,6 +232,15 @@ export default function OrderDetailPage() {
     setRollbackError(result.allowed ? null : result.reason ?? "This order can't roll back.")
   }
 
+  const handleDelete = () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true)
+      return
+    }
+    deleteOrder(order.id)
+    router.push("/admin/orders")
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
@@ -241,6 +252,24 @@ export default function OrderDetailPage() {
           <ArrowLeft size={15} />
           Back to Orders
         </button>
+
+        {/* Manager-only hard delete — permissions.canDelete (Sales & Purchase, Warehouse never get this; they have no destructive control on an order at all). Two-click confirm: first click arms it, second click within the same render actually deletes. */}
+        {permissions.canDelete && (
+          <div className="mb-6 -mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={handleDelete}
+              onBlur={() => setConfirmingDelete(false)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                confirmingDelete
+                  ? "border-red-600 bg-red-600 text-white hover:bg-red-700"
+                  : "border-red-600/25 bg-red-600/5 text-red-700 hover:bg-red-600/10"
+              }`}
+            >
+              {confirmingDelete ? "Click again to permanently delete" : "Delete order"}
+            </button>
+          </div>
+        )}
 
         {/* ── Header card — accent + image stack, matches the list/customer card language ── */}
         <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${accent}`}>

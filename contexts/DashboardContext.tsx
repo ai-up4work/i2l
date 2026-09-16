@@ -11,7 +11,7 @@ import { rateToLKR } from '@/lib/currency-config'
 import { useAuth } from './AuthContext'
 import { createClient } from '@/lib/supabase/client'
 import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
-import { sendChatMessage } from '@/lib/supabase/chat'
+import { getOrCreateGeneralThread, sendChatMessage } from '@/lib/supabase/chat'
 import type { OgMetadata } from '@/lib/og-lookup'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -24,6 +24,7 @@ const emptyDraft: Draft = {
   image: productImage[0],
   isLiquid: null,
   hasBatteries: null,
+  estimatedPriceLKR: null,
 }
 
 const DRAFT_STORAGE_KEY = 'dashboard:pendingDraft'
@@ -330,14 +331,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   //     (no extractor matched, or the site blocked scraping — Instagram
   //     posts and heavily bot-protected sites are the classic case). This
   //     creates a `requests` row for Sales & Purchase to quote by hand,
-  //     its own dedicated `chat_threads` row, and an initial message
-  //     seeding that thread with the link, an Open Graph-fetched photo/
-  //     title (see fetchOgMetadataClient), and the customer's note —
-  //     tagged to the request via chat_messages.request_id. Lands on
-  //     /account/messages, where that thread is now the most recently
-  //     active one and surfaces immediately (see
-  //     getMostRecentOrGeneralThread in lib/supabase/chat.ts) — this is
-  //     the "start a chat so the customer can continue" requirement.
+  //     re-using the customer's single existing `chat_threads` row (one
+  //     thread per customer, not one per request — see
+  //     getOrCreateGeneralThread in lib/supabase/chat.ts), and an initial
+  //     message seeding that thread with the link, an Open Graph-fetched
+  //     photo/title (see fetchOgMetadataClient), and the customer's note
+  //     — tagged to this specific request via chat_messages.request_id
+  //     so admin/chat can still show which message belongs to which
+  //     request even though several requests can now share one thread.
+  //     Lands on /account/messages, where that thread (now bumped to the
+  //     top by last_activity — see getMostRecentOrGeneralThread in
+  //     lib/supabase/chat.ts) surfaces immediately — this is the "start a
+  //     chat so the customer can continue" requirement.
   const confirmRequest = useCallback(async (): Promise<ConfirmResult> => {
     if (!user) return { ok: false, error: 'You need to be signed in to confirm a request.' }
 
@@ -401,12 +406,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             ? `\n\nEstimated price: LKR ${draft.estimatedPriceLKR.toLocaleString('en-LK')} (we'll confirm the exact price once we check availability/variants).`
             : ''
 
-        const { data: thread, error: threadError } = await supabase
-          .from('chat_threads')
-          .insert({ user_id: user.id })
-          .select('id')
-          .single()
-        if (threadError) throw threadError
+        // One thread per customer, period — find it (or create it on a
+        // customer's very first contact) instead of insert-ing a new row
+        // every time a request comes in. Previously this always did a
+        // bare `.insert({ user_id })`, which meant every Channel 3
+        // request spawned its own `chat_threads` row: the admin inbox
+        // showed the same customer several times over, and the
+        // customer's own chat view would "lose" earlier history whenever
+        // a newer per-request thread became the most-recently-active one.
+        const threadId = await getOrCreateGeneralThread(supabase, user.id)
 
         const { data: newRequest, error: requestError } = await supabase
           .from('requests')
@@ -416,17 +424,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             note: buildRequestNote(draft),
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
-            chat_thread_id: thread.id,
+            chat_thread_id: threadId,
           })
           .select('id')
           .single()
         if (requestError) throw requestError
 
-        // Links the thread back to the request (chat_threads.request_id)
-        // — requests.chat_thread_id already points the other way; this
-        // completes the pair so the admin thread list can show which
-        // request a conversation belongs to.
-        await supabase.from('chat_threads').update({ request_id: newRequest.id }).eq('id', thread.id)
+        // Not setting chat_threads.request_id here anymore: that column
+        // assumed one request per thread, which no longer holds now that
+        // a single thread can carry many requests over time. Per-request
+        // context still lives on chat_messages.request_id below, which is
+        // what /admin/chat actually uses to tag individual messages to a
+        // request.
 
         // Seeds the conversation with the link/photo/note as the first
         // message, tagged to this request, so both the customer's own
@@ -434,7 +443,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         // context instead of an empty thread — "start a chat so the
         // customer can continue" is this message existing at all.
         await sendChatMessage(supabase, {
-          threadId: thread.id,
+          threadId,
           sender: 'customer',
           senderName: user.name,
           text: `I'd like to order this: ${displayTitle}\n${draft.url}${variantNote}${estimateNote}`,

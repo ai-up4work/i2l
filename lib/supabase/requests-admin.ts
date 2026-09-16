@@ -68,6 +68,17 @@ export interface RealRequestItemAsk {
   quoteHistory: RealQuoteHistoryEntry[]
 }
 
+/** Recorded once Manager/Sales & Purchase confirms the customer's payment
+ * for this request's quote — required before the request can move to
+ * 'confirmed' (see confirmRequestReal's guard below). */
+export interface RealRequestPayment {
+  amount: number
+  method: string
+  reference?: string
+  confirmedAt: string
+  confirmedByName?: string
+}
+
 export interface RealRequest {
   id: string
   userId: string
@@ -77,6 +88,7 @@ export interface RealRequest {
   submittedAt: string
   assignedStaffId?: string
   chatThreadId: string
+  payment?: RealRequestPayment
 }
 
 export interface RealChatMessage {
@@ -106,7 +118,9 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('requests')
-    .select('id, user_id, link, note, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at')
+    .select(
+      'id, user_id, link, note, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by',
+    )
     .order('submitted_at', { ascending: false })
   if (error) {
     console.error('[fetchAdminRequests]', error)
@@ -130,7 +144,14 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
   ])
 
   const nameByUserId = new Map((profiles ?? []).map((p) => [p.id, p.full_name]))
-  const staffIds = [...new Set((histories ?? []).map((h) => h.staff_id).filter((id): id is string => !!id))]
+  const staffIds = [
+    ...new Set(
+      [
+        ...(histories ?? []).map((h) => h.staff_id),
+        ...rows.map((r) => r.payment_confirmed_by),
+      ].filter((id): id is string => !!id),
+    ),
+  ]
   const { data: staff } = staffIds.length
     ? await supabase.from('staff_accounts').select('id, name').in('id', staffIds)
     : { data: [] as { id: string; name: string }[] }
@@ -150,6 +171,15 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
     submittedAt: r.submitted_at,
     assignedStaffId: r.assigned_staff_id ?? undefined,
     chatThreadId: r.chat_thread_id,
+    payment: r.payment_confirmed_at
+      ? {
+          amount: r.payment_amount ?? 0,
+          method: r.payment_method ?? 'other',
+          reference: r.payment_reference ?? undefined,
+          confirmedAt: r.payment_confirmed_at,
+          confirmedByName: r.payment_confirmed_by ? staffNameById.get(r.payment_confirmed_by) ?? 'Staff' : undefined,
+        }
+      : undefined,
     items: [
       {
         id: `${r.id}-item`,
@@ -237,6 +267,36 @@ export async function setRequestQuote(requestId: string, amount: number, staffId
   return { ok: true }
 }
 
+/**
+ * Records that the customer's payment for a quoted request has come in
+ * (agreed over chat/WhatsApp, then confirmed here by whoever is working
+ * the request — Manager or Sales & Purchase). This is a distinct step
+ * from confirmRequestReal below: recording payment does NOT by itself
+ * create the order — it just unblocks the "Confirm → creates order"
+ * action, which still has to be clicked separately. Re-callable: if the
+ * amount/reference was mistyped, calling this again overwrites the
+ * previous confirmation rather than stacking a history (unlike quotes,
+ * a request is only ever paid once, so there's nothing to keep a
+ * revision trail of).
+ */
+export async function confirmRequestPaymentReal(
+  requestId: string,
+  payment: { amount: number; method: string; reference?: string; staffId: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('requests')
+    .update({
+      payment_amount: payment.amount,
+      payment_method: payment.method,
+      payment_reference: payment.reference ?? null,
+      payment_confirmed_at: new Date().toISOString(),
+      payment_confirmed_by: payment.staffId,
+    })
+    .eq('id', requestId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
 export async function declineRequestReal(requestId: string): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   const { error } = await supabase.from('requests').update({ status: 'rejected' }).eq('id', requestId)
@@ -246,6 +306,25 @@ export async function declineRequestReal(requestId: string): Promise<{ ok: boole
 export async function reassignRequestReal(requestId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   const { error } = await supabase.from('requests').update({ assigned_staff_id: staffId }).eq('id', requestId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+/**
+ * Manually attaches (or replaces) the product photo for a request —
+ * used when the OG scrape found no image at all (Instagram posts and
+ * heavily bot-protected sites are the classic case), or found the wrong
+ * one. Admin uploads a file through the 'products' folder (see
+ * app/api/upload/route.ts — shared, not user-scoped, same as banners/qc)
+ * and this just persists the resulting URL onto requests.screenshot_url,
+ * same column the OG-fetched photo would have landed in. Whatever's here
+ * at confirm time is what confirmRequestReal carries over onto the new
+ * order_items row, so this is also how you fix a bad/missing photo
+ * before an order gets created — after that, the order's own
+ * order_items.screenshot_url would need editing separately.
+ */
+export async function setRequestScreenshotReal(requestId: string, screenshotUrl: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase.from('requests').update({ screenshot_url: screenshotUrl }).eq('id', requestId)
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
@@ -266,6 +345,26 @@ export async function confirmRequestReal(
   quote: number,
 ): Promise<{ ok: boolean; error?: string; orderDisplayId?: string }> {
   const supabase = createClient()
+
+  // Payment must already be on record — recorded separately via
+  // confirmRequestPaymentReal above, on the same request-detail page,
+  // before this action is even reachable in the UI. Re-checked here so
+  // this can never create an order for a request nobody's actually paid
+  // for, even if a caller skips the UI's own gating. Also pulls
+  // screenshot_url here (rather than a second round trip) — this is the
+  // OG-fetched or admin-uploaded photo of the actual item (see
+  // DashboardContext's confirmRequest / setRequestScreenshotReal below),
+  // and needs to carry over onto the new order_items row so the order
+  // shows this real photo everywhere instead of the generic placeholder.
+  const { data: existing, error: fetchError } = await supabase
+    .from('requests')
+    .select('payment_confirmed_at, screenshot_url')
+    .eq('id', requestId)
+    .single()
+  if (fetchError) return { ok: false, error: fetchError.message }
+  if (!existing?.payment_confirmed_at) {
+    return { ok: false, error: 'Payment must be confirmed before this request can be confirmed.' }
+  }
 
   let displayId = ''
   let orderId = ''
@@ -298,6 +397,7 @@ export async function confirmRequestReal(
     quantity: 1,
     unit_price: quote,
     request_link: link,
+    screenshot_url: existing.screenshot_url ?? null,
     seller_type: 'individual',
   })
   if (itemError) return { ok: false, error: itemError.message }

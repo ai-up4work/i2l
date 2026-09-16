@@ -3,11 +3,12 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ExternalLink, ImageOff, MessageSquare, RotateCw } from "lucide-react"
+import { ArrowLeft, ExternalLink, ImageOff, ImagePlus, Loader2, MessageSquare, RotateCw } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
 import { panelClass } from "@/components/admin/seller/shared"
+import { useImageUpload } from "@/lib/upload/useImageUpload"
 
 // Work one Channel 3 request through to a priced, confirmable state.
 // Manager + Sales & Purchase only.
@@ -37,6 +38,8 @@ export default function RequestDetailPage() {
     canReassignRequestLine,
     canCloseRequestLine,
     setQuote,
+    setRequestScreenshot,
+    confirmPayment,
     confirmRequest,
     declineRequest,
     reassignRequest,
@@ -50,6 +53,10 @@ export default function RequestDetailPage() {
   // single string the way the old single-link page used.
   const [quoteInputs, setQuoteInputs] = useState<Record<string, string>>({})
   const [retryResult, setRetryResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [paymentMethod, setPaymentMethod] = useState("bank_transfer")
+  const [paymentReference, setPaymentReference] = useState("")
+  const [paymentAmountInput, setPaymentAmountInput] = useState("")
+  const { uploading: uploadingScreenshot, error: screenshotUploadError, upload: uploadScreenshot } = useImageUpload()
 
   useEffect(() => {
     if (currentUser.role === "warehouse") router.replace("/admin/dashboard")
@@ -73,6 +80,14 @@ export default function RequestDetailPage() {
       }
       return changed ? next : prev
     })
+  }, [request])
+
+  // Seed the payment amount input from the request's total quote once
+  // it's known, same "only fill when empty" rule as the per-item quote
+  // inputs above — so it doesn't fight typing if the admin adjusts it.
+  useEffect(() => {
+    if (!request || request.totalQuote === undefined) return
+    setPaymentAmountInput((prev) => (prev === "" ? String(request.totalQuote) : prev))
   }, [request])
 
   const staffOnly = useMemo(
@@ -118,8 +133,23 @@ export default function RequestDetailPage() {
     setQuote(request.id, itemId, amount)
   }
 
+  const handleScreenshotSelected = async (itemId: string, file: File) => {
+    const url = await uploadScreenshot(file, "products")
+    if (url) setRequestScreenshot(request.id, itemId, url)
+  }
+
   const handleConfirm = () => {
     confirmRequest(request.id)
+  }
+
+  const handleConfirmPayment = () => {
+    const amount = Number(paymentAmountInput)
+    if (!Number.isFinite(amount) || amount <= 0) return
+    confirmPayment(request.id, {
+      amount,
+      method: paymentMethod,
+      reference: paymentReference.trim() || undefined,
+    })
   }
 
   const handleRetryScrape = () => {
@@ -203,18 +233,69 @@ export default function RequestDetailPage() {
                 </div>
 
                 <div>
-                  <p className="text-xs font-semibold text-ink/45">Screenshot</p>
+                  <p className="text-xs font-semibold text-ink/45">Product photo</p>
                   {item.screenshotUrl ? (
-                    <img
-                      src={item.screenshotUrl}
-                      alt="Customer-submitted screenshot"
-                      className="mt-2 max-h-64 rounded-lg border border-ink/10 object-cover"
-                    />
+                    <div className="mt-2 flex items-start gap-3">
+                      <img
+                        src={item.screenshotUrl}
+                        alt="Product photo"
+                        className="max-h-64 rounded-lg border border-ink/10 object-cover"
+                      />
+                      {canWork && isOpen && (
+                        <label
+                          className={`flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/70 hover:bg-parchment/60 ${
+                            uploadingScreenshot ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                          }`}
+                        >
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            disabled={uploadingScreenshot}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              e.target.value = ""
+                              if (file) handleScreenshotSelected(item.id, file)
+                            }}
+                            className="hidden"
+                          />
+                          {uploadingScreenshot ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                          Replace
+                        </label>
+                      )}
+                    </div>
                   ) : (
-                    <div className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-4 text-xs text-ink/40">
-                      <ImageOff size={14} /> No screenshot attached
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="flex items-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-4 text-xs text-ink/40">
+                        <ImageOff size={14} /> No photo found automatically for this link
+                      </div>
+                      {canWork && isOpen && (
+                        <label
+                          className={`flex w-fit items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-parchment/60 ${
+                            uploadingScreenshot ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                          }`}
+                        >
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            disabled={uploadingScreenshot}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              e.target.value = ""
+                              if (file) handleScreenshotSelected(item.id, file)
+                            }}
+                            className="hidden"
+                          />
+                          {uploadingScreenshot ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                          {uploadingScreenshot ? "Uploading…" : "Upload a photo"}
+                        </label>
+                      )}
+                      <p className="text-[11px] text-ink/35">
+                        Until a photo is set, this item shows a placeholder everywhere — on the order, in the customer's
+                        account, and in your admin views.
+                      </p>
                     </div>
                   )}
+                  {screenshotUploadError && <p className="mt-1.5 text-xs text-red-700">{screenshotUploadError}</p>}
                 </div>
 
                 {/* Quote — per item */}
@@ -281,6 +362,78 @@ export default function RequestDetailPage() {
 
         {/* Right: request-level actions */}
         <div className="flex flex-col gap-6">
+          {canWork && isOpen && request.allItemsQuoted && (
+            <div className={`overflow-hidden ${panelClass}`}>
+              <div className="border-b border-ink/10 px-5 py-3.5">
+                <h2 className="text-sm font-semibold text-ink/70">Payment</h2>
+              </div>
+              <div className="flex flex-col gap-3 px-5 py-4">
+                {request.payment ? (
+                  <div className="rounded-lg border border-emerald-600/20 bg-emerald-600/5 px-3 py-2.5">
+                    <p className="text-xs font-semibold text-emerald-700">
+                      Payment confirmed · Rs. {request.payment.amount.toLocaleString()}
+                    </p>
+                    <p className="mt-1 text-xs text-ink/50">
+                      {request.payment.method.replace("_", " ")}
+                      {request.payment.reference ? ` · Ref: ${request.payment.reference}` : ""}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-ink/40">
+                      Confirmed by {request.payment.confirmedByName ?? "Staff"} on{" "}
+                      {new Date(request.payment.confirmedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-ink/50">
+                      Once the customer accepts the quote over chat or WhatsApp, record their payment here before confirming the request.
+                    </p>
+                    <div>
+                      <label className="text-xs font-semibold text-ink/50">Amount received (Rs.)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={paymentAmountInput}
+                        onChange={(e) => setPaymentAmountInput(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-ink/50">Method</label>
+                      <select
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50"
+                      >
+                        <option value="bank_transfer">Bank transfer</option>
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-ink/50">Reference (optional)</label>
+                      <input
+                        type="text"
+                        value={paymentReference}
+                        onChange={(e) => setPaymentReference(e.target.value)}
+                        placeholder="Transaction ID, slip number, etc."
+                        className="mt-1 w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConfirmPayment}
+                      disabled={!paymentAmountInput || Number(paymentAmountInput) <= 0}
+                      className="w-full rounded-lg bg-teal px-3 py-2 text-sm font-semibold text-white hover:bg-teal-deep disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
+                    >
+                      Confirm payment received
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {canWork && isOpen && (
             <div className={`overflow-hidden ${panelClass}`}>
               <div className="border-b border-ink/10 px-5 py-3.5">
@@ -290,7 +443,7 @@ export default function RequestDetailPage() {
                 <button
                   type="button"
                   onClick={handleConfirm}
-                  disabled={!request.allItemsQuoted}
+                  disabled={!request.allItemsQuoted || !request.payment}
                   className="w-full rounded-lg bg-teal-deep px-3 py-2 text-sm font-semibold text-white hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
                 >
                   Confirm → creates order
@@ -301,6 +454,9 @@ export default function RequestDetailPage() {
                       ? "Every item needs a quote before this request can be confirmed."
                       : "Set a quote before this request can be confirmed."}
                   </p>
+                )}
+                {request.allItemsQuoted && !request.payment && (
+                  <p className="text-xs text-ink/40">Record the customer's payment above before this request can be confirmed.</p>
                 )}
                 {request.allItemsQuoted && request.totalQuote !== undefined && (
                   <p className="text-xs text-ink/45">

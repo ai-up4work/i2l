@@ -61,27 +61,6 @@ For every route: **Purpose**, **Who reaches it**, **Layout** (the panels/compone
 
 ---
 
-## `/admin/orders/[orderId]/age`
-
-**Purpose:** Time-in-stage / SLA-breach view, filtered from the orders list, purpose-built for spotting a stuck order before the customer complains.
-
-**Who reaches it:** Manager (bulk-flag), Warehouse (own site, view + act), Sales & Purchase (view only).
-
-**Layout:**
-- Default sort: oldest-in-current-stage first.
-- Visual threshold marker per stage (a different "too long" threshold for QC vs. transit vs. shipped — don't use one global number).
-- Two age columns per row: **total order age** (since placement) and **current-stage age** (since last transition) — shown separately, not merged into one number.
-
-**Actions & features:**
-- Manager: multi-select rows → bulk "flag for review" action.
-- Warehouse: act on their own site's aged orders (advance/roll back stage directly from this view).
-- Sales & Purchase: view only.
-
-**Notes:**
-- ⚠️ This page currently sits nested under `[orderId]` in the folder tree, which would scope it to one order rather than being the cross-order aged view described above. If that's intentional (e.g. it's meant to show "how has *this* order's age trended," not a global aged-orders dashboard), the purpose/layout above needs to be rewritten to match. If it's meant to be the global view, the route needs to be a sibling of `[orderId]`, not a child. Worth a quick confirm before building the page logic, since the two versions have almost nothing in common.
-
----
-
 ## `/admin/chat`
 
 **Purpose:** Single page for all customer chat — thread list AND the conversation surface, combined (no separate `[customerId]` route; clicking a thread renders it inline/expanded on the same page).
@@ -586,5 +565,12 @@ For every route: **Purpose**, **Who reaches it**, **Layout** (the panels/compone
 
 # Still open / worth a quick decision
 
-1. **`orders/[orderId]/age` nesting** — as built this scopes age-tracking to a single order, not the cross-order SLA-breach dashboard the original spec describes. Confirm intent before building.
-2. Chat threading model, QC granularity, delivery confirmation source, payment timing, Catalogue 1:1-vs-decoupled — all still open per the original discussion, unaffected by this absorption pass.
+1. QC granularity, Catalogue 1:1-vs-decoupled — still open per the original discussion, unaffected by this absorption pass.
+
+# Resolved since this doc was last written
+
+- **Order age / SLA-breach page** — dropped entirely. No `orders/[orderId]/age` or cross-order aged view was ever actually built, and there's no current need for it, so it's removed from the spec rather than left as an open nesting question.
+- **Chat threading model** — one thread per customer, not per request/order. `DashboardContext.confirmRequest` now reuses the customer's single thread instead of creating a new one per Channel 3 request; individual messages are still tagged to a request via `chat_messages.request_id` for context, but the thread itself is shared.
+- **Payment timing (Channel 3)** — the manual quote confirmation step lives on `/admin/requests/[requestId]`, handled by whoever is already working that request (Manager or Sales & Purchase); see that page's spec above.
+- **Delivery confirmation source of truth** — Warehouse/Manager-confirmed. There's no separate customer-facing "confirm delivery" step; once an order is Shipped, a Manager or Warehouse account periodically checks in with the customer over in-platform chat or WhatsApp and marks the order Delivered once the customer confirms receipt.
+- **Delete policy** — Manager (and Super Admin) can hard-delete records (orders, sellers, listings, etc.). Sales & Purchase can deactivate/hide a seller or listing but never delete it outright.

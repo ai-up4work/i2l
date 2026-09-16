@@ -359,6 +359,7 @@ const ROLE_PERMISSIONS: Record<Role, Permissions> = {
     canManageRequests: true,
     canReassignRequests: true,
     canCloseRequests: true,
+    canDelete: true,
   },
   sales: {
     canMutateOrderStage: false,
@@ -370,6 +371,7 @@ const ROLE_PERMISSIONS: Record<Role, Permissions> = {
     canManageRequests: true,
     canReassignRequests: false,
     canCloseRequests: false,
+    canDelete: false,
   },
   warehouse: {
     canMutateOrderStage: true,
@@ -381,6 +383,7 @@ const ROLE_PERMISSIONS: Record<Role, Permissions> = {
     canManageRequests: false,
     canReassignRequests: false,
     canCloseRequests: false,
+    canDelete: false,
   },
 }
 
@@ -448,6 +451,7 @@ import {
   setOrderShipping as realSetOrderShipping,
   confirmDelivery as realConfirmDelivery,
   upsertPurchaseForOrder as realUpsertPurchaseForOrder,
+  deleteOrderReal,
   type AdminOrder,
   type AdminOrderItem,
   type AdminPurchase,
@@ -460,9 +464,11 @@ import {
   fetchAdminRequests,
   fetchAdminChatThreads,
   setRequestQuote as realSetRequestQuote,
+  setRequestScreenshotReal,
   declineRequestReal,
   reassignRequestReal,
   confirmRequestReal,
+  confirmRequestPaymentReal,
   sendAdminChatMessage,
   markThreadReadReal,
   markSentViaWhatsAppReal,
@@ -1017,6 +1023,8 @@ interface AdminDataContextValue {
   getShippedLine: (orderId: string) => ShippedLine | undefined
   canActOnShippedLine: (line: ShippedLine) => boolean
   markDelivered: (orderId: string) => void
+  /** Manager-only hard delete of an order (permissions.canDelete gates whether the UI even shows this). */
+  deleteOrder: (orderId: string) => void
 
   // -- Requests (Channel 3) --------------------------------------------
   requestLines: RequestLine[]
@@ -1027,7 +1035,11 @@ interface AdminDataContextValue {
   canCloseRequestLine: () => boolean
   /** Sets/edits the quote for ONE item on the request — always appended to that item's quoteHistory, never silently overwritten. Status flips to "quoted" only once every item has a quote. */
   setQuote: (requestId: string, itemId: string, amount: number) => void
-  /** Moves a fully-quoted request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. */
+  /** Manually attaches/replaces a request item's product photo — the admin-upload path for when the OG scrape found no image (or the wrong one). */
+  setRequestScreenshot: (requestId: string, itemId: string, url: string) => void
+  /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. */
+  confirmPayment: (requestId: string, payment: { amount: number; method: string; reference?: string }) => void
+  /** Moves a fully-quoted, fully-paid request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. */
   confirmRequest: (requestId: string) => void
   /** Declines/rejects a request outright — terminal, same as Manager's "close" action */
   declineRequest: (requestId: string) => void
@@ -2039,6 +2051,22 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const canActOnShippedLine = (line: ShippedLine) =>
     permissions.canMutateOrderStage && (!permissions.ordersScopedToOwnSite || line.siteId === currentUser.siteId)
 
+  /**
+   * Manager-only hard delete (permissions.canDelete) — per the delete
+   * policy, this is a real row removal, not a status flip. Order_items
+   * and stage history cascade in the real DB (see deleteOrderReal), so
+   * this is one call, not a multi-step cleanup. Not gated a second time
+   * here beyond the permission check — the UI (order detail page) only
+   * renders this action at all for a Manager, same pattern as every
+   * other role-gated control in this file.
+   */
+  const deleteOrder = (orderId: string) => {
+    if (!permissions.canDelete) return
+    setOrders((prev) => prev.filter((o) => o.id !== orderId))
+    const realId = resolveRealId(orderId)
+    if (realId) deleteOrderReal(realId)
+  }
+
   /** Shipped page's "Mark delivered": local delivery complete — final real enum change. */
   const markDelivered = (orderId: string) => {
     setOrders((prev) =>
@@ -2087,6 +2115,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         linkedOrderId: linkedOrder?.id,
         allItemsQuoted,
         totalQuote: allItemsQuoted ? r.items.reduce((sum, i) => sum + (i.quote ?? 0), 0) : undefined,
+        payment: r.payment,
       }
     })
   }, [requests, orders])
@@ -2137,6 +2166,84 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // quoting the whole request — matches this function's own
     // allQuoted-flips-status logic above exactly.
     realSetRequestQuote(requestId, amount, currentUser.id)
+
+    // Quote-message auto-send: the customer needs to actually SEE the
+    // price to confirm they're okay with it — previously nothing told
+    // them a quote existed at all beyond whatever ops happened to type
+    // manually in chat. Fires on every setQuote call (initial quote AND
+    // any later revision), phrased differently for each so a revised
+    // price doesn't read like a duplicate of the first message.
+    const requestForMessage = requests.find((r) => r.id === requestId)
+    if (requestForMessage) {
+      const hadQuoteBefore = requestForMessage.items.some((i) => i.id === itemId && i.quote !== undefined)
+      sendChatMessage(
+        requestForMessage.chatThreadId,
+        hadQuoteBefore
+          ? `We've updated the price for your item to Rs. ${amount.toLocaleString()}. Let us know here once you're happy with it and we'll get it confirmed.`
+          : `Here's the price for your item: Rs. ${amount.toLocaleString()}. Reply here to let us know you'd like to go ahead, or if you have any questions first.`
+      )
+    }
+  }
+
+  /**
+   * Manually attaches/replaces the product photo for a request — the
+   * admin-upload path for when the OG scrape found no image at all, or
+   * found the wrong one. Whatever's set here is what confirmRequest below
+   * carries onto the new order's order_items.screenshot_url, so this is
+   * also how a missing/bad photo gets fixed before the order is created.
+   */
+  const setRequestScreenshot = (requestId: string, itemId: string, url: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? { ...r, items: r.items.map((item) => (item.id === itemId ? { ...item, screenshotUrl: url } : item)) }
+          : r
+      )
+    )
+    setRequestScreenshotReal(requestId, url)
+  }
+
+  /**
+   * Records that the customer's payment for a quoted request has come in
+   * — a distinct step from confirmRequest below. Doesn't touch status or
+   * create anything by itself; it only unblocks the "Confirm → creates
+   * order" action on the request detail page, since confirmRequestReal
+   * now refuses to run until payment is on record (see
+   * requests-admin.ts). Re-callable if the amount/reference needs
+   * correcting — a request is only ever paid once in practice, so this
+   * overwrites rather than keeping a revision trail the way quotes do.
+   */
+  const confirmPayment = (requestId: string, payment: { amount: number; method: string; reference?: string }) => {
+    if (!Number.isFinite(payment.amount) || payment.amount <= 0) return
+    const now = new Date().toISOString()
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              payment: {
+                amount: payment.amount,
+                method: payment.method,
+                reference: payment.reference,
+                confirmedAt: now,
+                confirmedByName: currentUser.name,
+              },
+            }
+          : r
+      )
+    )
+    confirmRequestPaymentReal(requestId, { ...payment, staffId: currentUser.id })
+
+    // Payment-confirmation message: the customer should hear it back
+    // from WishDrop the moment their payment is recorded, not just
+    // silently see the request move forward next time they check.
+    const requestForMessage = requests.find((r) => r.id === requestId)
+    if (requestForMessage) {
+      sendChatMessage(
+        requestForMessage.chatThreadId,
+        `We've received your payment of Rs. ${payment.amount.toLocaleString()}${payment.method ? ` (${payment.method.replace("_", " ")})` : ""}. Thank you! We'll get your order confirmed shortly.`
+      )
+    }
   }
 
   /**
@@ -2147,13 +2254,16 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * order, since those were built item-array-aware from the start.
    * Refuses if any item is still unquoted — status should never be
    * "quoted" while that's true (setQuote enforces it), but this is a
-   * defensive re-check so a partial order is never built.
+   * defensive re-check so a partial order is never built. Also refuses
+   * until confirmPayment has been called for this request — payment
+   * must be on record before the request becomes a real order (matches
+   * confirmRequestReal's own server-side guard in requests-admin.ts).
    */
   const confirmRequest = (requestId: string) => {
     const request = requests.find((r) => r.id === requestId)
     if (!request || request.status !== "quoted") return
     const allQuoted = request.items.every((i) => i.quote !== undefined)
-    if (!allQuoted) return
+    if (!allQuoted || !request.payment) return
 
     const newOrderId = `WD-${1000 + orders.length + 1}`
     const now = new Date().toISOString()
@@ -2371,12 +2481,15 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     getShippedLine,
     canActOnShippedLine,
     markDelivered,
+    deleteOrder,
     requestLines,
     getRequestLine,
     canWorkRequestLine,
     canReassignRequestLine,
     canCloseRequestLine,
     setQuote,
+    setRequestScreenshot,
+    confirmPayment,
     confirmRequest,
     declineRequest,
     reassignRequest,

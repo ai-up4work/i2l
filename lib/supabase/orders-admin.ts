@@ -354,7 +354,14 @@ function mapRowToAdminOrder(
       variant: it.variant_label ?? undefined,
       quantity: it.quantity,
       unitPrice: it.unit_price,
-      image: it.product_snapshots?.image_url ?? FALLBACK_ITEM_IMAGE,
+      // Same fallback-chain fix as the customer-facing OrdersProvider
+      // (contexts/Ordercontexts.tsx) — screenshot_url was already being
+      // read into screenshotUrl below for the admin item-detail panel,
+      // but the actual .image field (used for every thumbnail — admin
+      // order list, order detail header stack, etc.) skipped straight
+      // past it to the hardcoded placeholder, since product_snapshots
+      // is never populated for Channel 3.
+      image: it.product_snapshots?.image_url ?? it.screenshot_url ?? FALLBACK_ITEM_IMAGE,
       sellerName: it.seller_name ?? undefined,
       sellerType: it.seller_type ?? undefined,
       storeUrl: it.store_url ?? undefined,
@@ -845,6 +852,24 @@ export async function recordOutboundPayment(
     .from('purchases')
     .update({ outbound_payment: { ...payment, at: new Date().toISOString() } })
     .eq('id', id)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+/**
+ * Hard-deletes an order — Manager (and Super Admin) only, per the
+ * platform's delete policy (see whatsapp-integration-discussion-summary.md
+ * §4.1): Sales & Purchase and Warehouse never get this, deactivate/soft-
+ * delete doesn't apply to orders the way it does to sellers/listings, so
+ * this is a real row delete. `order_items` and `order_stage_history` both
+ * cascade on `order_id`, so this cleanly removes the whole order and its
+ * history in one call — no separate cleanup needed. Role gating happens
+ * client-side in AdminDataContext (permissions.canDelete) before this is
+ * ever called; there's no server-side staff-role check yet, same
+ * documented gap as every other /admin write path in this codebase.
+ */
+export async function deleteOrderReal(orderId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase.from('orders').delete().eq('id', orderId)
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 

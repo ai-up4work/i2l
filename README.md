@@ -189,3 +189,7 @@ pnpm start
 ```
 
 Before shipping, verify the public landing page, header actions, account shell, sidebar routes, request flow, order tracking, and mobile layout.
+
+### Scheduled jobs
+
+The weekly ghost-storage sweep runs entirely inside Supabase — no route or env var in this app is involved. `data/wishdrop-storage-reconciliation-views.sql` sets up everything: the views that compare every image-holding column against Supabase Storage, a `pg_cron` schedule, and a `pg_net`-based delete call to Storage's own REST API. Run that file once in the Supabase SQL editor (it has one-time setup steps — enabling `pg_cron`/`pg_net`/Vault and storing your project URL + service role key in Vault — in its header comment) and it's self-sufficient from then on.

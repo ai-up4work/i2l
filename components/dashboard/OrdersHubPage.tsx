@@ -61,7 +61,7 @@ function isOpenQcIssue(issue: CustomerVisibleQcIssue): boolean {
   return issue.resolution !== 'replacement_resolved'
 }
 
-const PAGE_SIZE = 4
+const PAGE_SIZE = 10
 
 // DESIGN PASS: a left-edge accent per status, on top of the existing
 // STATUS_BADGE pill. A repeated list of otherwise-identical cards is

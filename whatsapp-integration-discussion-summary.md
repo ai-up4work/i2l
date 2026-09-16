@@ -36,7 +36,7 @@ flowchart TD
     SA["Super Admin<br/>(owners / shareholders)<br/>Full write access + analytics<br/>Only role that can revoke Manager"]
     MG["Manager<br/>Operational head — ALL warehouses + office<br/>Only role (with Super Admin) that can delete<br/>Creates/assigns Sales & Purchase + Warehouse accounts"]
     SP["Sales & Purchase Executive<br/>Sellers · Catalogues · Discounts<br/>Collections · Purchasing & payment<br/>Read-only order status"]
-    WH["Warehouse<br/>(scoped to ONE site)<br/>Orders · Order age · QC<br/>Pack & labeling · Export bin<br/>In transit · Shipped"]
+    WH["Warehouse<br/>(scoped to ONE site)<br/>Orders · QC<br/>Pack & labeling · Export bin<br/>In transit · Shipped"]
     SL["Seller<br/>(external — separate auth, not internal admin)<br/>Own store metrics only<br/>Coupons scoped to own products + this platform"]
 
     SA -->|oversees, can override| MG
@@ -74,7 +74,6 @@ Legend: ✅ full write access · 👁 view/read-only · ❌ no access
 | Scrape/extractor health monitoring | ✅ | ✅ | ✅ | ❌ |
 | **Fulfillment Pipeline** | | | | |
 | View orders | ✅ (all sites) | ✅ (all sites) | 👁 | ✅ (own site) |
-| Order age / SLA tracking | ✅ (all sites) | ✅ (all sites) | 👁 | ✅ (own site) |
 | Quality Check (QC) | ✅ (all sites) | ✅ (all sites) | ❌ | ✅ (own site) |
 | Pack & labeling | ✅ (all sites) | ✅ (all sites) | ❌ | ✅ (own site) |
 | Export bin management | ✅ (all sites) | ✅ (all sites) | ❌ | ✅ (own site) |
@@ -148,7 +147,7 @@ Legend: ✅ full write access · 👁 view/read-only · ❌ no access
 - Only Manager and Sales & Purchase can reply in customer chat threads — Warehouse has no customer-facing role.
 - **Outbound WhatsApp is a manual, one-way, $0-cost deep-link action** — when ops replies in-platform, a "Send via WhatsApp" button opens a prefilled `wa.me` link; a human clicks send inside WhatsApp itself. This is not a backend-automated push, and there is no separate "WhatsApp send" permission beyond "can reply in chat" — the action is gated by chat-reply access, not a distinct capability.
 - **WhatsApp → platform is not synced.** If a customer replies on WhatsApp directly, that reply does not appear in-platform. The prefilled deep-link message copy must explicitly tell the customer to reply in-app, so a WhatsApp-only reply doesn't silently go unseen by ops.
-- **Open item — chat threading model:** confirm whether a thread is scoped **one per `request_id`** (as the original requirements doc specifies) or **one per customer** (as this doc's route table implies). These are in tension and need one answer before the chat schema is built. Recommendation: one thread per customer, with individual messages taggable to a specific `requestId` for context — this avoids a customer with multiple open requests having to hunt across separate inboxes to ask one question, while still preserving per-request traceability.
+- **Chat threading model — resolved: one thread per customer.** Every request/order a customer has funnels into that same single thread; individual messages are tagged to a specific `requestId` (via `chat_messages.request_id`) for context, but the thread itself is never split per request or per order. `DashboardContext.confirmRequest` was creating a brand-new `chat_threads` row on every Channel 3 submission — that was the bug behind admin seeing several threads for the same customer, and the customer's own chat view appearing to "lose" older messages whenever a newer per-request thread became the most-recently-active one. Fixed to look up (or create, on first contact) the customer's one thread via `getOrCreateGeneralThread` instead of inserting a new row each time.
 
 ---
 
@@ -164,7 +163,7 @@ sellers            (id, name, store_name, ...)          -- fully separate table
 seller_sessions    (seller_id, ...)                       -- separate auth, never joins admin_users
 audit_log          (id, actor_id, actor_role, action, entity, entity_id, created_at)  -- every delete + role change
 requests           (id, customer_id, link, note, screenshot_url, status, quoted_price, domain, created_at)
-chat_threads       (id, customer_id, created_at)          -- one per customer, per §4.5 decision
+chat_threads       (id, customer_id, created_at)          -- one per customer, per §4.5 decision (resolved)
 chat_messages      (id, thread_id, sender_id, sender_role, body, attachment_url, request_id?, created_at)
 scrape_health_log  (id, domain, status, attempted_at, error_reason?)  -- feeds /admin/scrape-health
 ```
@@ -193,8 +192,7 @@ admin/
 │   ├── chat/
 │   │   └── [customerId]/
 │   ├── orders/
-│   │   ├── [orderId]/
-│   │   └── age/
+│   │   └── [orderId]/
 │   └── requests/
 │       └── [requestId]/
 ├── (manager)                    ← Manager only
@@ -246,11 +244,10 @@ admin/
 | Route | Who reaches it | What it covers |
 |---|---|---|
 | `/admin/orders` | Manager (write, all sites) · Warehouse (write, own site only) · Sales & Purchase (view only) | The single lifecycle view of every order across all three acquisition channels — order ID, customer, channel origin, current pipeline stage (`Ordered → Quality check → Shipped → Delivered`), warehouse site, age, total. Channel 3 orders (manually quoted, not run through `lib/pricing.ts`) must be visually flagged so anyone reading the list knows the price wasn't system-generated. Filter by channel, stage, site, date, and a "delayed" flag. Manager can update status and reassign warehouse; Warehouse can update status only within their own site; Sales & Purchase sees no mutation controls at all — enforced server-side, not just hidden in the UI. |
-| `/admin/orders/[orderId]` | Same as above, scoped to one order | Full item list with channel-specific context (catalog SKU / scraped snapshot / original request link+screenshot), customer contact, shipping address, payment status, and a full timestamped stage-history audit trail — not just the current stage. Links out to the customer's chat thread if one exists. Manager/Warehouse can advance/roll back stage and add an **internal note** (ops-only, must never leak into the customer-facing chat thread — this boundary is critical). Manager only can reassign warehouse. |
-| `/admin/orders/age` | Manager (bulk-flag) · Warehouse (own site, view + act) · Sales & Purchase (view only) | Filtered view of `/admin/orders`, default-sorted oldest-time-in-stage first, with a visual threshold marker per stage (thresholds should differ — "3 days in QC" ≠ "3 days in transit"). This is the operational mechanism behind the "reliable, no silently stuck orders" trust promise. Track both *total order age* (customer-facing SLA) and *current-stage age* (ops bottleneck detection) as separate numbers. |
+| `/admin/orders/[orderId]` | Same as above, scoped to one order | Full item list with channel-specific context (catalog SKU / scraped snapshot / original request link+screenshot), customer contact, shipping address, payment status, and a full timestamped stage-history audit trail — not just the current stage. Links out to the customer's chat thread if one exists. Manager/Warehouse can advance/roll back stage and add an **internal note** (ops-only, must never leak into the customer-facing chat thread — this boundary is critical). Manager only can reassign warehouse. Manager (and Super Admin) can also hard-delete the order here; Sales & Purchase has no delete control, even hidden. |
 | `/admin/requests` | Manager · Sales & Purchase | Queue of incoming Channel 3 (unscrapeable-link) requests. Shows request ID, customer, link, submission time, status (`sent_for_review` / `pending_quote` / `quoted` / `confirmed` / `rejected`), and time-since-submission feeding the internal SLA. Sales & Purchase opens a request to begin pricing; Manager can additionally reassign or close a request. Every submission — including failed-scrape fallbacks — must log its source domain, feeding `/admin/scrape-health`. |
-| `/admin/requests/[requestId]` | Manager · Sales & Purchase | The original link, customer note, and screenshot — deliberately **no price field pre-filled**, since there's no structured data to price against yet. Set a manual quote here (this is a distinct, hand-entered number — it does **not** run through `lib/pricing.ts`/`lib/quote.ts`, which are for structured catalog/scraped data only). Mark `quoted` → `confirmed`/`rejected`. A confirmed request becomes its own order with its own confirm/pay step — it must not silently merge into the structured-data cart, since it never went through the shared pricing math. Jump directly into the linked chat thread. |
-| `/admin/chat` | Manager · Sales & Purchase (Warehouse excluded — no customer-facing role) | Inbox of customer chat threads — **one thread per customer** (see §4.5 open item and recommendation), with individual messages taggable to a `requestId`. Shows unread counts, last message preview, last activity, and which request(s)/order(s) the thread relates to. Should surface which threads have gone quiet past the internal SLA. |
+| `/admin/requests/[requestId]` | Manager · Sales & Purchase | The original link, customer note, and screenshot — deliberately **no price field pre-filled**, since there's no structured data to price against yet. Set a manual quote here (this is a distinct, hand-entered number — it does **not** run through `lib/pricing.ts`/`lib/quote.ts`, which are for structured catalog/scraped data only). Mark `quoted` → `confirmed`/`rejected`. **Payment confirmation lives on this same page**: once the customer accepts the quote (over chat/WhatsApp), whoever is working the request — Manager or Sales & Purchase — records that payment came in right here (amount, method/reference, timestamp) before moving the request to `confirmed`. A confirmed request becomes its own order with its own confirm/pay step — it must not silently merge into the structured-data cart, since it never went through the shared pricing math. Jump directly into the linked chat thread. |
+| `/admin/chat` | Manager · Sales & Purchase (Warehouse excluded — no customer-facing role) | Inbox of customer chat threads — **one thread per customer** (resolved, see §4.5), with individual messages taggable to a `requestId`. Shows unread counts, last message preview, last activity, and which request(s) a thread's messages relate to. Should surface which threads have gone quiet past the internal SLA. |
 | `/admin/chat/[customerId]` | Manager · Sales & Purchase | Full thread within the 30-day rolling display window (older messages retained in DB, shown via a "load older history" affordance, never hard-hidden). Send a reply with optional image/video attachment, tag a reply to a specific `requestId`. **"Send via WhatsApp" is a manual deep-link action** — prefills a `wa.me` message from the reply text; a human clicks send inside WhatsApp. The prefilled copy must tell the customer to reply in-app, since WhatsApp-side replies aren't synced back. |
 
 ---
@@ -305,7 +302,7 @@ admin/
 | `/admin/pack-label/[orderId]` | Mark packed, confirm weight/dimensions, generate/print shipping label — advances to export bin. Special handling notes should carry over from QC. Worth confirming whether captured weight/dimensions need to flow anywhere beyond the label (e.g. shipping-cost reconciliation in `lib/pricing.ts`/`lib/quote.ts`). |
 | `/admin/export-bin` | Staged packed orders awaiting the next export/shipment batch; add/remove an order from the current bin. Define what happens if an order needs pulling *after* its batch is marked exported (reopen the batch, or track as an exception). |
 | `/admin/in-transit` | Orders currently in transit; update tracking info if it changes (manual unless/until a carrier API integration exists — not currently specified). |
-| `/admin/shipped` | Confirm final shipped status; mark delivered — the final pipeline stage. Open item: is delivery confirmation Warehouse-manual, carrier-API-sourced, or customer-self-confirmed from their account page? If customer-side confirmation exists elsewhere, this page needs to reconcile with it rather than assume Warehouse is the sole source of "delivered" truth. |
+| `/admin/shipped` | Confirm final shipped status; mark delivered — the final pipeline stage. **Resolved:** delivery confirmation is Warehouse/Manager-manual, not carrier-API or customer-self-confirmed. Once an order is Shipped, a Manager or Warehouse account periodically checks in with the customer over in-platform chat or the WhatsApp deep-link and marks the order Delivered once the customer confirms receipt — there is no separate customer-facing "confirm delivery" control. |
 
 ---
 
@@ -335,14 +332,15 @@ Not covered in the current route tree; reproduced here for reference against fut
 - [x] ~~Super Admin write access~~ — resolved: full write access, superset of every other role.
 - [x] ~~Whether `chat`/`requests`/`orders` should live inside `(manager)`~~ — resolved: moved to `(common)`, reachable by both Manager and Sales & Purchase.
 - [x] ~~Whether dashboard is one shared route or per-role routes~~ — resolved as built: three separate routes (`manager-dashboard`, `sales-dashboard`, `warehouse-dashboard`); login redirect must map role → URL explicitly as a consequence.
-- [ ] **Chat threading model** — this doc's route table now specifies one thread per customer (§4.5), diverging from the original requirements doc's "one thread per `request_id`." Confirm this resolution before the `chat_threads`/`chat_messages` schema is finalized.
+- [x] ~~Chat threading model~~ — resolved: one thread per customer, not per request/order (§4.5). `confirmRequest` no longer spawns a new thread per Channel 3 submission.
+- [x] ~~Order age / SLA-breach page~~ — dropped. Nothing was ever built at `orders/[orderId]/age` or a sibling `orders/age`, so the nesting question is moot; removed from the route tree, tables, and this doc's diagrams.
+- [x] ~~Payment-timing decision (Channel 3)~~ — resolved: payment confirmation happens directly on `/admin/requests/[requestId]`, done by whichever of Manager/Sales & Purchase is already handling that request, right after the customer accepts the quote.
+- [x] ~~Delivery confirmation source of truth~~ — resolved: Warehouse/Manager-manual, via periodic check-ins over chat/WhatsApp once an order is Shipped. No customer-self-confirm control.
+- [x] ~~Hard-delete UI existence~~ — resolved: Manager (and Super Admin) do get a real delete action on orders/sellers/listings/etc.; Sales & Purchase only ever gets deactivate/hide, never delete.
 - [ ] Since Super Admin and Manager now hold near-identical operational reach, decide if there's any distinction left between them beyond "who can revoke Manager" and "who can touch platform settings" — or whether Super Admin is meant to *rarely* exercise its operational write access in practice.
 - [ ] Decide whether Sales & Purchase's read-only order visibility should extend to QC/shipping *pipeline-stage detail* (not just coarse order status) — relevant for how much they can tell a customer in chat without pinging Warehouse.
 - [ ] Decide whether Manager needs any restriction given near-total operational reach — e.g. should large payment actions (purchasing) require a second approval, or is single-Manager authority acceptable at current scale?
 - [ ] Decide seller onboarding: Manager approval required, or does Sales & Purchase have full unilateral authority (currently modeled as ✅ for both)?
 - [ ] Confirm the `/super-admin` routing approach (§6.6) once that build pass starts.
-- [ ] **Catalogue 1:1-vs-decoupled from a single seller** — directly changes the data source for `/admin/sellers/[sellerId]`'s Catalogue view and the "by seller" filter on `/admin/catalogues`.
-- [ ] **Payment-timing decision** (at order confirm vs. after manual quote) — directly changes what `/admin/purchases` and its `payment` sub-route treat as "pending" vs. "ready to execute."
-- [ ] **QC granularity** — per-order vs. per-line-item pass/fail, needed to decide whether a partial-order defect can advance the passing items while holding back the failed ones.
-- [ ] **Delivery confirmation source of truth** — Warehouse-manual, carrier-API, or customer-self-confirmed.
-- [ ] **Hard-delete UI existence** (§4.1) — confirm whether any admin screen exposes a literal permanent-delete action, or whether deactivate/soft-delete is the only front-end-visible action even for Manager/Super Admin.
+- [ ] **Catalogue 1:1-vs-decoupled from a single seller** — on hold; Catalogues/Collections/Discounts are currently commented out of the admin sidebar, so this doesn't need resolving until they're switched back on.
+- [ ] **QC granularity** — per-order vs. per-line-item pass/fail, needed to decide whether a partial-order defect can advance the passing items while holding back the failed ones. (Parked for now, per current priority.)

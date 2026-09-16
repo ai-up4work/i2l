@@ -3,7 +3,48 @@
 Supersedes the WISHDROP_STATUS.md from the previous zip. Same rule as
 before: this isn't "done," it's an honest snapshot.
 
-## What changed since the last zip
+## What changed in this pass
+
+- **Auto-sent chat messages for quote and payment.** Setting (or revising) a quote on `/admin/requests/[requestId]` now automatically messages the customer with the price, so they can confirm before anything is charged. Confirming payment sends its own message too. The order-confirmation message already existed and is unchanged.
+- **Fixed the Channel 3 product-photo bug.** An OG-scraped (or now, admin-uploaded) photo was captured on `requests.screenshot_url` but never made it onto the resulting order — `confirmRequestReal` never copied it onto the new `order_items` row, and both the admin and customer order-image mapping (`orders-admin.ts`, `Ordercontexts.tsx`) only ever checked `product_snapshots.image_url` (always null for Channel 3), falling straight through to the hardcoded placeholder. Fixed both: the photo now carries over onto the order, and the image fallback chain is `product snapshot → screenshot → placeholder` everywhere.
+- **Added a manual photo-upload option** on `/admin/requests/[requestId]` for when the OG scrape finds no image at all (or the wrong one) — uses the previously-unused `products` upload folder. Whatever's set there is what the order uses; a placeholder shows until then.
+
+## What changed two passes ago
+
+- **Fixed the real chat-threading bug**: `DashboardContext.confirmRequest`
+  was inserting a brand-new `chat_threads` row on every Channel 3 request
+  instead of reusing the customer's existing thread — that's why admin
+  saw the same customer several times in `/admin/chat`, and why a
+  customer's chat view could appear to "lose" older messages once a
+  newer per-request thread became the most-recently-active one. Now
+  reuses the customer's one thread via `getOrCreateGeneralThread`;
+  per-request context still lives on `chat_messages.request_id`.
+- **Added Channel 3 payment confirmation** to `/admin/requests/[requestId]`:
+  new `payment_amount`/`payment_method`/`payment_reference`/
+  `payment_confirmed_at`/`payment_confirmed_by` columns on `requests`
+  (see `data/wishdrop-requests-payment-confirmation.sql`), a "Payment"
+  panel on the request detail page, and `confirmRequestReal` now refuses
+  to create the order until payment is on record.
+- **Implemented the delete policy that was previously just a comment**:
+  added `permissions.canDelete` (Manager only) to `AdminDataContext`,
+  wired a real "Delete order" action on `/admin/orders/[orderId]`, and a
+  real "Delete" action (alongside the existing Deactivate) on
+  `/admin/sellers/[sellerId]` with a new `DELETE` handler on
+  `/api/admin/sellers/[platform]`. That endpoint refuses to delete a
+  seller that still has product listings, since `products.seller_id`
+  cascade-deletes and an unguarded delete would silently wipe the
+  seller's whole catalogue with it.
+- **Dropped the order age / SLA-breach page from the spec.** Nothing was
+  ever actually built at `orders/[orderId]/age` or a sibling `orders/age`
+  — removed from both route-spec docs rather than left as an open
+  nesting question.
+- Confirmed (no code change needed) that delivery confirmation already
+  matches the intended policy: `confirmDelivery` is warehouse/manager-
+  manual, not customer-self-confirm or carrier-API — a Manager or
+  Warehouse account checks in with the customer over chat/WhatsApp and
+  marks the order Delivered once they confirm.
+
+## What changed in the previous pass
 
 - **Fixed a real crash**: `app/account/cart/page.tsx` had no default
   export at all (a rename left `CartPage` orphaned) — "The default export

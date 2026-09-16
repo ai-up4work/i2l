@@ -833,6 +833,7 @@ type OrderRow = {
     seller_name: string | null
     seller_type: string | null
     store_url: string | null
+    screenshot_url: string | null
     product_snapshots: { image_url: string | null } | null
   }[]
   addresses: { recipient_name: string; city: string; country: string } | null
@@ -861,7 +862,16 @@ function rowToOrder(row: OrderRow): Order {
       variant: it.variant_label ?? undefined,
       qty: it.quantity,
       unitPrice: it.unit_price,
-      image: it.product_snapshots?.image_url ?? FALLBACK_ITEM_IMAGE,
+      // Real product photo first, then the Channel-3 screenshot (an OG-
+      // fetched or admin-uploaded photo of the actual item — see
+      // requests.screenshot_url / order_items.screenshot_url), and only
+      // the generic placeholder if neither exists. Previously this
+      // skipped screenshot_url entirely, which is why a Channel 3 order
+      // with a perfectly good scraped photo still showed the hardcoded
+      // placeholder everywhere — product_snapshots is never populated
+      // for Channel 3 (there's no catalog/scrape snapshot to link), so
+      // it fell straight through to FALLBACK_ITEM_IMAGE.
+      image: it.product_snapshots?.image_url ?? it.screenshot_url ?? FALLBACK_ITEM_IMAGE,
       sellerName: it.seller_name ?? undefined,
       sellerType: (it.seller_type as SellerType | null) ?? undefined,
       storeUrl: it.store_url ?? undefined,
@@ -911,7 +921,7 @@ export function OrdersProvider({
       .from('orders')
       .select(
         `id, display_id, stage, currency, total_value, delayed, carrier, tracking_number, estimated_delivery, created_at,
-         order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, product_snapshots ( image_url ) ),
+         order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, screenshot_url, product_snapshots ( image_url ) ),
          addresses ( recipient_name, city, country )`,
       )
       .eq('user_id', user.id)

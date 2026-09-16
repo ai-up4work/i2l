@@ -182,6 +182,14 @@ export interface Permissions {
   canReassignRequests: boolean
   /** Manager-only: close a request outright without quoting it (maps to "declined" — there's no separate closed state) */
   canCloseRequests: boolean
+  /**
+   * Manager-only (Super Admin gets this too, but Super Admin isn't part
+   * of this Role type — see /super-admin). Hard-delete rights on orders,
+   * sellers, listings, discounts, etc. Sales & Purchase and Warehouse
+   * never get this — deactivate/hide is the only destructive action
+   * available to them, per the platform's delete policy.
+   */
+  canDelete: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +547,17 @@ export interface RequestItemAsk {
   quoteHistory: QuoteHistoryEntry[]
 }
 
+/** Recorded once Manager/Sales & Purchase confirms the customer's payment
+ * for this request's quote, over chat/WhatsApp. Required before the
+ * request-level "Confirm → creates order" action is enabled. */
+export interface RequestPayment {
+  amount: number
+  method: string
+  reference?: string
+  confirmedAt: string // ISO
+  confirmedByName?: string
+}
+
 export interface Request {
   id: string
   customerName: string
@@ -549,6 +568,8 @@ export interface Request {
   assignedStaffId?: string
   /** 1:1 with a ChatThread — this is how a request and its conversation stay linked */
   chatThreadId: string
+  /** Present once payment has been confirmed for this request's quote */
+  payment?: RequestPayment
 }
 
 export type ChatSender = "customer" | "staff"
@@ -605,4 +626,6 @@ export interface RequestLine {
   allItemsQuoted: boolean
   /** Sum of every item's quote — only meaningful once allItemsQuoted is true */
   totalQuote?: number
+  /** Present once payment has been confirmed for this request's quote — required, alongside allItemsQuoted, before confirmRequest can create the order */
+  payment?: RequestPayment
 }

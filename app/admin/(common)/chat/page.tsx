@@ -25,10 +25,11 @@ import AttachmentMedia from '@/components/chat/AttachmentMedia'
 // version entirely.
 //
 // Thread list: `chat_threads` joined to `profiles` for the customer's
-// name/email. Includes every thread, not just "general support" ones —
-// a customer's per-request thread (created at Channel-3 request time,
-// see DashboardContext's confirmRequest) shows up here too, labeled by
-// whichever of request_id/order_id is set.
+// name/email. One row per customer — a Channel-3 request no longer
+// spawns its own thread (see DashboardContext's confirmRequest, which
+// now reuses the customer's single thread via getOrCreateGeneralThread),
+// it just tags its seed message with chat_messages.request_id so this
+// page can still show which message belongs to which request.
 //
 // Preview text: there's no "latest message per thread" view/RPC in this
 // schema, so this fetches recent messages across ALL threads once and
@@ -206,6 +207,12 @@ function groupByDate(messages: ChatMessageRow[]) {
   return groups
 }
 
+// Legacy per-thread label. Now that a thread is one-per-customer, new
+// threads never get request_id/order_id set on the thread itself
+// (context lives on chat_messages.request_id instead — see the header
+// comment above), so this normally renders nothing. Kept only so any
+// thread created before this change still shows its old label instead
+// of silently changing appearance.
 function threadLabel(t: ThreadRow) {
   if (t.request_id) return 'Request thread'
   if (t.order_id) return 'Order thread'

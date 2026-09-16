@@ -494,6 +494,11 @@ export interface Database {
           chat_thread_id: string
           assigned_staff_id: string | null
           submitted_at: string
+          payment_amount: number | null
+          payment_method: string | null
+          payment_reference: string | null
+          payment_confirmed_at: string | null
+          payment_confirmed_by: string | null
         }
         Insert: {
           id?: string
@@ -507,6 +512,11 @@ export interface Database {
           chat_thread_id: string
           assigned_staff_id?: string | null
           submitted_at?: string
+          payment_amount?: number | null
+          payment_method?: string | null
+          payment_reference?: string | null
+          payment_confirmed_at?: string | null
+          payment_confirmed_by?: string | null
         }
         Update: Partial<Database['public']['Tables']['requests']['Insert']>
         Relationships: []
