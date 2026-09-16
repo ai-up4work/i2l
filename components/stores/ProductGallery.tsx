@@ -83,9 +83,22 @@ function getSizeHint(url: string): number {
   try {
     const u = new URL(url)
     u.pathname.split('/').forEach((seg) => {
-      if (/^\d+$/.test(seg)) candidates.push(Number(seg))
+      // Only multi-digit (3+) path segments count as size candidates.
+      // Some CDNs (e.g. Nykaa's imagekit.io-backed paths) shard images
+      // into short numeric folders like /3/7/<file> for bucketing, not
+      // dimensions — treating those as widths/heights misreads a full
+      // resolution image as e.g. "7px" and wrongly filters it out as
+      // low-resolution. Real width/height segments are realistically
+      // 3+ digits (at least a couple hundred px).
+      if (/^\d{3,}$/.test(seg)) candidates.push(Number(seg))
     })
     for (const m of u.pathname.matchAll(/S[XYL](\d+)/gi)) {
+      candidates.push(Number(m[1]))
+    }
+    // ImageKit-style transform segments, e.g.
+    // "tr:h-800,w-800,cm-pad_resize" (used by Nykaa's CDN) — the real
+    // size signal for these URLs lives here, not in a bare path segment.
+    for (const m of u.pathname.matchAll(/[wh]-(\d+)/gi)) {
       candidates.push(Number(m[1]))
     }
     for (const key of ['w', 'width', 'h', 'height', 'size']) {

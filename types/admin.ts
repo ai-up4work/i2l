@@ -107,6 +107,14 @@ export interface Order {
   internalNotes: InternalNote[]
   /** Present when this order traces back to a Channel 3 request/chat thread */
   linkedRequestId?: string
+  /** The customer's chat thread for this order, when one exists — set at
+   * creation for Channel 3 orders (mirrors the real orders.chat_thread_id
+   * column). Undefined for Channel 1/2 orders today, since those don't
+   * get a thread linked at order-creation time yet. Purchase/QC/shipping
+   * actions that want to message the customer read this (via
+   * PurchaseLine.chatThreadId / QCLine.chatThreadId) rather than each
+   * re-deriving it from linkedRequestId. */
+  chatThreadId?: string
   /** Customer-facing delivery city/area — shown on the Pack & label queue */
   destination?: string
   /** Packing instruction (fragile, gift wrap, etc.) surfaced on Pack & label */
@@ -275,6 +283,8 @@ export interface PurchaseLine {
   status: PurchaseStatus
   issueNote?: string
   ageLabel: string
+  /** The customer's chat thread for this line's order, when one exists — see Order.chatThreadId. Undefined means there's currently no way to message this customer directly (Channel 1/2 order with no thread yet). */
+  chatThreadId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +337,8 @@ export interface QCLine {
   arrivedAgo: string
   orderAgeHours: number
   orderAgeLabel: string
+  /** See Order.chatThreadId / PurchaseLine.chatThreadId. */
+  chatThreadId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +463,8 @@ export interface InTransitLine {
   /** Negative once overdue */
   etaRemainingHours: number
   deliveryStatus: DeliveryStatus
+  /** See Order.chatThreadId. */
+  chatThreadId?: string
 }
 
 /**

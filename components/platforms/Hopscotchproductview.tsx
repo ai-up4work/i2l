@@ -4,17 +4,13 @@
 import { useEffect, useState } from 'react'
 import {
   Star,
-  ExternalLink,
   Minus,
   Plus,
   Heart,
   ShoppingBag,
   ShoppingCart,
   Check,
-  ChevronDown,
   ChevronRight,
-  Sparkles,
-  AlertTriangle,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
@@ -24,34 +20,44 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 
 /**
- * Hopscotch look-alike view, built at the same organizational depth as
- * AmazonProductView.tsx / FirstCryProductView.tsx: full `PlatformViewProps`
- * wiring (cart/wishlist/qty/quote), the shared `<ProductGallery>`, and a
- * structured bottom section for extra info.
+ * Hopscotch look-alike view, now brought into the SAME structural
+ * pattern as AmazonProductView / FlipkartProductView / EbayProductView:
+ * the same [info / gallery / rest] grid shell, the same
+ * price -> variants -> stock -> commerce-actions ordering inside
+ * "rest", the same qty+wishlist+Add-to-Cart atomic group with a
+ * separately-wrapping quote/buy button, and the same bottom-most
+ * full-width ProductInfoTabs (Description / Details / Shipping &
+ * Returns) instead of the old two-accordion layout. Only the color
+ * tokens (purple-700 for accents/CTAs) and a couple of Hopscotch-only
+ * data points (MRP-only price framing, size-chart-missing warning,
+ * `moreInfo` free-text block folded into the Details tab) differ from
+ * the other three views now.
  *
- * Unlike Amazon/FirstCry, Hopscotch's real PDP (see reference screenshot)
- * puts extra info in two collapsible accordions — "Item details" and
- * "More Info" — rather than a tab switcher, and its buy box is a plain
- * MRP price (Hopscotch rarely shows a struck-through price on this page),
- * a native "Select a size" dropdown instead of chips/pills, and a side-by-
- * side ADD TO CART (outline) / BUY NOW (solid) button pair. This view
- * mirrors that layout instead of reusing Amazon's tab pattern.
- *
- * Extractor-specific notes (from the sample scrape result this was built
- * against):
- *   - Hopscotch's "Size" variant options carry no `url` and no `image` —
- *     sizes are chosen from an in-page dropdown that doesn't navigate or
- *     swap the SKU via a link, so there's nothing to `onSelectVariant`
- *     into. Picking a size here is local UI state only (mirrors the
- *     result's own `selected`/`outOfStock` flags) and does not re-scrape.
+ * Extractor-specific notes (from the sample scrape result this was
+ * built against):
+ *   - Hopscotch's variant options (Size, and any other dimension such
+ *     as Color) carry no `url` and no `image` — they're chosen from
+ *     in-page pickers that don't navigate or swap the SKU via a link,
+ *     so there's nothing to `onSelectVariant` into. Picking an option
+ *     here is local UI state only (mirrors the result's own
+ *     `selected`/`outOfStock` flags) and does not re-scrape.
+ *     `onSelectVariant` itself is therefore unused (see the
+ *     destructured, renamed prop below) — same convention as the
+ *     other views use for props they don't need.
+ *   - Every variant dimension the extractor found (not just "Size") is
+ *     rendered as its own pill row, in the order returned by
+ *     `result.variants`, so a second dimension (e.g. Color) is never
+ *     silently dropped.
  *   - `hasSizeChart: true` with `sizeChart: null` is a known Hopscotch
  *     extraction gap: the chart only renders into the DOM after the
- *     "View size chart" button is clicked client-side, so a plain fetch
- *     won't have captured it. When that combination occurs, this view
- *     surfaces `result.warning` instead of silently showing nothing.
+ *     "View size chart" button is clicked client-side, so a plain
+ *     fetch won't have captured it. When that combination occurs, the
+ *     Details tab surfaces `result.warning` instead of silently
+ *     showing nothing.
  *   - `moreInfo` is a Hopscotch-specific free-text field (manufacturer/
- *     packer/country-of-origin block) — rendered in its own accordion,
- *     matching the real page's separate "More Info" section.
+ *     packer/country-of-origin block), arriving as one unbroken string
+ *     like "Label: value Label: value ...". It's parsed into label/
+ *     value rows and folded into the bottom of the Details tab.
  */
 
 function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
@@ -89,49 +95,46 @@ function RatingStars({ rating, count }: { rating: string | null | undefined; cou
 }
 
 /**
- * Price block — Hopscotch's PDP shows "MRP: ₹X / Inclusive of all
- * taxes" with no separate sale price most of the time. If the scrape
- * DOES find a distinct `mrp` above `price` (a real discount), that's
- * shown struck-through the same way the other platform views do; the
- * plain single-price MRP-only case (this sample result) matches the
- * screenshot exactly.
+ * Button/pill variant picker — same visual pattern as the other
+ * platform views (DimensionChip on Amazon, FlipkartPill, eBay's
+ * VariantRow): a row of selectable chips per dimension. Local UI
+ * state only — see file header on why Hopscotch variant options
+ * don't drive `onSelectVariant`.
  */
-function PriceBlock({ result }: { result: ScrapeResult }) {
-  const price = fmtPrice(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmtPrice(result.mrp, result.currencyCode) : null
-
-  if (!price) {
-    return <p className="text-base font-semibold text-ink/40">No price found</p>
-  }
-
-  if (mrp) {
-    return (
-      <div>
-        <div className="flex items-baseline gap-2">
-          <p className="text-2xl font-bold text-ink">{price}</p>
-          <p className="text-sm font-semibold text-ink/40 line-through">{mrp}</p>
-        </div>
-        <p className="mt-1 text-xs text-ink/40">Inclusive of all taxes</p>
-      </div>
-    )
-  }
-
+function VariantPill({
+  label,
+  selected,
+  outOfStock,
+  onClick,
+}: {
+  label: string
+  selected: boolean
+  outOfStock?: boolean
+  onClick?: () => void
+}) {
+  const interactive = !!onClick && !outOfStock
   return (
-    <div>
-      <p className="text-2xl font-bold text-ink">
-        <span className="text-sm font-semibold text-ink/50">MRP:</span> {price}
-      </p>
-      <p className="mt-1 text-xs text-ink/40">Inclusive of all taxes</p>
-    </div>
+    <button
+      type="button"
+      onClick={interactive ? onClick : undefined}
+      title={outOfStock ? 'Out of stock' : undefined}
+      aria-pressed={selected}
+      disabled={!interactive}
+      className={
+        'rounded-lg border-[1.5px] px-3.5 py-2 text-sm font-medium transition-colors ' +
+        (selected
+          ? 'border-purple-700 bg-purple-700 text-white'
+          : outOfStock
+            ? 'cursor-not-allowed border-ink/10 text-ink/30 line-through'
+            : 'border-ink/15 text-ink hover:border-purple-400 hover:bg-purple-50 cursor-pointer')
+      }
+    >
+      {label}
+    </button>
   )
 }
 
-/**
- * Native-select size picker, matching the real "Select a size"
- * dropdown. Local UI state only — see file header on why Hopscotch
- * size options don't drive `onSelectVariant`.
- */
-function SizeSelect({
+function VariantRow({
   dimension,
   selectedLabel,
   onChange,
@@ -140,48 +143,48 @@ function SizeSelect({
   selectedLabel: string | null
   onChange: (label: string) => void
 }) {
+  const isSizeDimension = dimension.dimension.toLowerCase() === 'size'
   return (
-    <div className="mt-5">
+    <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <p className="text-sm font-bold text-ink">{dimension.dimension}</p>
-        <button type="button" className="flex items-center gap-0.5 text-xs font-bold text-purple-700 hover:underline">
-          VIEW SIZE CHART <ChevronRight size={13} />
-        </button>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">{dimension.dimension}</p>
+        {isSizeDimension && (
+          <button type="button" className="flex items-center gap-0.5 text-xs font-bold text-purple-700 hover:underline">
+            VIEW SIZE CHART <ChevronRight size={13} />
+          </button>
+        )}
       </div>
-      <div className="relative">
-        <select
-          value={selectedLabel ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none rounded-xl border border-ink/15 bg-transparent px-4 py-3 text-sm font-medium text-ink outline-none focus:border-purple-400"
-        >
-          <option value="" disabled className="text-ink/35">
-            Select a size
-          </option>
-          {dimension.options.map((opt) => (
-            <option key={opt.label} value={opt.label} disabled={opt.outOfStock}>
-              {opt.label}
-              {opt.outOfStock ? ' — Out of stock' : ''}
-            </option>
-          ))}
-        </select>
-        <ChevronDown size={16} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-ink/40" />
+      <div className="flex flex-wrap gap-2">
+        {dimension.options.map((opt) => (
+          <VariantPill
+            key={opt.label}
+            label={opt.label}
+            selected={opt.label === selectedLabel}
+            outOfStock={opt.outOfStock}
+            onClick={() => onChange(opt.label)}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-
 /**
- * Add to Cart (outline) + Buy Now (solid) side by side, matching the
- * real button pair. `qty` still lives in a small stepper above the
- * pair — the real PDP doesn't expose quantity on this screen, but the
- * shared `PlatformViewProps` contract needs somewhere to surface it,
- * so it's kept compact and secondary rather than dropped.
+ * Hopscotch-styled qty/wishlist/cart/request block — same functional
+ * shape as AmazonCommerceActions/FlipkartCommerceActions/
+ * EbayCommerceActions: qty stepper + wishlist heart + Add to Cart
+ * grouped into one `flex-nowrap` atomic unit, with a separately-
+ * wrapping "BUY NOW" button playing the same role the other views
+ * give "GET QUOTE" — fixed to its natural width on desktop
+ * (sm:grow-0 sm:basis-auto), the only thing allowed to wrap to its
+ * own full-width line on mobile (grow basis-full).
  */
 function HopscotchCommerceActions({
   result,
   qty,
   onQtyChange,
+  inWishlist,
+  onToggleWishlist,
   onAddToCart,
   justAdded,
   onRequestReview,
@@ -191,6 +194,8 @@ function HopscotchCommerceActions({
   result: ScrapeResult
   qty: number
   onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
   onAddToCart: () => void
   justAdded: boolean
   onRequestReview: () => void
@@ -198,42 +203,54 @@ function HopscotchCommerceActions({
   canAct: boolean
 }) {
   return (
-    <div className="mt-5 flex flex-col gap-3">
-      <div className="flex items-center gap-2 self-start rounded-xl border border-ink/15 px-2.5 py-1.5">
-        <span className="pl-0.5 text-[11px] font-bold uppercase tracking-wide text-ink/40">Qty</span>
-        <button
-          type="button"
-          aria-label="Decrease quantity"
-          onClick={() => onQtyChange(Math.max(1, qty - 1))}
-          className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 active:scale-90"
-        >
-          <Minus size={15} />
-        </button>
-        <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
-        <button
-          type="button"
-          aria-label="Increase quantity"
-          onClick={() => onQtyChange(qty + 1)}
-          className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 active:scale-90"
-        >
-          <Plus size={15} />
-        </button>
-      </div>
+    <div className="mt-6 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
 
-      <div className="flex flex-wrap gap-3">
-        <RequestActionButton
-          onClick={onAddToCart}
-          disabled={!canAct}
-          loading={loading}
-          unavailable={result.unavailable}
-          unavailableLabel="NOT AVAILABLE"
-          icon={justAdded ? <Check size={16} className="text-purple-700" /> : <ShoppingBag size={16} />}
-          color="#ffffff"
-          disabledColor="#e5e5e5"
-          className="flex-1 whitespace-nowrap rounded-xl border-2 border-purple-700 px-5 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50"
-        >
-          {justAdded ? 'ADDED' : 'ADD TO CART'}
-        </RequestActionButton>
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={justAdded ? <Check size={16} className="text-purple-700" /> : <ShoppingBag size={16} />}
+            color="#6d28d9"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-xl border-2 border-purple-700 px-5 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50"
+          >
+            {justAdded ? 'ADDED' : 'ADD TO CART'}
+          </RequestActionButton>
+        </div>
 
         <RequestActionButton
           onClick={onRequestReview}
@@ -244,7 +261,7 @@ function HopscotchCommerceActions({
           icon={<ShoppingCart size={16} />}
           color="#6d28d9"
           disabledColor="#c7c7c7"
-          className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95"
+          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95 sm:grow-0 sm:basis-auto"
         >
           BUY NOW
         </RequestActionButton>
@@ -256,9 +273,15 @@ function HopscotchCommerceActions({
 }
 
 /* ---------------------------------------------------------------------
- * Accordion sections — "Item details" / "More Info", matching the
- * real page's collapsible layout (rather than Amazon/FirstCry's tabs).
+ * ProductInfoTabs — same Description / Details / Shipping & Returns
+ * tab-switcher as Amazon/Flipkart/eBay, purple active indicator,
+ * rendered as the bottom-most, full-width section. Hopscotch's
+ * `moreInfo` free-text block and sizeChart-missing warning are folded
+ * into the Details tab rather than living in separate accordions.
  * ------------------------------------------------------------------- */
+
+const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
+type InfoTab = (typeof INFO_TABS)[number]
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -269,113 +292,149 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function AccordionSection({
-  title,
-  defaultOpen,
-  children,
-}: {
-  title: string
-  defaultOpen?: boolean
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(!!defaultOpen)
+function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> }) {
   return (
-    <div className="border-b border-ink/10">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between py-4 text-left text-sm font-bold text-ink"
-      >
-        {title}
-        <ChevronDown size={16} className={`text-ink/40 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="pb-4 text-sm leading-relaxed text-ink/65">{children}</div>}
-    </div>
-  )
-}
-
-function ItemDetailsBody({ result }: { result: ScrapeResult }) {
-  const hasSpecifics = !!result.brand || !!result.mpn || !!result.categoryPath || !!result.itemSpecifics?.length
-  return (
-    <div className="flex flex-col gap-4">
-      {result.description && <p>{result.description}</p>}
-
-      {hasSpecifics && (
-        <dl className="flex flex-col gap-1.5 text-xs">
-          {result.brand && <DetailRow label="Brand" value={result.brand} />}
-          {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-          {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-          {result.itemSpecifics?.map((spec) => (
-            <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-          ))}
-        </dl>
-      )}
-
-      {!result.description && !hasSpecifics && (
-        <p className="text-ink/45">We don&apos;t have any item details for this listing.</p>
-      )}
-
-      {result.sizeChart === null && result.warning && (
-        <div className="flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2.5 text-xs text-purple-800">
-          <AlertTriangle size={14} className="mt-0.5 flex-none" strokeWidth={1.8} />
-          <span>{result.warning}</span>
-        </div>
-      )}
-
-      {result.sizeChart && result.sizeChart.length > 0 && (
-        <div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/45">Size chart</p>
-          <div className="rounded-lg border border-ink/10 bg-card p-3">
-            {result.sizeChart.map((table, i) => (
-              <table key={i} className="w-full border-collapse text-left text-[12px] text-ink">
-                <thead>
-                  <tr className="border-b border-ink/10">
-                    {table.columns.map((col) => (
-                      <th key={col} className="py-1 pr-4 font-semibold">
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {table.rows.map((row, r) => (
-                    <tr key={r} className="border-b border-ink/5 last:border-0">
-                      {table.columns.map((col) => (
-                        <td key={col} className="py-1 pr-4">
-                          {row[col]}
-                        </td>
-                      ))}
-                    </tr>
+    <div className="flex flex-col gap-3">
+      {chart.map((table, i) => (
+        <div key={i}>
+          {'title' in table && table.title && (
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-ink/45">{table.title}</p>
+          )}
+          <table className="w-full border-collapse text-left text-[12px] text-ink">
+            <thead>
+              <tr className="border-b border-ink/10">
+                {table.columns.map((col) => (
+                  <th key={col} className="py-1 pr-4 font-semibold">
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((row, r) => (
+                <tr key={r} className="border-b border-ink/5 last:border-0">
+                  {table.columns.map((col) => (
+                    <td key={col} className="py-1 pr-4">
+                      {row[col]}
+                    </td>
                   ))}
-                </tbody>
-              </table>
-            ))}
-          </div>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      ))}
     </div>
   )
 }
 
-function MoreInfoBody({ result }: { result: ScrapeResult & { moreInfo?: string | null } }) {
-  if (!result.moreInfo) {
-    return <p className="text-ink/45">We don&apos;t have any additional info for this listing.</p>
-  }
-  // moreInfo arrives as one unbroken string like "Label: value Label: value ...";
-  // split on the pattern "Word(s):" to lay it out as label/value rows instead
-  // of one dense run-on paragraph.
-  const parts = result.moreInfo.split(/(?=[A-Z][a-zA-Z ]+:)/g).filter(Boolean)
+/** Parses Hopscotch's `moreInfo` blob ("Label: value Label: value ...")
+ * into label/value rows, same DetailRow shape as everything else. */
+function parseMoreInfo(moreInfo: string): { name: string; value: string }[] {
+  const parts = moreInfo.split(/(?=[A-Z][a-zA-Z ]+:)/g).filter(Boolean)
+  return parts.map((part) => {
+    const idx = part.indexOf(':')
+    if (idx === -1) return { name: part.trim(), value: '' }
+    return { name: part.slice(0, idx).trim(), value: part.slice(idx + 1).trim() }
+  })
+}
+
+function ProductInfoTabs({ result }: { result: ScrapeResult & { moreInfo?: string | null } }) {
+  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
+  const hasRealSizeChart = !!result.sizeChart && result.sizeChart.length > 0
+  const sizeChartMissing = result.sizeChart === null && !!result.warning
+  const moreInfoRows = result.moreInfo ? parseMoreInfo(result.moreInfo) : []
+
   return (
-    <dl className="flex flex-col gap-1.5 text-xs">
-      {parts.map((part, i) => {
-        const idx = part.indexOf(':')
-        if (idx === -1) return <p key={i}>{part}</p>
-        const label = part.slice(0, idx).trim()
-        const value = part.slice(idx + 1).trim()
-        return <DetailRow key={i} label={label} value={value} />
-      })}
-    </dl>
+    <div className="mt-8 border-t border-ink/10 pt-6">
+      <div className="flex gap-5 border-b border-ink/10">
+        {INFO_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
+              activeTab === tab
+                ? 'border-purple-700 text-ink'
+                : 'border-transparent text-ink/40 hover:text-ink/70'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+      <div
+        key={activeTab}
+        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+      >
+        {activeTab === 'Description' &&
+          (result.description ? (
+            <p>{result.description}</p>
+          ) : (
+            <p className="text-ink/45">
+              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
+              {result.title ?? 'no title available.'}
+            </p>
+          ))}
+        {activeTab === 'Details' && (
+          <div className="flex flex-col gap-4">
+            <dl className="flex flex-col gap-1.5 text-xs">
+              {result.brand && <DetailRow label="Brand" value={result.brand} />}
+              {result.mpn && <DetailRow label="Model" value={result.mpn} />}
+              {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
+              {result.itemSpecifics?.map((spec) => (
+                <DetailRow key={spec.name} label={spec.name} value={spec.value} />
+              ))}
+              {moreInfoRows.map((row, i) => (
+                <DetailRow key={`more-${i}`} label={row.name} value={row.value} />
+              ))}
+              {!result.brand &&
+                !result.mpn &&
+                !result.itemSpecifics?.length &&
+                !moreInfoRows.length &&
+                !hasRealSizeChart && <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>}
+            </dl>
+
+            {sizeChartMissing && (
+              <p className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2.5 text-xs text-purple-800">
+                {result.warning}
+              </p>
+            )}
+
+            {hasRealSizeChart && (
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/45">Size chart</p>
+                <div className="rounded-lg border border-ink/10 bg-card p-3">
+                  <SizeChart chart={result.sizeChart!} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {activeTab === 'Shipping & Returns' && (
+          <dl className="flex flex-col gap-1.5 text-xs">
+            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
+            <DetailRow
+              label="Returns"
+              value={
+                result.returnsAccepted
+                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
+                  : 'Not accepted by seller'
+              }
+            />
+            {result.availability ? (
+              <DetailRow label="Availability" value={result.availability} />
+            ) : (
+              !result.itemLocation && (
+                <p className="mt-1 text-ink/45">
+                  We don&apos;t have shipping details from the seller for this listing.
+                </p>
+              )
+            )}
+          </dl>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -397,19 +456,39 @@ export default function HopscotchProductView({
   canAct,
 }: PlatformViewProps) {
   const images = result.images ?? []
-  const sizeDimension = result.variants?.find((v) => v.dimension.toLowerCase() === 'size') ?? result.variants?.[0]
-  const [selectedSize, setSelectedSize] = useState<string | null>(null)
+  const variants = result.variants ?? []
+
+  const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string | null>>({})
 
   useEffect(() => {
-    const initial = sizeDimension?.options.find((o) => o.selected)?.label ?? null
-    setSelectedSize(initial)
-  }, [result.url, sizeDimension])
+    const initial: Record<string, string | null> = {}
+    for (const dim of variants) {
+      initial[dim.dimension] = dim.options.find((o) => o.selected)?.label ?? null
+    }
+    setSelectedByDimension(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result.url])
+
+  function pickOption(dimension: string, label: string) {
+    setSelectedByDimension((prev) => ({ ...prev, [dimension]: label }))
+  }
+
+  const price = fmtPrice(result.price, result.currencyCode)
+  const mrp = result.mrp && result.mrp !== result.price ? fmtPrice(result.mrp, result.currencyCode) : null
+
+  const inStock = result.unavailable
+    ? false
+    : result.availability
+      ? !/sold out|out of stock|unavailable/i.test(result.availability)
+      : true
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
       <div
         className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
+        {/* Top of buy box: logo + rating, then title.
+            Mobile: first (area "info"). Desktop: top-right column. */}
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
@@ -428,7 +507,10 @@ export default function HopscotchProductView({
           </h1>
         </div>
 
-        <div className="relative min-w-0 [grid-area:gallery]">
+        {/* Image gallery — shared component, Hopscotch theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
           <ProductGallery
             images={images}
             title={result.title}
@@ -442,23 +524,49 @@ export default function HopscotchProductView({
           />
         </div>
 
+        {/* Rest of buy box: price -> variants -> stock -> commerce
+            actions. Mobile: third (area "rest"). Desktop: bottom-right
+            column — same ordering as Amazon/Flipkart/eBay. */}
         <div className="min-w-0 [grid-area:rest]">
-          <PriceBlock result={result} />
+          <div className="flex items-baseline gap-2">
+            {price ? (
+              <p className="text-3xl font-bold text-purple-700">{price}</p>
+            ) : (
+              <p className="text-base font-semibold text-ink/40">No price found</p>
+            )}
+            {mrp && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
+          </div>
+          <p className="mt-1 text-xs text-ink/40">Inclusive of all taxes</p>
 
-          {result.unavailable && (
-            <p className="mt-4 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-800">
-              This item looks sold out right now.
-            </p>
+          {!!variants.length && (
+            <div className="mt-4 flex flex-wrap gap-6">
+              {variants.map((dim) => (
+                <VariantRow
+                  key={dim.dimension}
+                  dimension={dim}
+                  selectedLabel={selectedByDimension[dim.dimension] ?? null}
+                  onChange={(label) => pickOption(dim.dimension, label)}
+                />
+              ))}
+            </div>
           )}
 
-          {sizeDimension && (
-            <SizeSelect dimension={sizeDimension} selectedLabel={selectedSize} onChange={setSelectedSize} />
-          )}
+          <p className="mt-5 text-sm font-semibold">
+            {result.unavailable ? (
+              <span className="text-ink/45">Currently unavailable</span>
+            ) : inStock ? (
+              <span className="text-purple-700">In stock</span>
+            ) : (
+              <span className="text-ink/45">{result.availability}</span>
+            )}
+          </p>
 
           <HopscotchCommerceActions
             result={result}
             qty={qty}
             onQtyChange={onQtyChange}
+            inWishlist={inWishlist}
+            onToggleWishlist={onToggleWishlist}
             onAddToCart={onAddToCart}
             justAdded={justAdded}
             onRequestReview={onRequestReview}
@@ -468,16 +576,10 @@ export default function HopscotchProductView({
         </div>
       </div>
 
-      {/* Item details / More Info — collapsible, matching the real
-          page, rendered full-width below the buy-box grid. */}
-      <div className="mt-8 border-t border-ink/10">
-        <AccordionSection title="Item details" defaultOpen>
-          <ItemDetailsBody result={result} />
-        </AccordionSection>
-        <AccordionSection title="More Info">
-          <MoreInfoBody result={result as ScrapeResult & { moreInfo?: string | null }} />
-        </AccordionSection>
-      </div>
+      {/* Description/Details/Shipping & Returns — bottom-most,
+          full-width section of the entire component, same as the
+          other three platform views. */}
+      <ProductInfoTabs result={result as ScrapeResult & { moreInfo?: string | null }} />
     </div>
   )
 }

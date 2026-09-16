@@ -251,6 +251,9 @@ export function normaliseJsonApiProduct(
     image,
     images,
     price,
+    stockCount: config.stockFieldType === 'quantity' && config.stockField
+      ? readNumber(raw, config.stockField, 0)
+      : 0,
     currency: config.currency ?? 'INR',
     compareAtPrice,
     onSale,

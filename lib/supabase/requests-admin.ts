@@ -28,6 +28,25 @@ import { createClient } from '@/lib/supabase/client'
 import { sendChatMessage as realSendChatMessage, markThreadRead as realMarkThreadRead } from '@/lib/supabase/chat'
 import type { RequestStatus, ChatSender as MockChatSender } from '@/types/admin'
 
+/**
+ * Supabase throws PostgrestError-shaped plain objects ({ message,
+ * details, hint, code }) from a bare `if (error) throw error`, not real
+ * Error instances — a naive `err instanceof Error ? err.message : ...`
+ * always falls through to the generic fallback for these, throwing away
+ * the actual reason (an RLS policy rejection, a bad foreign key, etc.)
+ * right when it matters most for debugging a failed customer-facing
+ * send. Use this instead of that pattern anywhere a Supabase client call
+ * is what's being caught.
+ */
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const message = String((err as { message: unknown }).message)
+    if (message) return message
+  }
+  return fallback
+}
+
 /* ============================================================
  * STATUS MAPPING
  * ============================================================ */
@@ -228,7 +247,13 @@ export async function fetchAdminChatThreads(): Promise<RealChatThread[]> {
     const msg: RealChatMessage = {
       id: m.id,
       threadId: m.thread_id,
-      sender: m.sender === 'staff' ? 'staff' : 'customer',
+      // m.sender is the raw DB value — real chat_sender enum is
+      // ('customer', 'ops'), so this must check against 'ops' to
+      // correctly recognize a staff-authored message. This used to check
+      // 'staff' (which the enum never actually contained), so every
+      // real staff reply was silently mis-mapped to look like it came
+      // from the customer throughout the whole admin chat inbox.
+      sender: m.sender === 'ops' ? 'staff' : 'customer',
       body: m.text ?? (m.attachment_url ? '[Attachment]' : ''),
       at: m.created_at,
       sentViaWhatsApp: m.sent_via_whatsapp,
@@ -358,7 +383,7 @@ export async function confirmRequestReal(
   // shows this real photo everywhere instead of the generic placeholder.
   const { data: existing, error: fetchError } = await supabase
     .from('requests')
-    .select('payment_confirmed_at, screenshot_url')
+    .select('payment_confirmed_at, screenshot_url, chat_thread_id')
     .eq('id', requestId)
     .single()
   if (fetchError) return { ok: false, error: fetchError.message }
@@ -380,6 +405,12 @@ export async function confirmRequestReal(
         currency: 'LKR',
         total_value: quote,
         request_id: requestId,
+        // Carries the customer's chat thread onto the order itself, so
+        // any later order-level action (purchase failed, QC flagged,
+        // shipped, delivered) can message the same thread without
+        // re-deriving it through the request — see Order.chatThreadId's
+        // doc comment in types/admin.ts.
+        chat_thread_id: existing.chat_thread_id,
       })
       .select('id')
       .single()
@@ -420,10 +451,10 @@ export async function sendAdminChatMessage(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   try {
-    await realSendChatMessage(supabase, { threadId, sender: 'staff', senderName: staffName, text: body, requestId })
+    await realSendChatMessage(supabase, { threadId, sender: 'ops', senderName: staffName, text: body, requestId })
     return { ok: true }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Failed to send message.' }
+    return { ok: false, error: extractErrorMessage(err, 'Failed to send message.') }
   }
 }
 
@@ -433,7 +464,7 @@ export async function markThreadReadReal(threadId: string): Promise<{ ok: boolea
     await realMarkThreadRead(supabase, threadId)
     return { ok: true }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Failed to mark read.' }
+    return { ok: false, error: extractErrorMessage(err, 'Failed to mark read.') }
   }
 }
 

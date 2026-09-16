@@ -22,13 +22,17 @@ import { useAdminData } from "@/contexts/AdminDataContext"
 import { panelClass } from "@/components/admin/seller/shared"
 import type { PurchaseStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
+import { SendMessageModal } from "@/components/admin/SendMessageModal"
+import { purchaseFailedMessage } from "@/lib/chat/customerMessageTemplates"
 
 // Purchase detail — everything ops needs to go buy one line item and record
 // the outcome. Two terminal actions: mark purchased (records actual price
 // paid, since quoted vs. paid can drift) or flag unavailable (free-text
-// reason; this is what should eventually notify the Channel 3 request
-// thread / trigger a customer follow-up — not wired up here since that
-// hookup isn't built yet).
+// reason). Flagging unavailable now offers a SendMessageModal draft to the
+// customer's chat thread (line.chatThreadId — only set today for Channel 3
+// orders; see Order.chatThreadId's doc comment in types/admin.ts), editable
+// before it sends, same pattern as the request detail page's quote/payment
+// messages.
 //
 // Backed by AdminDataContext, same as the order detail page — marking a
 // line here is immediately reflected on the Purchases list, and the
@@ -81,7 +85,7 @@ function inr(n: number) {
 export default function PurchaseDetailPage() {
   const params = useParams<{ PurchaseId: string }>()
   const router = useRouter()
-  const { getPurchaseLine, canActOnPurchaseLine, markPurchased, flagUnavailable, dataLoading } = useAdminData()
+  const { getPurchaseLine, canActOnPurchaseLine, markPurchased, flagUnavailable, sendChatMessage, dataLoading } = useAdminData()
 
   const purchaseId = decodeURIComponent(params.PurchaseId)
   const line = getPurchaseLine(purchaseId)
@@ -89,6 +93,7 @@ export default function PurchaseDetailPage() {
   const [actualPrice, setActualPrice] = useState(line?.quotedUnitPriceINR?.toString() ?? "")
   const [issueNote, setIssueNote] = useState(line?.issueNote ?? "")
   const [mode, setMode] = useState<"idle" | "confirming_purchase" | "confirming_issue">("idle")
+  const [pendingMessage, setPendingMessage] = useState<{ title: string; text: string; threadId: string } | null>(null)
 
   if (dataLoading) {
     return (
@@ -102,11 +107,13 @@ export default function PurchaseDetailPage() {
 
   if (!line) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <p className="text-sm text-ink/50">Purchase not found.</p>
-        <Link href="/admin/purchases" className="mt-4 inline-block text-sm font-semibold text-teal-deep hover:underline">
-          Back to Purchases
-        </Link>
+      <div className="h-full overflow-y-auto bg-parchment">
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <p className="text-sm text-ink/50">Purchase not found.</p>
+          <Link href="/admin/purchases" className="mt-4 inline-block text-sm font-semibold text-teal-deep hover:underline">
+            Back to Purchases
+          </Link>
+        </div>
       </div>
     )
   }
@@ -118,6 +125,7 @@ export default function PurchaseDetailPage() {
   const accent = TONE_ACCENT[STATUS_TONE[currentStatus]]
 
   return (
+    <div className="h-full overflow-y-auto bg-parchment">
     <div className="mx-auto max-w-8xl px-6 pb-20 pt-8 lg:px-10">
       <button
         type="button"
@@ -364,7 +372,9 @@ export default function PurchaseDetailPage() {
                     className="mt-1 w-full resize-none rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none placeholder:text-ink/35 focus:border-teal/50"
                   />
                   <p className="mt-1.5 text-xs text-ink/40">
-                    This will need a follow-up with the customer — chat/notification hookup isn't wired up yet.
+                    {line.chatThreadId
+                      ? "You'll get a chance to review the message to the customer before it sends."
+                      : "This customer has no chat thread on file yet, so no message can be sent automatically — follow up with them directly."}
                   </p>
                   <div className="mt-3 flex gap-2">
                     <button
@@ -372,6 +382,13 @@ export default function PurchaseDetailPage() {
                       onClick={() => {
                         flagUnavailable(line.orderId, line.orderItemId, issueNote)
                         setMode("idle")
+                        if (line.chatThreadId) {
+                          setPendingMessage({
+                            title: "Let the customer know?",
+                            text: purchaseFailedMessage(line.productTitle, issueNote),
+                            threadId: line.chatThreadId,
+                          })
+                        }
                       }}
                       disabled={!issueNote.trim()}
                       className="flex-1 rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
@@ -411,6 +428,20 @@ export default function PurchaseDetailPage() {
           </Link>
         </div>
       </div>
+
+      <SendMessageModal
+        open={pendingMessage !== null}
+        title={pendingMessage?.title ?? ""}
+        defaultMessage={pendingMessage?.text ?? ""}
+        onSend={async (text) => {
+          if (!pendingMessage) return { ok: false, error: "Nothing to send." }
+          const result = await sendChatMessage(pendingMessage.threadId, text)
+          if (result.ok) setPendingMessage(null)
+          return result
+        }}
+        onSkip={() => setPendingMessage(null)}
+      />
+    </div>
     </div>
   )
 }

@@ -138,26 +138,6 @@ function RatingStars({ rating, count }: { rating: number; count?: number }) {
   )
 }
 
-/** Small inline spec list — only renders the facts that actually came back from the upstream feed. Weight is deliberately not here; it gets its own shipping callout below since it matters for delivery cost/estimate, not just as trivia. */
-function SpecRow({ product }: { product: StoreProduct }) {
-  const specs: string[] = []
-  if (product.vendor) specs.push(product.vendor)
-  if (product.productType) specs.push(product.productType)
-  if (product.sku) specs.push(`SKU ${product.sku}`)
-  if (!specs.length) return null
-
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink/45">
-      {specs.map((s, i) => (
-        <span key={s} className="inline-flex items-center gap-2.5">
-          {i > 0 && <span className="text-ink/20">·</span>}
-          {s}
-        </span>
-      ))}
-    </div>
-  )
-}
-
 export async function generateMetadata({
   params,
 }: {
@@ -316,8 +296,6 @@ export default async function ProductDetailPage({
                 <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
                   {product.name}
                 </h1>
-
-                <SpecRow product={product} />
 
                 {/* Economy vs Express delivery-price comparison, styled
                     like a two-part shipping slip: a ticket-stub

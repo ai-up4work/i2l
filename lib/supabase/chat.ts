@@ -42,7 +42,7 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 
-export type ChatSender = 'customer' | 'staff'
+export type ChatSender = 'customer' | 'staff' | 'ops' // ops is a subset of staff, used for the admin chat view
 
 export type ChatMessageRow = Database['public']['Tables']['chat_messages']['Row']
 export type ChatThreadRow = Database['public']['Tables']['chat_threads']['Row']

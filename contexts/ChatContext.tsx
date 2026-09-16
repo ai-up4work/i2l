@@ -58,7 +58,7 @@ function rowToMessage(row: ChatMessageRow): ChatMessage {
     text,
     createdAt: new Date(row.created_at).getTime(),
     attachment: row.attachment_url ? { url: row.attachment_url, kind: inferAttachmentKind(row.attachment_url) } : null,
-    replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'staff' : 'customer', text: quoted } : null,
+    replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'ops' : 'customer', text: quoted } : null,
   }
 }
 
@@ -221,7 +221,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [threadId])
 
   const unreadCount = useMemo(
-    () => messages.filter((m) => m.sender === 'staff' && m.createdAt > lastReadAt).length,
+    () => messages.filter((m) => m.sender === 'ops' && m.createdAt > lastReadAt).length,
     [messages, lastReadAt],
   )
 

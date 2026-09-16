@@ -24,6 +24,8 @@ import { useImageUpload } from "@/lib/upload/useImageUpload"
 import { CHANNEL_LABEL, QC_STATUS_LABEL, type QCStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass, groupClass, SectionHeading } from "@/components/admin/seller/shared"
+import { SendMessageModal } from "@/components/admin/SendMessageModal"
+import { qcFlaggedMessage, replacementPassedMessage } from "@/lib/chat/customerMessageTemplates"
 
 // QCStatus only ever holds pending | passed | flagged — there's no separate
 // "failed" state — so the verdict control below is a single Pass/Flag pair
@@ -65,7 +67,7 @@ const STATUS_TONE_FOR: Record<QCStatus, StatusTone> = {
 export default function QCDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
-  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading, currentUser, addInternalNote, setOrderDelayedExplicit } = useAdminData()
+  const { getQcLine, canActOnQcLine, submitQcResult, addQcPhoto, dataLoading, currentUser, addInternalNote, setOrderDelayedExplicit, sendChatMessage } = useAdminData()
   // qcLines[].id is `${orderUuid}:${itemUuid}` (see AdminDataContext's
   // purchaseLines/qcLines derivation) — the colon can arrive
   // percent-encoded depending on how it was navigated to, exactly like
@@ -94,6 +96,7 @@ export default function QCDetailPage() {
   const { uploading, error: uploadError, upload } = useImageUpload()
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [pendingMessage, setPendingMessage] = useState<{ title: string; text: string; threadId: string } | null>(null)
 
   // Is this item currently mid-reorder — i.e. does it have an open
   // 'retry_same' issue on file already? Fetched unconditionally
@@ -240,6 +243,36 @@ export default function QCDetailPage() {
       }
     }
 
+    // Flagging, or a replacement passing, with a real chat thread on
+    // file: offer to tell the customer before navigating away, same
+    // review-before-send pattern as the request detail page —
+    // navigation happens once the modal is dismissed (send or skip)
+    // instead of on a fixed timer, so the SendMessageModal below isn't
+    // yanked away mid-decision. No thread on file (a Channel 1/2 order
+    // today — see Order.chatThreadId's doc comment) falls back to the
+    // old auto-navigate-after-save behavior, since there's nowhere to
+    // send a message anyway.
+    if (status === "flagged" && line!.chatThreadId) {
+      setSaving(false)
+      setSaved(true)
+      setPendingMessage({
+        title: "Let the customer know about this issue?",
+        text: qcFlaggedMessage(line!.productTitle, customerNote),
+        threadId: line!.chatThreadId,
+      })
+      return
+    }
+    if (status === "passed" && openRetryIssue && line!.chatThreadId) {
+      setSaving(false)
+      setSaved(true)
+      setPendingMessage({
+        title: "Let the customer know the replacement passed?",
+        text: replacementPassedMessage(line!.productTitle),
+        threadId: line!.chatThreadId,
+      })
+      return
+    }
+
     window.setTimeout(() => {
       setSaving(false)
       setSaved(true)
@@ -248,6 +281,7 @@ export default function QCDetailPage() {
   }
 
   return (
+    <>
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-24 pt-10 lg:px-10">
         <Link
@@ -470,6 +504,26 @@ export default function QCDetailPage() {
         </div>
       </div>
     </div>
+
+      <SendMessageModal
+        open={pendingMessage !== null}
+        title={pendingMessage?.title ?? ""}
+        defaultMessage={pendingMessage?.text ?? ""}
+        onSend={async (text) => {
+          if (!pendingMessage) return { ok: false, error: "Nothing to send." }
+          const result = await sendChatMessage(pendingMessage.threadId, text)
+          if (result.ok) {
+            setPendingMessage(null)
+            router.push("/admin/qc")
+          }
+          return result
+        }}
+        onSkip={() => {
+          setPendingMessage(null)
+          router.push("/admin/qc")
+        }}
+      />
+    </>
   )
 }
 

@@ -595,6 +595,7 @@ function mapToOrder(
       at: n.at,
     })),
     linkedRequestId: undefined,
+    chatThreadId: o.chatThreadId ?? undefined,
     destination: o.recipient ? `${o.recipient.city}, ${o.recipient.country}` : undefined,
     handlingNote: undefined,
     packedAt,
@@ -1051,7 +1052,8 @@ interface AdminDataContextValue {
   chatThreads: ChatThread[]
   getChatThread: (id: string) => ChatThread | undefined
   getChatThreadForRequest: (requestId: string) => ChatThread | undefined
-  sendChatMessage: (threadId: string, body: string) => void
+  /** Sends a staff reply for real, awaiting the write. Returns { ok:false, error } instead of silently pretending success if the insert fails (e.g. an RLS policy rejecting it) — see this function's own doc comment for the exact bug this replaced. */
+  sendChatMessage: (threadId: string, body: string) => Promise<{ ok: boolean; error?: string }>
   markThreadRead: (threadId: string) => void
   /** Marks the given message as sent via the wa.me manual-send flow — does NOT open the link itself, that's a page-level concern */
   markSentViaWhatsApp: (threadId: string, messageId: string) => void
@@ -1451,6 +1453,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           status: p?.status ?? "needs_purchase",
           issueNote: p?.issueNote,
           ageLabel: formatAge(hoursSince(p?.enteredQueueAt ?? order.placedAt)),
+          chatThreadId: order.chatThreadId,
         }
       })
     )
@@ -1727,6 +1730,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         arrivedAgo: formatAge(hoursSince(p.enteredQcAt)),
         orderAgeHours,
         orderAgeLabel: formatAge(orderAgeHours),
+        chatThreadId: order.chatThreadId,
       }]
     })
   }, [purchases, orders])
@@ -1988,6 +1992,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         etaHours,
         etaRemainingHours,
         deliveryStatus,
+        chatThreadId: order.chatThreadId,
       }]
     })
   }, [orders])
@@ -2166,23 +2171,6 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // quoting the whole request — matches this function's own
     // allQuoted-flips-status logic above exactly.
     realSetRequestQuote(requestId, amount, currentUser.id)
-
-    // Quote-message auto-send: the customer needs to actually SEE the
-    // price to confirm they're okay with it — previously nothing told
-    // them a quote existed at all beyond whatever ops happened to type
-    // manually in chat. Fires on every setQuote call (initial quote AND
-    // any later revision), phrased differently for each so a revised
-    // price doesn't read like a duplicate of the first message.
-    const requestForMessage = requests.find((r) => r.id === requestId)
-    if (requestForMessage) {
-      const hadQuoteBefore = requestForMessage.items.some((i) => i.id === itemId && i.quote !== undefined)
-      sendChatMessage(
-        requestForMessage.chatThreadId,
-        hadQuoteBefore
-          ? `We've updated the price for your item to Rs. ${amount.toLocaleString()}. Let us know here once you're happy with it and we'll get it confirmed.`
-          : `Here's the price for your item: Rs. ${amount.toLocaleString()}. Reply here to let us know you'd like to go ahead, or if you have any questions first.`
-      )
-    }
   }
 
   /**
@@ -2233,17 +2221,6 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       )
     )
     confirmRequestPaymentReal(requestId, { ...payment, staffId: currentUser.id })
-
-    // Payment-confirmation message: the customer should hear it back
-    // from WishDrop the moment their payment is recorded, not just
-    // silently see the request move forward next time they check.
-    const requestForMessage = requests.find((r) => r.id === requestId)
-    if (requestForMessage) {
-      sendChatMessage(
-        requestForMessage.chatThreadId,
-        `We've received your payment of Rs. ${payment.amount.toLocaleString()}${payment.method ? ` (${payment.method.replace("_", " ")})` : ""}. Thank you! We'll get your order confirmed shortly.`
-      )
-    }
   }
 
   /**
@@ -2282,6 +2259,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       delayed: false,
       isManualQuote: true,
       linkedRequestId: request.id,
+      chatThreadId: request.chatThreadId,
       items: request.items.map((item, i) => ({
         id: `i${i + 1}`,
         title: item.note.length > 60 ? `${item.note.slice(0, 57)}...` : item.note,
@@ -2296,23 +2274,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     setOrders((prev) => [...prev, newOrder])
     setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: "confirmed" } : r)))
 
-    // Confirming used to leave the customer with zero signal that
-    // anything happened — the request just silently flipped to
-    // "confirmed" behind the scenes with nothing in their chat telling
-    // them the order is real, what it's for, or what the final total
-    // is. This is the one moment in the whole Channel 3 flow that
-    // actually matters most to the customer (their item is now really
-    // being bought), so it gets a real message, not just a status
-    // change nobody sees without refreshing a page. Uses the same
-    // sendChatMessage wrapper every other admin->customer message in
-    // this file goes through (local state + real DB write), not a
-    // bespoke one-off — see that function just above for what it does.
-    sendChatMessage(
-      request.chatThreadId,
-      `Your order is confirmed! Total: Rs. ${totalValue.toLocaleString()} for ${request.items.length} item${
-        request.items.length === 1 ? "" : "s"
-      }. You can track it from your Orders page.`
-    )
+    // No auto-send here anymore — the calling page (request detail)
+    // shows a SendMessageModal with the order-confirmed draft and sends
+    // it explicitly via sendChatMessage once the admin reviews/edits it.
+    // Keeping the mutation and the messaging decision separate, same
+    // pattern as setQuote/confirmPayment above.
 
     // Real write: creates the actual channel=3 `orders` row (the only
     // place that happens) and flips the real request to 'confirmed'.
@@ -2367,10 +2333,34 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const getChatThreadForRequest = (requestId: string) =>
     chatThreads.find((t) => t.requestId === requestId)
 
-  /** A staff reply always clears the thread's unread flag — it's now the staff's most recent message, not the customer's. */
-  const sendChatMessage = (threadId: string, body: string) => {
+  /**
+   * A staff reply always clears the thread's unread flag — it's now the
+   * staff's most recent message, not the customer's.
+   *
+   * FIXED: this used to update local state immediately, then fire
+   * sendAdminChatMessage() WITHOUT awaiting it or checking its result —
+   * so if the real insert failed (most likely cause: the RLS policy fix
+   * in data/wishdrop-admin-requests-chat-rls-fix.sql hasn't actually
+   * been run against this Supabase project yet, so a staff session's
+   * insert into chat_messages gets rejected by the default "own thread
+   * only" policy), the admin's own screen still showed the message as
+   * sent — local state doesn't know the difference — while the customer
+   * never received anything at all, with zero error surfaced anywhere.
+   * Now genuinely awaits the real write FIRST and only reflects it
+   * locally on success, returning ok/error so callers (SendMessageModal)
+   * can show a real failure instead of silently pretending it worked.
+   */
+  const sendChatMessage = async (threadId: string, body: string): Promise<{ ok: boolean; error?: string }> => {
     const trimmed = body.trim()
-    if (!trimmed) return
+    if (!trimmed) return { ok: false, error: "Message is empty." }
+
+    const thread = chatThreads.find((t) => t.id === threadId)
+    const result = await sendAdminChatMessage(threadId, currentUser.name, trimmed, thread?.requestId)
+    if (!result.ok) {
+      console.error("[sendChatMessage] real write failed — nothing was sent to the customer", result.error)
+      return { ok: false, error: result.error ?? "Failed to send message. Please try again." }
+    }
+
     const now = new Date().toISOString()
     setChatThreads((prev) =>
       prev.map((t) => {
@@ -2385,8 +2375,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return { ...t, messages: [...t.messages, message], lastActivity: now, unread: false }
       })
     )
-    const thread = chatThreads.find((t) => t.id === threadId)
-    sendAdminChatMessage(threadId, currentUser.name, trimmed, thread?.requestId)
+    return { ok: true }
   }
 
   const markThreadRead = (threadId: string) => {

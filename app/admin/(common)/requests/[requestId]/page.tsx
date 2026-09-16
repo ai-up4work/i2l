@@ -9,6 +9,8 @@ import { useAdminData } from "@/contexts/AdminDataContext"
 import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
 import { panelClass } from "@/components/admin/seller/shared"
 import { useImageUpload } from "@/lib/upload/useImageUpload"
+import { SendMessageModal } from "@/components/admin/SendMessageModal"
+import { quoteMessage, paymentConfirmedMessage, orderConfirmedMessage, requestDeclinedMessage } from "@/lib/chat/customerMessageTemplates"
 
 // Work one Channel 3 request through to a priced, confirmable state.
 // Manager + Sales & Purchase only.
@@ -45,6 +47,7 @@ export default function RequestDetailPage() {
     reassignRequest,
     retryScrape,
     staffDirectory,
+    sendChatMessage,
     dataLoading,
   } = useAdminData()
 
@@ -57,6 +60,13 @@ export default function RequestDetailPage() {
   const [paymentReference, setPaymentReference] = useState("")
   const [paymentAmountInput, setPaymentAmountInput] = useState("")
   const { uploading: uploadingScreenshot, error: screenshotUploadError, upload: uploadScreenshot } = useImageUpload()
+
+  // Single shared piece of state for the "review before sending" modal —
+  // whichever trigger fires (quote, payment, order-confirm, decline)
+  // populates this, and SendMessageModal below renders it generically.
+  // Only one of these is ever open at a time in practice (a human does
+  // one action, reviews it, then does the next), so one slot is enough.
+  const [pendingMessage, setPendingMessage] = useState<{ title: string; text: string } | null>(null)
 
   useEffect(() => {
     if (currentUser.role === "warehouse") router.replace("/admin/dashboard")
@@ -130,7 +140,9 @@ export default function RequestDetailPage() {
   const handleSetQuote = (itemId: string) => {
     const amount = Number(quoteInputs[itemId])
     if (!Number.isFinite(amount) || amount <= 0) return
+    const hadQuoteBefore = request.items.find((i) => i.id === itemId)?.quote !== undefined
     setQuote(request.id, itemId, amount)
+    setPendingMessage({ title: "Send quote to customer?", text: quoteMessage(amount, hadQuoteBefore) })
   }
 
   const handleScreenshotSelected = async (itemId: string, file: File) => {
@@ -140,6 +152,10 @@ export default function RequestDetailPage() {
 
   const handleConfirm = () => {
     confirmRequest(request.id)
+    setPendingMessage({
+      title: "Send order confirmation to customer?",
+      text: orderConfirmedMessage(request.totalQuote ?? 0, request.items.length),
+    })
   }
 
   const handleConfirmPayment = () => {
@@ -150,6 +166,12 @@ export default function RequestDetailPage() {
       method: paymentMethod,
       reference: paymentReference.trim() || undefined,
     })
+    setPendingMessage({ title: "Send payment confirmation to customer?", text: paymentConfirmedMessage(amount, paymentMethod) })
+  }
+
+  const handleDecline = () => {
+    declineRequest(request.id)
+    setPendingMessage({ title: "Let the customer know?", text: requestDeclinedMessage() })
   }
 
   const handleRetryScrape = () => {
@@ -465,7 +487,7 @@ export default function RequestDetailPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => declineRequest(request.id)}
+                  onClick={handleDecline}
                   className="w-full rounded-lg border border-red-600/25 bg-red-600/5 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-600/10"
                 >
                   Decline
@@ -497,7 +519,7 @@ export default function RequestDetailPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => declineRequest(request.id)}
+                  onClick={handleDecline}
                   className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-parchment/60"
                 >
                   Close request
@@ -516,6 +538,21 @@ export default function RequestDetailPage() {
         </div>
       </div>
     </div>
+
+    <SendMessageModal
+      open={pendingMessage !== null}
+      title={pendingMessage?.title ?? ""}
+      defaultMessage={pendingMessage?.text ?? ""}
+      onSend={async (text) => {
+        const result = await sendChatMessage(request.chatThreadId, text)
+        // Only close on success — a failure (e.g. RLS rejecting the
+        // insert) keeps the modal open with the error shown, instead of
+        // closing and silently pretending the customer got the message.
+        if (result.ok) setPendingMessage(null)
+        return result
+      }}
+      onSkip={() => setPendingMessage(null)}
+    />
     </div>
   )
 }

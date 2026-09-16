@@ -534,7 +534,7 @@ function AdminChatPageInner() {
       if (pendingFiles.length === 0) {
         const row = await sendChatMessage(supabase, {
           threadId: selectedId,
-          sender: 'staff',
+          sender: 'ops',
           senderName: staffName,
           text: firstText,
         })
@@ -544,7 +544,7 @@ function AdminChatPageInner() {
           const url = await uploadChatAttachment(supabase, selectedId, pendingFiles[i])
           const row = await sendChatMessage(supabase, {
             threadId: selectedId,
-            sender: 'staff',
+            sender: 'ops',
             senderName: staffName,
             text: i === 0 ? firstText : '',
             attachmentUrl: url,

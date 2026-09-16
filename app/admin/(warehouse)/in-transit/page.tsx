@@ -14,6 +14,8 @@ import {
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { DELIVERY_STATUS_LABEL, type DeliveryStatus, type InTransitLine } from "@/types/admin"
+import { SendMessageModal } from "@/components/admin/SendMessageModal"
+import { arrivedInSriLankaMessage } from "@/lib/chat/customerMessageTemplates"
 
 // In transit: orders handed off to a courier from the export bin,
 // crossing the border toward Sri Lanka. "Mark shipped" here is what

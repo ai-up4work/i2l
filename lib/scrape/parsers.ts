@@ -248,6 +248,20 @@ function jitterDelay(min = 200, max = 700) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// CHANGED: added ['westside', 'westside'] so a westside.com URL is
+// recognized by hostname BEFORE the generic SHOPIFY_PRODUCT_PATH_RE
+// fallback in detectSite() ever gets a chance to run. Previously there
+// was no entry for Westside here, so any westside.com/products/{x} URL
+// fell all the way through this loop, matched the generic
+// "/products/{handle} path => 'shopify'" heuristic instead, and got
+// permanently tagged site: 'shopify' — which is why ItemInfoModal
+// rendered ShopifyProductView instead of WestsideProductView even
+// though a dedicated 'westside' case already existed there. Westside
+// genuinely IS built on Shopify's backend, so rather than just fixing
+// the label, scrapeProduct() below still routes 'westside' through the
+// real Shopify API (scrapeShopifyProduct) — see scrapeWestsideProduct —
+// so the result keeps the high-fidelity variant/stock/price data while
+// being honestly tagged as 'westside' for display purposes.
 const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['amazon', 'amazon'],
   ['flipkart', 'flipkart'],
@@ -265,6 +279,7 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['hopscotch', HOPSCOTCH_SITE_ID],
   ['tatacliq', 'tatacliq'],
   ['aliexpress', ALIEXPRESS_SITE_ID],
+  ['westside', 'westside'], // CHANGED: added — must be matched by hostname before the /products/ path-shape fallback below claims it as 'shopify'.
 ]
 
 const SHOPIFY_PRODUCT_PATH_RE = /\/products\/([^/?#]+)/i
@@ -1011,13 +1026,34 @@ function buildAdHocShopifyConfig(origin: string, domainHint: string | null): Sho
 
 // Generic over StoreProduct — used by both Shopify and WooCommerce, since
 // both providers normalize into the same StoreProduct/StoreProductOption
-// shape. Every tile's `url` is deliberately left null: both providers'
-// single-product fetch already returns every variant's price/image/
-// availability in the one call the caller already made, so tiles render as
-// informational (price/stock visible) rather than clickable.
+// shape.
+//
+// CHANGED: `url` used to always be hardcoded null on every tile ("both
+// providers' single-product fetch already returns every variant's price/
+// image/availability in the one call the caller already made, so tiles
+// render as informational rather than clickable") — but that reasoning
+// missed that ItemInfoModal's variant-select flow (onSelectVariant ->
+// handleSelectVariant) is URL-driven: it re-calls scrapeProduct(url) with
+// whatever url a tile carries, and does nothing at all when url is null.
+// With every tile's url hardcoded to null, every size/color swatch was
+// effectively disabled/"locked" in the UI — visible (price, stock,
+// selected state) but not clickable, even for perfectly in-stock
+// alternate sizes (see the Westside "Superstar..." jacket QA case: sizes
+// M/L/XL are all in stock but were unselectable).
+//
+// `variantUrlFor` is an optional callback the caller supplies to turn a
+// candidate variant into a real, re-fetchable URL (e.g. the current
+// request URL with `?variant=<id>` set — see buildShopifyVariantSelectUrl
+// below, used by scrapeShopifyProduct/scrapeWestsideProduct). When the
+// caller doesn't supply one (still the case for scrapeWooCommerceProduct,
+// which has no equivalent variant-select URL scheme wired up yet), tiles
+// fall back to the previous informational-only behavior — this is an
+// intentional, pre-existing gap for WooCommerce, not something this
+// change tries to solve.
 function buildStoreVariantDimensions(
   product: StoreProduct,
-  current: NonNullable<StoreProduct['variants']>[number] | undefined = product.variants?.[0]
+  current: NonNullable<StoreProduct['variants']>[number] | undefined = product.variants?.[0],
+  variantUrlFor?: (variant: NonNullable<StoreProduct['variants']>[number]) => string | null
 ): AmazonVariantDimension[] {
   const options = product.options ?? []
   const variants = product.variants ?? []
@@ -1042,7 +1078,14 @@ function buildStoreVariantDimensions(
           price: v ? String(v.price) : null,
           currencyCode: product.currency ?? null,
           image: v?.image ?? null,
-          url: null,
+          // CHANGED: was hardcoded `null`. Now asks the caller-supplied
+          // variantUrlFor for a real selectable URL when available, and
+          // only falls back to null (informational/non-clickable, the
+          // old behavior) when no builder was passed in, or the variant
+          // itself is unresolved (v undefined — a label with no matching
+          // variant, which shouldn't normally happen but is handled
+          // defensively the same way `price`/`image` already are above).
+          url: v && variantUrlFor ? variantUrlFor(v) : null,
           selected: v ? v.id === current.id : false,
           outOfStock: v ? !v.available : true,
         }
@@ -1251,6 +1294,33 @@ function normaliseShopifyThemeJsonProduct(p: ShopifyThemeJsonProduct, url: strin
   }
 }
 
+// CHANGED: new helper. Turns a candidate variant into a URL the modal can
+// actually re-fetch to select it — findRequestedVariant (above) already
+// checks a `?variant=<id>` query param FIRST, before falling back to
+// Color=/Size= matching, so setting that param here works universally for
+// any Shopify-backed store's product page, regardless of what query
+// format the *original* incoming URL happened to use (Shopify's plain
+// numeric ?variant=, or a headless/custom-frontend convention like
+// westside.com's ?Color=Brown&Size=S). Shopify's own /products/{handle}.js
+// endpoint ignores the query string entirely and always returns the full
+// product with every variant — the query param is only ever read by OUR
+// OWN findRequestedVariant, so overwriting it here is safe and doesn't
+// change what data comes back, only which variant scrapeProduct treats as
+// "current" once it does.
+function buildShopifyVariantSelectUrl(baseUrl: string, variantId: string): string | null {
+  try {
+    const u = new URL(baseUrl)
+    u.searchParams.set('variant', variantId)
+    return u.toString()
+  } catch {
+    // Malformed baseUrl shouldn't be possible this deep in the pipeline
+    // (scrapeProduct already parsed it via `new URL(url)` earlier), but
+    // fail safe to the old informational-only behavior rather than
+    // throwing and losing the whole scrape over a cosmetic URL feature.
+    return null
+  }
+}
+
 async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   const parsedHandle = extractShopifyHandle(url)
   if (!parsedHandle) {
@@ -1291,7 +1361,14 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
         )
       : null
 
-  const variants = buildStoreVariantDimensions(product, currentVariant)
+  // CHANGED: was `buildStoreVariantDimensions(product, currentVariant)` —
+  // no url builder, so every tile's url came out null (locked/
+  // non-clickable). Now passes buildShopifyVariantSelectUrl so each
+  // in-stock size/color tile gets a real `?variant=<id>` URL the modal
+  // can re-fetch through onSelectVariant.
+  const variants = buildStoreVariantDimensions(product, currentVariant, (v) =>
+    buildShopifyVariantSelectUrl(url, v.id)
+  )
 
   // Extra fields ScrapeResult doesn't formally declare yet, carried through
   // the same way scrapeEbayProductViaApi does — so nothing StoreProduct
@@ -1340,6 +1417,32 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   if (!(currentVariant ? currentVariant.available : product.inStock)) result.unavailable = true
 
   return result
+}
+
+// CHANGED: new wrapper. Westside's storefront genuinely runs on
+// Shopify's backend (its URLs match /products/{handle} just like any
+// other Shopify store), so rather than giving Westside its own scraping
+// pipeline, this reuses the real, authoritative Shopify API path
+// (scrapeShopifyProduct) — full variant/stock/price/currency data,
+// findRequestedVariant's Color/Size query-param resolution, etc. — and
+// then just relabels the result's `site` back to 'westside' so
+// ItemInfoModal's dedicated `case 'westside'` branch (WestsideProductView)
+// picks it up instead of the generic ShopifyProductView. Keeps the
+// higher-fidelity data source while fixing the mislabeled UI.
+//
+// On failure (scrapeShopifyProduct returning an `error`), this
+// deliberately does NOT relabel — scrapeProduct()'s caller checks
+// `result.error` and, on a Shopify-path failure, falls back to the
+// generic HTML-scrape pipeline the same way it already does for a
+// generic Shopify/WooCommerce detection failure (see
+// `fellBackFromStorePlatform` below). Leaving `site: 'shopify'` on the
+// error result there is harmless — it's discarded immediately, never
+// returned to a caller — and keeps this function a thin, honest pass-
+// through rather than duplicating scrapeShopifyProduct's error shape.
+async function scrapeWestsideProduct(url: string): Promise<ScrapeResult> {
+  const result = await scrapeShopifyProduct(url)
+  if (result.error) return result
+  return { ...result, site: 'westside' }
 }
 
 // ---------- WooCommerce (real API, no scraping) ----------
@@ -1566,6 +1669,15 @@ async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> 
 // what that does and doesn't cover, and ScrapeResult.ogOnly above for how
 // this gets surfaced to the QA tool.
 //
+// Westside is likewise handled without its own dedicated DOM extractor —
+// but unlike the OG-only five above, it doesn't fall back to generic
+// OG/JSON-LD scraping at all in the normal case: scrapeProduct() routes
+// it straight through the real Shopify API (see scrapeWestsideProduct
+// above). `parseGeneric` below is registered here only as the SECONDARY
+// fallback used if that Shopify-API call itself fails (see
+// `fellBackFromStorePlatform` in scrapeProduct()) — same role parseGeneric
+// already plays for a plain 'shopify'/'woocommerce' detection that fails.
+//
 // eBay's entry here (parseEbay/SITE_PARSERS.ebay) is now the FALLBACK
 // path only — used when EBAY_APP_ID/EBAY_CERT_ID aren't configured. See
 // scrapeEbayProductViaApi above and scrapeProduct's routing below for the
@@ -1712,6 +1824,14 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // of giving up, with `site` reassigned to 'generic' so the result
   // honestly reflects what actually happened rather than still claiming
   // 'shopify'.
+  //
+  // CHANGED: 'westside' now gets the exact same treatment as 'shopify'
+  // (real API first, generic-fallback-on-failure second) — see the
+  // dedicated `else if (site === 'westside')` branch below and
+  // scrapeWestsideProduct's doc comment above for why this is routed
+  // through the real Shopify API rather than getting its own scraping
+  // pipeline.
+  //
   // Tracked separately from `site` (which gets reassigned to 'generic'
   // below) so the result can still be honestly marked ogOnly even
   // though it didn't go through makeOgOnlyParser()/the SITE_HOST_MAP
@@ -1725,6 +1845,21 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (site === 'shopify') {
     const shopifyResult = await scrapeShopifyProduct(url)
     if (!shopifyResult.error) return shopifyResult
+    site = 'generic'
+    fellBackFromStorePlatform = true
+  } else if (site === 'westside') {
+    // CHANGED: new branch. Westside is a Shopify-backed storefront, so
+    // this hits the real Shopify API first via scrapeWestsideProduct
+    // (which internally calls scrapeShopifyProduct and just relabels
+    // `site` back to 'westside' on success) — same real variant/stock/
+    // price data a plain Shopify URL would get, but correctly tagged so
+    // ItemInfoModal renders WestsideProductView instead of
+    // ShopifyProductView. On failure, falls through to the generic
+    // HTML-scrape pipeline below (parseGeneric, registered for
+    // 'westside' in SITE_PARSERS), exactly like the 'shopify' branch
+    // above does for its own failures.
+    const westsideResult = await scrapeWestsideProduct(url)
+    if (!westsideResult.error) return westsideResult
     site = 'generic'
     fellBackFromStorePlatform = true
   } else if (site === 'woocommerce') {

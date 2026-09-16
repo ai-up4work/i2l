@@ -5,7 +5,7 @@
 // reusable image strip / rating / variant picker building blocks.
 
 import { ExternalLink, Zap } from 'lucide-react'
-import { ImageStrip, RatingStars, OptionsRow, SpecRow, VariantPicker, fmtPrice, type PlatformViewProps } from './shared'
+import { ImageStrip, RatingStars, OptionsRow, VariantPicker, fmtPrice, type PlatformViewProps } from './shared'
 
 export default function FirstCryProductView({ result, onSelectVariant }: PlatformViewProps) {
   return (
@@ -34,7 +34,6 @@ export default function FirstCryProductView({ result, onSelectVariant }: Platfor
           {result.title ?? <span className="italic text-ink/35">No title found</span>}
         </h2>
 
-        <SpecRow result={result} />
         <OptionsRow options={result.options} />
 
         <div className="mt-3 flex items-baseline gap-2">

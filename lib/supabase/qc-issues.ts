@@ -289,12 +289,20 @@ export async function fetchOpenQcIssuesWithContext(resolutions: QcIssueResolutio
 
   const [{ data: orders }, { data: items }, { data: profiles }] = await Promise.all([
     supabase.from('orders').select('id, display_id').in('id', orderIds),
-    supabase.from('order_items').select('id, title, product_snapshots ( image_url )').in('id', itemIds),
+    supabase.from('order_items').select('id, title, screenshot_url, product_snapshots ( image_url )').in('id', itemIds),
     supabase.from('profiles').select('id, full_name, phone').in('id', userIds),
   ])
 
   const displayIdByOrderId = new Map((orders ?? []).map((o) => [o.id, o.display_id]))
-  const itemById = new Map((items ?? []).map((it: any) => [it.id, { title: it.title, image: it.product_snapshots?.image_url }]))
+  // Real product photo first, then the Channel 3 screenshot (OG-fetched
+  // or admin-uploaded — see requests.screenshot_url / order_items.screenshot_url),
+  // same fallback chain as everywhere else that shows an item image
+  // (orders-admin.ts, Ordercontexts.tsx). product_snapshots is never
+  // populated for Channel 3, so without this a faulty Channel 3 item
+  // showed no image at all here — just an empty placeholder block.
+  const itemById = new Map(
+    (items ?? []).map((it: any) => [it.id, { title: it.title, image: it.product_snapshots?.image_url ?? it.screenshot_url }]),
+  )
   const nameByUserId = new Map((profiles ?? []).map((p) => [p.id, p.full_name]))
   const phoneByUserId = new Map((profiles ?? []).map((p) => [p.id, p.phone as string | null]))
 
@@ -317,7 +325,7 @@ export async function fetchQcIssueWithContext(issueId: string): Promise<QcIssueW
 
   const [{ data: order }, { data: item }, { data: profile }] = await Promise.all([
     supabase.from('orders').select('display_id').eq('id', issue.orderId).maybeSingle(),
-    supabase.from('order_items').select('title, unit_price, product_snapshots ( image_url )').eq('id', issue.orderItemId).maybeSingle(),
+    supabase.from('order_items').select('title, unit_price, screenshot_url, product_snapshots ( image_url )').eq('id', issue.orderItemId).maybeSingle(),
     supabase.from('profiles').select('full_name, phone').eq('id', issue.userId).maybeSingle(),
   ])
 
@@ -327,7 +335,12 @@ export async function fetchQcIssueWithContext(issueId: string): Promise<QcIssueW
     customerName: profile?.full_name ?? 'Unknown customer',
     customerPhone: profile?.phone ?? null,
     itemTitle: (item as any)?.title ?? 'Unknown item',
-    itemImage: (item as any)?.product_snapshots?.image_url,
+    // Same fallback chain fix as fetchOpenQcIssuesWithContext above —
+    // this was only ever checking product_snapshots.image_url, which is
+    // always empty for Channel 3, so a faulty Channel 3 item rendered as
+    // a blank placeholder block instead of its actual (OG-scraped or
+    // admin-uploaded) photo.
+    itemImage: (item as any)?.product_snapshots?.image_url ?? (item as any)?.screenshot_url,
   }
 }
 
