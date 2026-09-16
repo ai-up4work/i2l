@@ -171,7 +171,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
               <WelcomeBanner
                 open={bannerOpen}
                 onDismiss={() => setBannerDismissed(true)}
-                onDetails={() => router.push('/account/settings')}
+                onDetails={() => router.push('/account/profile')}
                 collapse={isMobile && !bannerOpen}
               />
             </div>

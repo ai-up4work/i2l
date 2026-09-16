@@ -16,10 +16,20 @@ export const viewRoutes: Record<View, string> = {
   credits: '/account/credits',
   referrals: '/account/referrals',
   ordersHub: '/account/orders',
-  settings: '/account/settings',
-  account: '/account/settings',
-  // New — added for the Personal Center-style home page
+  // 'profile' now listed first among the three merged-page aliases so
+  // viewForPath's first-match lookup resolves to it — that's what
+  // drives sidebar active-state highlighting in app/account/layout.tsx,
+  // and "My Profile" is the sidebar item that survived the merge (see
+  // sidebar-data.ts). 'settings'/'account' still resolve to the same
+  // page for pathForView(view) callers, just aren't picked by the
+  // reverse lookup.
   profile: '/account/profile',
+  // Both point straight at the merged page now — /account/settings
+  // itself is still a route (redirecting to /account/profile) for any
+  // external/bookmarked links, but in-app navigation via these views
+  // goes directly there, no extra redirect hop.
+  settings: '/account/profile',
+  account: '/account/profile',
   coupons: '/account/coupons',
   points: '/account/points',
   wallet: '/account/wallet',

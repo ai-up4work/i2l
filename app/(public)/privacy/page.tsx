@@ -320,11 +320,10 @@ export default function PrivacyPolicyPage() {
                 <li>Request a copy of your data in a portable format, where technically feasible.</li>
               </ul>
               <p>
-                You can manage most of these directly from <a href="/account/settings">Account
-                settings</a> and <a href="/account/profile">Profile</a>, unsubscribe from
-                marketing using the link in any promotional message, or contact us using the
-                details in <a href="/contact">Contact us</a> to exercise any of the rights above.
-                We will respond within a reasonable time and may need to verify your identity
+                You can manage most of these directly from your <a href="/account/profile">Profile</a>,
+                unsubscribe from marketing using the link in any promotional message, or contact us
+                using the details in <a href="/contact">Contact us</a> to exercise any of the rights
+                above. We will respond within a reasonable time and may need to verify your identity
                 before acting on a request.
               </p>
             </>

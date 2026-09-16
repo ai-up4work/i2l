@@ -43,10 +43,14 @@ export const sidebarGroups: SidebarGroup[] = [
     defaultOpen: true,
     items: [
       // { type: 'view', label: 'WishDrop VIP', view: 'wishdropVip' },
+      // "My Profile" now covers what used to be a separate "Manage My
+      // Account" page too (WhatsApp verification, password, account
+      // deletion/export) — see app/account/profile/page.tsx's doc
+      // comment. Removed the second sidebar row rather than keeping two
+      // links to what's now the same page.
       { type: 'view', label: 'My Profile', view: 'profile', badge: 'POINTS' },
       { type: 'view', label: 'Address Book', view: 'AddressBook' },
       // { type: 'view', label: 'My Payment Options', view: 'paymentOptions' },
-      { type: 'view', label: 'Manage My Account', view: 'settings', badge: 'POINTS' },
     ],
   },
   {
