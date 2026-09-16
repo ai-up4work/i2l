@@ -362,6 +362,23 @@ export async function setRequestScreenshotReal(requestId: string, screenshotUrl:
  * other order does. Returns the new order's display_id so the caller can
  * link to it.
  */
+/**
+ * Defensive fallback ONLY — strips the known internal tag/estimate
+ * patterns that buildRequestNote() (DashboardContext.tsx) bakes into
+ * requests.note, for any request created before item_name existed as a
+ * column. Every request created going forward has a real item_name set
+ * at creation time and never needs this. Kept narrowly matched to
+ * exactly those two known patterns rather than a general "strip
+ * bracketed prefixes" rule, so it can't accidentally eat something that
+ * was actually part of the product name.
+ */
+function stripInternalNoteTags(note: string): string {
+  return note
+    .replace(/^\[Confirm size\/color with customer\]\s*/, '')
+    .replace(/\s*\(customer's estimate:.*?\)\s*$/, '')
+    .trim()
+}
+
 export async function confirmRequestReal(
   requestId: string,
   userId: string,
@@ -383,7 +400,7 @@ export async function confirmRequestReal(
   // shows this real photo everywhere instead of the generic placeholder.
   const { data: existing, error: fetchError } = await supabase
     .from('requests')
-    .select('payment_confirmed_at, screenshot_url, chat_thread_id')
+    .select('payment_confirmed_at, screenshot_url, chat_thread_id, item_name')
     .eq('id', requestId)
     .single()
   if (fetchError) return { ok: false, error: fetchError.message }
@@ -422,9 +439,15 @@ export async function confirmRequestReal(
   }
   if (!orderId) return { ok: false, error: 'Could not generate a unique order number. Please try again.' }
 
+  // Clean, customer-facing title — never the raw ops note, which can
+  // carry an internal tag like "[Confirm size/color with customer]"
+  // (see buildRequestNote in DashboardContext.tsx). item_name is the
+  // real source going forward; stripInternalNoteTags is only a fallback
+  // for a request created before that column existed.
+  const cleanTitle = existing.item_name?.trim() || stripInternalNoteTags(customerNote) || link
   const { error: itemError } = await supabase.from('order_items').insert({
     order_id: orderId,
-    title: customerNote.length > 60 ? `${customerNote.slice(0, 57)}...` : customerNote || link,
+    title: cleanTitle.length > 60 ? `${cleanTitle.slice(0, 57)}...` : cleanTitle,
     quantity: 1,
     unit_price: quote,
     request_link: link,

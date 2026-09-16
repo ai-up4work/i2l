@@ -487,6 +487,7 @@ export interface Database {
           user_id: string
           link: string
           note: string | null
+          item_name: string | null
           screenshot_url: string | null
           source_domain: string
           status: string
@@ -505,6 +506,7 @@ export interface Database {
           user_id: string
           link: string
           note?: string | null
+          item_name?: string | null
           screenshot_url?: string | null
           source_domain: string
           status?: string

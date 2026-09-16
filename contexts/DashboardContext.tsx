@@ -286,24 +286,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const product = await lookup(url)
       if (!product || product.error) return
 
-      // Pasted link turned out to be one of our own affiliated sellers'
-      // storefronts (see matchAffiliatedSellerUrl in lib/store-config-db.ts
-      // — checked server-side in /api/product-lookup before any scraping
-      // happens). There's no product draft to fill in this case: close the
-      // modal we optimistically opened above and send the customer straight
-      // to that seller's page, where pricing is already confirmed and no
-      // "Buy for me" request is needed at all.
-      if (product.internalRedirect) {
-        setModalOpen(false)
-        setAutoFilled(false)
-        router.push(product.internalRedirect)
-        return
-      }
-
       setDraft((current) => applyScrapeResultToDraft(current, product))
       setAutoFilled(true)
     },
-    [lookup, router],
+    [lookup],
   )
 
   const startItemInfo = useCallback(
@@ -436,6 +422,14 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             user_id: user.id,
             link: draft.url,
             note: buildRequestNote(draft),
+            // Clean, customer-facing name only — no internal tag, no
+            // price estimate. This (not note) is what confirmRequestReal
+            // uses for the new order's order_items.title, so the
+            // "[Confirm size/color with customer]" tag never ends up
+            // somewhere the customer can actually see it (their own
+            // Orders page, or any auto-sent chat message that mentions
+            // the item by name).
+            item_name: draft.name,
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
             chat_thread_id: threadId,
