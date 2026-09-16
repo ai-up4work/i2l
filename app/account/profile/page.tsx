@@ -3,181 +3,141 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import ProfilePage from '@/components/dashboard/ProfilePage'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
 import { useImageUpload } from '@/lib/upload/useImageUpload'
+import ProfilePage from '@/components/dashboard/ProfilePage'
 
-// Postgres unique_violation — thrown when someone tries to save a
-// chat_handle that's already taken (profiles.chat_handle has a UNIQUE
-// constraint). Named instead of inlined so the check below reads as
-// intent, not a magic string.
-const UNIQUE_VIOLATION = '23505'
+// This route existed as a dead file for a while — `pathForView('profile')`
+// (see components/dashboard/routes.ts, wired to the header's "view
+// profile" action in app/account/page.tsx) already pointed here, and
+// components/dashboard/ProfilePage.tsx already existed fully built and
+// ready to receive real data — this page is just the missing wrapper
+// connecting the two to real auth/Storage/Supabase calls. It had, at one
+// point, ended up as an exact duplicate of the admin QC detail page
+// instead (a copy-paste mistake, not anything intentional) — that's been
+// removed; this is the real page.
+//
+// Name/avatar are stored in TWO places, which sounds redundant but both
+// matter: supabase.auth.updateUser({ data }) writes to auth.users'
+// user_metadata, which is what AuthContext.toAuthUser() actually reads —
+// updating only `profiles` would leave the header/AuthContext showing
+// the old name until next full sign-in. `profiles.full_name`/`avatar_url`
+// gets updated too since that's the column everything else in the app
+// (admin chat, order listings, etc.) queries directly — see the earlier
+// storage audit for why `profiles.avatar_url` existed as a real column
+// with nothing ever writing to it. Both writes need to succeed for this
+// to actually take effect everywhere consistently.
 
-export default function ProfileRoute() {
+export default function AccountProfilePage() {
   const router = useRouter()
-  const { user, loading: authLoading, logout } = useAuth()
-  const supabase = createClient()
-
-  const [pageLoading, setPageLoading] = useState(true)
-  const [phone, setPhone] = useState<string | undefined>(undefined)
-  const [phoneVerified, setPhoneVerified] = useState(false)
-  const [defaultAddress, setDefaultAddress] = useState<string | undefined>(undefined)
-  const [referralCode, setReferralCode] = useState<string | undefined>(undefined)
-
-  // Local override so the avatar updates immediately after a successful
-  // upload without waiting on AuthContext to refresh `user.imageUrl` from
-  // wherever it sources that value.
-  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined)
+  const { user, logout, loading } = useAuth()
+  const { uploading, error: uploadError, upload } = useImageUpload()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Upload state (uploading flag + error message) lives in the shared
-  // hook instead of being hand-rolled here — every other image upload in
-  // the app (product photos, review photos, banners) uses the same hook,
-  // so this page doesn't duplicate the storage/validation logic.
-  const { uploading: avatarUploading, error: avatarError, upload: uploadImage } = useImageUpload()
+  const [addressSummary, setAddressSummary] = useState<string | undefined>(undefined)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
-    setAvatarUrl(user?.imageUrl)
-  }, [user?.imageUrl])
-
-  useEffect(() => {
-    if (authLoading) return
-    if (!user) {
-      setPageLoading(false)
-      return
-    }
-    let cancelled = false
-    setPageLoading(true)
-    ;(async () => {
-      const [{ data: profile }, { data: address }] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('phone, phone_verified, referral_code')
-          .eq('id', user.id)
-          .maybeSingle(),
-        supabase
-          .from('addresses')
-          .select('address_line1, city, country')
-          .eq('user_id', user.id)
-          .eq('is_default', true)
-          .maybeSingle(),
-      ])
-      if (cancelled) return
-      setPhone(profile?.phone ?? undefined)
-      setPhoneVerified(Boolean(profile?.phone_verified))
-      setReferralCode(profile?.referral_code ?? undefined)
-      setDefaultAddress(
-        address
-          ? [address.address_line1, address.city, address.country].filter(Boolean).join(', ')
-          : undefined,
-      )
-      setPageLoading(false)
-      // profiles.chat_handle is the single source of truth now — no more
-      // auth-metadata self-heal needed here. ChatContext reads chat_handle
-      // straight from profiles itself, so there's nothing to reconcile.
-    })()
-    return () => {
-      cancelled = true
-    }
-    // Depend on the primitive id, not the `user` object — Supabase can
-    // emit a new (but value-equal) user object on tab-focus/token-refresh
-    // auth events, and depending on the object reference would re-run
-    // this fetch (and the loading skeleton) every time the tab regains
-    // focus even though nothing actually changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, authLoading])
-
-  async function handleUpdateName(name: string) {
     if (!user) return
-    await Promise.all([
-      supabase.from('profiles').update({ full_name: name }).eq('id', user.id),
+    const supabase = createClient()
+    supabase
+      .from('addresses')
+      .select('label, city, country, is_default')
+      .eq('user_id', user.id)
+      .order('is_default', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setAddressSummary(`${data.label ? `${data.label} — ` : ''}${data.city}, ${data.country}`)
+      })
+  }, [user])
+
+  const handleUpdateName = async (name: string) => {
+    if (!user) return
+    setSaveError(null)
+    const supabase = createClient()
+    const [{ error: authError }, { error: profileError }] = await Promise.all([
       supabase.auth.updateUser({ data: { full_name: name } }),
+      supabase.from('profiles').update({ full_name: name }).eq('id', user.id),
     ])
-  }
-
-  async function handleUpdateHandle(handle: string): Promise<string | void> {
-    if (!user) return 'You need to be signed in to do that.'
-    const { error } = await supabase.from('profiles').update({ chat_handle: handle }).eq('id', user.id)
-    if (error) {
-      if (error.code === UNIQUE_VIOLATION) {
-        return 'That handle is already taken.'
-      }
-      return error.message
+    if (authError || profileError) {
+      setSaveError((authError ?? profileError)?.message ?? 'Could not update your name. Please try again.')
     }
   }
 
-  function handleChangeAvatar() {
-    fileInputRef.current?.click()
-  }
-
-  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file later
-    if (!file || !user) return
-
-    // Type/size validation, storage upload, and public URL resolution all
-    // happen inside the shared hook now — this just calls it and reacts
-    // to the result. avatarError is set by the hook itself on failure.
-    const url = await uploadImage(file, 'avatars')
-    if (!url) return
-
-    const [{ error: profileError }, { error: authError }] = await Promise.all([
-      supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id),
+  const handleAvatarFileSelected = async (file: File) => {
+    if (!user) return
+    setSaveError(null)
+    const url = await upload(file, 'avatars')
+    if (!url) return // useImageUpload's own error state already reflects why
+    const supabase = createClient()
+    const [{ error: authError }, { error: profileError }] = await Promise.all([
       supabase.auth.updateUser({ data: { avatar_url: url } }),
+      supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id),
     ])
-
-    // auth.updateUser is what AuthContext's cached AuthUser actually reads
-    // from (see toAuthUser() in contexts/AuthContext.tsx), so treat a
-    // failure there as the real failure case.
-    if (authError) {
-      console.error('[avatar upload] auth sync failed', authError)
-      return
+    if (authError || profileError) {
+      setSaveError((authError ?? profileError)?.message ?? 'Could not update your photo. Please try again.')
     }
-    // A profiles-table failure alone shouldn't block the visible update —
-    // auth-level write already succeeded — but it's worth knowing about
-    // since other code may read avatar_url from the profiles table
-    // directly rather than from auth user_metadata.
-    if (profileError) {
-      console.error('[avatar upload] profiles sync failed', profileError)
-    }
+  }
 
-    setAvatarUrl(url)
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 pb-8 pt-6 lg:px-10">
+        <div className="mt-6 h-64 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+        <p className="text-sm text-ink/50">You need to be signed in to view your profile.</p>
+      </div>
+    )
   }
 
   return (
-    <>
+    <div>
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         className="hidden"
-        onChange={handleAvatarFileSelected}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (file) handleAvatarFileSelected(file)
+        }}
       />
-      <ProfilePage
-        name={user?.name}
-        email={user?.email}
-        phone={phone}
-        phoneVerified={phoneVerified}
-        avatarUrl={avatarUrl}
-        address={defaultAddress}
-        referralCode={referralCode}
-        onUpdateName={handleUpdateName}
-        onUpdateHandle={handleUpdateHandle}
-        onManageAddresses={() => router.push('/account/address-book')}
-        // No payment_methods table in the schema yet — the row renders
-        // disabled instead of routing anywhere.
-        paymentsComingSoon
-        onSecuritySettings={() => router.push('/account/settings')}
-        onNotificationSettings={() => router.push('/account/settings')}
-        onChangeAvatar={handleChangeAvatar}
-        onSignOut={logout}
-      />
-      {avatarError && (
-        <p className="mx-auto max-w-3xl px-6 pb-4 text-center text-sm font-semibold text-red-600 lg:px-10">
-          {avatarError}
-        </p>
+
+      {(saveError || uploadError) && (
+        <div className="mx-auto mt-4 max-w-3xl px-6 lg:px-10">
+          <p className="rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 ring-1 ring-inset ring-red-200">
+            {saveError ?? uploadError}
+          </p>
+        </div>
       )}
-    </>
+
+      <ProfilePage
+        name={user.name}
+        email={user.email}
+        phoneVerified={user.phoneVerified}
+        avatarUrl={user.imageUrl}
+        address={addressSummary}
+        onUpdateName={handleUpdateName}
+        onManageAddresses={() => router.push('/account/address-book')}
+        onSecuritySettings={() => router.push('/account/settings')}
+        // onManagePayments/onNotificationSettings deliberately left
+        // unset — there's no payment-methods or notification-preferences
+        // feature built yet (no payment gateway, no notification prefs
+        // table), so routing those rows into Settings would just be
+        // wrong. They still render (ProfilePage always shows all four
+        // rows), they just don't navigate anywhere until those features
+        // actually exist.
+        onChangeAvatar={uploading ? undefined : () => fileInputRef.current?.click()}
+        onSignOut={() => logout()}
+      />
+    </div>
   )
 }

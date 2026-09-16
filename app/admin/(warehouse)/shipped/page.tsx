@@ -18,6 +18,8 @@ import {
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import type { ShippedLine } from "@/types/admin"
+import { SendMessageModal } from "@/components/admin/SendMessageModal"
+import { deliveredMessage } from "@/lib/chat/customerMessageTemplates"
 
 // Shipped — arrived at the Sri Lanka warehouse, awaiting local delivery.
 // This is where "Mark delivered" now lives. It used to live on
@@ -48,6 +50,7 @@ export default function ShippedPage() {
     visibleShippedLines,
     canActOnShippedLine,
     markDelivered,
+    sendChatMessage,
     visiblePackLines,
     visibleExportBinLines,
     visibleInTransitLines,
@@ -59,6 +62,11 @@ export default function ShippedPage() {
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [justDelivered, setJustDelivered] = useState<string[]>([])
+  // Same queue pattern as /admin/in-transit's arrived-in-SL message —
+  // "Mark delivered" can act on several orders at once, so this feeds
+  // the modal one message at a time rather than trying to show several.
+  const [messageQueue, setMessageQueue] = useState<{ threadId: string; text: string }[]>([])
+  const currentMessage = messageQueue[0] ?? null
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -88,14 +96,23 @@ export default function ShippedPage() {
   const handleMarkDelivered = () => {
     if (selected.size === 0) return
     const ids = Array.from(selected)
+    const lines = ids.map((id) => visibleShippedLines.find((l) => l.orderId === id))
     ids.forEach((orderId) => markDelivered(orderId))
+    setMessageQueue((prev) => [
+      ...prev,
+      ...lines.filter((l): l is ShippedLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: deliveredMessage() })),
+    ])
     setJustDelivered(ids)
     setSelected(new Set())
     setTimeout(() => setJustDelivered([]), 4000)
   }
 
   const handleSingleDeliver = (orderId: string) => {
+    const line = visibleShippedLines.find((l) => l.orderId === orderId)
     markDelivered(orderId)
+    if (line?.chatThreadId) {
+      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: deliveredMessage() }])
+    }
     setJustDelivered([orderId])
     setSelected((prev) => {
       if (!prev.has(orderId)) return prev
@@ -118,6 +135,7 @@ export default function ShippedPage() {
   const allVisibleSelected = actionableCount > 0 && filtered.filter(canActOnShippedLine).every((l) => selected.has(l.id))
 
   return (
+    <>
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
         {/* ── Header ── */}
@@ -271,6 +289,20 @@ export default function ShippedPage() {
         </div>
       </div>
     </div>
+
+      <SendMessageModal
+        open={currentMessage !== null}
+        title="Let the customer know it's arrived?"
+        defaultMessage={currentMessage?.text ?? ""}
+        onSend={async (text) => {
+          if (!currentMessage) return { ok: false, error: "Nothing to send." }
+          const result = await sendChatMessage(currentMessage.threadId, text)
+          if (result.ok) setMessageQueue((prev) => prev.slice(1))
+          return result
+        }}
+        onSkip={() => setMessageQueue((prev) => prev.slice(1))}
+      />
+    </>
   )
 }
 

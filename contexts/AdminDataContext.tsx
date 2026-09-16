@@ -2040,6 +2040,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         trackingRef: order.trackingRef,
         shippedAgeHours,
         shippedAgeLabel: formatAge(shippedAgeHours),
+        chatThreadId: order.chatThreadId,
       }]
     })
   }, [orders])

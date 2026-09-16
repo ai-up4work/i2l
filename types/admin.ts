@@ -489,6 +489,8 @@ export interface ShippedLine {
   trackingRef?: string
   shippedAgeHours: number
   shippedAgeLabel: string
+  /** See Order.chatThreadId. */
+  chatThreadId?: string
 }
 
 // ---------------------------------------------------------------------------

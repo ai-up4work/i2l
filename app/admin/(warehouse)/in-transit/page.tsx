@@ -61,13 +61,21 @@ const STATUS_TABS: { key: "all" | DeliveryStatus; label: string }[] = [
 ]
 
 export default function InTransitPage() {
-  const { visibleInTransitLines, canActOnInTransitLine, markShipped, sites, currentUser, permissions } = useAdminData()
+  const { visibleInTransitLines, canActOnInTransitLine, markShipped, sendChatMessage, sites, currentUser, permissions } = useAdminData()
 
   const [query, setQuery] = useState("")
   const [courierFilter, setCourierFilter] = useState<string>("All couriers")
   const [statusTab, setStatusTab] = useState<"all" | DeliveryStatus>("all")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [justShipped, setJustShipped] = useState<string[]>([])
+  // Queue rather than a single slot: "Mark shipped" can act on several
+  // orders at once (the bulk action bar), and reviewing/editing N
+  // messages one at a time through the same SendMessageModal is simpler
+  // than trying to show several modals at once. Single-row ship is just
+  // a queue of one. Each entry is popped (via send or skip) before the
+  // next one shows.
+  const [messageQueue, setMessageQueue] = useState<{ threadId: string; text: string }[]>([])
+  const currentMessage = messageQueue[0] ?? null
 
   const couriers = useMemo(() => {
     const set = new Set(visibleInTransitLines.map((l) => l.courier))
@@ -120,7 +128,12 @@ export default function InTransitPage() {
   const handleMarkShipped = () => {
     if (selected.size === 0) return
     const ids = Array.from(selected)
+    const lines = ids.map((id) => filtered.find((l) => l.orderId === id) ?? visibleInTransitLines.find((l) => l.orderId === id))
     ids.forEach((orderId) => markShipped(orderId))
+    setMessageQueue((prev) => [
+      ...prev,
+      ...lines.filter((l): l is InTransitLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: arrivedInSriLankaMessage() })),
+    ])
     setJustShipped(ids)
     setSelected(new Set())
     setTimeout(() => setJustShipped([]), 4000)
@@ -129,7 +142,11 @@ export default function InTransitPage() {
   // Single-row equivalent — fired by clicking the row itself, instead of
   // navigating to the order page.
   const handleSingleShip = (orderId: string) => {
+    const line = visibleInTransitLines.find((l) => l.orderId === orderId)
     markShipped(orderId)
+    if (line?.chatThreadId) {
+      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: arrivedInSriLankaMessage() }])
+    }
     setJustShipped([orderId])
     setSelected((prev) => {
       if (!prev.has(orderId)) return prev
@@ -149,6 +166,7 @@ export default function InTransitPage() {
     : "all sites"
 
   return (
+    <>
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
         {/* ── Header ── */}
@@ -303,6 +321,20 @@ export default function InTransitPage() {
         </div>
       </div>
     </div>
+
+      <SendMessageModal
+        open={currentMessage !== null}
+        title="Let the customer know it's arrived?"
+        defaultMessage={currentMessage?.text ?? ""}
+        onSend={async (text) => {
+          if (!currentMessage) return { ok: false, error: "Nothing to send." }
+          const result = await sendChatMessage(currentMessage.threadId, text)
+          if (result.ok) setMessageQueue((prev) => prev.slice(1))
+          return result
+        }}
+        onSkip={() => setMessageQueue((prev) => prev.slice(1))}
+      />
+    </>
   )
 }
 
