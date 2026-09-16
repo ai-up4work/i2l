@@ -162,7 +162,11 @@ export default function ChatPanel({
         </div>
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 space-y-1 overflow-y-auto bg-parchment p-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="nav-scroll flex-1 space-y-1 overflow-y-auto overflow-x-hidden bg-parchment p-3"
+      >
         {hasMoreMessages && (
           <div className="flex justify-center py-2">
             {loadingMoreMessages ? (
