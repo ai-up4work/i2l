@@ -20,48 +20,111 @@ const RESOLUTION_LABEL: Record<string, string> = {
 
 function timeAgo(iso: string): string {
   const hours = (Date.now() - new Date(iso).getTime()) / 3_600_000
-  if (hours < 1) return "<1h ago"
+  if (hours < 1) return "Just now"
   if (hours < 24) return `${Math.floor(hours)}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function IssueRow({ issue, tone, trailing }: { issue: QcIssueWithContext; tone: "rose" | "gold" | "teal"; trailing?: string }) {
-  const hoverClass = tone === "rose" ? "hover:bg-rose-50/40" : tone === "gold" ? "hover:bg-gold/[0.06]" : "hover:bg-teal/[0.05]"
-  const typeChipClass =
-    tone === "rose"
-      ? "bg-rose-50 text-rose-600 ring-1 ring-inset ring-rose-200"
-      : tone === "gold"
-        ? "bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30"
-        : "bg-teal/10 text-teal-deep ring-1 ring-inset ring-teal/25"
+const TONE = {
+  rose: {
+    row: "hover:bg-rose-50/50",
+    chip: "bg-rose-50 text-rose-600 ring-1 ring-inset ring-rose-200",
+    rail: "bg-rose-500",
+    icon: "text-rose-600 bg-rose-50",
+  },
+  gold: {
+    row: "hover:bg-gold/[0.07]",
+    chip: "bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30",
+    rail: "bg-gold",
+    icon: "text-gold-deep bg-gold/15",
+  },
+  teal: {
+    row: "hover:bg-teal/[0.06]",
+    chip: "bg-teal/10 text-teal-deep ring-1 ring-inset ring-teal/25",
+    rail: "bg-teal",
+    icon: "text-teal-deep bg-teal/10",
+  },
+} as const
+
+function IssueRow({
+  issue,
+  tone,
+  trailing,
+}: {
+  issue: QcIssueWithContext
+  tone: keyof typeof TONE
+  trailing?: string
+}) {
+  const t = TONE[tone]
   return (
     <Link
       href={`/admin/qc-issues/${issue.id}`}
-      className={`flex items-center gap-4 border-b border-ink/[0.06] px-5 py-4 transition-colors last:border-b-0 ${hoverClass}`}
+      className={`group relative flex items-center gap-4 py-4 pl-6 pr-5 transition-colors ${t.row}`}
     >
+      <span className={`absolute inset-y-2 left-0 w-[3px] rounded-full opacity-0 transition-opacity group-hover:opacity-100 ${t.rail}`} />
+
       {issue.itemImage ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={issue.itemImage} alt="" className="h-12 w-12 flex-none rounded-lg object-cover" />
+        <img src={issue.itemImage} alt="" className="h-12 w-12 flex-none rounded-lg object-cover ring-1 ring-ink/[0.06]" />
       ) : (
-        <div className="h-12 w-12 flex-none rounded-lg bg-parchment" />
+        <div className="h-12 w-12 flex-none rounded-lg bg-parchment ring-1 ring-ink/[0.06]" />
       )}
+
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm font-semibold text-ink">{issue.orderDisplayId}</span>
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeChipClass}`}>
+          <span className="font-mono text-[13px] font-semibold tracking-tight text-ink">{issue.orderDisplayId}</span>
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${t.chip}`}>
             {ISSUE_TYPE_LABEL[issue.issueType] ?? issue.issueType}
           </span>
-          {trailing && (
-            <span className="rounded-full bg-ink/[0.04] px-2 py-0.5 text-[11px] font-medium text-ink/50 ring-1 ring-inset ring-ink/10">
-              {trailing}
-            </span>
-          )}
         </div>
-        <p className="mt-0.5 truncate text-sm text-ink/70">{issue.itemTitle}</p>
-        <p className="truncate text-xs text-ink/45">{issue.customerName}</p>
+        <p className="mt-1 truncate text-[14px] leading-snug text-ink/75">{issue.itemTitle}</p>
+        <p className="truncate text-[12.5px] text-ink/40">{issue.customerName}</p>
       </div>
-      <span className="hidden flex-none text-xs text-ink/40 sm:block">{timeAgo(issue.createdAt)}</span>
-      <ChevronRight size={16} className="flex-none text-ink/25" />
+
+      <div className="hidden flex-none flex-col items-end gap-1.5 sm:flex">
+        {trailing && (
+          <span className="rounded-full bg-ink/[0.04] px-2 py-0.5 text-[11px] font-medium text-ink/50 ring-1 ring-inset ring-ink/10">
+            {trailing}
+          </span>
+        )}
+        <span className="text-[12px] text-ink/35">{timeAgo(issue.createdAt)}</span>
+      </div>
+
+      <ChevronRight size={16} className="flex-none text-ink/20 transition-colors group-hover:text-ink/45" />
     </Link>
+  )
+}
+
+function Section({
+  title,
+  count,
+  icon,
+  tone,
+  hint,
+  children,
+}: {
+  title: string
+  count: number
+  icon: React.ReactNode
+  tone: keyof typeof TONE
+  hint?: string
+  children: React.ReactNode
+}) {
+  const t = TONE[tone]
+  return (
+    <section className="mt-9">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="flex items-center gap-2 text-[13px] font-semibold text-ink/70">
+          <span className={`grid h-5 w-5 place-items-center rounded-full ${t.icon}`}>{icon}</span>
+          {title}
+          <span className="text-ink/35">— {count}</span>
+        </h2>
+        {hint && <p className="hidden text-[12px] text-ink/35 sm:block">{hint}</p>}
+      </div>
+      <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-white shadow-[0_1px_2px_rgba(32,36,43,0.03)]">
+        {children}
+      </div>
+    </section>
   )
 }
 
@@ -97,7 +160,7 @@ export default function QcIssuesPage() {
   const [awaitingReplacement, setAwaitingReplacement] = useState<QcIssueWithContext[]>([])
   const [resolved, setResolved] = useState<QcIssueWithContext[]>([])
   const [loading, setLoading] = useState(true)
-  const [showResolved, setShowResolved] = useState(false)
+  const [showResolved, setShowResolved] = useState(true)
 
   useEffect(() => {
     Promise.all([
@@ -116,22 +179,38 @@ export default function QcIssuesPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-6xl px-6 pb-24 pt-10 lg:px-10">
-        <div className="flex items-start gap-4">
-          <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-white text-rose-600 shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(220,38,38,0.35)]">
-            <AlertTriangle size={22} strokeWidth={1.75} />
+      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-white text-rose-600 shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(220,38,38,0.35)]">
+              <AlertTriangle size={22} strokeWidth={1.75} />
+            </div>
+            <div>
+              <h1 className="font-display text-3xl font-semibold text-ink">QC Issues</h1>
+              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+                Faulty items awaiting resolution — decide whether the seller refunded us, then compensate the
+                customer or ship as-is.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display text-3xl font-semibold text-ink">QC Issues</h1>
-            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-              Faulty items awaiting resolution — decide whether the seller refunded us, then compensate the
-              customer or ship as-is. Retried items stay listed until their replacement actually clears QC.
-            </p>
-          </div>
+
+          {!loading && activeCount > 0 && (
+            <div className="flex gap-5 rounded-2xl border border-ink/[0.08] bg-white px-5 py-3.5 sm:gap-8">
+              <div>
+                <p className="text-2xl font-semibold text-rose-600">{needsDecision.length}</p>
+                <p className="text-[12px] text-ink/45">Need a decision</p>
+              </div>
+              <div className="w-px bg-ink/[0.08]" />
+              <div>
+                <p className="text-2xl font-semibold text-gold-deep">{awaitingReplacement.length}</p>
+                <p className="text-[12px] text-ink/45">Awaiting replacement</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {loading ? (
-          <div className="mt-8 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white p-5">
+          <div className="mt-9 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white p-5">
             {[1, 2].map((i) => (
               <div key={i} className="h-16 animate-pulse rounded-xl bg-ink/[0.04]" />
             ))}
@@ -139,7 +218,7 @@ export default function QcIssuesPage() {
         ) : (
           <>
             {activeCount === 0 && (
-              <div className="mt-8 flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-white px-4 py-16 text-center">
+              <div className="mt-9 flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-white px-4 py-16 text-center">
                 <Inbox size={22} className="text-ink/25" />
                 <p className="text-sm font-semibold text-ink/70">Nothing waiting on resolution</p>
                 <p className="max-w-xs text-xs text-ink/45">
@@ -149,55 +228,58 @@ export default function QcIssuesPage() {
             )}
 
             {needsDecision.length > 0 && (
-              <div className="mt-8">
-                <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink/40">
-                  <AlertTriangle size={13} /> Needs a decision ({needsDecision.length})
-                </h2>
-                <div className="overflow-hidden rounded-2xl border border-ink/10 bg-white">
-                  {needsDecision.map((issue) => (
-                    <IssueRow key={issue.id} issue={issue} tone="rose" />
-                  ))}
-                </div>
-              </div>
+              <Section title="Needs a decision" count={needsDecision.length} tone="rose" icon={<AlertTriangle size={11} />}>
+                {needsDecision.map((issue) => (
+                  <IssueRow key={issue.id} issue={issue} tone="rose" />
+                ))}
+              </Section>
             )}
 
             {awaitingReplacement.length > 0 && (
-              <div className="mt-8">
-                <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink/40">
-                  <RotateCcw size={13} /> Awaiting replacement ({awaitingReplacement.length})
-                </h2>
-                <div className="overflow-hidden rounded-2xl border border-gold/25 bg-white">
-                  {awaitingReplacement.map((issue) => (
-                    <IssueRow key={issue.id} issue={issue} tone="gold" />
-                  ))}
-                </div>
-              </div>
+              <Section
+                title="Awaiting replacement"
+                count={awaitingReplacement.length}
+                tone="gold"
+                icon={<RotateCcw size={11} />}
+                hint="Moves to Resolved once the new unit clears QC"
+              >
+                {awaitingReplacement.map((issue) => (
+                  <IssueRow key={issue.id} issue={issue} tone="gold" />
+                ))}
+              </Section>
             )}
 
             {resolved.length > 0 && (
-              <div className="mt-8">
+              <section className="mt-9">
                 <button
                   type="button"
                   onClick={() => setShowResolved((v) => !v)}
-                  className="mb-3 flex w-full items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink/40 hover:text-ink/60"
+                  className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-ink/70 transition-colors hover:text-ink"
                 >
-                  <History size={13} />
-                  Resolved ({resolved.length})
-                  <ChevronRight size={12} className={`transition-transform ${showResolved ? "rotate-90" : ""}`} />
+                  <span className="grid h-5 w-5 place-items-center rounded-full bg-teal/10 text-teal-deep">
+                    <History size={11} />
+                  </span>
+                  Resolved
+                  <span className="text-ink/35">— {resolved.length}</span>
+                  <ChevronRight size={13} className={`text-ink/40 transition-transform ${showResolved ? "rotate-90" : ""}`} />
                 </button>
-                {showResolved && (
-                  <div className="overflow-hidden rounded-2xl border border-teal/20 bg-white">
+                {showResolved ? (
+                  <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-white shadow-[0_1px_2px_rgba(32,36,43,0.03)]">
                     {resolved.map((issue) => (
-                      <IssueRow key={issue.id} issue={issue} tone="teal" trailing={RESOLUTION_LABEL[issue.resolution] ?? issue.resolution} />
+                      <IssueRow
+                        key={issue.id}
+                        issue={issue}
+                        tone="teal"
+                        trailing={RESOLUTION_LABEL[issue.resolution] ?? issue.resolution}
+                      />
                     ))}
                   </div>
-                )}
-                {!showResolved && (
+                ) : (
                   <p className="text-xs text-ink/40">
                     Kept for reference — which orders and products had quality issues, and how each was resolved.
                   </p>
                 )}
-              </div>
+              </section>
             )}
           </>
         )}
