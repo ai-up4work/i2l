@@ -83,12 +83,14 @@ const ROLE_LABELS: Record<Role, string> = {
   manager: "Manager",
   sales: "Sales & Purchase",
   warehouse: "Warehouse",
+  super_admin: "Super Admin",
 }
 
 const DASHBOARD_HREF: Record<Role, string> = {
   manager: "/admin/manager-dashboard",
   sales: "/admin/sales-dashboard",
   warehouse: "/admin/warehouse-dashboard",
+  super_admin: "/admin/super-admin-dashboard",
 }
 
 // Items shared by every role get all three; items scoped to one or two
@@ -99,6 +101,7 @@ function getTopItems(role: Role): NavItem[] {
     { label: "Orders", href: "/admin/orders", icon: ClipboardList, roles: ["manager", "sales", "warehouse"] },
     { label: "Requests", href: "/admin/requests", icon: ClipboardList, roles: ["manager", "sales"] },
     { label: "Customer chat", href: "/admin/chat", icon: MessageCircle, roles: ["manager", "sales"] },
+    { label: "quote", href: "/admin/quote", icon: ClipboardList, roles: ["manager", "sales"] },
   ]
   return items.filter((item) => item.roles.includes(role))
 }
