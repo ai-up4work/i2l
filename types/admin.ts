@@ -8,7 +8,7 @@
 // then wiring them into AdminDataContext the same way Orders/Purchases
 // are done.
 
-export type Role = "manager" | "sales" | "warehouse"
+export type Role = "manager" | "sales" | "warehouse" | "super_admin";
 
 export type Channel = 1 | 2 | 3
 
@@ -507,9 +507,13 @@ export interface ShippedLine {
 export interface StaffMember {
   id: string
   name: string
+  email: string
   role: Role
   /** Only meaningful for Warehouse — mirrors CurrentUser.siteId */
   siteId?: string
+  status: "active" | "deactivated"
+  /** ISO timestamp, or undefined if this account has never signed in */
+  lastLogin?: string
 }
 
 // ---------------------------------------------------------------------------

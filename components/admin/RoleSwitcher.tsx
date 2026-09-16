@@ -8,6 +8,7 @@ const ROLE_LABEL: Record<Role, string> = {
   manager: "Manager",
   sales: "Sales",
   warehouse: "Warehouse",
+  super_admin: "Super Admin",
 }
 
 export function RoleSwitcher() {

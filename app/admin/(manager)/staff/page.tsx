@@ -7,16 +7,17 @@ import { ChevronRight, Plus, Search, SearchX, ShieldCheck, ShoppingBag, Users, W
 
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
-import { getStaffMeta, STAFF_STATUS_LABEL, STAFF_STATUS_TONE } from "@/lib/admin/mock"
+import { STAFF_STATUS_LABEL, STAFF_STATUS_TONE, type StaffAccountStatus } from "@/lib/admin/mock"
 
 // Roster of all Sales & Purchase and Warehouse accounts, across every
 // site. Manager account creation is never available here — per spec,
 // that's Super Admin-only — so Manager rows are filtered out entirely
 // rather than shown read-only, to avoid implying this page can touch them.
 //
-// status/last-active columns are display-only mock data derived from
-// lib/admin/staffMock.ts, since StaffMember has no such fields yet —
-// see that file's header comment for why.
+// status/last-active now come straight from StaffMember (real
+// staff_accounts.status/last_login) — this used to layer mock data from
+// lib/admin/mock's getStaffMeta on top since StaffMember had no such
+// fields; it does now, so that layer is gone.
 
 type RoleFilter = "all" | Extract<Role, "sales" | "warehouse">
 
@@ -50,14 +51,24 @@ export default function StaffListPage() {
     if (currentUser.role !== "manager") router.replace("/admin/dashboard")
   }, [currentUser.role, router])
 
-  // Manager accounts are managed via Super Admin, not this roster.
-  const roster = useMemo(() => staffDirectory.filter((s) => s.role !== "manager"), [staffDirectory])
+  // Manager AND Super Admin accounts are managed via Super Admin, not
+  // this roster — same reasoning applies to both now that super_admin
+  // is a real role (see the resolved routing question in
+  // whatsapp-integration-discussion-summary.md §6.6).
+  const roster = useMemo(() => staffDirectory.filter((s) => s.role !== "manager" && s.role !== "super_admin"), [staffDirectory])
 
   const rows = useMemo(
     () =>
       roster.map((s) => ({
         ...s,
-        meta: getStaffMeta(s.id, s.name),
+        // "Invited" is a display-only derived state, not a real DB
+        // status — the schema only has active/deactivated (see
+        // staff_status in wishdrop-supabase-schema.sql). An account
+        // that's active but has never actually signed in (no real
+        // invite-email flow exists yet — see /api/admin/staff's own
+        // header comment) reads as "invite pending" here rather than
+        // claiming it's already in use.
+        displayStatus: (s.status === "active" && !s.lastLogin ? "invited" : s.status) as StaffAccountStatus,
         siteName: s.siteId ? sites.find((site) => site.id === s.siteId)?.name : undefined,
       })),
     [roster, sites]
@@ -70,14 +81,14 @@ export default function StaffListPage() {
       .filter((r) => {
         const q = search.trim().toLowerCase()
         if (!q) return true
-        return r.name.toLowerCase().includes(q) || r.meta.email.toLowerCase().includes(q)
+        return r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q)
       })
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [rows, roleFilter, siteFilter, search])
 
   const salesCount = roster.filter((s) => s.role === "sales").length
   const warehouseCount = roster.filter((s) => s.role === "warehouse").length
-  const invitedCount = rows.filter((r) => r.meta.status === "invited").length
+  const invitedCount = rows.filter((r) => r.displayStatus === "invited").length
   const hasActiveFilters = search.trim() !== "" || roleFilter !== "all" || siteFilter !== "all"
 
   if (currentUser.role !== "manager") return null
@@ -196,7 +207,7 @@ export default function StaffListPage() {
                   </div>
                   <div>
                     <p className="font-display text-sm font-semibold text-ink">{s.name}</p>
-                    <p className="mt-0.5 text-xs text-ink/50">{s.meta.email}</p>
+                    <p className="mt-0.5 text-xs text-ink/50">{s.email}</p>
                   </div>
                 </div>
 
@@ -209,11 +220,11 @@ export default function StaffListPage() {
                       {s.siteName}
                     </span>
                   )}
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STAFF_STATUS_TONE[s.meta.status]}`}>
-                    {STAFF_STATUS_LABEL[s.meta.status]}
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STAFF_STATUS_TONE[s.displayStatus]}`}>
+                    {STAFF_STATUS_LABEL[s.displayStatus]}
                   </span>
                   <span className="text-xs text-ink/40">
-                    {s.meta.lastLoginHoursAgo === null ? "Never signed in" : `Active ${formatAge(s.meta.lastLoginHoursAgo)} ago`}
+                    {!s.lastLogin ? "Never signed in" : `Active ${formatAge((Date.now() - new Date(s.lastLogin).getTime()) / 3_600_000)} ago`}
                   </span>
                   <ChevronRight size={16} className="hidden text-ink/25 sm:block" />
                 </div>

@@ -313,6 +313,12 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
     role: "warehouse",
     siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
   },
+  // Full /admin operational access, Manager-equivalent — see
+  // ROLE_PERMISSIONS below, which literally reuses manager's permission
+  // object rather than duplicating it, so the two can never drift out of
+  // sync. Distinct id from manager's own — a real super_admin staff
+  // account is its own row, not literally the same person.
+  super_admin: { id: "f3a2b891-6d4e-4c3a-9f2e-8b1c5d7e9a04", name: "Owner Account", role: "super_admin" },
 }
 
 // Reference roster for the reassign-request dropdown AND the Reports
@@ -321,48 +327,65 @@ const MOCK_USERS: Record<Role, CurrentUser> = {
 // meaningful for warehouse entries — sales/manager aren't site-scoped,
 // same convention as CurrentUser.siteId.
 const STAFF_DIRECTORY: StaffMember[] = [
-  { id: "857f794e-d28d-4800-b17e-4b1393461dda", name: "Nadia Fernando", role: "sales" },
-  { id: "e03e6489-a4d4-43ca-a43c-d415403ce80c", name: "Ruvindi Jayasekara", role: "sales" },
-  { id: "20910cf1-6c79-4891-b7b0-15fcf8fd636a", name: "Amara Perera", role: "manager" },
+  { id: "857f794e-d28d-4800-b17e-4b1393461dda", name: "Nadia Fernando", email: "nadia@wishdrop.lk", role: "sales", status: "active" },
+  { id: "e03e6489-a4d4-43ca-a43c-d415403ce80c", name: "Ruvindi Jayasekara", email: "ruvindi@wishdrop.lk", role: "sales", status: "active" },
+  { id: "20910cf1-6c79-4891-b7b0-15fcf8fd636a", name: "Amara Perera", email: "amara@wishdrop.lk", role: "manager", status: "active" },
   {
     id: "00af059b-624d-4b31-9956-ed1c0feff14e",
     name: "Kasun Silva",
+    email: "kasun@wishdrop.lk",
     role: "warehouse",
     siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
+    status: "active",
   },
   {
     id: "6e37890f-346f-4a55-a779-8320765a452d",
     name: "Dimuthu Rajapaksha",
+    email: "dimuthu@wishdrop.lk",
     role: "warehouse",
     siteId: "925ea5ba-e910-4d7b-a351-13b06cda235f",
+    status: "active",
   },
   {
     id: "3ed33c0b-b888-4660-9360-418f36e556ac",
     name: "Harshani Weerasinghe",
+    email: "harshani@wishdrop.lk",
     role: "warehouse",
     siteId: "ef990cda-4177-419d-967a-f9e966bf389e",
+    status: "active",
   },
   {
     id: "12f50202-9165-4dd3-accf-6116137ce9c1",
     name: "Pasan Gunathilaka",
+    email: "pasan@wishdrop.lk",
     role: "warehouse",
     siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
+    status: "active",
   },
 ]
 
+// manager and super_admin intentionally share one object rather than
+// two copies that could quietly drift apart — "Super Admin gets full
+// /admin access, Manager-equivalent" (see the resolved open question in
+// whatsapp-integration-discussion-summary.md §6.6) means whatever
+// Manager can do, Super Admin can do, by construction, not by two
+// people remembering to update both entries in step.
+const MANAGER_PERMISSIONS: Permissions = {
+  canMutateOrderStage: true,
+  ordersScopedToOwnSite: false,
+  canOverrideOrderStage: true,
+  canReassignSite: true,
+  canBulkFlag: true,
+  canToggleDelayed: true,
+  canManageRequests: true,
+  canReassignRequests: true,
+  canCloseRequests: true,
+  canDelete: true,
+}
+
 const ROLE_PERMISSIONS: Record<Role, Permissions> = {
-  manager: {
-    canMutateOrderStage: true,
-    ordersScopedToOwnSite: false,
-    canOverrideOrderStage: true,
-    canReassignSite: true,
-    canBulkFlag: true,
-    canToggleDelayed: true,
-    canManageRequests: true,
-    canReassignRequests: true,
-    canCloseRequests: true,
-    canDelete: true,
-  },
+  manager: MANAGER_PERMISSIONS,
+  super_admin: MANAGER_PERMISSIONS,
   sales: {
     canMutateOrderStage: false,
     ordersScopedToOwnSite: false,
@@ -969,6 +992,14 @@ interface AdminDataContextValue {
   permissions: Permissions
   sites: Site[]
   staffDirectory: StaffMember[]
+  staffLoading: boolean
+  createStaffAccount: (input: { name: string; email: string; role: Role; siteId?: string }) => Promise<{ ok: boolean; error?: string }>
+  updateStaffAccount: (
+    staffId: string,
+    patch: { name?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
+  ) => Promise<{ ok: boolean; error?: string }>
+  deactivateStaffAccount: (staffId: string) => Promise<{ ok: boolean; error?: string }>
+  deleteStaffAccount: (staffId: string) => Promise<{ ok: boolean; error?: string }>
   /** True until the first real Supabase fetch (orders+purchases, requests+chat) resolves. Every page that looks up a specific order/purchase/QC/pack/request line by id from a route param MUST check this before concluding "not found" — on first render after a hard navigation/reload, orders/purchases/requests/chatThreads are still empty placeholders (see REAL DATA ADAPTERS), so an id lookup against them will always miss until this flips to false. */
   dataLoading: boolean
   orders: Order[]
@@ -1200,6 +1231,118 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     loadRealRequests()
   }, [loadRealRequests])
 
+  // ── Staff directory — real, via /api/admin/staff (service-role writes,
+  // since there's no staff-session RLS system yet — see that route's own
+  // header comment for the honest gap: this creates the roster row, not
+  // a real login-capable account). Starts from the static seed above so
+  // the UI has something to render before the first real fetch resolves,
+  // same "seed, then overwrite" pattern loadRealOrders/loadRealRequests
+  // already use elsewhere in this file.
+  const [staffDirectory, setStaffDirectory] = useState<StaffMember[]>(STAFF_DIRECTORY)
+  const [staffLoading, setStaffLoading] = useState(true)
+
+  const mapStaffRow = (row: {
+    id: string
+    name: string
+    email: string
+    role: string
+    site_id: string | null
+    status: string
+    last_login: string | null
+  }): StaffMember => ({
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role as Role,
+    siteId: row.site_id ?? undefined,
+    status: row.status as "active" | "deactivated",
+    lastLogin: row.last_login ?? undefined,
+  })
+
+  const loadStaffDirectory = useCallback(async () => {
+    setStaffLoading(true)
+    try {
+      const res = await fetch("/api/admin/staff")
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? "Failed to load staff")
+      setStaffDirectory((body.staff ?? []).map(mapStaffRow))
+    } catch (err) {
+      console.error("[loadStaffDirectory] failed", err)
+    } finally {
+      setStaffLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadStaffDirectory()
+  }, [loadStaffDirectory])
+
+  /** Creates the staff_accounts roster row. Manager-callable for
+   * sales/warehouse; the super_admin/manager-role case is only ever
+   * reachable from /super-admin/staff/new in the UI — this function
+   * itself doesn't re-check role, matching the honest server-side gap
+   * noted in the API route. */
+  const createStaffAccount = async (input: {
+    name: string
+    email: string
+    role: Role
+    siteId?: string
+  }): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/admin/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      })
+      const body = await res.json()
+      if (!res.ok) return { ok: false, error: body.error ?? "Failed to create staff account" }
+      setStaffDirectory((prev) => [...prev, mapStaffRow(body.staff)])
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Failed to create staff account" }
+    }
+  }
+
+  const updateStaffAccount = async (
+    staffId: string,
+    patch: { name?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`/api/admin/staff/${staffId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      })
+      const body = await res.json()
+      if (!res.ok) return { ok: false, error: body.error ?? "Failed to update staff account" }
+      setStaffDirectory((prev) => prev.map((s) => (s.id === staffId ? mapStaffRow(body.staff) : s)))
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Failed to update staff account" }
+    }
+  }
+
+  /** Deactivate, not delete — the everyday "this person left" action.
+   * Reversible (set status back to 'active' via updateStaffAccount) —
+   * unlike deleteStaffAccount below, which is the real, permanent one. */
+  const deactivateStaffAccount = (staffId: string) => updateStaffAccount(staffId, { status: "deactivated" })
+
+  /** Real, permanent delete — Manager/Super Admin only per the delete
+   * policy; the calling page is responsible for only rendering this
+   * control for those roles (see permissions.canDelete elsewhere in
+   * this file for the established pattern). */
+  const deleteStaffAccount = async (staffId: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`/api/admin/staff/${staffId}`, { method: "DELETE" })
+      const body = await res.json()
+      if (!res.ok) return { ok: false, error: body.error ?? "Failed to delete staff account" }
+      setStaffDirectory((prev) => prev.filter((s) => s.id !== staffId))
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Failed to delete staff account" }
+    }
+  }
+
   // ── Realtime ──────────────────────────────────────────────────────
   //
   // Everything above this point only ever fetches once, on mount. Fine
@@ -1218,6 +1361,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // refetch, ~400ms after things go quiet.
   const ordersRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestsRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const staffRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeSupabaseRef = useRef(createClient())
 
   useEffect(() => {
@@ -1230,6 +1374,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const scheduleRequestsRefetch = () => {
       if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
       requestsRefetchTimer.current = setTimeout(() => loadRealRequests(), 400)
+    }
+    const scheduleStaffRefetch = () => {
+      if (staffRefetchTimer.current) clearTimeout(staffRefetchTimer.current)
+      staffRefetchTimer.current = setTimeout(() => loadStaffDirectory(), 400)
     }
 
     // One channel, every table that feeds loadRealOrders — orders
@@ -1263,14 +1411,32 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           .on("postgres_changes", { event: "*", schema: "public", table: "requests" }, scheduleRequestsRefetch),
     )
 
+    // Staff roster — a new hire, a role/site change, a deactivation.
+    // Matters most for whoever's looking at the staff pages themselves,
+    // but also feeds the reassign-request dropdown and the reports
+    // "staff assigned here" panel elsewhere in the app, so it's worth
+    // keeping live rather than requiring a full page reload to notice a
+    // teammate just got added.
+    const unsubscribeStaff = subscribeWithDiagnostics(
+      supabase,
+      "admin-staff",
+      () =>
+        supabase
+          .channel(`admin-staff:${Math.random().toString(36).slice(2)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "staff_accounts" }, scheduleStaffRefetch),
+    )
+
     return () => {
       if (ordersRefetchTimer.current) clearTimeout(ordersRefetchTimer.current)
       if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
+      if (staffRefetchTimer.current) clearTimeout(staffRefetchTimer.current)
       unsubscribeOrders()
       unsubscribeRequests()
+      unsubscribeStaff()
     }
-    // loadRealOrders/loadRealRequests are stable (useCallback with no
-    // deps) — this only needs to run once, not on every render.
+    // loadRealOrders/loadRealRequests/loadStaffDirectory are stable
+    // (useCallback with no deps) — this only needs to run once, not on
+    // every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -2522,7 +2688,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     currentUser,
     permissions,
     sites: SITES,
-    staffDirectory: STAFF_DIRECTORY,
+    staffDirectory,
+    staffLoading,
+    createStaffAccount,
+    updateStaffAccount,
+    deactivateStaffAccount,
+    deleteStaffAccount,
     dataLoading: ordersLoading || requestsLoading,
     orders,
     visibleOrders,
