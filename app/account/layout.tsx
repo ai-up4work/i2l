@@ -245,9 +245,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
     <DashboardProvider>
-      <AdminDataProvider>
-        <AccountShell>{children}</AccountShell>
-      </AdminDataProvider>
+      <AccountShell>{children}</AccountShell>
     </DashboardProvider>
   )
 }
