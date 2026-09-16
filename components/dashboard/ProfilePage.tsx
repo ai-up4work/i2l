@@ -32,7 +32,7 @@ type ProfilePageProps = {
   name?: string
   email?: string
   phone?: string
-  /** Whether `phone` has been OTP-verified (see app/account/settings —
+  /** Whether `phone` has been OTP-verified (see app/account/profile —
    *  the actual verify flow lives there, this just reflects its result). */
   phoneVerified?: boolean
   avatarUrl?: string
@@ -46,9 +46,11 @@ type ProfilePageProps = {
   onSignOut: () => void
 }
 
-// One row in the "Settings" rail — icon, label, chevron. Same shape as
-// HomePage's RailRow (Wishlist/Following/Recently Viewed) so profile-page
-// navigation rows read as the same pattern as the rest of the dashboard.
+// One row in the "Settings" rail — icon, label, chevron. Rows live inside
+// one shared grouped card (see the `divide-y` wrapper below) rather than
+// each being its own separate bordered box — a stack of four individual
+// cards with gaps between them read as loose/unrelated items; grouping
+// them under one border reads as "this is one list" instead.
 function SettingsRow({
   label,
   icon: Icon,
@@ -62,7 +64,7 @@ function SettingsRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-2xl border border-ink/10 bg-card px-5 py-4 text-left transition-colors duration-150 hover:border-ink/20"
+      className="flex w-full items-center justify-between px-5 py-4 text-left transition-colors duration-150 hover:bg-ink/[0.03]"
     >
       <span className="flex items-center gap-2.5 font-semibold text-ink">
         <Icon size={16} strokeWidth={1.8} className="text-ink/45" />
@@ -134,7 +136,7 @@ export default function ProfilePage({
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 pb-8 lg:px-10">
+    <div className="mx-auto max-w-3xl px-6 pb-8 lg:mx-0 lg:max-w-none lg:px-0">
       <style>{`
         @keyframes fadeUp {
           from { opacity: 0; transform: translateY(12px); }
@@ -216,9 +218,10 @@ export default function ProfilePage({
         </div>
       </div>
 
-      {/* Settings rail */}
+      {/* Settings rail — one grouped card with internal dividers, not
+          four separate floating boxes (see SettingsRow's doc comment). */}
       <div
-        className="mt-4 flex flex-col gap-3 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+        className="mt-4 divide-y divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-card motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
         style={{ animationDelay: '120ms' }}
       >
         <SettingsRow label="Addresses" icon={MapPin} onClick={onManageAddresses} />
