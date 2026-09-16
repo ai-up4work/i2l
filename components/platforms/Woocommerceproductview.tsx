@@ -422,10 +422,7 @@ export default function WooCommerceProductView({
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
-      <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-bold text-teal-deep ring-1 ring-inset ring-teal/20">
-        <BadgeCheck size={13} strokeWidth={2} />
-        Verified via WooCommerce&apos;s Store API
-      </div>
+     
 
       <div className="grid gap-8 sm:grid-cols-2">
         {/* Image gallery — shared component, app default theme */}

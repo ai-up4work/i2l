@@ -158,10 +158,7 @@ export default function ShopifyProductView({
 
   return (
     <div className="rounded-2xl border border-ink/10 bg-white p-5">
-      <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-bold text-teal-deep ring-1 ring-inset ring-teal/20">
-        <BadgeCheck size={13} strokeWidth={2} />
-        Verified via Shopify&apos;s Product API
-      </div>
+     
 
       <div className="grid gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="flex gap-3">

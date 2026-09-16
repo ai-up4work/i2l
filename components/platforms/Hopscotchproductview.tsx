@@ -252,19 +252,19 @@ function HopscotchCommerceActions({
           </RequestActionButton>
         </div>
 
-        <RequestActionButton
-          onClick={onRequestReview}
-          disabled={!canAct}
-          loading={loading}
-          unavailable={result.unavailable}
-          unavailableLabel="NOT AVAILABLE"
-          icon={<ShoppingCart size={16} />}
-          color="#6d28d9"
-          disabledColor="#c7c7c7"
-          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95 sm:grow-0 sm:basis-auto"
-        >
-          BUY NOW
-        </RequestActionButton>
+          <RequestActionButton
+            onClick={onRequestReview}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={<ShoppingCart size={16} />}
+            color="#4169E1"           
+            disabledColor="#c7c7c7"
+            className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-amber-900 hover:brightness-95 sm:grow-0 sm:basis-auto"
+          >
+            BUY NOW
+          </RequestActionButton>
       </div>
 
       <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>

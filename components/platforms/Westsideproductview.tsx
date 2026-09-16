@@ -34,6 +34,13 @@ import Image from 'next/image'
  * into a 2-col/2-row layout at sm: (gallery spanning both rows on the
  * left, info/rest stacked on the right).
  *
+ * Color and Size (or any other variant dimension) each render on their
+ * own line — the outer container is a vertical stack (flex flex-col
+ * gap-4), so Color's label+swatch row sits above Size's label+pill row
+ * rather than the two competing for space side-by-side. Each
+ * dimension's own inner row of swatches/pills still wraps internally
+ * (flex flex-wrap) if it has many options.
+ *
  * DATA SOURCE NOTE: Westside results come from scrapeWestsideProduct
  * in lib/scrape/parsers.ts, which is a thin wrapper around the real
  * Shopify Storefront API (scrapeShopifyProduct) — Westside's
@@ -554,7 +561,7 @@ export default function WestsideProductView({
           </div>
 
           {!!result.variants?.length && (
-            <div className="mt-4 flex flex-wrap gap-6">
+            <div className="mt-4 flex flex-col gap-4">
               {result.variants.map((dim) => {
                 const isColor = dim.dimension.toLowerCase() === 'color'
                 const selectedLabel = selectedByDimension[dim.dimension] ?? null

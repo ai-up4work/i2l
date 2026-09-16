@@ -519,13 +519,6 @@ export default function FlipkartProductView({
             -> commerce actions. Mobile: third (area "rest"). Desktop:
             bottom-right column. */}
         <div className="min-w-0 [grid-area:rest]">
-          <div className="flex flex-wrap items-center gap-2">
-            {result.seller && <span className="text-xs font-medium text-[#878787]">Sold by {result.seller}</span>}
-            {pctOff !== null && pctOff >= 50 && (
-              <span className="rounded bg-[#388E3C] px-2 py-0.5 text-[10px] font-bold text-white">Hot Deal</span>
-            )}
-          </div>
-
           <div className="mt-3 flex items-baseline gap-2.5">
             {mrp && pctOff !== null && <span className="text-sm font-semibold text-[#388E3C]">↓{pctOff}%</span>}
             {price ? (

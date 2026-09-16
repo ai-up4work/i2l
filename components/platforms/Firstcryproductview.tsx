@@ -1,4 +1,4 @@
-// app/demo/scraper-qa/platforms/FirstCryProductView.tsx
+// components/platforms/Firstcryproductview.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -224,19 +224,19 @@ function FirstCryCommerceActions({
           </RequestActionButton>
         </div>
 
-        <RequestActionButton
-          onClick={onRequestReview}
-          disabled={!canAct}
-          loading={loading}
-          unavailable={result.unavailable}
-          unavailableLabel="NOT AVAILABLE"
-          icon={<ShoppingCart size={16} />}
-          color="#f9a8d4"
-          disabledColor="#c7c7c7"
-          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-pink-900 hover:brightness-95 sm:grow-0 sm:basis-auto"
-        >
-          GET QUOTE
-        </RequestActionButton>
+          <RequestActionButton
+            onClick={onRequestReview}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={<ShoppingCart size={16} />}
+            color="#f7941d"           
+            disabledColor="#c7c7c7"
+            className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-violet-900 hover:brightness-95 sm:grow-0 sm:basis-auto"
+          >
+            GET QUOTE
+          </RequestActionButton>
       </div>
 
       <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>

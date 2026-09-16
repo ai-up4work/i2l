@@ -244,7 +244,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     categories: ['Fashion', 'Footwear', 'Accessories'],
     storeType: 'marketplace',
     sampleProductUrl:
-      'https://westside.com/products/superstar-dark-brown-heart-detail-hooded-cotton-jacket-301087456?Color=Brown&Size=S',
+      'https://westside.com/products/gia-black-double-layered-cotton-a-line-dress-301086834?Color=Black&Size=XS',
     sampleProductLabel: 'Superstar Dark Brown Heart-Detail Hooded Cotton Jacket',
   },
   // {
