@@ -32,9 +32,25 @@ import {
   SUPPORTS_TLS_FINGERPRINT_FALLBACK as AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK,
   ajioTlsFingerprintConfigured,
   fetchAjioViaTlsFingerprint,
+  // Scrapingdog tier — one of two hosted-render/geo-targeting fallbacks
+  // for Ajio, tried before the TLS-fingerprint tier. See
+  // extractors/ajio.ts's TIER 3a header comment for why this sits ahead
+  // of the fingerprint tier.
+  SUPPORTS_SCRAPINGDOG_FALLBACK as AJIO_SUPPORTS_SCRAPINGDOG_FALLBACK,
+  ajioScrapingdogConfigured,
+  fetchAjioViaScrapingdog,
+  // scrape.do tier — the other hosted-render/geo-targeting fallback,
+  // sibling to Scrapingdog above (same role: real headless render from
+  // an India-targeted IP, different vendor). See extractors/ajio.ts's
+  // TIER 3b header comment for the param mapping (render=true,
+  // geoCode=in) and why this is kept independently configured rather
+  // than replacing Scrapingdog.
+  SUPPORTS_SCRAPE_DO_FALLBACK as AJIO_SUPPORTS_SCRAPE_DO_FALLBACK,
+  ajioScrapeDoConfigured,
+  fetchAjioViaScrapeDo,
   // Parse.bot tier — preferred path for Ajio when PARSE_API_KEY is set.
   // See extractors/ajio.ts's "TIER 1" header comment for the full
-  // rationale/priority order across all three Ajio fetch tiers.
+  // rationale/priority order across all Ajio fetch tiers.
   ajioParseBotConfigured,
   fetchAjioViaParseBot,
   mapParseBotProductToAjio,
@@ -105,15 +121,18 @@ export type ScrapeResult = {
   error?: string
   warning?: string
   description?: string | null
-  // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi' — all
-  // are non-'direct' tiers reached only after (or instead of) the plain
-  // fetch + headless-render pipeline. The label tells you which
-  // mechanism actually produced the result:
+  // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi',
+  // 'scrapingdog', and 'scrape_do' — all are non-'direct' tiers reached
+  // only after (or instead of) the plain fetch + headless-render
+  // pipeline. The label tells you which mechanism actually produced the
+  // result:
   //   - 'scraperapi': paid residential-proxy API (Meesho)
-  //   - 'fingerprint_fetch': self-hosted TLS-fingerprint-matching fetch (Ajio, last resort)
+  //   - 'fingerprint_fetch': self-hosted TLS-fingerprint-matching fetch (Ajio, final fallback)
+  //   - 'scrapingdog': Scrapingdog hosted headless-render API, India-geo-targeted (Ajio, fallback)
+  //   - 'scrape_do': scrape.do hosted headless-render API, India-geo-targeted (Ajio, sibling fallback to scrapingdog)
   //   - 'parsebot': Parse.bot hosted scraper API — a real HTTP call
-  //     returning structured JSON, not HTML scraping (Ajio, preferred)
-  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
+  //     returning structured JSON, not HTML scraping (Ajio, most preferred)
+  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   /**
    * True when `site` is one of the OG-only platforms (see
@@ -731,8 +750,10 @@ async function primeCookies(
 // is behind them. If a site in this set keeps coming back BLOCKED even
 // via the headless tier, that's the likely explanation — see
 // LAST_RESORT_FALLBACK below, which is the actual fix for that case
-// (and, for Ajio specifically, only if TLS_FETCH_PROXIES is configured
-// with IPs you control — see extractors/ajio.ts and lib/scrape/tls-fetch.ts).
+// (and, for Ajio specifically, the Scrapingdog/scrape.do tiers ahead of
+// the TLS-fingerprint tier — see extractors/ajio.ts's TIER 3a/3b header
+// comments for why: diagnostics on this deployment found the block to
+// be geographic, not IP-reputation or fingerprint based).
 //
 // UPDATE: 'ajio' added — its static HTML is a normal 200 response, never
 // blocked and never caught by the generic looksLikeJsRequiredShell()
@@ -741,7 +762,7 @@ async function primeCookies(
 // STATIC_CONTENT_SUFFICIENT below, which is what actually routes Ajio
 // into this tier despite its static fetch technically "succeeding".
 //
-// NOTE: this whole tier (and the TLS-fingerprint tier below it) is now
+// NOTE: this whole tier (and the fallback tiers below it) is now
 // skipped entirely for Ajio whenever PARSE_API_KEY is set — see
 // scrapeProduct()'s routing near the bottom of this file, which checks
 // ajioParseBotConfigured() before ever reaching fetchDirectWithRetries.
@@ -776,57 +797,101 @@ const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolea
 
 // ---------- Per-site last-resort fallback registry ----------
 //
-// Last-resort tier for sites whose block survives even the headless
-// tier above. Two mechanisms are registered here, each opted into by
-// its own extractor module (same pattern as SITE_OPTIONS_EXTRACTORS
-// above — parsers.ts stays generic, the site module owns the mechanics):
+// Last-resort tier(s) for sites whose block survives even the headless
+// tier above. Each entry is an ORDERED ARRAY of fallback mechanisms
+// tried in sequence until one succeeds — a site can register more than
+// one (Ajio now has three: Scrapingdog, scrape.do, then a self-hosted
+// TLS-fingerprint fetch), each opted into by its own extractor module
+// (same pattern as SITE_OPTIONS_EXTRACTORS above — parsers.ts stays
+// generic, the site module owns the mechanics):
 //
 //   - Meesho: a residential-IP proxy pool (ScraperAPI's product) — the
 //     actual fix for an IP-reputation block, not a "better" browser
 //     fingerprint. Confirmed via real testing to be necessary for Meesho.
-//   - Ajio: a self-hosted TLS-fingerprint-matching fetch (see
-//     extractors/ajio.ts + lib/scrape/tls-fetch.ts) — fixes fingerprint-
-//     only checks without a third-party API. IMPORTANT: on its own this
-//     does NOT fix an IP-reputation block (same class of block Meesho
-//     needed ScraperAPI for) — it only does so if TLS_FETCH_PROXIES is
-//     configured with IPs you control. Without that env var, this tier
-//     mainly helps by avoiding the blocked state in the first place on
-//     runs where only fingerprinting (not IP reputation) was the issue.
-//     NOTE: this tier is now only reached for Ajio when PARSE_API_KEY is
-//     unset — see the routing note on RENDER_FALLBACK_HOSTS above.
+//   - Ajio, tier A (tried first): scrape.do's hosted headless-render
+//     API with geoCode=in geo-targeting — see extractors/ajio.ts's TIER
+//     3b header comment. Fixes BOTH the hydration requirement (real
+//     headless Chrome on their end) and the geographic block diagnosed
+//     on this deployment (India-targeted IP), in one hosted call.
+//     Currently the vendor with a valid credential configured on this
+//     deployment.
+//   - Ajio, tier B: Scrapingdog's equivalent hosted headless-render API
+//     with country=in — same role as tier A, different vendor. Kept
+//     registered alongside scrape.do (not instead of it) so it
+//     activates automatically the moment a valid SCRAPINGDOG_API_KEY is
+//     set, with no further code changes needed to use it or run both.
+//   - Ajio, tier C (final, tried only if neither hosted vendor above is
+//     configured or both fail): a self-hosted TLS-fingerprint-matching
+//     fetch (see extractors/ajio.ts + lib/scrape/tls-fetch.ts) — fixes
+//     fingerprint-only checks without a third-party API, but does NOT
+//     execute JS, so it cannot on its own solve Ajio's hydration
+//     requirement. Kept as a last-resort cheap attempt.
+//     NOTE: this whole array is only reached for Ajio when PARSE_API_KEY
+//     is unset — see the routing note on RENDER_FALLBACK_HOSTS above.
 //
 // `fetch` accepts an optional AbortSignal so a client disconnect (or the
 // caller's own overall deadline) can cancel an in-flight call instead of
-// letting it run — and, for ScraperAPI, get billed — to completion with
-// nobody left to receive the result.
-const LAST_RESORT_FALLBACK: Partial<
-  Record<
-    SiteId,
-    {
-      configured: () => boolean
-      fetch: (
-        url: string,
-        opts?: { signal?: AbortSignal }
-      ) => Promise<{ html: string | null; error: string | null }>
-      source: "scraperapi" | "fingerprint_fetch"
-    }
-  >
-> = {}
+// letting it run — and, for ScraperAPI/Scrapingdog/scrape.do, get
+// billed — to completion with nobody left to receive the result.
+type LastResortTier = {
+  configured: () => boolean
+  fetch: (
+    url: string,
+    opts?: { signal?: AbortSignal }
+  ) => Promise<{ html: string | null; error: string | null }>
+  source: 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do'
+}
+
+const LAST_RESORT_FALLBACK: Partial<Record<SiteId, LastResortTier[]>> = {}
 
 if (MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK) {
-  LAST_RESORT_FALLBACK[MEESHO_SITE_ID] = {
-    configured: meeshoScraperApiConfigured,
-    fetch: fetchMeeshoViaScraperApi,
-    source: "scraperapi",
-  }
+  LAST_RESORT_FALLBACK[MEESHO_SITE_ID] = [
+    {
+      configured: meeshoScraperApiConfigured,
+      fetch: fetchMeeshoViaScraperApi,
+      source: 'scraperapi',
+    },
+  ]
+}
+
+// Ajio: scrape.do tried first (the credential currently configured on
+// this deployment — see extractors/ajio.ts's TIER 3b), then Scrapingdog
+// (kept registered so it activates automatically once a valid
+// SCRAPINGDOG_API_KEY is set — no code change needed to switch back or
+// run both side by side), then TLS-fingerprint as the final cheap
+// fallback if neither hosted vendor is configured or both fail. Built
+// as an array and only assigned if at least one tier is actually
+// available, so an all-disabled config leaves
+// LAST_RESORT_FALLBACK[AJIO_SITE_ID] unset (matching the old
+// Partial<Record<...>> "no entry" behavior) rather than an empty array.
+const ajioFallbackTiers: LastResortTier[] = []
+
+if (AJIO_SUPPORTS_SCRAPE_DO_FALLBACK) {
+  ajioFallbackTiers.push({
+    configured: ajioScrapeDoConfigured,
+    fetch: fetchAjioViaScrapeDo,
+    source: 'scrape_do',
+  })
+}
+
+if (AJIO_SUPPORTS_SCRAPINGDOG_FALLBACK) {
+  ajioFallbackTiers.push({
+    configured: ajioScrapingdogConfigured,
+    fetch: fetchAjioViaScrapingdog,
+    source: 'scrapingdog',
+  })
 }
 
 if (AJIO_SUPPORTS_TLS_FINGERPRINT_FALLBACK) {
-  LAST_RESORT_FALLBACK[AJIO_SITE_ID] = {
+  ajioFallbackTiers.push({
     configured: ajioTlsFingerprintConfigured,
     fetch: fetchAjioViaTlsFingerprint,
-    source: "fingerprint_fetch",
-  }
+    source: 'fingerprint_fetch',
+  })
+}
+
+if (ajioFallbackTiers.length) {
+  LAST_RESORT_FALLBACK[AJIO_SITE_ID] = ajioFallbackTiers
 }
 
 // ---------------------------------------------------------------------
@@ -879,7 +944,7 @@ async function fetchDirectWithRetries(
     maxAttempts = 3,
     signal,
   }: { timeoutMs?: number; maxAttempts?: number; signal?: AbortSignal } = {}
-): Promise<{ html: string | null; error: string | null; source: 'direct' | 'scraperapi' | 'fingerprint_fetch' }> {
+): Promise<{ html: string | null; error: string | null; source: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' }> {
   let lastError: string | null = null
   const primeUrl = PRIME_HOSTS[site]
 
@@ -955,14 +1020,15 @@ async function fetchDirectWithRetries(
       // just as consistent with browser/behavioral fingerprinting
       // (navigator.webdriver, WebGL renderer, missing interaction
       // events — see browser-fetch.ts's stealth notes) as with IP
-      // reputation, and asserting the wrong one sends debugging effort
-      // in the wrong direction. If a plain non-JS fetch (e.g. the
-      // TLS-fingerprint fallback below) succeeds with a clean response
-      // from what's likely the same egress IP, that's actual evidence
-      // *against* IP reputation and *for* something specific to the
-      // browser tier — but this callsite doesn't have that information
-      // yet, so it stays neutral and lets the caller correlate.
-      renderTierError = `BLOCKED: CAPTCHA/robot-check page (via headless browser — cause not yet determined: could be IP reputation, or browser/behavioral fingerprinting specific to the headless tier). ${describeBlockPage(rendered.html)}`
+      // reputation or geography, and asserting the wrong one sends
+      // debugging effort in the wrong direction. If a plain non-JS
+      // fetch (e.g. the TLS-fingerprint fallback) or a country-targeted
+      // hosted render (e.g. the Scrapingdog/scrape.do fallback)
+      // succeeds with a clean response, that's actual evidence about
+      // which factor mattered — but this callsite doesn't have that
+      // information yet, so it stays neutral and lets the caller
+      // correlate.
+      renderTierError = `BLOCKED: CAPTCHA/robot-check page (via headless browser — cause not yet determined: could be IP reputation, geography, or browser/behavioral fingerprinting specific to the headless tier). ${describeBlockPage(rendered.html)}`
       lastError = renderTierError
     } else if (rendered.html && looksLikeJsRequiredShell(rendered.html)) {
       renderTierError = 'JS_SHELL: page still requires JavaScript rendering even via headless browser'
@@ -979,24 +1045,39 @@ async function fetchDirectWithRetries(
     return { html: null, error: 'Client disconnected', source: 'direct' }
   }
 
-  const lastResortFallback = LAST_RESORT_FALLBACK[site]
-  if (lastResortFallback?.configured()) {
-    const viaFallback = await lastResortFallback.fetch(url, { signal })
-    if (viaFallback.html) {
-      return { html: viaFallback.html, error: null, source: lastResortFallback.source }
-    }
+  // Walk this site's registered last-resort tiers IN ORDER, stopping at
+  // the first one that's both configured and succeeds. Errors from
+  // every attempted (configured) tier are accumulated rather than the
+  // last one silently overwriting the others, so a debugging person can
+  // see e.g. "scrape.do failed for reason X, then Scrapingdog also
+  // failed for reason Y, then TLS-fingerprint also failed for reason Z"
+  // instead of only ever seeing the last tier's message.
+  const lastResortTiers = LAST_RESORT_FALLBACK[site] ?? []
+  const fallbackErrors: string[] = []
 
+  for (const tier of lastResortTiers) {
+    if (!tier.configured()) continue
+
+    const viaFallback = await tier.fetch(url, { signal })
+    if (viaFallback.html) {
+      return { html: viaFallback.html, error: null, source: tier.source }
+    }
+    if (viaFallback.error) {
+      fallbackErrors.push(`[${tier.source}] ${viaFallback.error}`)
+    }
+  }
+
+  if (fallbackErrors.length) {
     // Combine rather than overwrite: the render tier's failure (when
     // there is one) is the actionable signal for what's actually wrong
-    // with this scrape — the last-resort tier failing on top of that is
-    // expected/secondary, not a replacement diagnosis. See
+    // with this scrape — every last-resort tier failing on top of that
+    // is expected/secondary, not a replacement diagnosis. See
     // renderTierError's doc comment above.
-    if (viaFallback.error) {
-      lastError =
-        renderTierError && renderTierError !== viaFallback.error
-          ? `${renderTierError} | Fallback also failed: ${viaFallback.error}`
-          : viaFallback.error
-    }
+    const combined = fallbackErrors.join(' | ')
+    lastError =
+      renderTierError && renderTierError !== combined
+        ? `${renderTierError} | Fallback(s) also failed: ${combined}`
+        : combined
   }
 
   return { html: null, error: lastError, source: 'direct' }
@@ -1630,9 +1711,10 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
 //
 // Preferred path for Ajio whenever PARSE_API_KEY is configured (see
 // extractors/ajio.ts's "TIER 1" header comment). Bypasses fetch +
-// headless-render + TLS-fingerprint entirely: a single HTTP call to
-// Parse.bot returns structured product JSON directly, sourced from
-// Ajio's own Hybris/OCC backend rather than scraped HTML.
+// headless-render + Scrapingdog + scrape.do + TLS-fingerprint entirely:
+// a single HTTP call to Parse.bot returns structured product JSON
+// directly, sourced from Ajio's own Hybris/OCC backend rather than
+// scraped HTML.
 async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> {
   const { data, error } = await fetchAjioViaParseBot(url)
   if (!data) {
@@ -1778,8 +1860,9 @@ export type ScrapeProductOptions = {
    * `request.signal`) all the way down through fetchDirectWithRetries
    * and into whichever last-resort fetcher is registered — so a client
    * disconnecting stops in-flight upstream calls (including a paid
-   * ScraperAPI request) instead of them running — and being billed —
-   * to completion with nobody left to receive the result. */
+   * ScraperAPI, Scrapingdog, or scrape.do request) instead of them
+   * running — and being billed — to completion with nobody left to
+   * receive the result. */
   signal?: AbortSignal
 }
 
@@ -1879,10 +1962,10 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
 
     // Prefer Parse.bot's hosted Ajio scraper whenever PARSE_API_KEY is
     // configured — real structured JSON from Ajio's own backend, skipping
-    // fetch + headless-render + TLS-fingerprint entirely for this site.
-    // Falls through to the legacy scraping pipeline below only if
-    // PARSE_API_KEY is unset, so this is a zero-config upgrade just like
-    // the eBay branch above.
+    // fetch + headless-render + Scrapingdog + scrape.do + TLS-fingerprint
+    // entirely for this site. Falls through to the legacy scraping
+    // pipeline below only if PARSE_API_KEY is unset, so this is a
+    // zero-config upgrade just like the eBay branch above.
     if (site === AJIO_SITE_ID && ajioParseBotConfigured()) {
       return await scrapeAjioProductViaParseBot(url)
     }

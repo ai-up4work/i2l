@@ -6,13 +6,13 @@ import { fetchWithTlsFingerprintRetries } from '../tls-fetch'
 // ---------------------------------------------------------------------
 // Ajio (www.ajio.com) product-page extractor.
 //
-// THREE tiers exist for this site now, tried in this priority order by
+// FIVE tiers exist for this site now, tried in this priority order by
 // parsers.ts's scrapeProduct():
 //
 //   1. Parse.bot hosted API (PARSE_BOT section below) — a real HTTP call
 //      to a pre-built scraper that returns structured JSON directly.
 //      Preferred whenever PARSE_API_KEY is configured: skips fetch,
-//      headless-render, AND the TLS-fingerprint fallback entirely.
+//      headless-render, AND all fallback tiers entirely.
 //   2. Direct fetch + headless-render (parseAjio/parseHtml below) — the
 //      original scraping path. Ajio's plain server response is a normal
 //      200 — never blocked, never caught by the generic
@@ -20,8 +20,28 @@ import { fetchWithTlsFingerprintRetries } from '../tls-fetch'
 //      markup (title, price, size/colour pickers) only exists once
 //      client-side JS has hydrated the page. See RENDER_FALLBACK_HOSTS /
 //      STATIC_CONTENT_SUFFICIENT in parsers.ts.
-//   3. Self-hosted TLS-fingerprint fetch (bottom of this file) — last
-//      resort if both of the above fail.
+//   3a. Scrapingdog hosted API (SCRAPINGDOG section below) — real
+//      headless-Chrome render done on Scrapingdog's own infra, from an
+//      India-targeted IP via their `country` param. Added after
+//      diagnosing that Ajio's block on this deployment is geographic
+//      (Akamai edge routing + a residential IP outside India), not
+//      fingerprint-based — a real Chromium instance from the wrong
+//      country still got blocked, so what was actually needed was
+//      "real browser rendering FROM AN INDIAN IP," which Scrapingdog's
+//      dynamic=true + country=in gives in one hosted call.
+//   3b. scrape.do hosted API (SCRAPE_DO section below) — same role as
+//      3a (real headless render + India geo-targeting, done on THEIR
+//      infra), just a different vendor with an equivalent render=true +
+//      geoCode=in combination. Kept as an independently-configured
+//      sibling tier rather than a replacement for Scrapingdog, so
+//      whichever vendor has a valid credential set on a given
+//      deployment is used — see the tier-ordering note in parsers.ts's
+//      ajioFallbackTiers construction for which is attempted first.
+//   4. Self-hosted TLS-fingerprint fetch (bottom of this file) — last
+//      resort if all of the above fail. Kept as a final fallback for
+//      cases where neither hosted-render vendor is available/configured,
+//      though per its own doc comment it cannot solve a hydration
+//      requirement on its own since it never executes JS.
 //
 // Ajio's hashed/generated CSS class names do churn between deploys, so
 // every selector in the tier-2 path below is a fallback *chain* (try the
@@ -43,10 +63,13 @@ export const SITE_ID = 'ajio' as const
 export const REQUIRES_RENDER_FOR_VARIANTS = true
 
 // Single source of truth for "does this HTML actually contain Ajio's
-// hydrated product markup" — used by BOTH parsers.ts's
-// STATIC_CONTENT_SUFFICIENT (for the plain static-fetch tier) and
-// fetchAjioViaTlsFingerprint below (for the TLS-fingerprint last-resort
-// tier).
+// hydrated product markup" — used by parsers.ts's STATIC_CONTENT_SUFFICIENT
+// (for the plain static-fetch tier), fetchAjioViaTlsFingerprint below
+// (for the TLS-fingerprint last-resort tier), fetchAjioViaScrapingdog
+// below (for the Scrapingdog tier), AND fetchAjioViaScrapeDo below (for
+// the scrape.do tier) — so all four non-Parse.bot, non-headless-render
+// tiers are held to the same "don't report a false success on an
+// un-hydrated shell" standard.
 //
 // Previously only the static-fetch tier used this check; the
 // TLS-fingerprint tier fell back to the generic looksLikeJsRequiredShell()
@@ -381,7 +404,7 @@ export function consumeAjioMeta(parsed: Record<string, any>): {
 // ---------------------------------------------------------------------
 // Preferred tier for Ajio when PARSE_API_KEY is set: calls a pre-built
 // Parse.bot scraper (id below) that returns structured product JSON
-// directly, bypassing fetch + headless-render + TLS-fingerprint
+// directly, bypassing fetch + headless-render + all fallback tiers
 // entirely for this site — same idea as scrapeEbayProductViaApi /
 // scrapeShopifyProduct in parsers.ts, just backed by a third-party
 // hosted scraper instead of the platform's own public API.
@@ -760,29 +783,283 @@ export function mapParseBotProductToAjio(raw: Record<string, any>): AjioParseBot
 }
 
 // ---------------------------------------------------------------------
-// TIER 3 (last resort): self-hosted TLS-fingerprint fallback
+// TIER 3a: Scrapingdog hosted API (real headless-Chrome render, from a
+// country-targeted IP, done on THEIR infra)
 // ---------------------------------------------------------------------
-// Reached only after both the direct static fetch AND the shared
-// headless-browser render tier (parsers.ts's RENDER_FALLBACK_HOSTS) have
-// failed to produce usable HTML — and only if PARSE_API_KEY isn't set,
-// since tier 1 (Parse.bot) is now checked first in parsers.ts.
+// Why this sits between the site's own headless-render tier (tier 2,
+// in parsers.ts's RENDER_FALLBACK_HOSTS path) and the self-hosted
+// TLS-fingerprint tier (tier 4, below): diagnostic logging on this
+// deployment's own headless-render tier (real Chromium, real JS
+// execution, real browser fingerprint) still got a 403 "Access Denied"
+// from Akamai — but critically, the response was routed through
+// Akamai's SINGAPORE edge node while the underlying residential IP was
+// in Sri Lanka, not India. Ajio is an India-only retailer. That pattern
+// — immediate 403, no CAPTCHA challenge offered, from a real browser,
+// correlated with a non-Indian edge routing — is a signature of
+// geographic blocking, not fingerprint-based bot detection. A real
+// Chromium from the wrong country still fails; what's actually missing
+// is "real browser rendering FROM AN INDIAN IP," which this deployment's
+// own infrastructure can't easily provide without a proxy subscription.
+//
+// Scrapingdog's dynamic=true + country=in gives exactly that combination
+// in one hosted call: their own headless Chrome (solves hydration, same
+// as tier 2) from an India-targeted IP (solves the geo-block tier 2's
+// own egress IP can't solve on its own).
+//
+// Cost note (from Scrapingdog's docs): dynamic=true alone is 5 credits;
+// dynamic=true + premium=true (residential proxy) together is 25
+// credits. country=in does NOT require premium=true — geotargeting
+// works on the standard rotating proxy pool too — so this defaults to
+// dynamic=true + country=in WITHOUT premium, to stay at 5 credits/call
+// rather than 25. Set SCRAPINGDOG_USE_PREMIUM=true if the standard
+// pool's Indian IPs are themselves found to be blocked and Scrapingdog's
+// residential pool specifically is needed instead.
+
+export const SUPPORTS_SCRAPINGDOG_FALLBACK = true
+
+export function ajioScrapingdogConfigured(): boolean {
+  return Boolean(process.env.SCRAPINGDOG_API_KEY)
+}
+
+const SCRAPINGDOG_ENDPOINT = 'https://api.scrapingdog.com/scrape'
+const SCRAPINGDOG_COUNTRY = process.env.SCRAPINGDOG_COUNTRY || 'in'
+const SCRAPINGDOG_USE_PREMIUM = process.env.SCRAPINGDOG_USE_PREMIUM === 'true'
+// How long to let Scrapingdog's own headless-render + wait cycle run
+// before giving up — separate from this deployment's own fetch
+// timeouts, since their `wait` param (below) adds real time on top of
+// normal request latency. 35000ms is the documented max for their
+// `wait` param itself; give the overall request some headroom above
+// that so a slow-but-legitimate render isn't cut off mid-flight.
+const SCRAPINGDOG_TIMEOUT_MS = Number(process.env.SCRAPINGDOG_TIMEOUT_MS) || 40000
+// Milliseconds Scrapingdog's headless browser waits after page load
+// before capturing HTML — needs to be long enough for Ajio's
+// client-side hydration (title/price/variant swatches) to finish. Same
+// role as RENDER_WAIT_SELECTOR in parsers.ts, but Scrapingdog's API
+// takes a flat wait duration rather than a CSS selector to wait for.
+const SCRAPINGDOG_WAIT_MS = Number(process.env.SCRAPINGDOG_WAIT_MS) || 6000
+
+export async function fetchAjioViaScrapingdog(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  const apiKey = process.env.SCRAPINGDOG_API_KEY
+  if (!apiKey) {
+    return { html: null, error: 'SCRAPINGDOG_API_KEY is not set.' }
+  }
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    url,
+    dynamic: 'true',
+    country: SCRAPINGDOG_COUNTRY,
+    wait: String(SCRAPINGDOG_WAIT_MS),
+    ...(SCRAPINGDOG_USE_PREMIUM ? { premium: 'true' } : {}),
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SCRAPINGDOG_TIMEOUT_MS)
+  const onExternalAbort = () => controller.abort()
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onExternalAbort)
+  }
+
+  try {
+    const res = await fetch(`${SCRAPINGDOG_ENDPOINT}?${params.toString()}`, {
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      // Scrapingdog returns plain-text error bodies on failure (rate
+      // limit, invalid key, target site unreachable even for them,
+      // etc.) — surface a snippet so it's clear whether this is a
+      // Scrapingdog-side problem (auth/quota) vs. them also getting
+      // blocked by Ajio.
+      const snippet = await res.text().catch(() => '')
+      return {
+        html: null,
+        error: `Scrapingdog returned HTTP ${res.status}${snippet ? `: ${snippet.slice(0, 300)}` : ''}`,
+      }
+    }
+
+    const html = await res.text()
+
+    // Same hydration check used by every other Ajio tier — Scrapingdog
+    // rendering successfully does NOT guarantee Ajio's specific
+    // client-side product markup finished mounting in the time we
+    // waited. Reusing hasHydratedAjioMarkup here means this tier is
+    // held to the same honesty standard as tiers 2 and 4 rather than
+    // reporting a false success on an unhydrated shell.
+    if (looksBlocked(html)) {
+      return {
+        html: null,
+        error: `Scrapingdog fetch returned a CAPTCHA/robot-check page even with dynamic=true + country=${SCRAPINGDOG_COUNTRY} — Ajio may be blocking Scrapingdog's IP range specifically, or the block isn't purely geographic/fingerprint-based.`,
+      }
+    }
+    if (!hasHydratedAjioMarkup(html)) {
+      return {
+        html: null,
+        error: `Scrapingdog rendered the page (no block detected) but Ajio's hydrated product markup still isn't present after a ${SCRAPINGDOG_WAIT_MS}ms wait — try raising SCRAPINGDOG_WAIT_MS, or this page may need a real user interaction Scrapingdog's basic dynamic=true doesn't perform.`,
+      }
+    }
+
+    return { html, error: null }
+  } catch (e) {
+    return {
+      html: null,
+      error: `Scrapingdog request failed: ${e instanceof Error ? e.message : String(e)}`,
+    }
+  } finally {
+    clearTimeout(timer)
+    if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+// ---------------------------------------------------------------------
+// TIER 3b: scrape.do hosted API (real headless-Chrome render, from a
+// country-targeted IP, done on THEIR infra)
+// ---------------------------------------------------------------------
+// Same role as the Scrapingdog tier above — render=true gives real JS
+// execution (fixes hydration), geoCode=in routes through an Indian exit
+// node (fixes the Akamai geo-block diagnosed via the egress-IP/edge-
+// routing mismatch found in browser-fetch.ts's diagnostics: a Sri Lanka
+// Telecom IP got routed through Akamai's Singapore edge and rejected
+// with an immediate 403, no CAPTCHA). Kept as a separate,
+// independently-configured tier rather than replacing Scrapingdog
+// outright, so either vendor's credentials being valid is enough to
+// unblock this site — see the ordering note in parsers.ts's
+// ajioFallbackTiers construction for which is tried first.
+//
+// scrape.do's `super=true` (residential/mobile proxy pool) is their
+// equivalent of Scrapingdog's `premium=true` — costs more credits, only
+// needed if the standard rotating pool's Indian IPs are themselves found
+// to be blocked. Defaulted off for the same reason SCRAPINGDOG_USE_PREMIUM
+// defaults off: geoCode alone should already solve a purely geographic
+// block without paying for residential IPs on top of it.
+//
+// NOTE: scrape.do's render tier is synchronous — there's no separate
+// "wait N ms after load" param the way Scrapingdog has `wait`. If Ajio's
+// hydration turns out to need more settle time than scrape.do's default
+// render cycle gives it, the real lever is their `playWithBrowser` action
+// list (explicit wait/scroll/click actions), not a flat timeout knob —
+// not implemented here since the plain render=true tier is the simpler
+// first attempt; revisit if hasHydratedAjioMarkup keeps failing on
+// otherwise-clean (non-blocked) responses from this tier specifically.
+
+export const SUPPORTS_SCRAPE_DO_FALLBACK = true
+
+export function ajioScrapeDoConfigured(): boolean {
+  return Boolean(process.env.SCRAPE_DO_API_KEY)
+}
+
+const SCRAPE_DO_ENDPOINT = 'https://api.scrape.do/'
+const SCRAPE_DO_GEO_CODE = process.env.SCRAPE_DO_GEO_CODE || 'in'
+const SCRAPE_DO_USE_SUPER = process.env.SCRAPE_DO_USE_SUPER === 'true'
+// scrape.do's render tier can legitimately take longer than a plain
+// fetch (real headless Chrome render on their end) — separate from this
+// deployment's normal fetch timeouts, same role as SCRAPINGDOG_TIMEOUT_MS
+// above.
+const SCRAPE_DO_TIMEOUT_MS = Number(process.env.SCRAPE_DO_TIMEOUT_MS) || 40000
+
+export async function fetchAjioViaScrapeDo(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  const apiKey = process.env.SCRAPE_DO_API_KEY
+  if (!apiKey) {
+    return { html: null, error: 'SCRAPE_DO_API_KEY is not set.' }
+  }
+
+  const params = new URLSearchParams({
+    token: apiKey,
+    url,
+    render: 'true',
+    geoCode: SCRAPE_DO_GEO_CODE,
+    ...(SCRAPE_DO_USE_SUPER ? { super: 'true' } : {}),
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SCRAPE_DO_TIMEOUT_MS)
+  const onExternalAbort = () => controller.abort()
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onExternalAbort)
+  }
+
+  try {
+    const res = await fetch(`${SCRAPE_DO_ENDPOINT}?${params.toString()}`, {
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      // scrape.do returns a plain-text or JSON error body on failure
+      // (bad token, quota exhausted, target unreachable even for them,
+      // etc.) — surface a snippet so it's clear whether this is a
+      // scrape.do-side problem (auth/quota) vs. them also getting
+      // blocked by Ajio.
+      const snippet = await res.text().catch(() => '')
+      return {
+        html: null,
+        error: `scrape.do returned HTTP ${res.status}${snippet ? `: ${snippet.slice(0, 300)}` : ''}`,
+      }
+    }
+
+    const html = await res.text()
+
+    // Same hydration check used by every other Ajio tier — a
+    // successful render on scrape.do's end does NOT guarantee Ajio's
+    // specific client-side product markup finished mounting by the
+    // time their render cycle captured the page.
+    if (looksBlocked(html)) {
+      return {
+        html: null,
+        error: `scrape.do fetch returned a CAPTCHA/robot-check page even with render=true + geoCode=${SCRAPE_DO_GEO_CODE} — Ajio may be blocking scrape.do's IP range specifically, or the block isn't purely geographic/fingerprint-based.`,
+      }
+    }
+    if (!hasHydratedAjioMarkup(html)) {
+      return {
+        html: null,
+        error: `scrape.do rendered the page (no block detected) but Ajio's hydrated product markup still isn't present — this page may need explicit wait/scroll actions via scrape.do's playWithBrowser feature that a plain render=true doesn't perform.`,
+      }
+    }
+
+    return { html, error: null }
+  } catch (e) {
+    return {
+      html: null,
+      error: `scrape.do request failed: ${e instanceof Error ? e.message : String(e)}`,
+    }
+  } finally {
+    clearTimeout(timer)
+    if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+// ---------------------------------------------------------------------
+// TIER 4 (final last resort): self-hosted TLS-fingerprint fallback
+// ---------------------------------------------------------------------
+// Reached only after the direct static fetch, the shared headless-
+// browser render tier (parsers.ts's RENDER_FALLBACK_HOSTS), AND both
+// hosted-render tiers above (Scrapingdog, scrape.do) have all failed to
+// produce usable HTML — and only if PARSE_API_KEY isn't set, since tier
+// 1 (Parse.bot) is checked first in parsers.ts.
 //
 // HONEST SCOPE NOTE: per tls-fetch.ts's own header comment, this fixes
 // "Node's HTTP client has a detectably non-browser TLS fingerprint" —
-// it does NOT fix an IP-reputation block on its own, AND (like every
-// client this tier could plausibly use — tls-client, impit, or anything
-// else that isn't an actual browser) it does NOT execute JavaScript. For
-// Ajio specifically, that second point matters a lot: since the real
-// product markup only exists post-hydration, this tier can only ever
-// return a genuinely correct result if TLS-fingerprint-vs-content was
-// the entire problem AND Ajio's server-rendered response (before any
-// client JS runs) happens to already contain what's needed — which,
-// per parseAjio's header comment, it usually doesn't. In practice this
-// tier's realistic job for Ajio is less "solve the hydration problem"
-// and more "rule out fingerprinting as a cause, and fail honestly (via
-// hasHydratedAjioMarkup below) when it isn't." If Ajio scrapes keep
-// landing here instead of succeeding via the headless-render tier
-// above, the render tier itself is where to look next.
+// it does NOT fix an IP-reputation OR geographic block on its own, AND
+// (like every client this tier could plausibly use — tls-client, impit,
+// or anything else that isn't an actual browser) it does NOT execute
+// JavaScript. For Ajio specifically, that second point matters a lot:
+// since the real product markup only exists post-hydration, this tier
+// can only ever return a genuinely correct result if fingerprint-vs-
+// content was the entire problem AND Ajio's server-rendered response
+// (before any client JS runs) happens to already contain what's
+// needed — which, per parseAjio's header comment, it usually doesn't.
+// Given the Scrapingdog/scrape.do tiers above now cover both the
+// hydration requirement AND the geo-targeting requirement in one hosted
+// call, this tier's realistic remaining job is mainly "cheap final
+// attempt when neither hosted vendor is available" rather than a
+// primary fix.
 
 export const SUPPORTS_TLS_FINGERPRINT_FALLBACK = true
 
