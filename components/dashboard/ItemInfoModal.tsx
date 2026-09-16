@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle } from 'lucide-react'
+import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle, Truck, Plane, Info } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
@@ -21,6 +21,12 @@ import ShopifyProductView from '@/components/platforms/Shopifyproductview'
 import WooCommerceProductView from '@/components/platforms/Woocommerceproductview'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
+import {
+  getDualDeliveryPricing,
+  formatLKR,
+  type ProductPriceableItem,
+  type DeliveryPriceOption,
+} from '@/lib/pricing'
 import Image from 'next/image'
 
 /**
@@ -79,6 +85,24 @@ import Image from 'next/image'
  * same product — and if that cart was later checked out, it would mint a
  * SECOND, duplicate request. Only handleAddToCart touches cart.addItem
  * now.
+ *
+ * DELIVERY CHOICE + REAL PRICING IN THE REVIEW STEP: previously this
+ * step showed at most one soft number (estimatedPrice string, or
+ * estimatedPriceLKR with a "final price confirmed by our team" caveat)
+ * with no way to compare Economy vs Express before sending the
+ * request — unlike the cart page, which runs every line through
+ * getDualDeliveryPricing and lets the customer toggle delivery mode
+ * with a live breakdown. Now, whenever the scraped listing has a real,
+ * numeric price (i.e. NOT an ogOnly/unpriced/manual-check listing),
+ * the review step does the same thing: a compact DeliveryModeToggle,
+ * a full Price/Service charge/Delivery/Total breakdown for the
+ * selected mode, and a two-up comparison of both. `onDeliveryChoiceChange`
+ * is fired whenever the customer's choice changes so the parent can
+ * stash it on the draft before calling onSubmitRequest — this modal
+ * still never talks to DashboardContext directly, same as before.
+ * Unpriced/manual-check listings keep the old, gentler messaging
+ * ("Price to be confirmed by our team") since there's no real number
+ * to build a breakdown out of yet.
  */
 
 type ItemOverlayProps = {
@@ -93,7 +117,9 @@ type ItemOverlayProps = {
    * customer sees SOME number before sending a request, even for a
    * generic/ogOnly item that can't be auto-priced for checkout. Null
    * when currency genuinely couldn't be determined — shown as "price
-   * to be confirmed" rather than guessing.
+   * to be confirmed" rather than guessing. Only used as a fallback now,
+   * for listings where a real dual-delivery breakdown can't be built
+   * (see DeliveryChoice section below).
    */
   estimatedPriceLKR?: number | null
   onSelectVariant?: (url: string) => void
@@ -121,6 +147,16 @@ type ItemOverlayProps = {
    * else still links to them directly.
    */
   onSubmitRequest: () => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Fired whenever the customer's Economy/Express choice in the review
+   * step changes (including once, on first mount of the review step,
+   * with the default 'economy'). Optional — this modal still works
+   * without it. Wire it up on the parent side to stash the choice on
+   * DashboardContext's draft before calling onSubmitRequest, if the
+   * request flow should honor it; without this prop the modal is purely
+   * informational about delivery choice, same as before for pricing.
+   */
+  onDeliveryChoiceChange?: (choice: DeliveryChoice) => void
   loading?: boolean
   /**
    * Re-runs the lookup for the same URL from scratch (useProductLookup's
@@ -134,6 +170,7 @@ type ItemOverlayProps = {
 }
 
 type Step = 'listing' | 'review'
+type DeliveryChoice = 'economy' | 'express'
 
 function ConfirmCheckbox({
   checked,
@@ -173,6 +210,169 @@ function toProductSnapshot(result: ScrapeResult) {
     weightKg: (result as ScrapeResult & { weightKg?: number | null }).weightKg ?? null,
     source: 'link' as const,
   }
+}
+
+/**
+ * Turns a scraped listing into the shape getDualDeliveryPricing expects
+ * — same idea as the cart page's toPriceableItem(CartProduct), just
+ * sourced from a ScrapeResult instead of a cart line. Only meaningful
+ * when result.price is a real number; callers must check
+ * canBuildBreakdown(result) before trusting the output.
+ */
+function toPriceableItem(result: ScrapeResult): ProductPriceableItem {
+  return {
+    price: result.price != null ? Number(result.price) : 0,
+    currency: result.currencyCode ?? 'USD',
+    weightKg: (result as ScrapeResult & { weightKg?: number | null }).weightKg ?? undefined,
+  }
+}
+
+/**
+ * A real Economy/Express breakdown only makes sense when we actually
+ * have a numeric source price to build it from. ogOnly / manual-check
+ * listings (see GenericProductView's doc comment) have no trustworthy
+ * price yet — for those we fall back to the older, softer
+ * estimatedPrice / estimatedPriceLKR messaging instead of fabricating a
+ * confident-looking breakdown out of a 0.
+ */
+function canBuildBreakdown(result: ScrapeResult): boolean {
+  return !result.ogOnly && result.price != null && !Number.isNaN(Number(result.price)) && Number(result.price) > 0
+}
+
+function DeliveryModeToggle({
+  value,
+  onChange,
+}: {
+  value: DeliveryChoice
+  onChange: (value: DeliveryChoice) => void
+}) {
+  const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode }[] = [
+    { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={14} strokeWidth={1.8} /> },
+    { key: 'express', label: 'Express', sub: '12–15 days', icon: <Plane size={14} strokeWidth={1.8} /> },
+  ]
+  return (
+    <div className="flex gap-2">
+      {options.map((opt) => {
+        const active = value === opt.key
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => onChange(opt.key)}
+            aria-pressed={active}
+            className={`flex flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+              active ? 'border-teal/50 bg-teal/10' : 'border-ink/12 bg-transparent hover:bg-ink/[0.03]'
+            }`}
+          >
+            <span className={active ? 'text-teal-deep' : 'text-ink/40'}>{opt.icon}</span>
+            <span className="min-w-0">
+              <span className={`block text-sm font-semibold ${active ? 'text-teal-deep' : 'text-ink'}`}>
+                {opt.label}
+              </span>
+              <span className="block text-[11px] text-ink/40">{opt.sub}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function BreakdownRows({ option, qty }: { option: DeliveryPriceOption; qty: number }) {
+  const rows: { label: string; value: number }[] = [
+    { label: 'Price', value: option.priceLKR * qty },
+    { label: 'Service charge', value: option.serviceChargeLKR * qty },
+    { label: 'Delivery', value: option.deliveryFeeLKR * qty },
+  ]
+  return (
+    <div className="space-y-1">
+      {rows.map((row) => (
+        <div key={row.label} className="flex items-baseline justify-between gap-3">
+          <span className="text-[11px] text-ink/45">{row.label}</span>
+          <span className="text-xs tabular-nums text-ink/70">{formatLKR(row.value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CompareColumn({
+  option,
+  qty,
+  heading,
+  active,
+}: {
+  option: DeliveryPriceOption
+  qty: number
+  heading: string
+  active?: boolean
+}) {
+  return (
+    <div className={`rounded-xl ${active ? 'bg-teal/10' : 'bg-ink/[0.03]'} px-3 py-2.5`}>
+      <p className={`mb-1.5 text-xs font-semibold ${active ? 'text-teal-deep' : 'text-ink/50'}`}>{heading}</p>
+      <BreakdownRows option={option} qty={qty} />
+      <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-ink/[0.08] pt-2">
+        <span className="text-xs font-semibold text-ink">Total</span>
+        <span className="text-sm font-bold tabular-nums text-ink">{formatLKR(option.actualTotalLKR * qty)}</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Review-step pricing block: DeliveryModeToggle + a full breakdown for
+ * the selected mode + a compact side-by-side comparison of both — the
+ * same information the cart page's PriceBreakdownOverlay shows per
+ * line, condensed to fit the narrow slide-in panel. Only rendered when
+ * canBuildBreakdown(result) is true.
+ */
+function ReviewPricingBlock({
+  result,
+  qty,
+  deliveryChoice,
+  onDeliveryChoiceChange,
+}: {
+  result: ScrapeResult
+  qty: number
+  deliveryChoice: DeliveryChoice
+  onDeliveryChoiceChange: (choice: DeliveryChoice) => void
+}) {
+  const dual = getDualDeliveryPricing(toPriceableItem(result))
+  const selected = deliveryChoice === 'economy' ? dual.economy : dual.express
+
+  return (
+    <div className="flex flex-col gap-3.5 rounded-xl border border-ink/10 bg-card p-4">
+      <div>
+        <p className="mb-1.5 text-xs font-semibold text-ink/50">Delivery method</p>
+        <DeliveryModeToggle value={deliveryChoice} onChange={onDeliveryChoiceChange} />
+      </div>
+
+      <div className="rounded-xl bg-teal/10 px-3 py-2.5">
+        <p className="mb-1.5 text-xs font-semibold text-teal-deep">
+          Breakdown · {deliveryChoice === 'economy' ? 'Economy' : 'Express'} (selected)
+        </p>
+        <BreakdownRows option={selected} qty={qty} />
+        <p className="mt-1.5 text-[10px] leading-snug text-ink/35">
+          Price includes currency conversion, freight &amp; handling.
+        </p>
+        <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-ink/[0.08] pt-2">
+          <span className="text-xs font-semibold text-ink">Total</span>
+          <span className="text-sm font-bold tabular-nums text-ink">{formatLKR(selected.actualTotalLKR * qty)}</span>
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1.5 flex items-center gap-1 text-xs font-semibold text-ink/50">
+          <Info size={11} />
+          Compare delivery methods
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <CompareColumn option={dual.express} qty={qty} heading="Express" active={deliveryChoice === 'express'} />
+          <CompareColumn option={dual.economy} qty={qty} heading="Economy" active={deliveryChoice === 'economy'} />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // Fallback for an unrecognized result.site — now also renders its own
@@ -388,6 +588,7 @@ export default function ItemInfoModal({
   onQtyChange,
   onClose,
   onSubmitRequest,
+  onDeliveryChoiceChange,
   loading = false,
   onRetry,
 }: ItemOverlayProps) {
@@ -397,6 +598,7 @@ export default function ItemInfoModal({
   const [justAdded, setJustAdded] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
   const cart = useCart()
   const wishlist = useWishlist()
 
@@ -408,6 +610,7 @@ export default function ItemInfoModal({
       setStep('listing')
       setConfirmsRestrictions(false)
       setConfirmsPreowned(false)
+      setDeliveryChoice('economy')
     }
   }, [result])
 
@@ -421,6 +624,16 @@ export default function ItemInfoModal({
     return () => clearTimeout(timer)
   }, [justAdded])
 
+  // Let the parent know the current delivery choice whenever it changes
+  // (and once, on entering the review step with a priced listing), so it
+  // can be stashed on the draft before onSubmitRequest fires. See this
+  // prop's own doc comment above.
+  useEffect(() => {
+    if (step === 'review' && result && canBuildBreakdown(result)) {
+      onDeliveryChoiceChange?.(deliveryChoice)
+    }
+  }, [step, result, deliveryChoice, onDeliveryChoiceChange])
+
   if (!open) return null
 
   const showLoading = !result || loading
@@ -428,6 +641,7 @@ export default function ItemInfoModal({
   const productSnapshot = result && !result.error ? toProductSnapshot(result) : null
   const inWishlist = productSnapshot ? wishlist.isInWishlist(productSnapshot.id) : false
   const canSubmitReview = confirmsRestrictions && confirmsPreowned
+  const hasBreakdown = !!result && !result.error && canBuildBreakdown(result)
 
   function handleToggleWishlist() {
     if (!productSnapshot) return
@@ -477,6 +691,7 @@ export default function ItemInfoModal({
     setStep('listing')
     setConfirmsRestrictions(false)
     setConfirmsPreowned(false)
+    setDeliveryChoice('economy')
   }
 
   // Every prop a platform view (and StoreCommercePanel) needs — same
@@ -655,26 +870,40 @@ export default function ItemInfoModal({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{result!.title ?? 'Untitled item'}</p>
                   <p className="mt-1 text-xs text-ink/45">Quantity: {qty}</p>
-                  {estimatedPrice ? (
-                    <div className="mt-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
-                        Estimated total
-                      </span>
-                      <p className="font-display text-lg text-ink">{estimatedPrice}</p>
-                    </div>
-                  ) : estimatedPriceLKR != null ? (
-                    <div className="mt-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
-                        About
-                      </span>
-                      <p className="font-display text-lg text-ink">LKR {estimatedPriceLKR.toLocaleString('en-LK')}</p>
-                      <p className="text-xs text-ink/40">Final price confirmed by our team before anything is charged.</p>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-xs text-ink/40">Price to be confirmed by our team.</p>
+                  {!hasBreakdown && (
+                    estimatedPrice ? (
+                      <div className="mt-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
+                          Estimated total
+                        </span>
+                        <p className="font-display text-lg text-ink">{estimatedPrice}</p>
+                      </div>
+                    ) : estimatedPriceLKR != null ? (
+                      <div className="mt-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
+                          About
+                        </span>
+                        <p className="font-display text-lg text-ink">LKR {estimatedPriceLKR.toLocaleString('en-LK')}</p>
+                        <p className="text-xs text-ink/40">Final price confirmed by our team before anything is charged.</p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink/40">Price to be confirmed by our team.</p>
+                    )
                   )}
                 </div>
               </div>
+
+              {/* Real Economy/Express breakdown, same numbers the cart
+                  page would show — only when the listing has a
+                  trustworthy source price to build one from. */}
+              {hasBreakdown && (
+                <ReviewPricingBlock
+                  result={result!}
+                  qty={qty}
+                  deliveryChoice={deliveryChoice}
+                  onDeliveryChoiceChange={setDeliveryChoice}
+                />
+              )}
 
               <div className="flex flex-col gap-3.5 rounded-xl border border-ink/10 bg-card p-4">
                 <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
