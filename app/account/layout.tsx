@@ -15,6 +15,7 @@ import Header, { HEADER_BAR_HEIGHT_MOBILE, HEADER_BAR_HEIGHT_DESKTOP } from '@/c
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { AdminDataProvider } from '@/contexts/AdminDataContext'
 
 function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -244,7 +245,9 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
     <DashboardProvider>
-      <AccountShell>{children}</AccountShell>
+      <AdminDataProvider>
+        <AccountShell>{children}</AccountShell>
+      </AdminDataProvider>
     </DashboardProvider>
   )
 }
