@@ -478,8 +478,11 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+    // Keyed on user?.id, not user — same fix as the other contexts (see
+    // Ordercontexts.tsx for the full explanation of why the object
+    // itself is an unstable dependency).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading])
+  }, [user?.id, authLoading])
 
   // ---- DB write helpers — no-op (return immediately) when logged out ----
 

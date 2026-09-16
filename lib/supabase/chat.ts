@@ -310,13 +310,14 @@ export async function markThreadRead(supabase: SupabaseClient, threadId: string)
 
 type RealtimeStatus = 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED'
 
-/** Shared subscribe helper. Logs every status transition (prefixed so
- * it's easy to grep in the console) and retries exactly once, after a
- * short delay, if the channel errors out or times out — covers the
- * case where the underlying websocket drops due to a token refresh or
- * a flaky network blip. If the retry also fails, it gives up and logs
- * loudly rather than retrying forever. */
-function subscribeWithDiagnostics(
+/** Shared subscribe helper — generic enough to use for any Postgres
+ * changes subscription, not just chat. Logs every status transition
+ * (prefixed so it's easy to grep in the console) and retries exactly
+ * once, after a short delay, if the channel errors out or times out —
+ * covers the case where the underlying websocket drops due to a token
+ * refresh or a flaky network blip. If the retry also fails, it gives up
+ * and logs loudly rather than retrying forever. */
+export function subscribeWithDiagnostics(
   supabase: SupabaseClient,
   label: string,
   buildChannel: () => RealtimeChannel,

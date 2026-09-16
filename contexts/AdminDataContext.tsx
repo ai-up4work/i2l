@@ -93,6 +93,8 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { subscribeWithDiagnostics } from "@/lib/supabase/chat"
 import type {
   Role,
   Channel,
@@ -1197,6 +1199,80 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadRealRequests()
   }, [loadRealRequests])
+
+  // ── Realtime ──────────────────────────────────────────────────────
+  //
+  // Everything above this point only ever fetches once, on mount. Fine
+  // for the customer-facing side (a customer only cares about their own
+  // data, and a manual refresh is an acceptable fallback there) — not
+  // fine for ops, who need to see a new request, a stage change another
+  // staff member just made, or a freshly-flagged QC issue without
+  // having to guess that something happened and go reload the page.
+  //
+  // loadRealOrders/loadRealRequests are both expensive, multi-table
+  // batch fetches (see their own bodies above) — calling either on
+  // literally every single row-level change would hammer the DB during
+  // a burst (e.g. a bulk "mark shipped" touching 10 orders at once
+  // fires 10 change events). Debounced instead: every change resets a
+  // short timer, and only the LAST one in a burst actually triggers a
+  // refetch, ~400ms after things go quiet.
+  const ordersRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestsRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const realtimeSupabaseRef = useRef(createClient())
+
+  useEffect(() => {
+    const supabase = realtimeSupabaseRef.current
+
+    const scheduleOrdersRefetch = () => {
+      if (ordersRefetchTimer.current) clearTimeout(ordersRefetchTimer.current)
+      ordersRefetchTimer.current = setTimeout(() => loadRealOrders(), 400)
+    }
+    const scheduleRequestsRefetch = () => {
+      if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
+      requestsRefetchTimer.current = setTimeout(() => loadRealRequests(), 400)
+    }
+
+    // One channel, every table that feeds loadRealOrders — orders
+    // themselves, their line items, purchase records, and QC issues.
+    // A change on any of them can change what an order/purchase/QC
+    // line looks like, so all of them schedule the same debounced
+    // refetch rather than trying to patch four different tables'
+    // worth of state by hand.
+    const unsubscribeOrders = subscribeWithDiagnostics(
+      supabase,
+      "admin-orders",
+      () =>
+        supabase
+          .channel(`admin-orders:${Math.random().toString(36).slice(2)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleOrdersRefetch)
+          .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, scheduleOrdersRefetch)
+          .on("postgres_changes", { event: "*", schema: "public", table: "purchases" }, scheduleOrdersRefetch)
+          .on("postgres_changes", { event: "*", schema: "public", table: "order_item_issues" }, scheduleOrdersRefetch),
+    )
+
+    // Separate channel for requests — a new Channel 3 request coming
+    // in, a quote being set, payment being confirmed, etc. Sales &
+    // Purchase should see a new request appear in the queue live, not
+    // after their next manual refresh.
+    const unsubscribeRequests = subscribeWithDiagnostics(
+      supabase,
+      "admin-requests",
+      () =>
+        supabase
+          .channel(`admin-requests:${Math.random().toString(36).slice(2)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "requests" }, scheduleRequestsRefetch),
+    )
+
+    return () => {
+      if (ordersRefetchTimer.current) clearTimeout(ordersRefetchTimer.current)
+      if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
+      unsubscribeOrders()
+      unsubscribeRequests()
+    }
+    // loadRealOrders/loadRealRequests are stable (useCallback with no
+    // deps) — this only needs to run once, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const currentUser = MOCK_USERS[role]
   const permissions = ROLE_PERMISSIONS[role]

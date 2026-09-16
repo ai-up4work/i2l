@@ -99,7 +99,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return
     }
     setNotifications((data ?? []).map(mapRowToNotification))
-  }, [user])
+    // Keyed on user?.id, not user — see Ordercontexts.tsx for the full
+    // explanation. Kept as user?.id here too (not just fixing the
+    // useEffect below) since this useCallback getting a new identity on
+    // every tab-focus event is what was re-triggering the effect at
+    // [load] below in the first place.
+  }, [user?.id])
 
   useEffect(() => {
     load()
@@ -124,7 +129,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user])
+    // Keyed on user?.id, not user — same fix as above; otherwise this
+    // tore down and re-created the realtime subscription on every tab
+    // focus, not just on an actual login/logout.
+  }, [user?.id])
 
   const markAsRead = useCallback(
     (id: string) => {
@@ -147,7 +155,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       .then(({ error }) => {
         if (error) console.error('[notifications] markAllAsRead failed', error)
       })
-  }, [user])
+  }, [user?.id])
 
   const dismiss = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id))

@@ -309,8 +309,13 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+    // Keyed on user?.id, not user — same fix as Cartcontext.tsx /
+    // Ordercontexts.tsx / ChatContext.tsx: AuthContext hands out a new
+    // user object on every auth event (including the tab-focus session
+    // refresh Supabase's client does automatically), so keying on the
+    // object itself refetched the whole wishlist on every tab focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, hydrated])
+  }, [user?.id, authLoading, hydrated])
 
   const addItem = useCallback(
     (product: WishlistProduct) => {

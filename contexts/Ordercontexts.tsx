@@ -940,8 +940,16 @@ export function OrdersProvider({
     return () => {
       cancelled = true
     }
+    // Keyed on user?.id (a primitive), not user (an object) — see
+    // ChatContext.tsx's identical fix for why. Supabase's client
+    // refreshes the auth session on tab visibility change (regaining
+    // focus after being backgrounded/switched away from), and
+    // AuthContext's applyUser() sets a brand-new user object on every
+    // such event even when nothing about the user actually changed.
+    // Keying this effect on the whole object meant every tab-focus
+    // event silently refetched every order from scratch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, initialOrders])
+  }, [user?.id, authLoading, initialOrders])
 
   const value = useMemo<OrdersContextValue>(
     () => ({

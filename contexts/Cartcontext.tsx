@@ -220,8 +220,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+    // Keyed on user?.id, not user — see ChatContext.tsx / Ordercontexts.tsx
+    // for the full explanation: AuthContext hands out a brand-new user
+    // object on every auth event, including the session refresh Supabase
+    // fires on tab-focus, so keying on the object itself refetched the
+    // whole cart every time the tab regained focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, hydrated])
+  }, [user?.id, authLoading, hydrated])
 
   const addItem = useCallback(
     (product: CartProduct, qty: number = 1) => {
