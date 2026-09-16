@@ -167,12 +167,17 @@ const getActiveSellerUrls = unstable_cache(
       .select('platform_slug, name, outbound_url, provider_type, provider_config, status')
       .eq('status', 'active')
       .not('outbound_url', 'is', null)
+      // If `sellers` rows always represent local/affiliated sellers only
+      // (marketplaces are hardcoded in data/stores/data.ts, never a
+      // sellers row — see affiliated-stores.ts's own comment on this),
+      // this filter is a no-op safety net. Kept explicit in case that
+      // assumption ever changes.
 
     if (error) throw error
     return data ?? []
   },
   ['affiliated-seller-urls'],
-  { revalidate: 86400, tags: ['sellers'] }, // 24h
+  { revalidate: 86400, tags: ['sellers'] },
 )
 
 function normalizeHostname(rawUrl: string): string | null {
@@ -216,9 +221,15 @@ export async function matchAffiliatedSellerUrl(rawUrl: string): Promise<Resolved
     console.error('[store-config-db] affiliated-seller URL cache lookup failed', err)
   }
 
-  // Fallback: hardcoded list, same exact-hostname comparison.
+  // Fallback: hardcoded list — LOCAL sellers only. Marketplace entries
+  // (Amazon, eBay, Westside, etc.) intentionally still go through the
+  // external scraper: they're third-party sites we have no pricing
+  // arrangement with, not sellers whose catalog/pricing we already have
+  // confirmed. Matching a marketplace entry here would wrongly redirect
+  // a customer internally instead of scraping the real product they
+  // pasted.
   const hardcodedMatch = affiliatedStores.find(
-    (s) => s.url && normalizeHostname(s.url) === targetHost,
+    (s) => s.storeType === 'local' && s.url && normalizeHostname(s.url) === targetHost,
   )
   if (!hardcodedMatch) return null
 

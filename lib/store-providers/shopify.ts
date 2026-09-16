@@ -923,3 +923,29 @@ export async function fetchShopifyCollections(
 
   return fetchShopifyPlusCollections(plusConfig);
 }
+
+/**
+ * REST-ONLY single-product lookup — deliberately skips the Shopify Plus/
+ * GraphQL discovery fallback that fetchShopifyProduct performs. Used by
+ * /api/product-lookup's affiliated-seller redirect check, which only
+ * needs a cheap yes/no on "does this handle resolve" and must never
+ * trigger a real headless-browser discovery (slow, resource-heavy, and
+ * shares state/concurrency with the real Plus scraping path elsewhere in
+ * the app) just to validate a redirect target. A miss here (including on
+ * a genuinely headless store, which REST can never resolve) should be
+ * treated by the caller as "fall back to the catalog page", not "this
+ * product doesn't exist".
+ */
+
+export async function fetchShopifyProductRestOnly(
+  platform: string,
+  config: ShopifyProviderConfig,
+  storeName: string,
+  handle: string
+): Promise<StoreProduct | null> {
+  try {
+    return await fetchShopifyProductRest(platform, config, storeName, handle);
+  } catch {
+    return null;
+  }
+}

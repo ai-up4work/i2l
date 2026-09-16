@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { scrapeProduct } from '@/lib/scrape/parsers'
 import { matchAffiliatedSellerUrl } from '@/lib/store-config-db'
 import { extractProductIdentifier } from '@/lib/store-providers/product-id'
-import { fetchStoreProduct } from '@/lib/store-providers/product'
+import { fetchStoreProductForRedirectCheck } from '@/lib/store-providers/product'
 
 // Must be >= the ScraperAPI TOTAL_BUDGET_MS (5 min) or the platform
 // will kill the function before scrapeProduct() gets a chance to
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
 
     if (productId) {
       try {
-        const product = await fetchStoreProduct(matchedSeller.platform, productId)
+          const product = await fetchStoreProductForRedirectCheck(matchedSeller.platform, productId)        
         if (product) {
           // NOTE: this app's product detail route is singular
           // "/product/[productId]", not "/products/[productId]" — do
