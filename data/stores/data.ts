@@ -217,7 +217,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     categories: ['Fashion', 'Footwear', 'Accessories'],
     storeType: 'marketplace',
     sampleProductUrl:
-      'https://www.ajio.com/kashianxstyle-women-high-rise-relaxed-jeans/p/702297973_blue?',
+      'https://www.ajio.com/kashianxstyle-women-high-rise-relaxed-jeans/p/702297973_blue',
     sampleProductLabel: 'Fabflee X AG Solid Wide Leg Trousers',
   },
   {
