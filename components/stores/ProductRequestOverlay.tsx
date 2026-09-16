@@ -14,6 +14,7 @@ export default function ProductRequestOverlay() {
     lookupLoading,
     scrapeResult,
     selectVariant,
+    beginRequestForUrl,
   } = useDashboard()
 
   if (!modalOpen) return null
@@ -30,6 +31,12 @@ export default function ProductRequestOverlay() {
       loading={lookupLoading}
       onSelectVariant={(url) => {
         if (url) selectVariant(url)
+      }}
+      // Re-runs the whole lookup (retry-after-5s + OG fallback) for the
+      // same URL — only shown once that chain already ran once and came
+      // up completely empty (see UnreadableListingFallback).
+      onRetry={() => {
+        if (draft.url) beginRequestForUrl(draft.url)
       }}
     />
   )

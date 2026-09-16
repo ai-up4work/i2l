@@ -1,9 +1,9 @@
-// app/demo/scraper-qa/platforms/SnapdealProductView.tsx
 'use client'
 
-import { ExternalLink, Star } from 'lucide-react'
+import { ExternalLink, Star, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import RequestActionButton from '@/components/stores/RequestActionButton'
 
 function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
   const n = amount != null ? Number(amount) : NaN
@@ -61,16 +61,135 @@ function RatingBadge({ rating, count }: { rating: string | null | undefined; cou
   )
 }
 
+/**
+ * Snapdeal-styled qty/wishlist/cart/request block — same functional
+ * shape as every other platform view's commerce actions
+ * (AmazonCommerceActions, MyntraCommerceActions, etc.): qty stepper,
+ * wishlist heart, Add to Cart, Get Quote, inline in one wrapping row.
+ * This platform view previously had no commerce actions at all — not
+ * even a disabled placeholder — so no Snapdeal listing could be added
+ * to cart or requested; this brings it up to the same standard as
+ * every other platform.
+ */
+function SnapdealCommerceActions({
+  result,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
+}: {
+  result: ScrapeResult
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
+}) {
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-red-600/30 hover:bg-red-600/5 hover:text-red-600 active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-red-600/30 hover:bg-red-600/5 hover:text-red-600 active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={justAdded ? <Check size={16} /> : undefined}
+            color="#dc2626"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+          >
+            {justAdded ? 'ADDED' : 'ADD TO CART'}
+          </RequestActionButton>
+        </div>
+
+        <RequestActionButton
+          onClick={onRequestReview}
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={<ShoppingCart size={16} />}
+          color="#0f766e"
+          disabledColor="#c7c7c7"
+          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95 sm:grow-0 sm:basis-auto"
+        >
+          GET QUOTE
+        </RequestActionButton>
+      </div>
+
+      <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>
+    </div>
+  )
+}
+
 /** Snapdeal has no known size/color picker worth scraping today (see
  * extractors/snapdeal.ts), so `onSelectVariant` is accepted only to keep
- * this component's prop contract identical to every other platform view —
- * ScraperQaClient wires all of them up the same way regardless of whether
- * a given site actually has variants to click. */
+ * this component's prop contract identical to every other platform view. */
 export default function SnapdealProductView({
   result,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
 }: {
   result: ScrapeResult
   onSelectVariant: (url: string) => void
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
 }) {
   const price = fmtPrice(result.price, result.currencyCode)
   const mrp = result.mrp && result.mrp !== result.price ? fmtPrice(result.mrp, result.currencyCode) : null
@@ -116,6 +235,19 @@ export default function SnapdealProductView({
               {result.availability}
             </p>
           )}
+
+          <SnapdealCommerceActions
+            result={result}
+            qty={qty}
+            onQtyChange={onQtyChange}
+            inWishlist={inWishlist}
+            onToggleWishlist={onToggleWishlist}
+            onAddToCart={onAddToCart}
+            justAdded={justAdded}
+            onRequestReview={onRequestReview}
+            loading={loading}
+            canAct={canAct}
+          />
 
           {result.seller && (
             <p className="mt-3 text-xs text-ink/50">

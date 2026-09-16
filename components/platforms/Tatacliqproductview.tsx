@@ -1,10 +1,10 @@
-// app/demo/scraper-qa/platforms/TataCliqProductView.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, ExternalLink } from 'lucide-react'
+import { Star, ExternalLink, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import RequestActionButton from '@/components/stores/RequestActionButton'
 
 /**
  * Renders a scrape result to look like the real Tata CLiQ product page
@@ -13,9 +13,6 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
  * the "Sold by" seller line, and the plain grey pill size row — the
  * same landmarks a reviewer would check against the live site, same
  * convention as AmazonProductView/FlipkartProductView.
- *
- * Purely presentational / read-only: ADD TO BAG & BUY NOW are disabled,
- * since this is a scrape QA tool, not a real storefront.
  *
  * result.site for this platform comes through as 'tataCliq' (see
  * scraperSite override on the tata-cliq entry in data/stores/data.ts —
@@ -150,12 +147,135 @@ function SizeRow({
   )
 }
 
+/**
+ * TataCliq-styled qty/wishlist/cart/request block — same functional
+ * shape as every other platform view's commerce actions
+ * (AmazonCommerceActions, MyntraCommerceActions, etc.): qty stepper,
+ * wishlist heart, Add to Bag, Get Quote, inline in one wrapping row.
+ * Replaces the old pair of permanently-disabled "ADD TO BAG"/"BUY NOW"
+ * buttons labeled "Demo only — this QA tool does not place real
+ * orders" — a leftover from the demo scraper-QA client this file was
+ * originally copied from, which meant no TataCliq listing could
+ * actually be added to cart or requested. Reuses the same navy/red
+ * split the disabled buttons already established.
+ */
+function TataCliqCommerceActions({
+  result,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
+}: {
+  result: ScrapeResult
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
+}) {
+  return (
+    <div className="mt-4 flex flex-col gap-3 sm:max-w-[360px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-sm border border-[#dcdcdc] px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-sm border border-[#dcdcdc] text-[#3d3d3d] transition-colors hover:border-[#0B1E48]/40 hover:bg-[#0B1E48]/5 active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums text-[#0B1E48]">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-sm border border-[#dcdcdc] text-[#3d3d3d] transition-colors hover:border-[#0B1E48]/40 hover:bg-[#0B1E48]/5 active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-sm border border-[#dcdcdc] text-[#7a7a7a] transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="OUT OF STOCK"
+            icon={justAdded ? <Check size={16} /> : undefined}
+            color="#0B1E48"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-sm px-5 py-3 text-sm font-bold hover:brightness-110"
+          >
+            {justAdded ? 'ADDED' : 'ADD TO BAG'}
+          </RequestActionButton>
+        </div>
+
+        <RequestActionButton
+          onClick={onRequestReview}
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="OUT OF STOCK"
+          icon={<ShoppingCart size={16} />}
+          color="#E33121"
+          disabledColor="#c7c7c7"
+          className="grow basis-full whitespace-nowrap rounded-sm px-5 py-3 text-sm font-bold hover:brightness-95 sm:grow-0 sm:basis-auto"
+        >
+          GET QUOTE
+        </RequestActionButton>
+      </div>
+
+      <p className="text-xs text-[#9a9a9a]">You will not be charged now. This is just a request.</p>
+    </div>
+  )
+}
+
 export default function TataCliqProductView({
   result,
   onSelectVariant,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
 }: {
   result: ScrapeResult
   onSelectVariant: (url: string) => void
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
 }) {
   const images = result.images ?? []
   const [mainImage, setMainImage] = useState(images[0] ?? null)
@@ -262,24 +382,18 @@ export default function TataCliqProductView({
             )}
           </p>
 
-          <div className="mt-4 flex flex-col gap-2 sm:max-w-[280px] sm:flex-row">
-            <button
-              type="button"
-              disabled
-              title="Demo only — this QA tool does not place real orders"
-              className="flex w-full cursor-not-allowed items-center justify-center rounded-sm border-2 border-[#0B1E48] px-4 py-3 text-sm font-bold text-[#0B1E48] opacity-70"
-            >
-              ADD TO BAG
-            </button>
-            <button
-              type="button"
-              disabled
-              title="Demo only — this QA tool does not place real orders"
-              className="flex w-full cursor-not-allowed items-center justify-center rounded-sm bg-[#E33121] px-4 py-3 text-sm font-bold text-white opacity-70"
-            >
-              BUY NOW
-            </button>
-          </div>
+          <TataCliqCommerceActions
+            result={result}
+            qty={qty}
+            onQtyChange={onQtyChange}
+            inWishlist={inWishlist}
+            onToggleWishlist={onToggleWishlist}
+            onAddToCart={onAddToCart}
+            justAdded={justAdded}
+            onRequestReview={onRequestReview}
+            loading={loading}
+            canAct={canAct}
+          />
 
           <a
             href={result.url}

@@ -597,11 +597,15 @@ export default function ScraperQaClient() {
     // last good result in place instead of wiping it.
 
     // needVariants=true: this QA tool exists to inspect size/color
-    // pickers, so it always opts into the extra render-tier fallback in
-    // scrapeProduct() for sites (currently Flipkart and Myntra) whose
-    // variant data is only present after client-side hydration. Other,
-    // non-QA callers of this same endpoint should omit the param to stay
-    // on the fast/cheap path — see scrapeProduct()'s ScrapeProductOptions.
+    // pickers, so it always requests them. Today this only affects the
+    // RESPONSE, not the fetch strategy: scrapeProduct() (see parsers.ts)
+    // doesn't currently use needVariants to trigger any extra render/proxy
+    // tier — it's used purely to attach a warning to the result when a
+    // site's picker is known to render client-side (VARIANT_REQUIRES_RENDER)
+    // and no variant data came back, so this QA tool can surface that
+    // gap instead of silently showing an empty picker. If a real
+    // JS-rendering fetch tier for variants is ever added, this is the
+    // flag that should gate it — see ScrapeProductOptions.needVariants.
     fetch(`/api/product-lookup?url=${encodeURIComponent(activeUrl)}&needVariants=true`, {
       signal: controller.signal,
     })
@@ -625,7 +629,7 @@ export default function ScraperQaClient() {
           const isTimeout = err instanceof DOMException && err.name === 'AbortError'
           setRequestError(
             isTimeout
-              ? 'Scrape timed out after 60s — the target site took too long to respond.'
+              ? `Scrape timed out after ${Math.round(SCRAPE_TIMEOUT_MS / 1000)}s — the target site took too long to respond.`
               : err instanceof Error
                 ? err.message
                 : 'Request failed'

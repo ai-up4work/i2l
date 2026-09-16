@@ -1,8 +1,9 @@
 'use client'
 
-import { ExternalLink, Star, PackageX, Store } from 'lucide-react'
+import { ExternalLink, Star, PackageX, Store, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import RequestActionButton from '@/components/stores/RequestActionButton'
 
 function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
   const n = amount != null ? Number(amount) : NaN
@@ -88,11 +89,132 @@ function SizeRow({ dimension }: { dimension: NonNullable<ScrapeResult['variants'
   )
 }
 
+/**
+ * Ajio-styled qty/wishlist/cart/request block — same functional shape
+ * as every other platform view's commerce actions (AmazonCommerceActions,
+ * MyntraCommerceActions, etc.): qty stepper, wishlist heart, Add to
+ * Cart, Get Quote, inline in one wrapping row. Replaces the old
+ * permanently-disabled "Add to Bag" button labeled "QA tool — not a
+ * real checkout" — a leftover from the demo scraper-QA client this
+ * file was originally copied from, which meant no Ajio listing, in
+ * stock or not, could actually be added to cart or requested.
+ */
+function AjioCommerceActions({
+  result,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
+}: {
+  result: ScrapeResult
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
+}) {
+  return (
+    <div className="mt-5 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              onClick={() => onQtyChange(qty + 1)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+
+          <RequestActionButton
+            onClick={onAddToCart}
+            disabled={!canAct}
+            loading={loading}
+            unavailable={result.unavailable}
+            unavailableLabel="NOT AVAILABLE"
+            icon={justAdded ? <Check size={16} className="text-teal-deep" /> : undefined}
+            color="#2b2b2b"
+            disabledColor="#c7c7c7"
+            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+          >
+            {justAdded ? 'ADDED' : 'ADD TO BAG'}
+          </RequestActionButton>
+        </div>
+
+        <RequestActionButton
+          onClick={onRequestReview}
+          disabled={!canAct}
+          loading={loading}
+          unavailable={result.unavailable}
+          unavailableLabel="NOT AVAILABLE"
+          icon={<ShoppingCart size={16} />}
+          color="#c9252b"
+          disabledColor="#c7c7c7"
+          className="grow basis-full whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95 sm:grow-0 sm:basis-auto"
+        >
+          GET QUOTE
+        </RequestActionButton>
+      </div>
+
+      <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>
+    </div>
+  )
+}
+
 export default function AjioProductView({
   result,
+  qty,
+  onQtyChange,
+  inWishlist,
+  onToggleWishlist,
+  onAddToCart,
+  justAdded,
+  onRequestReview,
+  loading,
+  canAct,
 }: {
   result: ScrapeResult
   onSelectVariant: (url: string) => void
+  qty: number
+  onQtyChange: (qty: number) => void
+  inWishlist: boolean
+  onToggleWishlist: () => void
+  onAddToCart: () => void
+  justAdded: boolean
+  onRequestReview: () => void
+  loading?: boolean
+  canAct: boolean
 }) {
   const discount = discountPercent(result.price, result.mrp)
   const priceLabel = fmtPrice(result.price, result.currencyCode)
@@ -164,14 +286,18 @@ export default function AjioProductView({
             </p>
           )}
 
-          <button
-            type="button"
-            disabled
-            title="QA tool — not a real checkout"
-            className="mt-5 w-full cursor-not-allowed rounded-full bg-ink/80 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white opacity-60 sm:max-w-[240px]"
-          >
-            Add to Bag
-          </button>
+          <AjioCommerceActions
+            result={result}
+            qty={qty}
+            onQtyChange={onQtyChange}
+            inWishlist={inWishlist}
+            onToggleWishlist={onToggleWishlist}
+            onAddToCart={onAddToCart}
+            justAdded={justAdded}
+            onRequestReview={onRequestReview}
+            loading={loading}
+            canAct={canAct}
+          />
 
           {result.seller && <p className="mt-4 text-[11px] font-medium text-ink/45">Sold by {result.seller}</p>}
 

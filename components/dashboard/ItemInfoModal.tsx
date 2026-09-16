@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2 } from 'lucide-react'
+import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
@@ -122,6 +122,15 @@ type ItemOverlayProps = {
    */
   onSubmitRequest: () => Promise<{ ok: boolean; error?: string }>
   loading?: boolean
+  /**
+   * Re-runs the lookup for the same URL from scratch (useProductLookup's
+   * retry-then-OG-fallback chain runs again). Only rendered when both of
+   * those already ran once and still came up empty — see
+   * UnreadableListingFallback below. Optional so this modal doesn't
+   * break if a future caller doesn't wire it up; the "Continue via
+   * chat" path still works without it.
+   */
+  onRetry?: () => void
 }
 
 type Step = 'listing' | 'review'
@@ -322,6 +331,52 @@ function ProductSkeleton() {
   )
 }
 
+// Shown only once useProductLookup has already retried the scrape once
+// (5s later) AND tried the OG-only fallback, and both still came up
+// empty. Deliberately says nothing about *why* — no "captcha",
+// "blocked", "timed out", or any other internal scraper detail — a
+// customer can't act on that, and naming it just invites confusion.
+// Instead of a dead end, this hands the customer straight to a real
+// person: "Continue via chat" jumps to the exact same review step a
+// normal (priced or unpriced) listing would, just without a preview
+// card, so the request still goes out with the link attached and our
+// team fills in the rest.
+function UnreadableListingFallback({ onRetry, onContinueViaChat }: { onRetry?: () => void; onContinueViaChat: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-ink/10 bg-card p-6 text-center motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
+      <div className="grid h-12 w-12 flex-none place-items-center rounded-full bg-teal/10">
+        <MessageCircleQuestion size={22} className="text-teal-deep" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-ink">We couldn&apos;t load this listing automatically</p>
+        <p className="mt-1.5 text-sm text-ink/55">
+          No problem — send us the link and our team will check the details, price, and options with you directly.
+        </p>
+      </div>
+      <div className="flex w-full flex-col gap-2.5 sm:flex-row">
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
+          >
+            <RefreshCw size={15} />
+            Try again
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onContinueViaChat}
+          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98]"
+        >
+          <MessageCircle size={15} />
+          Continue via chat
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function ItemInfoModal({
   open,
   result,
@@ -334,6 +389,7 @@ export default function ItemInfoModal({
   onClose,
   onSubmitRequest,
   loading = false,
+  onRetry,
 }: ItemOverlayProps) {
   const [step, setStep] = useState<Step>('listing')
   const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
@@ -445,6 +501,19 @@ export default function ItemInfoModal({
 
   const platformView = (() => {
     if (!commerceProps) return null
+
+    // An ogOnly result came from the generic Open Graph/JSON-LD fallback
+    // (see og-only.ts's doc comment), not a real per-site extractor —
+    // it structurally can't find MRP, variants, or a trustworthy
+    // availability signal, so a branded platform view (with its own
+    // "in stock"/"out of stock" pill and confidently-labeled buttons)
+    // would be showing more certainty than the data actually supports,
+    // no matter which `site` got detected. Route straight to
+    // GenericProductView instead — no availability claim, always lets
+    // the customer send the request and have a real person confirm
+    // stock/price, i.e. straight to chat rather than a guessed status.
+    if (commerceProps.result.ogOnly) return <GenericProductView {...commerceProps} />
+
     switch (commerceProps.result.site) {
       case 'amazon':
         return <AmazonProductView {...commerceProps} />
@@ -565,10 +634,6 @@ export default function ItemInfoModal({
               <ProductSkeleton />
               <SlowLoadNotice />
             </>
-          ) : result!.error ? (
-            <div className="rounded-xl border border-red-300/40 bg-red-50 p-5 text-sm text-ink/70 motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
-              Couldn&apos;t read this listing: {result!.error}
-            </div>
           ) : step === 'review' ? (
             <div className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
               <div>
@@ -659,6 +724,8 @@ export default function ItemInfoModal({
                 <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>
               </div>
             </div>
+          ) : result!.error ? (
+            <UnreadableListingFallback onRetry={onRetry} onContinueViaChat={() => setStep('review')} />
           ) : (
             <div
               key={`${result!.site ?? ''}|${result!.title ?? ''}`}
