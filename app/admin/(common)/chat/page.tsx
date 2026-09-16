@@ -3,7 +3,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CheckCheck, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, X } from 'lucide-react'
+import { CheckCheck, ChevronDown, ChevronUp, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   type ChatMessageRow,
@@ -21,116 +21,6 @@ import {
 import { deriveHandle } from '@/contexts/ChatContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 
-// ---------------------------------------------------------------------------
-// Real data, real-time. Replaces the old MOCK_CUSTOMERS + localStorage
-// version entirely.
-//
-// Thread list: `chat_threads` joined to `profiles` for the customer's
-// name/email. One row per customer — a Channel-3 request no longer
-// spawns its own thread (see DashboardContext's confirmRequest, which
-// now reuses the customer's single thread via getOrCreateGeneralThread),
-// it just tags its seed message with chat_messages.request_id so this
-// page can still show which message belongs to which request.
-//
-// Preview text: there's no "latest message per thread" view/RPC in this
-// schema, so this fetches recent messages across ALL threads once and
-// derives each thread's preview client-side. Fine at current scale; the
-// real upgrade path is a Postgres view or RPC once thread count grows.
-//
-// Sender identity: looks up staff_accounts by the logged-in user's id
-// for a real name, falling back to their email. Not gated by role yet —
-// same open caveat as every other /api/admin/** route in this codebase.
-//
-// Customer handle: profiles.chat_handle is the single source of truth
-// (see ChatContext/AuthContext — auth user_metadata.chat_handle was
-// retired). Pulled in the same profile lookup as full_name/email below.
-// When a customer has never set one, `deriveHandle(name)` — imported
-// straight from ChatContext instead of re-implemented here — produces
-// the exact same fallback the customer's own chat UI shows, so admin
-// and customer never disagree about which handle is "theirs".
-//
-// Customer avatar: profiles.avatar_url, pulled in the same lookup as
-// full_name/email/chat_handle above. Rendered via the small <Avatar>
-// helper below, which falls back to the existing colored-initials
-// circle whenever avatar_url is null/empty/fails to load — nothing
-// downstream needs to null-check it, the fallback lives in one place.
-//
-// Selected thread lives in the URL (?thread=<id>), not just component
-// state — a hard refresh, a shared link, or browser back/forward should
-// all land back on the same open conversation instead of dropping to
-// "Select a conversation". State is still the source of truth for
-// rendering; the query param is read once on mount to seed it and
-// written on every selection change, one-way sync (URL <- selection),
-// not a two-way binding that would fight the router on every keystroke
-// elsewhere in the page.
-//
-// Realtime: two separate subscriptions, not one.
-//   1. Per-open-thread (subscribeToThreadMessages, filtered by thread_id)
-//      — appends new messages into the currently open conversation.
-//   2. Inbox-wide (unfiltered INSERT on chat_messages) — patches the
-//      thread strip's preview/last_activity/unread/ordering for EVERY
-//      thread, including ones not currently open. Without this, a
-//      message landing in a thread you're not looking at would never
-//      update its preview or re-sort it to the top until a manual
-//      refresh.
-// Both require Realtime to be enabled for chat_messages in the Supabase
-// dashboard (Database > Replication), and for the staff/admin role's
-// SELECT policy on chat_messages to actually permit reading rows across
-// threads it doesn't "own" — Realtime enforces RLS same as a normal
-// query, so a policy scoped only to `auth.uid() = customer_id` would
-// silently deliver nothing to staff even with replication enabled.
-//
-// Layout: no rounded panel / border wrapper here — the admin shell
-// already frames this page, so this component just fills that frame
-// edge-to-edge instead of drawing a second outline inside it. Height is
-// `h-full` (not a hardcoded `calc(100vh-...)`) so it exactly matches
-// `main`'s real flex-computed height inside AdminContentShell, however
-// tall the header ends up being — and `-m-6` (negative MARGIN, not
-// padding — CSS padding can't go negative, browsers just clamp it to
-// zero) cancels out `main`'s own `p-6` on all four sides so this
-// bleeds flush to the shell's edges.
-//
-// Surfaces: the thread strip, thread header, and composer all sit on
-// the SAME `bg-parchment` backdrop as the message canvas now — no
-// `bg-card` white panels and no `border-ink/10` seams between zones.
-// Earlier revisions gave each zone its own white `bg-card` surface for
-// visual separation, but in practice that read as a white frame boxing
-// in the parchment message area rather than a deliberate section
-// break, so it's gone. Individual message BUBBLES still use `bg-card`
-// (see the message row rendering below) — that's contrast for
-// legibility against the parchment background and against the teal
-// `bg-teal-deep` ops bubbles, not a container frame, so it stays.
-//
-// Scrollbar: `scrollbar-none` on the messages pane hides the native
-// scrollbar chrome without removing scroll behavior — `overflow-y-auto`
-// still does its job, the track/thumb is just not painted. Same
-// utility the horizontal thread strip already used.
-//
-// FLEXBOX HEIGHT FIX (see comments inline below marked "min-h-0"):
-// Without an explicit `min-h-0` on every flex ancestor between the
-// scrollable messages div and this page's outer `overflow-hidden`
-// wrapper, flex items default to `min-height: auto` — meaning they
-// refuse to shrink below their content's natural height. That let the
-// messages div grow to fit ALL messages instead of scrolling internally,
-// which pushed the composer (input + send button) below the visible
-// frame, where the outer `overflow-hidden` silently clipped it off.
-// Adding `min-h-0` on the thread-pane flex container (and keeping it on
-// the scrollable messages div itself) tells the browser it's allowed to
-// constrain their height, so overflow-y-auto actually takes effect and
-// the composer stays pinned at the bottom, visible.
-//
-// SUSPENSE BOUNDARY (added):
-// This page calls useSearchParams() (see selectedId's initializer and
-// handleSelect below) to keep the open thread in sync with ?thread=<id>
-// in the URL. useSearchParams() opts a component out of static
-// prerendering and requires a <Suspense> boundary around whatever reads
-// it, or `next build` fails during prerendering of this route with an
-// opaque, minified error ("Error occurred prerendering page
-// /admin/chat"). The actual page logic lives in AdminChatPageInner
-// (unchanged); the default export below just wraps it in Suspense so
-// the build can prerender a fallback instead of erroring.
-// ---------------------------------------------------------------------------
-
 type ThreadRow = {
   id: string
   user_id: string
@@ -145,13 +35,6 @@ type ThreadListItem = ThreadRow & {
   lastMessage: ChatMessageRow | null
 }
 
-// Explicit shape for the profiles lookup — keeping this as a named type
-// (rather than letting it be inferred inline from the ternary below)
-// is what avoids the "Property 'id' does not exist on type 'never'"
-// error. When a ternary's two branches return differently-shaped
-// objects (a real PostgrestResponse vs. a bare `{ data: [], error: null }`
-// literal), TS can fail to unify `data`'s array element type and
-// silently degrade it to `never` for everything read from it downstream.
 type ProfileLookupRow = {
   id: string
   full_name: string
@@ -171,10 +54,6 @@ function initialsFor(name: string) {
   return (first + last).toUpperCase()
 }
 
-// profiles.chat_handle is stored without a leading "@" — this is the one
-// place that convention is enforced on display, so a value saved with or
-// without the symbol (e.g. from a future admin edit tool, or old data)
-// still renders consistently as "@handle" and never "@@handle".
 function displayHandle(row: { full_name: string; email: string; chat_handle: string | null } | null | undefined) {
   if (!row) return ''
   const raw = row.chat_handle?.trim() || deriveHandle(row.full_name || row.email || 'Customer')
@@ -208,25 +87,12 @@ function groupByDate(messages: ChatMessageRow[]) {
   return groups
 }
 
-// Legacy per-thread label. Now that a thread is one-per-customer, new
-// threads never get request_id/order_id set on the thread itself
-// (context lives on chat_messages.request_id instead — see the header
-// comment above), so this normally renders nothing. Kept only so any
-// thread created before this change still shows its old label instead
-// of silently changing appearance.
 function threadLabel(t: ThreadRow) {
   if (t.request_id) return 'Request thread'
   if (t.order_id) return 'Order thread'
   return null
 }
 
-// Small avatar primitive: renders the customer's real photo when
-// avatar_url is present, otherwise falls back to the existing colored-
-// initials circle. `onError` clears a locally-tracked "broken" flag so
-// a dead/expired URL (revoked storage link, deleted file, etc.) drops
-// back to initials instead of showing a broken-image icon — this is
-// the one place that fallback logic lives, so callers just pass
-// whatever avatar_url they have and never need to null-check it.
 function Avatar({
   name,
   avatarUrl,
@@ -273,10 +139,6 @@ function AdminChatPageInner() {
 
   const [threads, setThreads] = useState<ThreadListItem[]>([])
   const [threadsLoading, setThreadsLoading] = useState(true)
-  // Seed from the URL so a hard refresh (or a shared/bookmarked link)
-  // reopens the same conversation instead of dropping to the empty
-  // state. Guarded against once threads load, in case the id in the
-  // URL is stale/deleted — see the effect below.
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get(THREAD_QUERY_PARAM))
   const [messages, setMessages] = useState<ChatMessageRow[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -284,6 +146,7 @@ function AdminChatPageInner() {
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<'all' | 'unread'>('all')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [listCollapsed, setListCollapsed] = useState(false)
 
   const [draft, setDraft] = useState('')
   const [replyingTo, setReplyingTo] = useState<{ id: string; sender: string; text: string } | null>(null)
@@ -295,12 +158,9 @@ function AdminChatPageInner() {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  // Same prepend-vs-append distinction as ChatPanel/ChatContext — see
-  // those files for why the scroll-restore logic needs it.
   const isLoadingOlderRef = useRef(false)
   const prevScrollHeightRef = useRef(0)
 
-  // Resolve a real display name for outgoing "ops" messages.
   useEffect(() => {
     ;(async () => {
       const supabase = supabaseRef.current
@@ -335,15 +195,6 @@ function AdminChatPageInner() {
       return
     }
 
-    // No direct FK between chat_threads and profiles (both separately
-    // reference auth.users), so PostgREST can't auto-embed profiles(...)
-    // in the query above — fetch them separately and merge by id instead.
-    //
-    // Explicit `let` + `if` instead of a ternary between the query call
-    // and a bare `{ data: [], error: null }` literal — see the
-    // ProfileLookupRow comment above for why the ternary form caused
-    // downstream `.id`/`.full_name`/`.email` reads to error as "does
-    // not exist on type 'never'".
     const userIds = Array.from(
       new Set(((threadRows ?? []) as Array<Pick<ThreadRow, 'user_id'>>).map((t) => t.user_id)),
     )
@@ -388,9 +239,6 @@ function AdminChatPageInner() {
     loadThreads()
   }, [loadThreads])
 
-  // If the URL pointed at a thread id that no longer exists (deleted,
-  // typo'd, stale link), drop back to the empty state instead of
-  // showing a header for a thread we have no row for.
   useEffect(() => {
     if (threadsLoading || !selectedId) return
     const stillExists = threads.some((t) => t.id === selectedId)
@@ -438,8 +286,6 @@ function AdminChatPageInner() {
     setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, unread: false } : t)))
   }, [selectedId, loadThreadMessages])
 
-  // Per-open-thread realtime — appends new rows into the conversation
-  // that's currently on screen.
   useEffect(() => {
     if (!selectedId) return
     const unsubscribe = subscribeToThreadMessages(supabaseRef.current, selectedId, (row) => {
@@ -448,12 +294,6 @@ function AdminChatPageInner() {
     return unsubscribe
   }, [selectedId])
 
-  // Inbox-wide realtime — unfiltered, so it fires for every thread, not
-  // just the one currently open. Keeps the top strip's preview text,
-  // last_activity ordering, and unread dot live without needing a
-  // manual refresh. Topic includes a random suffix for the same reason
-  // subscribeToThreadMessages does — avoids a channel-topic collision
-  // if this effect's cleanup and a remount race each other.
   useEffect(() => {
     const supabase = supabaseRef.current
     const topic = `chat_messages:admin-inbox:${Math.random().toString(36).slice(2)}`
@@ -472,9 +312,6 @@ function AdminChatPageInner() {
                       ...t,
                       lastMessage: row,
                       last_activity: row.created_at,
-                      // Only flip unread on for threads the admin isn't
-                      // currently looking at — the open-thread effect
-                      // above already marks the active one read.
                       unread: row.sender === 'customer' && t.id !== selectedId ? true : t.unread,
                     }
                   : t,
@@ -488,10 +325,6 @@ function AdminChatPageInner() {
     return () => {
       supabase.removeChannel(channel)
     }
-    // Deliberately no deps beyond mount — selectedId is read fresh via
-    // the functional setThreads updater above rather than being a dep
-    // here, so this subscription isn't torn down/recreated every time
-    // the admin switches threads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -526,11 +359,6 @@ function AdminChatPageInner() {
     setPendingFiles([])
     setFileError(null)
 
-    // One-way sync: selection -> URL. Doesn't touch scroll position and
-    // doesn't push a new history entry per click (replace, not push),
-    // so back/forward through the admin section isn't cluttered with
-    // one entry per conversation switch — but a hard refresh still
-    // lands on whichever thread was open.
     const params = new URLSearchParams(searchParams.toString())
     params.set(THREAD_QUERY_PARAM, id)
     router.replace(`?${params.toString()}`, { scroll: false })
@@ -623,13 +451,6 @@ function AdminChatPageInner() {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden text-ink">
-      {/* ── Conversation strip: a horizontal row of cards, not a side
-          column — see chat page history for why this shape. This strip
-          is `flex-none` (fixed height, sized by content) so it never
-          competes with the thread pane below for the remaining space.
-          Sits on the same `bg-parchment` as everything else now — no
-          `bg-card` panel / `border-ink/10` seam, see the top-of-file
-          note on "Surfaces". ── */}
       <div className="flex-none bg-parchment">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-ink/10">
           <div className="flex items-center gap-2">
@@ -679,9 +500,19 @@ function AdminChatPageInner() {
             >
               <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
             </button>
+            <button
+              type="button"
+              onClick={() => setListCollapsed((prev) => !prev)}
+              aria-label={listCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
+              title={listCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
+              className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink"
+            >
+              {listCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            </button>
           </div>
         </div>
 
+        {!listCollapsed && (
         <div className="scrollbar-none flex gap-2 overflow-x-auto px-4 pb-2 border-b border-ink/10 mt-2">
           {threadsLoading ? (
             <p className="px-1 py-2 text-sm text-ink/40">Loading conversations…</p>
@@ -711,7 +542,12 @@ function AdminChatPageInner() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
-                      <p className="truncate text-[13px] font-medium text-ink">{name}</p>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <p className="truncate text-[13px] font-medium text-ink">{name}</p>
+                        <span className="flex-none rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
+                          {displayHandle(t.profiles)}
+                        </span>
+                      </div>
                       {t.lastMessage && (
                         <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>
                           {formatTime(t.lastMessage.created_at)}
@@ -732,48 +568,12 @@ function AdminChatPageInner() {
             })
           )}
         </div>
+        )}
       </div>
 
-      {/* ── Thread pane ──
-          `min-h-0` here is the actual fix: without it, this flex child
-          defaults to min-height:auto and refuses to shrink to fit the
-          remaining space, so its own children (header + scrollable
-          messages + composer) overflow past the bottom of the page and
-          get clipped by the outer container's overflow-hidden instead
-          of the messages div scrolling internally like it's supposed
-          to. `min-h-0` tells the browser this container's height is
-          allowed to be constrained by its flex-1 basis, which is what
-          lets the composer stay visible and pinned at the bottom. ── */}
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
-            <div className="flex flex-none items-center gap-3 bg-parchment px-4 py-2.5 border-b border-ink/10">
-              <Avatar
-                name={selectedThread.profiles?.full_name ?? selectedThread.profiles?.email ?? 'Customer'}
-                avatarUrl={selectedThread.profiles?.avatar_url}
-                colorClass="bg-teal-deep"
-                sizeClass="h-10 w-10"
-                textClass="text-xs"
-              />
-              <div>
-                <p className="text-[15px] font-medium text-ink">
-                  {selectedThread.profiles?.full_name ?? selectedThread.profiles?.email ?? 'Customer'}
-                </p>
-                <p className="text-xs text-ink/50">
-                  {displayHandle(selectedThread.profiles)}
-                  {selectedThread.profiles?.email ? ` · ${selectedThread.profiles.email}` : ''}
-                  {threadLabel(selectedThread) ? ` · ${threadLabel(selectedThread)}` : ''}
-                </p>
-              </div>
-            </div>
-
-            {/* min-h-0 kept here too (in addition to flex-1) — belt and
-                braces so this stays the one scrolling element in the
-                column even if a future edit changes the header's or
-                composer's height. `scrollbar-none` hides the native
-                scrollbar track/thumb without touching scroll behavior
-                — overflow-y-auto still scrolls, it's just not painted,
-                same trick the horizontal thread strip already uses. */}
             <div
               ref={scrollRef}
               onScroll={(e) => {
@@ -834,8 +634,12 @@ function AdminChatPageInner() {
                             </button>
                           )}
 
+                          <div className={`flex max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
+                          <span className="mb-0.5 px-1 text-[11px] font-medium text-ink/45">
+                            {isOps ? (m.sender_name || 'Staff') : displayHandle(selectedThread.profiles)}
+                          </span>
                           <div
-                            className={`max-w-[65%] rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
+                            className={`w-full rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
                               isOps ? 'bg-teal-deep text-white' : 'bg-card text-ink'
                             }`}
                           >
@@ -871,6 +675,7 @@ function AdminChatPageInner() {
                                 {isOps && <CheckCheck size={14} className="text-gold" />}
                               </span>
                             </div>
+                          </div>
                           </div>
 
                           {!isOps && (

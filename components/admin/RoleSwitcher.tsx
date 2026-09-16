@@ -16,7 +16,7 @@ export function RoleSwitcher() {
   const siteName = currentUser.siteId ? sites.find((s) => s.id === currentUser.siteId)?.name : null
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 pb-1">
       <div className="text-right leading-tight">
         <p className="text-sm font-medium text-indigo-900">{currentUser.name}</p>
         <p className="text-xs text-indigo-400">
