@@ -331,7 +331,7 @@ function QuoteDemoPage() {
             {(
               [
                 { key: "simple", label: "Simple markup" },
-                { key: "customs", label: "Customs cascade" },
+                // { key: "customs", label: "Customs cascade" },
               ] as const
             ).map((m) => (
               <button
