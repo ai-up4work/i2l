@@ -279,13 +279,13 @@ export const affiliatedStores: AffiliatedStore[] = [
   // ── Local sellers (direct catalog / WhatsApp order flow) ─────────────────
   {
     platform: 'Shopify', // Shopify-powered storefront, but the platform slug is the store's own name
-    name: 'Santhiya Fashions',
-    logo: '/store-icon/santhiya-fashions.png',
+    name: 'sok-it.com',
+    logo: '/store-icon/sok.png',
     country: 'India',
     flag: '🇮🇳',
     description:
-      'Handpicked kurtis, salwar sets and ethnic wear for women, with budget-friendly pricing and same-day dispatch.',
-    categories: ['Clothing', 'Ethnic Wear'],
+      ' A locla dring brand that sells a variety of products, including clothing, accessories, and home decor. They offer a curated selection of items that are designed to be both stylish and functional.',
+    categories: ['Clothing', 'Accessories', 'Home Decor'],
     storeType: 'local',
     buildType: 'template',
     // itemCount intentionally omitted — the site's own collection counts
@@ -302,7 +302,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     // path (JSON-API fetch, see ShopifyProductView / parsers.ts).
     scraperSite: 'shopify',
     sampleProductUrl:
-      'https://santhiyafashions.com/products/orange-and-royal-blue-color-premium-raw-silk-cotton-salwar-set-with-lining-and-pocket-hl053',
+      'https://sok-it.com/products/javasok-spooky-season?variant=45548416106668',
     sampleProductLabel: "Men's Wool Runners",
   },
   {
