@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { scrapeProduct } from '@/lib/scrape/parsers'
+import { matchAffiliatedSellerUrl } from '@/lib/store-config-db'
 
 // Must be >= the ScraperAPI TOTAL_BUDGET_MS (5 min) or the platform
 // will kill the function before scrapeProduct() gets a chance to
@@ -14,6 +15,16 @@ export async function GET(request: Request) {
 
   if (!url) {
     return NextResponse.json({ error: 'Missing required query param: url' }, { status: 400 })
+  }
+
+  // Cheap, cached check (see matchAffiliatedSellerUrl — 24h platform-wide
+  // cache) before ever spending scraper budget: is this actually one of
+  // our own affiliated sellers' storefront URLs? If so, we already have
+  // this seller's real config/pricing in our own DB — no need to run
+  // their storefront through the external scraper like an unknown site.
+  const matchedSeller = await matchAffiliatedSellerUrl(url)
+  if (matchedSeller) {
+    return NextResponse.json({ internalRedirect: `/stores/${matchedSeller.platform}` })
   }
 
   // request.signal fires if the client disconnects — threading it down

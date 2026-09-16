@@ -143,6 +143,7 @@ export type ScrapeResult = {
   currentBidPrice?: string | null
   itemEndDate?: string | null
   variantsNote?: string | null
+  internalRedirect?: string
 }
 
 export type SiteId =

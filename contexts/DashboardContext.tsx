@@ -286,10 +286,24 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const product = await lookup(url)
       if (!product || product.error) return
 
+      // Pasted link turned out to be one of our own affiliated sellers'
+      // storefronts (see matchAffiliatedSellerUrl in lib/store-config-db.ts
+      // — checked server-side in /api/product-lookup before any scraping
+      // happens). There's no product draft to fill in this case: close the
+      // modal we optimistically opened above and send the customer straight
+      // to that seller's page, where pricing is already confirmed and no
+      // "Buy for me" request is needed at all.
+      if (product.internalRedirect) {
+        setModalOpen(false)
+        setAutoFilled(false)
+        router.push(product.internalRedirect)
+        return
+      }
+
       setDraft((current) => applyScrapeResultToDraft(current, product))
       setAutoFilled(true)
     },
-    [lookup],
+    [lookup, router],
   )
 
   const startItemInfo = useCallback(
