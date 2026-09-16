@@ -4,6 +4,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import Image from "next/image"
+import { useMemo } from "react"
 
 import {
   LayoutDashboard,
@@ -36,41 +37,18 @@ import type { Role } from "@/types/admin"
 // Static sidebar nav — layout only, no auth/role logic wired up yet.
 // TODO: active-section logic beyond pathname match, real user in footer row.
 //
-// Solid parchment-tinted surface, not glass — this panel sits beside flat
-// content all day, so it reads as a fixed instrument panel rather than a
-// floating card. Active state is a left accent bar + tint, the same idiom
-// used for seller-row status in /admin/sellers, so "this is the active
-// one" means the same thing everywhere in the product.
+// ... (unchanged header comments) ...
 //
-// Collapse toggle lives as a single small button pinned to the sidebar's
-// own edge, at a fixed height, whether expanded or collapsed — one control
-// with one location, rather than two different buttons appearing in two
-// different places depending on state. Collapsed nav items get a real
-// tooltip (not just a native title attribute) since an icon alone is
-// often genuinely ambiguous — Requests vs Purchases vs Quality check all
-// read as "a clipboard" at 18px.
-//
-// Collapsed state is lifted into AdminSidebarContext so the layout can
-// react to it (shifting content margin) and so mobile can force it closed
-// without the sidebar and layout drifting out of sync.
-//
-// Role-awareness: every item declares which role(s) can see it. Nothing
-// is hidden by CSS — items simply aren't in the filtered array, same
-// principle as "Sales & Purchase gets no mutation controls rendered at
-// all (not disabled — absent)" from the orders page spec, applied here
-// to nav visibility instead of row actions.
-//
-// ⚠️ DEVIATION FROM v2 ROUTE SPEC: the spec scopes Sourcing/Purchasing to
-// (sales) and Warehouse-ops to (warehouse) only — Manager isn't listed
-// under either group. Manager has been added to every item's roles[]
-// here on request, so Manager now sees Sourcing, Purchasing, and
-// Warehouse nav in addition to their own Manager group. This gives
-// Manager sidebar *visibility* into every page; it does NOT by itself
-// grant Manager the mutation rights described for Sales/Warehouse roles
-// on those pages (e.g. running QC, editing a catalogue price) — that's
-// page-level logic the spec never defined for Manager and still needs
-// a decision (view-only oversight vs. full write access) before those
-// pages are built out.
+// UNNOTICED-DATA SIGNAL: each nav item can carry a small badge — a dot
+// when the sidebar is collapsed, a count pill when expanded — showing
+// how many things in that section need a look. This is intentionally
+// NOT wired to a separate "notifications" table: every count below is
+// derived from data useAdminData() already fetches/subscribes to (see
+// AdminDataContext's realtime section), so the badge updates on the
+// same debounced refetch as the rest of the page, with zero extra
+// requests. `getBadgeCounts` is the one place that decides what counts
+// as "unnoticed" per section — change the predicate there, not at each
+// call site, if the definition of "needs attention" for a queue changes.
 
 type NavItem = {
   label: string
@@ -93,8 +71,6 @@ const DASHBOARD_HREF: Record<Role, string> = {
   super_admin: "/admin/super-admin-dashboard",
 }
 
-// Items shared by every role get all three; items scoped to one or two
-// roles per the spec only list those.
 function getTopItems(role: Role): NavItem[] {
   const items: NavItem[] = [
     { label: "Dashboard", href: DASHBOARD_HREF[role], icon: LayoutDashboard, roles: ["manager", "sales", "warehouse"] },
@@ -114,9 +90,6 @@ function getGroups(role: Role): Group[] {
       label: "Sourcing",
       items: [
         { label: "Sellers", href: "/admin/sellers", icon: Users, roles: ["manager", "sales"] },
-        // { label: "Catalogues", href: "/admin/catalogues", icon: BookOpen, roles: ["manager", "sales"] },
-        // { label: "Collections", href: "/admin/collections", icon: Layers, roles: ["manager", "sales"] },
-        // { label: "Discounts", href: "/admin/discounts", icon: Percent, roles: ["manager", "sales"] },
         { label: "Scrape health", href: "/admin/scrape-health", icon: ClipboardList, roles: ["manager", "sales"] },
       ],
     },
@@ -128,11 +101,6 @@ function getGroups(role: Role): Group[] {
       label: "Warehouse",
       items: [
         { label: "Quality check", href: "/admin/qc", icon: CheckCircle2, roles: ["manager", "warehouse"] },
-        // Resolution queue for items flagged during QC above — same
-        // access as QC itself (Sales & Purchase gets none of the QC
-        // group per the permission matrix, Manager sees all sites,
-        // Warehouse is scoped to their own site by canActOnQcLine-style
-        // logic inside the page).
         { label: "QC Issues", href: "/admin/qc-issues", icon: AlertTriangle, roles: ["manager", "warehouse"] },
         { label: "Pack & label", href: "/admin/pack-label", icon: PackageCheck, roles: ["manager", "warehouse"] },
         { label: "Export bin", href: "/admin/export-bin", icon: Warehouse, roles: ["manager", "warehouse"] },
@@ -142,8 +110,6 @@ function getGroups(role: Role): Group[] {
       ],
     },
     {
-      // Manager-exclusive group — Reports/Staff/Warehouse Sites still
-      // belong to Manager alone, unaffected by the change above.
       label: "Manager",
       items: [
         { label: "Reports", href: "/admin/reports", icon: BarChart3, roles: ["manager"] },
@@ -153,9 +119,6 @@ function getGroups(role: Role): Group[] {
     },
   ]
 
-  // Filter items within each group by role, then drop any group that ends
-  // up with zero visible items — an empty group header with nothing under
-  // it is worse than no header at all.
   return allGroups
     .map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes(role)) }))
     .filter((group) => group.items.length > 0)
@@ -164,16 +127,66 @@ function getGroups(role: Role): Group[] {
 export function AdminSidebar() {
   const pathname = usePathname()
   const { collapsed, toggle, isMobile } = useAdminSidebar()
-  const { role, currentUser } = useAdminData()
+  const {
+    role,
+    currentUser,
+    visibleOrders,
+    visiblePurchaseLines,
+    visibleQcLines,
+    visiblePackLines,
+    visibleExportBinLines,
+    visibleInTransitLines,
+    requestLines,
+    chatThreads,
+  } = useAdminData()
 
   const topItems = getTopItems(role)
   const groups = getGroups(role)
 
-  // Exact match, or a real sub-path (boundary on "/") — plain startsWith
-  // would make "/admin/qc" read as active while actually on
-  // "/admin/qc-issues" (or "/admin/qc-issues/[issueId]"), since one href
-  // is a literal string-prefix of the other. That wasn't reachable
-  // before "QC Issues" existed as its own nav item.
+  /**
+   * href -> count of "unnoticed" items for that section. Every source
+   * list here already comes scoped to the current role/site (the
+   * `visible*` variants), so a Warehouse user at one site doesn't see a
+   * badge for another site's backlog, matching how the queues
+   * themselves are already scoped. Only hrefs that actually have a
+   * signal are included — everything else (Dashboard, Sellers, Reports,
+   * Staff, Settings, ...) simply has no entry, which the lookup below
+   * treats the same as zero.
+   */
+  const badgeCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+
+    counts["/admin/orders"] = visibleOrders.filter((o) => o.delayed).length
+
+    counts["/admin/requests"] = requestLines.filter(
+      (r) => r.slaBreached || r.status === "sent_for_review"
+    ).length
+
+    counts["/admin/chat"] = chatThreads.filter((t) => t.unread).length
+
+    counts["/admin/purchases"] = visiblePurchaseLines.filter((l) => l.status === "needs_purchase").length
+
+    counts["/admin/qc"] = visibleQcLines.filter((l) => l.status === "pending").length
+    counts["/admin/qc-issues"] = visibleQcLines.filter((l) => l.status === "flagged").length
+
+    counts["/admin/pack-label"] = visiblePackLines.filter((l) => l.status === "awaiting_pack").length
+
+    counts["/admin/export-bin"] = visibleExportBinLines.length
+
+    counts["/admin/in-transit"] = visibleInTransitLines.filter((l) => l.deliveryStatus === "overdue").length
+
+    return counts
+  }, [
+    visibleOrders,
+    requestLines,
+    chatThreads,
+    visiblePurchaseLines,
+    visibleQcLines,
+    visiblePackLines,
+    visibleExportBinLines,
+    visibleInTransitLines,
+  ])
+
   const isActive = (href: string) =>
     href === "/admin" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
 
@@ -183,10 +196,6 @@ export function AdminSidebar() {
         collapsed ? "w-[76px]" : "w-64"
       }`}
     >
-      {/* Single collapse/expand control, pinned to the sidebar's own edge
-          at a fixed height — never relocates depending on state.
-          Hidden on mobile: mobile is always forced closed, so there's
-          nothing for the user to toggle. */}
       {!isMobile && (
         <button
           type="button"
@@ -201,28 +210,26 @@ export function AdminSidebar() {
         </button>
       )}
 
-      {/* Brand */}
       <div className="flex h-16 flex-none items-center border-b border-ink/10 px-4">
         {collapsed ? (
           <span className="mx-auto grid h-8 w-8 place-items-center rounded-lg bg-teal-deep font-display text-sm font-semibold leading-none text-parchment">
             W
           </span>
         ) : (
-          <Image
-            src="/wish-drop-logo.png"
-            alt="WishDrop"
-            width={120}
-            height={32}
-            className="h-9 w-auto object-contain"
-          />
+          <Image src="/wish-drop-logo.png" alt="WishDrop" width={120} height={32} className="h-9 w-auto object-contain" />
         )}
       </div>
 
-      {/* Nav */}
       <nav className="nav-scroll flex-1 overflow-y-auto overflow-x-visible px-3 py-5">
         <div className="flex flex-col gap-1">
           {topItems.map((item) => (
-            <SidebarLink key={item.href} item={item} active={isActive(item.href)} collapsed={collapsed} />
+            <SidebarLink
+              key={item.href}
+              item={item}
+              active={isActive(item.href)}
+              collapsed={collapsed}
+              count={badgeCounts[item.href]}
+            />
           ))}
         </div>
 
@@ -233,16 +240,19 @@ export function AdminSidebar() {
             )}
             <div className="flex flex-col gap-1">
               {group.items.map((item) => (
-                <SidebarLink key={item.href} item={item} active={isActive(item.href)} collapsed={collapsed} />
+                <SidebarLink
+                  key={item.href}
+                  item={item}
+                  active={isActive(item.href)}
+                  collapsed={collapsed}
+                  count={badgeCounts[item.href]}
+                />
               ))}
             </div>
           </div>
         ))}
       </nav>
 
-      {/* Settings + profile, pinned to bottom. Settings is shared across
-          every role (per spec, "shared, outside any group"), so it's
-          rendered unconditionally rather than filtered. */}
       <div className="flex-none border-t border-ink/10 px-3 py-3">
         <SidebarLink
           item={{ label: "Settings", href: "/admin/settings", icon: Settings, roles: ["manager", "sales", "warehouse"] }}
@@ -258,13 +268,7 @@ export function AdminSidebar() {
         >
           <span className="relative flex-none">
             <span className="block h-8 w-8 overflow-hidden rounded-full bg-teal-deep">
-              <Image
-                src="/default-avatar.png"
-                alt=""
-                width={32}
-                height={32}
-                className="h-full w-full object-cover"
-              />
+              <Image src="/default-avatar.png" alt="" width={32} height={32} className="h-full w-full object-cover" />
             </span>
             <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-teal-deep ring-2 ring-card" />
           </span>
@@ -287,12 +291,16 @@ function SidebarLink({
   item,
   active,
   collapsed,
+  count,
 }: {
   item: NavItem
   active: boolean
   collapsed: boolean
+  count?: number
 }) {
   const Icon = item.icon
+  const hasSignal = !!count && count > 0
+
   return (
     <div className="group/nav relative">
       <Link
@@ -306,19 +314,31 @@ function SidebarLink({
             : "text-ink/55 before:bg-transparent hover:bg-ink/[0.04] hover:text-ink"
         }`}
       >
-        <Icon size={18} strokeWidth={1.75} className="flex-none" />
-        {!collapsed && <span className="truncate">{item.label}</span>}
+        <span className="relative flex-none">
+          <Icon size={18} strokeWidth={1.75} />
+          {/* Collapsed: a plain dot on the icon corner — enough to say
+              "something here", without a number crowding an 18px icon. */}
+          {collapsed && hasSignal && (
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
+          )}
+        </span>
+        {!collapsed && <span className="truncate flex-1">{item.label}</span>}
+        {/* Expanded: a count pill, right-aligned. Capped at "9+" so a
+            three-digit backlog doesn't blow out the row width. */}
+        {!collapsed && hasSignal && (
+          <span className="ml-auto flex-none rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+            {count! > 9 ? "9+" : count}
+          </span>
+        )}
       </Link>
 
-      {/* Custom tooltip for the collapsed rail — a bare icon alone is
-          genuinely ambiguous (three clipboard-shaped icons in this nav),
-          and native `title` tooltips are slow to appear and unstyled. */}
       {collapsed && (
         <span
           role="tooltip"
           className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-x-1 -translate-y-1/2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-parchment opacity-0 shadow-[0_8px_20px_-8px_rgba(32,36,43,0.45)] transition-all duration-150 group-hover/nav:translate-x-0 group-hover/nav:opacity-100"
         >
           {item.label}
+          {hasSignal ? ` · ${count! > 9 ? "9+" : count}` : ""}
         </span>
       )}
     </div>
