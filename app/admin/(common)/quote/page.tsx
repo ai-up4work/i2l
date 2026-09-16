@@ -327,11 +327,11 @@ function QuoteDemoPage() {
 
         {/* Mode toggle + delivery-type toggle */}
         <div className="mb-8 flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-xl border border-[#1B2A4A]/15 bg-white/80 p-1">
+          {/* <div className="inline-flex rounded-xl border border-[#1B2A4A]/15 bg-white/80 p-1">
             {(
               [
                 { key: "simple", label: "Simple markup" },
-                // { key: "customs", label: "Customs cascade" },
+                { key: "customs", label: "Customs cascade" },
               ] as const
             ).map((m) => (
               <button
@@ -348,7 +348,7 @@ function QuoteDemoPage() {
                 {m.label}
               </button>
             ))}
-          </div>
+          </div> */}
 
           {mode === "simple" && (
             <div className="inline-flex rounded-xl border border-[#1B2A4A]/15 bg-white/80 p-1">
