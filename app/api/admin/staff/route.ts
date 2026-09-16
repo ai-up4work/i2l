@@ -3,7 +3,8 @@
 // GET  -> list every staff account (Manager sees everyone except other
 //         Managers/Super Admins are filtered client-side per role — see
 //         app/admin/(manager)/staff/page.tsx's own comment on that)
-// POST -> create a new staff_accounts row
+// POST -> create a new staff_accounts row AND a real, login-capable
+//         Supabase Auth account — see the invite flow below.
 //
 // SECURITY NOTE: same caveat as every other /api/admin/** route in this
 // codebase — only checks that *some* Supabase user is logged in, not
@@ -12,19 +13,6 @@
 // Manager/Super Admin accounts, only Super Admin's own /super-admin/staff/new
 // can) are enforced client-side only for now. Add a real check before
 // this is exposed outside your own team.
-//
-// AUTH GAP, called out explicitly rather than silently glossed over:
-// this creates the staff_accounts ROSTER row only — name/email/role/site,
-// the record other parts of the app (requests.assigned_staff_id,
-// order_stage_history.by_staff_id, etc.) reference. It does NOT create a
-// real Supabase Auth user or send an invite email, since /admin/login and
-// /super-admin/login are both still stub pages with no real
-// authentication wired up at all (see WISHDROP_STATUS.md). user_id stays
-// null until that's built — a created staff member exists as a roster
-// entry (assignable, visible, editable) but can't actually sign in yet.
-// Wiring a real invite flow (supabase.auth.admin.inviteUserByEmail(),
-// then linking the resulting auth user's id back onto this row) is real
-// follow-up work, not something to fake here.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
@@ -70,9 +58,35 @@ export async function POST(req: NextRequest) {
   const resolvedSiteId = role === 'warehouse' ? siteId ?? null : null
 
   const admin = createServiceRoleClient()
+
+  // Real, login-capable account first — supabase.auth.admin.inviteUserByEmail
+  // creates the auth.users row AND emails them a link to set their own
+  // password (lands on /admin/set-password, which establishes the
+  // session automatically via the link's token — see that page). This
+  // replaces the earlier version of this route, which only ever created
+  // the roster row with no way for that person to actually sign in.
+  //
+  // If inviteUserByEmail fails (e.g. this email already has ANY
+  // Supabase Auth account — a customer account counts too, since
+  // auth.users is shared across the whole project, not just staff),
+  // the staff_accounts row is never created either — a roster entry
+  // with no working login would just be a confusing half-state.
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin
+  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${siteUrl}/admin/set-password`,
+    data: { full_name: name, is_staff: true },
+  })
+  if (inviteError) {
+    const message = /already been registered|already exists/i.test(inviteError.message)
+      ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
+      : inviteError.message
+    return NextResponse.json({ error: message }, { status: 409 })
+  }
+
   const { data, error } = await admin
     .from('staff_accounts')
     .insert({
+      user_id: invited.user.id,
       name,
       email,
       role,
@@ -83,6 +97,10 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) {
+    // Roster row failed after the auth user was already created —
+    // clean up the orphaned auth user rather than leaving an invited
+    // account with nowhere for it to actually belong.
+    await admin.auth.admin.deleteUser(invited.user.id).catch(() => {})
     if (error.code === '23505') {
       return NextResponse.json({ error: `A staff account with the email "${email}" already exists.` }, { status: 409 })
     }
