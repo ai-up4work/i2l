@@ -2,21 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import {
-  Star,
-  ExternalLink,
-  Minus,
-  Plus,
-  Heart,
-  ShoppingBag,
-  ShoppingCart,
-  Check,
-  ChevronRight,
-  Gift,
-  RotateCcw,
-  MapPin,
-  BadgePercent,
-} from 'lucide-react'
+import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
@@ -25,27 +11,21 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 
 /**
- * FirstCry look-alike view for the scrape QA tool, rebuilt to match the
- * same organizational depth as AmazonProductView.tsx — shared
- * `PlatformViewProps` (cart/wishlist/qty/quote wiring), the shared
- * `<ProductGallery>` component, and a bottom `ProductInfoTabs` section
- * — while visually mirroring the REAL FirstCry PDP (see reference
- * screenshot): thumbnail rail + hero image, a two-tier price block
- * (sale price / MRP / % off, then "Club Price" + savings + club cash),
- * a Club Benefits / Lower Price badge row, a pill-style Size selector
- * with a "SIZE CHART" link, a Delivery-pincode checker, a prominent
- * Add to Cart action, and a Gift Wrap / 30-day-return icon row.
+ * FirstCry look-alike view for the scrape QA tool, brought into full
+ * structural conformance with AmazonProductView / FlipkartProductView
+ * / MyntraProductView — same grid-area layout, same inline
+ * price/mrp block (no separate PriceBlock component, no club-price
+ * tier, no delivery/pincode UI), same stock-status line, and the same
+ * *CommerceActions button order (qty stepper -> wishlist heart -> Add
+ * to Cart -> Get Quote), with the wishlist heart living inside the
+ * commerce actions row rather than floating over the gallery.
  *
- * Palette: FirstCry's real site uses orange/teal. Per request this
- * view is themed pink instead (rose/pink-500/600 for the primary
- * accent, kept alongside the shared `ink`/`card` neutrals already
- * used elsewhere in this codebase). If the design system later grows
- * a dedicated `pink-deep` token the way `teal-deep`/`gold-deep`
- * exist, the raw `pink-*`/`rose-*` Tailwind utilities below can be
- * swapped for it in one pass.
+ * Palette stays pink (rose/pink-500/600) per the original request,
+ * applied the same way the other three apply their own brand accent
+ * to the shared skeleton.
  *
- * Extractor-specific behavior preserved from the previous version
- * (see lib/scrape/extractors/firstcry.ts for the source of truth):
+ * FirstCry-specific extractor behavior preserved (see
+ * lib/scrape/extractors/firstcry.ts for the source of truth):
  *   - A "Color" dimension's tiles carry no `url` — FirstCry swaps
  *     color via an in-page AJAX call, not navigation — so those tiles
  *     are always informational/non-clickable, regardless of
@@ -54,14 +34,14 @@ import Image from 'next/image'
  *     resolves to that size's own product id); clicking a
  *     non-selected, in-stock size re-scrapes that URL, same
  *     click-to-refetch pattern the generic VariantPicker uses for
- *     Amazon/Flipkart/etc. These are rendered as the pill buttons in
- *     the "Size" section, matching the real site's layout.
+ *     Amazon/Flipkart/etc. Rendered as pill buttons under "Size",
+ *     with a "SIZE CHART" link matching the real site's layout.
  *   - `rating`/`review_count` are frequently both null — the
  *     extractor already normalizes FirstCry's "0"/"NaN" down to null,
  *     so this view omits the rating row entirely when absent.
  */
 
-function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
+function fmt(amount: string | null | undefined, currency: string | null | undefined) {
   const n = amount != null ? Number(amount) : NaN
   if (Number.isNaN(n)) return null
   try {
@@ -144,11 +124,16 @@ function SizePill({
  */
 function ColorSwatch({ label, imageUrl, selected }: { label: string; imageUrl?: string | null; selected: boolean }) {
   return (
-    <span className="inline-flex flex-col items-center gap-1" title="FirstCry swaps colors in-page — open the original listing to change color">
+    <span
+      className="inline-flex flex-col items-center gap-1"
+      title="FirstCry swaps colors in-page — open the original listing to change color"
+    >
       <span
         className={
           'grid h-9 w-9 place-items-center overflow-hidden rounded-full border-2 bg-cover bg-center shadow-sm ' +
-          (selected ? 'border-pink-500 ring-2 ring-pink-300 ring-offset-1 ring-offset-parchment' : 'border-white ring-1 ring-ink/15')
+          (selected
+            ? 'border-pink-500 ring-2 ring-pink-300 ring-offset-1 ring-offset-parchment'
+            : 'border-white ring-1 ring-ink/15')
         }
         style={imageUrl ? { backgroundImage: `url(${imageUrl})` } : { background: 'linear-gradient(135deg, #f6dbe4 0%, #ecc3d3 100%)' }}
       >
@@ -160,61 +145,11 @@ function ColorSwatch({ label, imageUrl, selected }: { label: string; imageUrl?: 
 }
 
 /**
- * The two-tier price block from the real PDP:
- *   1. Sale price + struck MRP + "% OFF" chip, plus the tax note.
- *   2. "Club Price" row with a "Join Now" link, and a savings /
- *      club-cash line underneath.
- * `mrp`/`price` come straight off the scrape result; club price is a
- * presentation-only estimate (5–8% further off) since the extractor
- * doesn't have a dedicated club-price field — shown only when a real
- * price exists, clearly separated from the actual scraped numbers.
- */
-function PriceBlock({ result }: { result: ScrapeResult }) {
-  const price = fmtPrice(result.price, result.currencyCode)
-  const mrp = fmtPrice(result.mrp, result.currencyCode)
-  const priceNum = result.price != null ? Number(result.price) : NaN
-  const mrpNum = result.mrp != null ? Number(result.mrp) : NaN
-  const discountPct =
-    Number.isFinite(priceNum) && Number.isFinite(mrpNum) && mrpNum > priceNum
-      ? Math.round(((mrpNum - priceNum) / mrpNum) * 100)
-      : null
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        {price ? (
-          <p className="text-3xl font-bold text-pink-600">{price}</p>
-        ) : (
-          <p className="text-base font-semibold text-ink/40">No price found</p>
-        )}
-        {mrp && mrp !== price && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
-        {discountPct != null && discountPct > 0 && (
-          <span className="rounded-md bg-pink-50 px-1.5 py-0.5 text-xs font-bold text-pink-600">{discountPct}% OFF</span>
-        )}
-      </div>
-
-      {price && (
-        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-ink/40">
-          Sale price inclusive of all taxes
-        </p>
-      )}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-ink/55">
-        <span className="rounded-full bg-card px-2.5 py-1 ring-1 ring-inset ring-ink/10">Club Benefits</span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 ring-1 ring-inset ring-ink/10">
-          <span className="h-1.5 w-1.5 rounded-full bg-pink-400" /> Lower Prices Product
-        </span>
-      </div>
-    </div>
-  )
-}
-
-
-/**
- * Qty stepper + wishlist heart + Add to Cart, grouped as one atomic
- * unit (never split across lines), plus a secondary "Get Quote"
- * action — same flex/atomic-group pattern as AmazonCommerceActions,
- * recolored pink and matched to FirstCry's bold full-width CTA look.
+ * FirstCry-styled qty/wishlist/cart/request block — same shape and
+ * slot as Amazon/Flipkart/Myntra's *CommerceActions: qty stepper ->
+ * wishlist heart -> Add to Cart grouped as one flex-nowrap atomic
+ * unit, Get Quote as a separate item that's the only thing allowed to
+ * wrap on mobile.
  */
 function FirstCryCommerceActions({
   result,
@@ -263,6 +198,17 @@ function FirstCryCommerceActions({
             </button>
           </div>
 
+          <button
+            type="button"
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={inWishlist}
+            onClick={onToggleWishlist}
+            disabled={!canAct}
+            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
+          </button>
+
           <RequestActionButton
             onClick={onAddToCart}
             disabled={!canAct}
@@ -276,17 +222,6 @@ function FirstCryCommerceActions({
           >
             {justAdded ? 'ADDED' : 'ADD TO CART'}
           </RequestActionButton>
-
-          <button
-            type="button"
-            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
-            aria-pressed={inWishlist}
-            onClick={onToggleWishlist}
-            disabled={!canAct}
-            className="grid h-[42px] w-[42px] flex-none place-items-center rounded-xl border border-ink/15 text-ink/50 transition-all duration-200 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Heart size={17} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
-          </button>
         </div>
 
         <RequestActionButton
@@ -311,8 +246,8 @@ function FirstCryCommerceActions({
 
 /* ---------------------------------------------------------------------
  * ProductInfoTabs — same Description / Details / Shipping & Returns
- * tab-switcher pattern as AmazonProductView, recolored pink, rendered
- * as the bottom-most, full-width section of the whole view.
+ * tab-switcher pattern as the other three views, recolored pink,
+ * rendered as the bottom-most, full-width section of the whole view.
  * ------------------------------------------------------------------- */
 
 const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
@@ -428,7 +363,7 @@ function ProductInfoTabs({ result }: { result: ScrapeResult }) {
               value={
                 result.returnsAccepted
                   ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : '30 days Return/Exchange'
+                  : 'Not accepted by seller'
               }
             />
             {result.availability ? (
@@ -479,13 +414,22 @@ export default function FirstCryProductView({
     if (url) onSelectVariant(url)
   }
 
+  const price = fmt(result.price, result.currencyCode)
+  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+
+  const inStock = result.unavailable
+    ? false
+    : result.availability
+      ? !/sold out|out of stock|unavailable/i.test(result.availability)
+      : true
+
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
       <div
         className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
-        {/* Brand chip + brand name + rating, then title — mirrors the
-            breadcrumb/title block at the top of the real PDP. */}
+        {/* Top of buy box: logo + brand + rating, then title.
+            Mobile: first (area "info"). Desktop: top-right column. */}
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
@@ -510,10 +454,10 @@ export default function FirstCryProductView({
           </h1>
         </div>
 
-        {/* Shared gallery component, with the wishlist heart pinned
-            over the hero image's top-right corner, matching the real
-            site's placement. */}
-        <div className="relative min-w-0 [grid-area:gallery]">
+        {/* Image gallery — shared component, FirstCry theme.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows since "gallery" repeats in both area rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
           <ProductGallery
             images={images}
             title={result.title}
@@ -525,34 +469,22 @@ export default function FirstCryProductView({
               placeholderText: 'text-ink/40',
             }}
           />
-          <button
-            type="button"
-            aria-label={inWishlist ? 'Remove from wishlist' : 'Save to wishlist'}
-            aria-pressed={inWishlist}
-            onClick={onToggleWishlist}
-            disabled={!canAct}
-            className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full border border-ink/10 bg-white/90 text-ink/50 shadow-sm transition-colors hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Heart size={16} fill={inWishlist ? 'currentColor' : 'none'} color={inWishlist ? '#e11d48' : 'currentColor'} />
-          </button>
         </div>
 
-        {/* Price block, size pills, delivery checker, commerce
-            actions — the rest of the real PDP's right-hand column. */}
+        {/* Rest of buy box: price, variants, stock, cart/quote actions.
+            Mobile: third (area "rest"). Desktop: bottom-right column. */}
         <div className="min-w-0 [grid-area:rest]">
-          <PriceBlock result={result} />
-
-          {result.unavailable && (
-            <p className="mt-4 rounded-lg border border-pink-200 bg-pink-50 px-3 py-2 text-xs font-semibold text-pink-700">
-              This size/listing looks sold out — pick another size below if one&rsquo;s shown, or check back later.
-            </p>
-          )}
-          {result.warning && !result.unavailable && (
-            <p className="mt-4 rounded-lg border border-pink-200 bg-pink-50 px-3 py-2 text-xs text-pink-700">{result.warning}</p>
-          )}
+          <div className="flex items-baseline gap-2">
+            {price ? (
+              <p className="text-3xl font-bold text-pink-600">{price}</p>
+            ) : (
+              <p className="text-base font-semibold text-ink/40">No price found</p>
+            )}
+            {mrp && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
+          </div>
 
           {!!result.variants?.length && (
-            <div className="mt-5 flex flex-col gap-5 border-t border-ink/10 pt-5">
+            <div className="mt-4 flex flex-wrap gap-6">
               {result.variants.map((dim) => {
                 const isColor = dim.dimension.toLowerCase() === 'color'
                 const isSize = dim.dimension.toLowerCase() === 'size'
@@ -560,8 +492,8 @@ export default function FirstCryProductView({
 
                 return (
                   <div key={dim.dimension}>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
+                    <div className="mb-1.5 flex items-center justify-between gap-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
                       {isSize && (
                         <button type="button" className="text-[11px] font-bold text-pink-600 hover:underline">
                           SIZE CHART
@@ -569,7 +501,7 @@ export default function FirstCryProductView({
                       )}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className={isColor ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>
                       {dim.options.map((opt) => {
                         const selected = opt.label === selectedLabel
 
@@ -582,7 +514,7 @@ export default function FirstCryProductView({
                           ? 'Out of stock'
                           : opt.url
                             ? undefined
-                            : 'No direct link found for this option'
+                            : `${opt.label} — no direct link found, selection is visual only`
 
                         return (
                           <SizePill
@@ -601,6 +533,16 @@ export default function FirstCryProductView({
               })}
             </div>
           )}
+
+          <p className="mt-5 text-sm font-semibold">
+            {result.unavailable ? (
+              <span className="text-ink/45">Currently unavailable</span>
+            ) : inStock ? (
+              <span className="text-pink-600">In stock</span>
+            ) : (
+              <span className="text-ink/45">{result.availability}</span>
+            )}
+          </p>
 
           <FirstCryCommerceActions
             result={result}

@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, ExternalLink, Heart } from 'lucide-react'
+import { Star, Heart } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 
@@ -224,16 +224,6 @@ export default function NykaaProductView({
               ADD TO BAG
             </button>
           </div>
-
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold hover:underline"
-            style={{ color: NYKAA_PINK }}
-          >
-            Open original listing <ExternalLink size={12} />
-          </a>
         </div>
       </div>
     </div>
