@@ -500,6 +500,8 @@ export interface Database {
           payment_reference: string | null
           payment_confirmed_at: string | null
           payment_confirmed_by: string | null
+          needs_variant_confirmation: boolean
+          confirmed_variant: string | null
         }
         Insert: {
           id?: string
@@ -519,6 +521,8 @@ export interface Database {
           payment_reference?: string | null
           payment_confirmed_at?: string | null
           payment_confirmed_by?: string | null
+          needs_variant_confirmation?: boolean
+          confirmed_variant?: string | null
         }
         Update: Partial<Database['public']['Tables']['requests']['Insert']>
         Relationships: []

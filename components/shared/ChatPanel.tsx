@@ -43,7 +43,7 @@ export default function ChatPanel({
   positionClassName?: string
   hidden?: boolean
 }) {
-  const { isOpen, closeChat, messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink } =
+  const { isOpen, closeChat, messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages } =
     useChat()
   const { login } = useAuth()
   const [draft, setDraft] = useState('')
@@ -52,14 +52,45 @@ export default function ChatPanel({
   const [fileError, setFileError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Distinguishes "a message was prepended (older history loaded)" from
+  // "a message was appended (new message arrived)" for the scroll effect
+  // below — those two cases need opposite behavior (keep the same
+  // messages in view vs. jump to the newest one).
+  const isLoadingOlderRef = useRef(false)
+  const prevScrollHeightRef = useRef(0)
 
   useEffect(() => {
     if (isOpen && !isLocked) markRead()
   }, [isOpen, isLocked, markRead])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    const el = scrollRef.current
+    if (!el) return
+    if (isLoadingOlderRef.current) {
+      // Older messages were just prepended above what's currently
+      // visible — without this, the browser keeps scrollTop pinned to
+      // the same pixel offset, which visually yanks the conversation
+      // down by however tall the new content is. Restore the same
+      // messages in view instead of jumping anywhere.
+      el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+      isLoadingOlderRef.current = false
+      return
+    }
+    el.scrollTo({ top: el.scrollHeight })
   }, [messages.length])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el || !hasMoreMessages || loadingMoreMessages) return
+    // Within ~40px of the top — close enough that a user scrolling up
+    // to read history should trigger the next page, without requiring
+    // them to hit the exact top pixel.
+    if (el.scrollTop < 40) {
+      isLoadingOlderRef.current = true
+      prevScrollHeightRef.current = el.scrollHeight
+      loadOlderMessages()
+    }
+  }
 
   if (!isOpen || hidden) return null
 
@@ -131,7 +162,22 @@ export default function ChatPanel({
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-1 overflow-y-auto bg-parchment p-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 space-y-1 overflow-y-auto bg-parchment p-3">
+        {hasMoreMessages && (
+          <div className="flex justify-center py-2">
+            {loadingMoreMessages ? (
+              <span className="text-[11px] text-ink/35">Loading older messages…</span>
+            ) : (
+              <button
+                type="button"
+                onClick={loadOlderMessages}
+                className="text-[11px] font-semibold text-teal-deep hover:underline"
+              >
+                Load older messages
+              </button>
+            )}
+          </div>
+        )}
         {isLocked ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center px-4">
             <MessageCircle size={28} className="text-ink/20" strokeWidth={1.4} />

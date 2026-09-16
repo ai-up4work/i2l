@@ -433,6 +433,11 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
             chat_thread_id: threadId,
+            // Same signal as the old tag-in-note, now a real column the
+            // admin request detail page can act on directly instead of
+            // parsing it back out of note — see setRequestVariantReal in
+            // lib/supabase/requests-admin.ts.
+            needs_variant_confirmation: draft.needsVariantConfirmation === true,
           })
           .select('id')
           .single()

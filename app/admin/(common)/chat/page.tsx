@@ -8,7 +8,8 @@ import { createClient } from '@/lib/supabase/client'
 import {
   type ChatMessageRow,
   buildReplyBody,
-  fetchThreadMessages,
+  fetchRecentThreadMessages,
+  fetchOlderThreadMessages,
   inferAttachmentKind,
   markThreadRead,
   parseReplyBody,
@@ -289,9 +290,15 @@ function AdminChatPageInner() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [fileError, setFileError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [hasMoreMessages, setHasMoreMessages] = useState(false)
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Same prepend-vs-append distinction as ChatPanel/ChatContext — see
+  // those files for why the scroll-restore logic needs it.
+  const isLoadingOlderRef = useRef(false)
+  const prevScrollHeightRef = useRef(0)
 
   // Resolve a real display name for outgoing "ops" messages.
   useEffect(() => {
@@ -393,14 +400,36 @@ function AdminChatPageInner() {
   const loadThreadMessages = useCallback(async (threadId: string) => {
     setMessagesLoading(true)
     try {
-      const rows = await fetchThreadMessages(supabaseRef.current, threadId)
+      const { messages: rows, hasMore } = await fetchRecentThreadMessages(supabaseRef.current, threadId)
       setMessages(rows)
+      setHasMoreMessages(hasMore)
     } catch (err) {
       console.error('[admin chat] failed to load messages', err)
     } finally {
       setMessagesLoading(false)
     }
   }, [])
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!selectedId || !hasMoreMessages || loadingMoreMessages) return
+    const oldest = messages[0]
+    if (!oldest) return
+    setLoadingMoreMessages(true)
+    const el = scrollRef.current
+    if (el) {
+      isLoadingOlderRef.current = true
+      prevScrollHeightRef.current = el.scrollHeight
+    }
+    try {
+      const { messages: rows, hasMore } = await fetchOlderThreadMessages(supabaseRef.current, selectedId, oldest.created_at)
+      setMessages((prev) => [...rows, ...prev])
+      setHasMoreMessages(hasMore)
+    } catch (err) {
+      console.error('[admin chat] failed to load older messages', err)
+    } finally {
+      setLoadingMoreMessages(false)
+    }
+  }, [selectedId, hasMoreMessages, loadingMoreMessages, messages])
 
   useEffect(() => {
     if (!selectedId) return
@@ -467,7 +496,14 @@ function AdminChatPageInner() {
   }, [])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    const el = scrollRef.current
+    if (!el) return
+    if (isLoadingOlderRef.current) {
+      el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+      isLoadingOlderRef.current = false
+      return
+    }
+    el.scrollTo({ top: el.scrollHeight })
   }, [messages, selectedId])
 
   const selectedThread = threads.find((t) => t.id === selectedId) ?? null
@@ -740,6 +776,10 @@ function AdminChatPageInner() {
                 same trick the horizontal thread strip already uses. */}
             <div
               ref={scrollRef}
+              onScroll={(e) => {
+                if (!hasMoreMessages || loadingMoreMessages) return
+                if (e.currentTarget.scrollTop < 40) loadOlderMessages()
+              }}
               className="scrollbar-none min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4"
               style={{
                 backgroundImage: 'radial-gradient(rgba(32,36,43,0.045) 1px, transparent 1px)',
@@ -756,12 +796,28 @@ function AdminChatPageInner() {
                   <p className="text-sm text-ink/50">No messages yet.</p>
                 </div>
               ) : (
-                dateGroups.map((group) => (
-                  <div key={group.label}>
-                    <div className="my-3 flex justify-center">
-                      <span className="rounded-lg bg-card px-3 py-1 text-xs text-ink/50 shadow">{group.label}</span>
+                <>
+                  {hasMoreMessages && (
+                    <div className="flex justify-center pb-2">
+                      {loadingMoreMessages ? (
+                        <span className="text-xs text-ink/35">Loading older messages…</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={loadOlderMessages}
+                          className="text-xs font-semibold text-teal-deep hover:underline"
+                        >
+                          Load older messages
+                        </button>
+                      )}
                     </div>
-                    {group.messages.map((m) => {
+                  )}
+                  {dateGroups.map((group) => (
+                    <div key={group.label}>
+                      <div className="my-3 flex justify-center">
+                        <span className="rounded-lg bg-card px-3 py-1 text-xs text-ink/50 shadow">{group.label}</span>
+                      </div>
+                      {group.messages.map((m) => {
                       const isOps = m.sender === 'ops'
                       const { quoted, text } = parseReplyBody(m.text ?? '')
                       const attachmentKind = m.attachment_url ? inferAttachmentKind(m.attachment_url) : null
@@ -831,7 +887,8 @@ function AdminChatPageInner() {
                       )
                     })}
                   </div>
-                ))
+                ))}
+                </>
               )}
             </div>
 

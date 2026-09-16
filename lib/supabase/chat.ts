@@ -42,7 +42,20 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 
-export type ChatSender = 'customer' | 'staff' | 'ops' // ops is a subset of staff, used for the admin chat view
+// The real chat_sender Postgres enum on this project is
+// ('customer', 'ops') — NOT 'staff'. This type (and every literal
+// throughout the codebase that writes/reads a real chat_messages row)
+// must match that exactly, or every staff-authored insert fails with
+// "invalid input value for enum chat_sender" and every staff-authored
+// row silently gets mis-read as if it came from the customer. The
+// user-facing label "Staff" shown in the UI is unrelated to this and
+// doesn't need to change — this is purely the literal value stored in
+// the database column. (contexts/AdminDataContext.tsx's separate MOCK
+// ChatSender type in types/admin.ts is untouched by this — that one only
+// ever holds local UI state and never round-trips through this enum
+// directly; see requests-admin.ts for the one place that translates
+// between the two.)
+export type ChatSender = 'customer' | 'ops'
 
 export type ChatMessageRow = Database['public']['Tables']['chat_messages']['Row']
 export type ChatThreadRow = Database['public']['Tables']['chat_threads']['Row']
@@ -166,6 +179,77 @@ export async function fetchThreadMessages(supabase: SupabaseClient, threadId: st
   return data ?? []
 }
 
+/** How many messages a single fetch pulls, both for the initial load and
+ * each "load older" page. 100 balances "enough history to feel like a
+ * real conversation" against not dragging in a year of messages just to
+ * open the thread. */
+export const MESSAGES_PAGE_SIZE = 100
+
+/**
+ * The real initial load for a thread — the most recent MESSAGES_PAGE_SIZE
+ * messages, oldest-first for display. Replaces the old unbounded
+ * fetchThreadMessages (still exported above for anything that
+ * genuinely wants full history) as what both ChatContext and the admin
+ * chat page actually call: a thread with hundreds or thousands of
+ * messages used to have no limit at all, which meant Supabase's own
+ * project-level "Max Rows" cap (Settings > API, 1000 by default) would
+ * silently truncate the query — and since the old query ordered
+ * ascending, that cap kept the OLDEST messages and silently dropped
+ * everything more recent. This fetches descending (newest first) so the
+ * cap, if it ever mattered, would protect the right end of the
+ * conversation, then reverses for display order.
+ *
+ * `hasMore: true` means there's more history above what's returned —
+ * the UI should offer "load older messages" (see
+ * fetchOlderThreadMessages below) rather than assume this is
+ * everything.
+ */
+export async function fetchRecentThreadMessages(
+  supabase: SupabaseClient,
+  threadId: string,
+  limit: number = MESSAGES_PAGE_SIZE,
+): Promise<{ messages: ChatMessageRow[]; hasMore: boolean }> {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1) // one extra row is the cheapest way to know if there's more without a separate count query
+  if (error) throw error
+  const rows = data ?? []
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  return { messages: page.reverse(), hasMore }
+}
+
+/**
+ * The next page "up" — older messages than whatever's currently loaded.
+ * Cursor-based on the oldest currently-loaded message's created_at
+ * (pass `oldestLoaded.createdAt`), not an offset — offset pagination on
+ * a table that gets new rows constantly (this one does, in realtime)
+ * can skip or duplicate rows as they shift under you; a timestamp
+ * cursor can't.
+ */
+export async function fetchOlderThreadMessages(
+  supabase: SupabaseClient,
+  threadId: string,
+  beforeCreatedAt: string,
+  limit: number = MESSAGES_PAGE_SIZE,
+): Promise<{ messages: ChatMessageRow[]; hasMore: boolean }> {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .lt('created_at', beforeCreatedAt)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1)
+  if (error) throw error
+  const rows = data ?? []
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  return { messages: page.reverse(), hasMore }
+}
+
 /** Inserts one message and bumps the thread's last_activity (+ unread
  * flag when the sender is the customer — see the module doc comment). */
 export async function sendChatMessage(
@@ -205,12 +289,16 @@ export async function sendChatMessage(
   return data
 }
 
-/** Staff-only moderation: clears one message's attachment without
- * deleting the row (matches the old mock's own documented tradeoff —
- * the Storage object itself is left behind rather than also deleting
- * it, since another message could in principle reuse an identical
- * upload path... in practice this just mirrors what the mock already
- * accepted for IndexedDB orphans). */
+/** Staff-only moderation: clears one message's attachment. Just nulls
+ * the column — doesn't delete the underlying Storage object here.
+ * That's intentional: the weekly DB-side sweep
+ * (data/wishdrop-storage-reconciliation-views.sql, run entirely via
+ * pg_cron/pg_net) reads exactly this column to decide what's still
+ * referenced, so the moment this goes null the file naturally shows up
+ * as orphaned on the next scheduled run and gets cleaned up there —
+ * no app-side Storage call needed. Trade-off: the file sits for up to a
+ * week instead of disappearing instantly, in exchange for this staying
+ * a plain column update with no Storage dependency at all. */
 export async function removeMessageAttachment(supabase: SupabaseClient, messageId: string): Promise<void> {
   const { error } = await supabase.from('chat_messages').update({ attachment_url: null }).eq('id', messageId)
   if (error) throw error

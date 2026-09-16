@@ -10,7 +10,8 @@ import {
   buildReplyBody,
   getMostRecentOrGeneralThread,
   inferAttachmentKind,
-  fetchThreadMessages,
+  fetchRecentThreadMessages,
+  fetchOlderThreadMessages,
   markThreadRead,
   parseReplyBody,
   sendChatMessage,
@@ -30,6 +31,15 @@ export type ChatMessage = {
   sender: ChatSender
   text: string
   createdAt: number
+  /** Raw ISO string from the DB row — kept alongside the numeric
+   * `createdAt` specifically as the pagination cursor for
+   * fetchOlderThreadMessages. Converting the numeric ms-precision
+   * timestamp back to an ISO string for that query would lose
+   * Postgres's sub-millisecond precision, which could in rare cases
+   * (two messages in the same millisecond) skip or duplicate a row at
+   * the page boundary — keeping the original string sidesteps that
+   * entirely. */
+  createdAtIso: string
   attachment: ChatAttachment | null
   replyTo: ReplyPreview | null
 }
@@ -57,6 +67,7 @@ function rowToMessage(row: ChatMessageRow): ChatMessage {
     sender: row.sender as ChatSender,
     text,
     createdAt: new Date(row.created_at).getTime(),
+    createdAtIso: row.created_at,
     attachment: row.attachment_url ? { url: row.attachment_url, kind: inferAttachmentKind(row.attachment_url) } : null,
     replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'ops' : 'customer', text: quoted } : null,
   }
@@ -107,6 +118,19 @@ interface ChatContextValue {
   isLocked: boolean
   handle: string | null
   getWhatsAppLink: (prefillText?: string) => string
+  /** True once the initial page of messages has loaded and there's older
+   * history beyond it — gates whether the UI shows a "load older
+   * messages" affordance at all. */
+  hasMoreMessages: boolean
+  /** True while a loadOlderMessages() call is in flight — use this to
+   * show a spinner at the top of the list, not `sending` (that's for
+   * the composer). */
+  loadingMoreMessages: boolean
+  /** Fetches the next page of older messages and prepends them. No-ops
+   * if hasMoreMessages is false or a load is already in flight — safe
+   * to wire directly to a "scrolled to top" handler without your own
+   * guard. */
+  loadOlderMessages: () => Promise<void>
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null)
@@ -121,6 +145,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [lastReadAt, setLastReadAt] = useState(0)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [hasMoreMessages, setHasMoreMessages] = useState(false)
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false)
 
   const supabaseRef = useRef(createClient())
 
@@ -137,6 +163,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!user) {
       setThreadId(null)
       setMessages([])
+      setHasMoreMessages(false)
       return
     }
     let cancelled = false
@@ -146,8 +173,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return
         setThreadId(id)
         setLastReadAt(readLastReadAt(id))
-        const rows = await fetchThreadMessages(supabaseRef.current, id)
-        if (!cancelled) setMessages(rows.map(rowToMessage))
+        // Only the most recent page loads up front — see
+        // fetchRecentThreadMessages's own doc comment for why an
+        // unbounded fetch here was a real bug once a thread grew past a
+        // few hundred messages, not just a performance nicety.
+        const { messages: rows, hasMore } = await fetchRecentThreadMessages(supabaseRef.current, id)
+        if (!cancelled) {
+          setMessages(rows.map(rowToMessage))
+          setHasMoreMessages(hasMore)
+        }
       } catch (err) {
         console.error('[chat] failed to load thread', err)
       }
@@ -156,6 +190,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       cancelled = true
     }
   }, [user?.id])
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!threadId || !hasMoreMessages || loadingMoreMessages) return
+    const oldest = messages[0]
+    if (!oldest) return
+    setLoadingMoreMessages(true)
+    try {
+      const { messages: rows, hasMore } = await fetchOlderThreadMessages(supabaseRef.current, threadId, oldest.createdAtIso)
+      setMessages((prev) => [...rows.map(rowToMessage), ...prev])
+      setHasMoreMessages(hasMore)
+    } catch (err) {
+      console.error('[chat] failed to load older messages', err)
+    } finally {
+      setLoadingMoreMessages(false)
+    }
+  }, [threadId, hasMoreMessages, loadingMoreMessages, messages])
 
   // Realtime: append anything new (from either side) that arrives while
   // this thread is open, deduping against our own optimistic inserts.
@@ -241,6 +291,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     isLocked: !isAuthenticated,
     handle,
     getWhatsAppLink,
+    hasMoreMessages,
+    loadingMoreMessages,
+    loadOlderMessages,
   }
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>

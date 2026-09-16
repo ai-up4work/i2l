@@ -41,6 +41,7 @@ export default function RequestDetailPage() {
     canCloseRequestLine,
     setQuote,
     setRequestScreenshot,
+    setRequestVariant,
     confirmPayment,
     confirmRequest,
     declineRequest,
@@ -55,6 +56,7 @@ export default function RequestDetailPage() {
   // have several items, each priced independently, so this can't be a
   // single string the way the old single-link page used.
   const [quoteInputs, setQuoteInputs] = useState<Record<string, string>>({})
+  const [variantInputs, setVariantInputs] = useState<Record<string, string>>({})
   const [retryResult, setRetryResult] = useState<{ success: boolean; message: string } | null>(null)
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer")
   const [paymentReference, setPaymentReference] = useState("")
@@ -85,6 +87,22 @@ export default function RequestDetailPage() {
       for (const item of request.items) {
         if (item.quote !== undefined && (next[item.id] === undefined || next[item.id] === "")) {
           next[item.id] = String(item.quote)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [request])
+
+  // Same "only fill when empty" seeding as quoteInputs above.
+  useEffect(() => {
+    if (!request) return
+    setVariantInputs((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const item of request.items) {
+        if (item.confirmedVariant && (next[item.id] === undefined || next[item.id] === "")) {
+          next[item.id] = item.confirmedVariant
           changed = true
         }
       }
@@ -143,6 +161,12 @@ export default function RequestDetailPage() {
     const hadQuoteBefore = request.items.find((i) => i.id === itemId)?.quote !== undefined
     setQuote(request.id, itemId, amount)
     setPendingMessage({ title: "Send quote to customer?", text: quoteMessage(amount, hadQuoteBefore) })
+  }
+
+  const handleSaveVariant = (itemId: string) => {
+    const variant = (variantInputs[itemId] ?? "").trim()
+    if (!variant) return
+    setRequestVariant(request.id, itemId, variant)
   }
 
   const handleScreenshotSelected = async (itemId: string, file: File) => {
@@ -253,6 +277,50 @@ export default function RequestDetailPage() {
                   <p className="text-xs font-semibold text-ink/45">Customer's note</p>
                   <p className="mt-1 text-sm leading-relaxed text-ink/80">{item.note}</p>
                 </div>
+
+                {item.needsVariantConfirmation && (
+                  <div className="rounded-lg border border-gold/30 bg-gold/5 px-3.5 py-3">
+                    <p className="text-xs font-semibold text-ink/60">
+                      Size/color unclear from the link — confirm with the customer over chat, then record it here.
+                    </p>
+                    {item.confirmedVariant ? (
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-teal/10 px-2.5 py-1 text-xs font-semibold text-teal-deep">
+                          Confirmed: {item.confirmedVariant}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setVariantInputs((prev) => ({ ...prev, [item.id]: item.confirmedVariant ?? "" }))}
+                          className="text-xs font-semibold text-ink/50 hover:text-ink"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="text"
+                          value={variantInputs[item.id] ?? ""}
+                          onChange={(e) => setVariantInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                          placeholder="e.g. Size M, Black"
+                          className="flex-1 rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-teal/50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveVariant(item.id)}
+                          disabled={!variantInputs[item.id]?.trim()}
+                          className="rounded-lg bg-teal-deep px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    )}
+                    <p className="mt-1.5 text-[11px] text-ink/35">
+                      Once saved, this gets added to the item name — e.g. "{variantInputs[item.id]?.trim() || "Size M, Black"} -{" "}
+                      {item.note.length > 30 ? `${item.note.slice(0, 30)}...` : item.note}" — instead of just going out unnamed.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <p className="text-xs font-semibold text-ink/45">Product photo</p>

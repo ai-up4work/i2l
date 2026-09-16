@@ -561,6 +561,20 @@ export interface RequestItemAsk {
   /** Present once a human has priced this specific item */
   quote?: number
   quoteHistory: QuoteHistoryEntry[]
+  /** True when the OG scrape couldn't tell whether this item has size/color
+   * options (see Draft.needsVariantConfirmation) — gates whether the
+   * request detail page shows the "confirm variant" input and whether the
+   * admin requests list shows VariantConfirmPill. Independent of whether
+   * it's actually been resolved yet — see confirmedVariant for that. */
+  needsVariantConfirmation?: boolean
+  /** Free text (e.g. "Size M, Black") set by the admin once they've
+   * confirmed the variant with the customer over chat. Present means
+   * resolved — VariantConfirmPill hides once this is set. Prepended onto
+   * the order's item name at confirm time (see confirmRequestReal) instead
+   * of the old "[Confirm size/color with customer]" tag, which just got
+   * silently baked into the customer-facing title with no real resolution
+   * captured anywhere. */
+  confirmedVariant?: string
 }
 
 /** Recorded once Manager/Sales & Purchase confirms the customer's payment

@@ -465,6 +465,7 @@ import {
   fetchAdminChatThreads,
   setRequestQuote as realSetRequestQuote,
   setRequestScreenshotReal,
+  setRequestVariantReal,
   declineRequestReal,
   reassignRequestReal,
   confirmRequestReal,
@@ -1038,6 +1039,8 @@ interface AdminDataContextValue {
   setQuote: (requestId: string, itemId: string, amount: number) => void
   /** Manually attaches/replaces a request item's product photo — the admin-upload path for when the OG scrape found no image (or the wrong one). */
   setRequestScreenshot: (requestId: string, itemId: string, url: string) => void
+  /** Records the confirmed variant (size/color/etc.) once the admin has confirmed it with the customer. Prepended onto the order's item name at confirm time. */
+  setRequestVariant: (requestId: string, itemId: string, variant: string) => void
   /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. */
   confirmPayment: (requestId: string, payment: { amount: number; method: string; reference?: string }) => void
   /** Moves a fully-quoted, fully-paid request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. */
@@ -2193,6 +2196,27 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   }
 
   /**
+   * Records the confirmed variant (size/color/etc.) once the admin has
+   * actually confirmed it with the customer over chat — replaces the old
+   * "[Confirm size/color with customer]" tag, which had nowhere to
+   * capture the answer once someone actually got it. Whatever's set here
+   * gets prepended onto the order's item name at confirm time (see
+   * confirmRequestReal in requests-admin.ts) — e.g. "Size M, Black -
+   * Everyday Seamless Racerback Tank" — instead of being silently
+   * dropped.
+   */
+  const setRequestVariant = (requestId: string, itemId: string, variant: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? { ...r, items: r.items.map((item) => (item.id === itemId ? { ...item, confirmedVariant: variant } : item)) }
+          : r
+      )
+    )
+    setRequestVariantReal(requestId, variant)
+  }
+
+  /**
    * Records that the customer's payment for a quoted request has come in
    * — a distinct step from confirmRequest below. Doesn't touch status or
    * create anything by itself; it only unblocks the "Confirm → creates
@@ -2479,6 +2503,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     canCloseRequestLine,
     setQuote,
     setRequestScreenshot,
+    setRequestVariant,
     confirmPayment,
     confirmRequest,
     declineRequest,

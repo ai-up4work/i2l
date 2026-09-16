@@ -200,14 +200,16 @@ export default function RequestsPage() {
               const accent = r.slaBreached ? "border-l-rose-500" : STATUS_TONE[r.status].accent
               const primaryDomain = r.items[0]?.sourceDomain ?? ""
               const someQuoted = r.items.some((i) => i.quote !== undefined)
-              // Set by confirmRequest in DashboardContext.tsx when the
-              // scrape that produced this item's draft was ogOnly (see
+              // Set at request-creation time (confirmRequest in
+              // DashboardContext.tsx) whenever the scrape that produced
+              // this item's draft was ogOnly (see
               // Draft.needsVariantConfirmation's doc comment) — the item
               // may come in sizes/colors that were never confirmed with
-              // the customer. Checked via the note prefix rather than a
-              // dedicated column since this table has no such column yet
-              // — see that same doc comment for the reasoning.
-              const needsVariantConfirmation = r.items.some((i) => i.note?.startsWith("[Confirm size/color with customer]"))
+              // the customer. Now a real column (requests.needs_variant_confirmation)
+              // instead of parsing it back out of the note's tag prefix —
+              // this pill hides itself once confirmedVariant is actually
+              // set, i.e. once it's resolved, not just flagged.
+              const needsVariantConfirmation = r.items.some((i) => i.needsVariantConfirmation && !i.confirmedVariant)
 
               return (
                 <div

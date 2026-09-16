@@ -85,6 +85,8 @@ export interface RealRequestItemAsk {
   sourceDomain: string
   quote?: number
   quoteHistory: RealQuoteHistoryEntry[]
+  needsVariantConfirmation?: boolean
+  confirmedVariant?: string
 }
 
 /** Recorded once Manager/Sales & Purchase confirms the customer's payment
@@ -138,7 +140,7 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
   const { data, error } = await supabase
     .from('requests')
     .select(
-      'id, user_id, link, note, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by',
+      'id, user_id, link, note, item_name, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by, needs_variant_confirmation, confirmed_variant',
     )
     .order('submitted_at', { ascending: false })
   if (error) {
@@ -208,6 +210,8 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
         sourceDomain: r.source_domain,
         quote: r.quote ?? undefined,
         quoteHistory: historyByRequestId.get(r.id) ?? [],
+        needsVariantConfirmation: r.needs_variant_confirmation ?? false,
+        confirmedVariant: r.confirmed_variant ?? undefined,
       },
     ],
   }))
@@ -354,6 +358,22 @@ export async function setRequestScreenshotReal(requestId: string, screenshotUrl:
 }
 
 /**
+ * Records the confirmed variant (size/color/etc.) once the admin has
+ * actually confirmed it with the customer over chat — replaces the old
+ * "[Confirm size/color with customer]" tag-in-note approach, which had
+ * nowhere to capture the answer once someone actually got it; the tag
+ * just sat there forever (or, after the item_name fix, got silently
+ * dropped with the information lost entirely). Whatever's set here at
+ * confirm time gets prepended onto the order's item name — see
+ * confirmRequestReal below.
+ */
+export async function setRequestVariantReal(requestId: string, variant: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase.from('requests').update({ confirmed_variant: variant }).eq('id', requestId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+/**
  * Confirms a quoted request AND creates the real Channel 3 order it
  * becomes — the only place a channel=3 `orders` row is created. Mirrors
  * lib/supabase/orders-admin.ts's shape (display_id, stage='ordered')
@@ -400,7 +420,7 @@ export async function confirmRequestReal(
   // shows this real photo everywhere instead of the generic placeholder.
   const { data: existing, error: fetchError } = await supabase
     .from('requests')
-    .select('payment_confirmed_at, screenshot_url, chat_thread_id, item_name')
+    .select('payment_confirmed_at, screenshot_url, chat_thread_id, item_name, confirmed_variant')
     .eq('id', requestId)
     .single()
   if (fetchError) return { ok: false, error: fetchError.message }
@@ -443,8 +463,13 @@ export async function confirmRequestReal(
   // carry an internal tag like "[Confirm size/color with customer]"
   // (see buildRequestNote in DashboardContext.tsx). item_name is the
   // real source going forward; stripInternalNoteTags is only a fallback
-  // for a request created before that column existed.
-  const cleanTitle = existing.item_name?.trim() || stripInternalNoteTags(customerNote) || link
+  // for a request created before that column existed. If the admin
+  // confirmed a variant (size/color/etc.) with the customer, it's
+  // prepended here — e.g. "Size M, Black - Everyday Seamless Racerback
+  // Tank" — instead of the old tag being silently dropped with the
+  // resolved answer nowhere to be seen.
+  const baseTitle = existing.item_name?.trim() || stripInternalNoteTags(customerNote) || link
+  const cleanTitle = existing.confirmed_variant?.trim() ? `${existing.confirmed_variant.trim()} - ${baseTitle}` : baseTitle
   const { error: itemError } = await supabase.from('order_items').insert({
     order_id: orderId,
     title: cleanTitle.length > 60 ? `${cleanTitle.slice(0, 57)}...` : cleanTitle,

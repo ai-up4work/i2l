@@ -50,7 +50,7 @@ function groupByDate(messages: ChatMessage[]) {
  * the quoted snippet is shown inline instead, which is what it actually is.
  */
 export default function AccountMessagesPage() {
-  const { messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink } = useChat()
+  const { messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages } = useChat()
   const { login } = useAuth()
 
   const [draft, setDraft] = useState('')
@@ -70,6 +70,18 @@ export default function AccountMessagesPage() {
   }, [messages.length])
 
   const dateGroups = useMemo(() => groupByDate(messages), [messages])
+
+  // Page-level scroll (not a bounded container like the floating
+  // ChatPanel), so "keep the same messages in view after prepending" is
+  // done against document height instead of a local div's scrollTop.
+  const handleLoadOlder = async () => {
+    const prevHeight = document.documentElement.scrollHeight
+    await loadOlderMessages()
+    requestAnimationFrame(() => {
+      const newHeight = document.documentElement.scrollHeight
+      window.scrollTo({ top: window.scrollY + (newHeight - prevHeight) })
+    })
+  }
 
   const handleSend = async () => {
     if (!draft.trim() && pendingFiles.length === 0) return
@@ -143,6 +155,21 @@ export default function AccountMessagesPage() {
       ) : (
         <>
           <div className="space-y-1 py-4">
+            {hasMoreMessages && messages.length > 0 && (
+              <div className="flex justify-center pb-3">
+                {loadingMoreMessages ? (
+                  <span className="text-xs text-ink/35">Loading older messages…</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleLoadOlder}
+                    className="text-xs font-semibold text-teal-deep hover:underline"
+                  >
+                    Load older messages
+                  </button>
+                )}
+              </div>
+            )}
             {messages.length === 0 ? (
               <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
                 <MessageCircle size={28} className="text-ink/20" strokeWidth={1.4} />
