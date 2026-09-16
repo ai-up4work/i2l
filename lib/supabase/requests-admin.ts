@@ -496,10 +496,11 @@ export async function sendAdminChatMessage(
   staffName: string,
   body: string,
   requestId?: string,
+  attachmentUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   try {
-    await realSendChatMessage(supabase, { threadId, sender: 'ops', senderName: staffName, text: body, requestId })
+    await realSendChatMessage(supabase, { threadId, sender: 'ops', senderName: staffName, text: body, requestId, attachmentUrl })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: extractErrorMessage(err, 'Failed to send message.') }

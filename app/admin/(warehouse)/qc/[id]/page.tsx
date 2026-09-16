@@ -509,9 +509,10 @@ export default function QCDetailPage() {
         open={pendingMessage !== null}
         title={pendingMessage?.title ?? ""}
         defaultMessage={pendingMessage?.text ?? ""}
-        onSend={async (text) => {
+        defaultAttachmentUrl={photoUrl ?? undefined}
+        onSend={async (text, attachmentUrl) => {
           if (!pendingMessage) return { ok: false, error: "Nothing to send." }
-          const result = await sendChatMessage(pendingMessage.threadId, text)
+          const result = await sendChatMessage(pendingMessage.threadId, text, attachmentUrl)
           if (result.ok) {
             setPendingMessage(null)
             router.push("/admin/qc")

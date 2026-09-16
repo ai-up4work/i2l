@@ -294,9 +294,9 @@ export default function ShippedPage() {
         open={currentMessage !== null}
         title="Let the customer know it's arrived?"
         defaultMessage={currentMessage?.text ?? ""}
-        onSend={async (text) => {
+        onSend={async (text, attachmentUrl) => {
           if (!currentMessage) return { ok: false, error: "Nothing to send." }
-          const result = await sendChatMessage(currentMessage.threadId, text)
+          const result = await sendChatMessage(currentMessage.threadId, text, attachmentUrl)
           if (result.ok) setMessageQueue((prev) => prev.slice(1))
           return result
         }}

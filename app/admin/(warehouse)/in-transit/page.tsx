@@ -128,7 +128,7 @@ export default function InTransitPage() {
   const handleMarkShipped = () => {
     if (selected.size === 0) return
     const ids = Array.from(selected)
-    const lines = ids.map((id) => filtered.find((l) => l.orderId === id) ?? visibleInTransitLines.find((l) => l.orderId === id))
+    const lines = ids.map((id) => visibleInTransitLines.find((l) => l.orderId === id))
     ids.forEach((orderId) => markShipped(orderId))
     setMessageQueue((prev) => [
       ...prev,
@@ -326,9 +326,9 @@ export default function InTransitPage() {
         open={currentMessage !== null}
         title="Let the customer know it's arrived?"
         defaultMessage={currentMessage?.text ?? ""}
-        onSend={async (text) => {
+        onSend={async (text, attachmentUrl) => {
           if (!currentMessage) return { ok: false, error: "Nothing to send." }
-          const result = await sendChatMessage(currentMessage.threadId, text)
+          const result = await sendChatMessage(currentMessage.threadId, text, attachmentUrl)
           if (result.ok) setMessageQueue((prev) => prev.slice(1))
           return result
         }}

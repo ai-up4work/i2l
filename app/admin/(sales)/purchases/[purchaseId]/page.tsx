@@ -433,9 +433,9 @@ export default function PurchaseDetailPage() {
         open={pendingMessage !== null}
         title={pendingMessage?.title ?? ""}
         defaultMessage={pendingMessage?.text ?? ""}
-        onSend={async (text) => {
+        onSend={async (text, attachmentUrl) => {
           if (!pendingMessage) return { ok: false, error: "Nothing to send." }
-          const result = await sendChatMessage(pendingMessage.threadId, text)
+          const result = await sendChatMessage(pendingMessage.threadId, text, attachmentUrl)
           if (result.ok) setPendingMessage(null)
           return result
         }}

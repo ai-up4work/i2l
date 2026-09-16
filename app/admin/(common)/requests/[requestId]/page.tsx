@@ -611,8 +611,8 @@ export default function RequestDetailPage() {
       open={pendingMessage !== null}
       title={pendingMessage?.title ?? ""}
       defaultMessage={pendingMessage?.text ?? ""}
-      onSend={async (text) => {
-        const result = await sendChatMessage(request.chatThreadId, text)
+      onSend={async (text, attachmentUrl) => {
+        const result = await sendChatMessage(request.chatThreadId, text, attachmentUrl)
         // Only close on success — a failure (e.g. RLS rejecting the
         // insert) keeps the modal open with the error shown, instead of
         // closing and silently pretending the customer got the message.

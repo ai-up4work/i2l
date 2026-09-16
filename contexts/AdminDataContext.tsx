@@ -1055,8 +1055,8 @@ interface AdminDataContextValue {
   chatThreads: ChatThread[]
   getChatThread: (id: string) => ChatThread | undefined
   getChatThreadForRequest: (requestId: string) => ChatThread | undefined
-  /** Sends a staff reply for real, awaiting the write. Returns { ok:false, error } instead of silently pretending success if the insert fails (e.g. an RLS policy rejecting it) — see this function's own doc comment for the exact bug this replaced. */
-  sendChatMessage: (threadId: string, body: string) => Promise<{ ok: boolean; error?: string }>
+  /** Sends a staff reply for real, awaiting the write. Optional attachmentUrl (e.g. a QC photo, or anything the admin attaches from SendMessageModal). Returns { ok:false, error } instead of silently pretending success if the insert fails (e.g. an RLS policy rejecting it) — see this function's own doc comment for the exact bug this replaced. */
+  sendChatMessage: (threadId: string, body: string, attachmentUrl?: string) => Promise<{ ok: boolean; error?: string }>
   markThreadRead: (threadId: string) => void
   /** Marks the given message as sent via the wa.me manual-send flow — does NOT open the link itself, that's a page-level concern */
   markSentViaWhatsApp: (threadId: string, messageId: string) => void
@@ -2375,12 +2375,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * locally on success, returning ok/error so callers (SendMessageModal)
    * can show a real failure instead of silently pretending it worked.
    */
-  const sendChatMessage = async (threadId: string, body: string): Promise<{ ok: boolean; error?: string }> => {
+  const sendChatMessage = async (threadId: string, body: string, attachmentUrl?: string): Promise<{ ok: boolean; error?: string }> => {
     const trimmed = body.trim()
-    if (!trimmed) return { ok: false, error: "Message is empty." }
+    if (!trimmed && !attachmentUrl) return { ok: false, error: "Message is empty." }
 
     const thread = chatThreads.find((t) => t.id === threadId)
-    const result = await sendAdminChatMessage(threadId, currentUser.name, trimmed, thread?.requestId)
+    const result = await sendAdminChatMessage(threadId, currentUser.name, trimmed, thread?.requestId, attachmentUrl)
     if (!result.ok) {
       console.error("[sendChatMessage] real write failed — nothing was sent to the customer", result.error)
       return { ok: false, error: result.error ?? "Failed to send message. Please try again." }
@@ -2396,6 +2396,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           sender: "staff",
           body: trimmed,
           at: now,
+          attachmentUrl,
         }
         return { ...t, messages: [...t.messages, message], lastActivity: now, unread: false }
       })

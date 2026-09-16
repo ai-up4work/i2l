@@ -610,6 +610,7 @@ export interface ChatMessage {
   sender: ChatSender
   body: string
   at: string // ISO
+  attachmentUrl?: string
   /**
    * True once a staff reply has been sent out via the manual wa.me deep
    * link rather than in-app — WhatsApp replies are never synced back, so
