@@ -149,7 +149,7 @@ function getGroups(role: Role): Group[] {
       // the full roster, every role included.
       label: "Super Admin",
       items: [
-        { label: "Analytics", href: "/admin/super-admin/analytics", icon: LineChart, roles: ["super_admin"], locked: true },
+        { label: "Analytics", href: "/admin/super-admin/analytics", icon: LineChart, roles: ["super_admin"] },
         { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"], locked: true },
         { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },
         { label: "All staff", href: "/admin/super-admin/staff", icon: Users, roles: ["super_admin"] },

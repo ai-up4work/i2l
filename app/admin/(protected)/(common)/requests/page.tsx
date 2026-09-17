@@ -75,13 +75,19 @@ function StatCard({ label, value, tone = "default" }: { label: string; value: st
 
 export default function RequestsPage() {
   const router = useRouter()
-  const { currentUser, requestLines } = useAdminData()
+  const { role, currentUser, requestLines } = useAdminData()
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open")
 
   useEffect(() => {
-    if (currentUser.role === "warehouse") router.replace("/admin/dashboard")
-  }, [currentUser.role, router])
+    // Effective `role`, not currentUser.role — otherwise "Preview as
+    // Warehouse" (see RolePreviewMenu.tsx) would still show Requests,
+    // since a real super_admin's currentUser.role is never "warehouse"
+    // regardless of what's being previewed. Same class of bug as the
+    // dashboards had, just inverted (this excludes one role instead of
+    // requiring one).
+    if (role === "warehouse") router.replace("/admin/dashboard")
+  }, [role, router])
 
   const filtered = useMemo(() => {
     return requestLines
@@ -110,7 +116,7 @@ export default function RequestsPage() {
   const breachedCount = requestLines.filter((r) => r.slaBreached).length
   const hasActiveFilters = search.trim() !== "" || statusFilter !== "open"
 
-  if (currentUser.role === "warehouse") return null
+  if (role === "warehouse") return null
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">

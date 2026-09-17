@@ -34,6 +34,7 @@ export default function RequestDetailPage() {
   const router = useRouter()
   const params = useParams<{ requestId: string }>()
   const {
+    role,
     currentUser,
     getRequestLine,
     canWorkRequestLine,
@@ -71,8 +72,10 @@ export default function RequestDetailPage() {
   const [pendingMessage, setPendingMessage] = useState<{ title: string; text: string } | null>(null)
 
   useEffect(() => {
-    if (currentUser.role === "warehouse") router.replace("/admin/dashboard")
-  }, [currentUser.role, router])
+    // Effective `role`, not currentUser.role — same fix/reasoning as
+    // requests/page.tsx.
+    if (role === "warehouse") router.replace("/admin/dashboard")
+  }, [role, router])
 
   const request = getRequestLine(params.requestId)
 
@@ -123,7 +126,7 @@ export default function RequestDetailPage() {
     [staffDirectory]
   )
 
-  if (currentUser.role === "warehouse") return null
+  if (role === "warehouse") return null
 
   if (dataLoading) {
     return (
