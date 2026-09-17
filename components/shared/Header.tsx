@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ArrowLeft,
-  ArrowRight,
   Bell,
   ChevronDown,
   Heart,
@@ -84,10 +83,6 @@ const accountNavIconClass =
 
 const notificationIconClass =
   `relative flex h-9 w-9 items-center justify-center rounded-xl text-ink/60 transition-colors duration-200 active:bg-gold/15 active:text-gold-deep hover:bg-gold/15 hover:text-gold-deep motion-reduce:transition-none lg:h-10 lg:w-10 ${focusRing}`
-
-// Single, more distinctive CTA for logged-out users, shared by mobile + desktop
-const getStartedButtonClass =
-  `group relative flex items-center gap-2 overflow-hidden rounded-xl bg-gold-deep px-4 py-2 text-[13px] font-semibold text-white shadow-sm shadow-gold-deep/25 transition-all duration-200 hover:bg-gold hover:shadow-md hover:shadow-gold/30 active:scale-[0.97] motion-reduce:transition-none ${focusRing}`
 
 const skeletonClass = "animate-pulse rounded-xl bg-ink/10 motion-reduce:animate-none"
 
@@ -539,12 +534,11 @@ export default function Header({
               ) : (
                 <button
                   type="button"
-                  aria-label="Get started"
+                  aria-label="Log in"
                   onClick={login}
-                  className={`${getStartedButtonClass} px-3 py-1.5`}
+                  className={mobileIconQuietClass}
                 >
-                  <span>Get started</span>
-                  <ArrowRight className="w-3.5 h-3.5 transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
+                  <User className="w-[17px] h-[17px]" />
                 </button>
               )}
             </div>
@@ -597,12 +591,11 @@ export default function Header({
               ) : (
                 <button
                   type="button"
-                  aria-label="Get started"
+                  aria-label="Log in"
                   onClick={login}
-                  className={getStartedButtonClass}
+                  className={iconPillButtonClass}
                 >
-                  <span>Get started</span>
-                  <ArrowRight className="w-4 h-4 transition-transform duration-300 motion-reduce:transition-none group-hover:translate-x-0.5" />
+                  <User className="w-[18px] h-[18px]" />
                 </button>
               )}
             </div>
