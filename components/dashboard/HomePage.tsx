@@ -6,11 +6,6 @@ import {
   Plus,
   Package,
   Undo2,
-  CreditCard,
-  PackageOpen,
-  Truck,
-  MessageSquare,
-  Shirt,
   Mail,
   FileEdit,
   Heart,
@@ -28,6 +23,7 @@ import { useElementHeight } from '@/hooks/useElementHeight'
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
 import type { AffiliatedStore } from '@/data/stores/data'
 import Flag from '@/components/ui/Flag'
+import MyOrdersCard, { type MyOrdersCardLatestOrder } from '@/components/dashboard/MyOrdersCard'
 
 type HomePageProps = {
   name?: string
@@ -51,7 +47,14 @@ type HomePageProps = {
   walletBalance?: number
   wishlistCount?: number
   followingCount?: number
-  latestOrderStatus?: string
+  /** Most recent order, used by MyOrdersCard to render a status +
+   *  thumbnail teaser. Omit (or pass an order with an empty `items`
+   *  array) to show the "It is empty here" state. NOTE: this replaced
+   *  the old `latestOrderStatus?: string` prop — if orders aren't
+   *  showing up, check the caller is passing this new shape and not
+   *  the old string prop, which is now silently ignored (TS will also
+   *  flag it, but only if the caller is typed). */
+  latestOrder?: MyOrdersCardLatestOrder
 }
 
 // Shared type for lucide-react icon components passed as props. Includes
@@ -128,31 +131,6 @@ function IconOnlyColumn({
         <Icon size={16} strokeWidth={1.8} />
       </span>
       <span className="flex items-center gap-1 text-xs font-semibold text-ink/55">
-        {label}
-      </span>
-    </button>
-  )
-}
-
-// One icon in the "My Orders" status row — plain icon + label, no border or
-// background square behind it, matching the reference's unboxed icon row.
-function OrderStatusIcon({
-  label,
-  onClick,
-  icon: Icon,
-}: {
-  label: string
-  onClick: () => void
-  icon: IconComponent
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex flex-1 flex-col items-center gap-2.5 py-2 text-center transition-opacity duration-150 hover:opacity-70"
-    >
-      <Icon size={22} strokeWidth={1.6} className="text-ink/60" />
-      <span className="text-xs font-semibold text-ink/60 group-hover:text-ink">
         {label}
       </span>
     </button>
@@ -445,7 +423,7 @@ export default function HomePage({
   walletBalance = 0,
   wishlistCount = 0,
   followingCount = 0,
-  latestOrderStatus,
+  latestOrder,
 }: HomePageProps) {
   const buyFormRef = useRef<HTMLFormElement>(null)
   const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -504,8 +482,6 @@ export default function HomePage({
       if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current)
     }
   }, [])
-
-  const hasOrders = Boolean(latestOrderStatus)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-8 lg:px-10">
@@ -699,64 +675,12 @@ export default function HomePage({
           <SuggestedStoresCard targetHeight={topLeftHeight} onBrowseStores={onBrowseStores} />
         </div>
 
-        {/* My Orders — mobile: right after Hello/Buy-for-me (order-2), sized
-            to its own content; desktop: bottom-left (lg:order-3), sharing a
-            grid row with the Customer Service group so both stretch to the
-            same height via lg:h-full. flex-col lets this card fill that
-            stretched height on desktop; flex-1 on the inner
-            empty-state/track-order block absorbs the extra space instead of
-            leaving a gap below it. Gold top edge echoes the ticket/receipt
-            treatment rather than a plain dashboard tile. */}
-        <div
-          className="relative order-2 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-ink/10 bg-card p-6 motion-safe:[animation:fadeUp_0.4s_ease-out_both] lg:order-3 lg:h-full"
-          style={{ animationDelay: '60ms' }}
-        >
-          <div className="absolute inset-x-0 top-0 h-[3px] bg-gold" aria-hidden="true" />
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg text-ink">My Orders</h2>
-            <button
-              type="button"
-              onClick={onViewOrders}
-              className="flex items-center gap-1 text-xs font-semibold text-ink/55 hover:text-teal-deep"
-            >
-              View All <ChevronRight size={13} />
-            </button>
-          </div>
-
-          <div className="mt-4 grid grid-cols-5 gap-1">
-            <OrderStatusIcon label="Unpaid" onClick={onViewOrders} icon={CreditCard} />
-            <OrderStatusIcon label="Processing" onClick={onViewOrders} icon={PackageOpen} />
-            <OrderStatusIcon label="Shipped" onClick={onViewOrders} icon={Truck} />
-            <OrderStatusIcon label="Review" onClick={onViewOrders} icon={MessageSquare} />
-            <OrderStatusIcon label="Returns" onClick={onViewOrders} icon={Undo2} />
-          </div>
-
-          {/* Nested light-gray box for the order content — a separate
-              "panel" inside the card rather than content sitting directly
-              below a divider line, matching the reference's boxed
-              empty-state / order-teaser area. flex-1 so it grows to fill
-              whatever extra height this card is stretched to. */}
-          {hasOrders ? (
-            <button
-              type="button"
-              onClick={onViewOrders}
-              className="mt-5 flex flex-1 items-center justify-between rounded-xl border border-teal/25 bg-teal/8 px-4 py-3.5 text-left transition-colors hover:border-teal/40"
-            >
-              <span className="text-sm text-ink/70">
-                Your last order is at{' '}
-                <span className="font-semibold text-ink">{latestOrderStatus}</span>
-              </span>
-              <span className="flex items-center gap-1 text-xs font-semibold text-teal-deep">
-                Track order <ChevronRight size={14} />
-              </span>
-            </button>
-          ) : (
-            <div className="mt-5 flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl bg-ink/[0.025] py-10 text-center">
-              <Shirt size={40} strokeWidth={1.2} className="text-ink/20" />
-              <p className="text-sm text-ink/40">It is empty here :-(</p>
-            </div>
-          )}
-        </div>
+        {/* My Orders — now its own component (components/dashboard/MyOrdersCard.tsx).
+            See the comment on `latestOrder` above in HomePageProps if this
+            isn't showing an order: the caller of <HomePage /> must pass
+            the new `latestOrder` object, not the old `latestOrderStatus`
+            string. */}
+        <MyOrdersCard onViewOrders={onViewOrders} latestOrder={latestOrder} />
 
         {/* Customer Service + Wishlist/Following/Recently Viewed —
             mobile: last (order-5), sized to its own content; desktop:

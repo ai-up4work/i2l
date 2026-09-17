@@ -28,6 +28,8 @@ import {
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useDashboard } from '@/contexts/DashboardContext'
 import { OrdersProvider, useOrders } from '@/contexts/Ordercontexts'
+import { useAuth } from '@/contexts/AuthContext'
+import { createClient } from '@/lib/supabase/client'
 import { useLoyalty, effectiveCouponStatus, type Coupon } from '@/contexts/Loyaltycontext'
 import {
   getDualDeliveryPricing,
@@ -56,6 +58,13 @@ const COMMON_COUNTRIES = [
   'Germany',
   'France',
 ] as const
+
+// Recognized WhatsApp country codes — matches the <select> options in the
+// shipping form below. Used to split a stored "+94 77 123 4567"-style
+// phone number (from `addresses.phone`) back into the code dropdown +
+// bare number when prefilling, without guessing at codes the form
+// doesn't actually support.
+const KNOWN_WHATSAPP_CODES = ['+94', '+91', '+1', '+44']
 
 function toPriceableItem(product: CartProduct): ProductPriceableItem {
   return {
@@ -414,6 +423,7 @@ function CartPageContent() {
   const dashboard = useDashboard()
   const loyalty = useLoyalty()
   const router = useRouter()
+  const { user } = useAuth()
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
   const [confirming, setConfirming] = useState(false)
   const [discountCode, setDiscountCode] = useState('')
@@ -434,6 +444,62 @@ function CartPageContent() {
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
   const [confirmsPreowned, setConfirmsPreowned] = useState(false)
+
+  // Prefill from the signed-in user + their default saved address — the
+  // same sources the Profile page (useAuth() for name/email) and Address
+  // Book page (the `addresses` table) already read from. Previously
+  // these fields all started as bare empty strings with no fetch behind
+  // them at all, so a returning customer with a saved address still saw
+  // a completely blank checkout form every time.
+  //
+  // Runs once user is available; every setter uses the `prev || value`
+  // pattern so it only fills fields that are STILL EMPTY at the time
+  // each part of the fetch resolves — it never overwrites something the
+  // customer already typed (e.g. if they start filling the form in
+  // before the address fetch, which is slower than the instant
+  // name/email fill, finishes).
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+
+    setFullName((prev) => prev || user.name || '')
+    setEmail((prev) => prev || user.email || '')
+
+    const supabase = createClient()
+    supabase
+      .from('addresses')
+      .select('recipient_name, phone, city, country, postal_code, is_default')
+      .eq('user_id', user.id)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        setFullName((prev) => prev || data.recipient_name || '')
+        setCity((prev) => prev || data.city || '')
+        setCountry((prev) => prev || data.country || '')
+        setZipCode((prev) => prev || data.postal_code || '')
+
+        // Split a stored "+94 77 123 4567"-style phone into the code
+        // dropdown + bare number, matching the WhatsApp field's own
+        // two-part shape (whatsappCode/whatsapp). If the stored number
+        // doesn't start with one of the codes this form's <select>
+        // actually supports, leave whatsappCode at its default ('+94')
+        // rather than guessing — the raw number still gets filled in
+        // either way, so the customer just needs to double check the
+        // code themselves in that edge case.
+        if (data.phone) {
+          const match = KNOWN_WHATSAPP_CODES.find((code) => data.phone.trim().startsWith(code))
+          setWhatsapp((prev) => prev || data.phone.replace(match ?? '', '').trim())
+          if (match) setWhatsappCode(match)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const detailsComplete =
     fullName.trim() &&
@@ -746,11 +812,11 @@ function CartPageContent() {
 
             <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
               I confirm the products requested do not violate Buy&amp;Ship&apos;s parcel restrictions or contain any{' '}
-              <a href="#prohibited-items" className="font-semibold text-teal-deep hover:underline">
+              <a href="/prohibited-items" className="font-semibold text-teal-deep hover:underline">
                 prohibited items
               </a>
               . I acknowledge the criteria for refunds and returns under Buy&amp;Ship&apos;s{' '}
-              <a href="#purchase-protection" className="font-semibold text-teal-deep hover:underline">
+              <a href="/refund-policy" className="font-semibold text-teal-deep hover:underline">
                 Purchase Protection plan
               </a>
               .

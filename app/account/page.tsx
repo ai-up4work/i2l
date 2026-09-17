@@ -8,14 +8,35 @@ import { useDashboard } from '@/contexts/DashboardContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLoyalty, effectiveCouponStatus } from '@/contexts/Loyaltycontext'
 import { useWishlist } from '@/contexts/Wishlistcontext'
+import { OrdersProvider, useOrders } from '@/contexts/Ordercontexts'
 import { createClient } from '@/lib/supabase/client'
+import type { MyOrdersCardLatestOrder } from '@/components/dashboard/MyOrdersCard'
 
-const ORDER_STAGE_LABEL: Record<string, string> = {
-  ordered: 'Ordered',
-  quality_check: 'Quality check',
-  shipped: 'Shipped',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
+// orders[0] is already the most recent order — OrdersProvider's Supabase
+// query orders by created_at descending (see orderContexts.tsx). Trimmed
+// down to just what MyOrdersCard needs (id/status/item image+name) rather
+// than passing the full Order shape through, so the card stays decoupled
+// from the orders-context's richer type.
+//
+// This REPLACES the old hand-rolled `orders.select('stage')` fetch below —
+// that query only ever selected `stage`, never `order_items` or
+// `product_snapshots`, so there was no image data available to show no
+// matter what HomePage/MyOrdersCard did with it. useOrders() already does
+// the correct join + the same stage->status mapping (mapStageToCustomerStatus)
+// that the rest of the app (Orders Hub, Track Order) relies on, so this
+// keeps "latest order" logic in exactly one place instead of two
+// independently-maintained versions that can drift apart.
+function toLatestOrder(orders: ReturnType<typeof useOrders>['orders']): MyOrdersCardLatestOrder | undefined {
+  const latest = orders[0]
+  if (!latest) return undefined
+  return {
+    id: latest.id,
+    status: latest.status,
+    items: latest.items.map((item) => ({
+      image: item.image,
+      name: item.name,
+    })),
+  }
 }
 
 function AccountHomePageInner() {
@@ -25,28 +46,21 @@ function AccountHomePageInner() {
   const { user } = useAuth()
   const { points, credits, coupons } = useLoyalty()
   const { count: wishlistCount } = useWishlist()
+  const { orders, loading: ordersLoading } = useOrders()
 
   const [followingCount, setFollowingCount] = useState(0)
-  const [latestOrderStatus, setLatestOrderStatus] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (!user) return
     let cancelled = false
     const supabase = createClient()
     ;(async () => {
-      const [{ count }, { data: latestOrder }] = await Promise.all([
-        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', user.id),
-        supabase
-          .from('orders')
-          .select('stage')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ])
+      const { count } = await supabase
+        .from('follows')
+        .select('id', { count: 'exact', head: true })
+        .eq('follower_id', user.id)
       if (cancelled) return
       setFollowingCount(count ?? 0)
-      setLatestOrderStatus(latestOrder ? ORDER_STAGE_LABEL[latestOrder.stage] ?? latestOrder.stage : undefined)
     })()
     return () => {
       cancelled = true
@@ -106,7 +120,7 @@ function AccountHomePageInner() {
       walletBalance={credits}
       wishlistCount={wishlistCount}
       followingCount={followingCount}
-      latestOrderStatus={latestOrderStatus}
+      latestOrder={ordersLoading ? undefined : toLatestOrder(orders)}
     />
   )
 }
@@ -114,7 +128,16 @@ function AccountHomePageInner() {
 export default function AccountHomePage() {
   return (
     <Suspense fallback={null}>
-      <AccountHomePageInner />
+      {/* OrdersProvider added here — this page previously did its own
+          one-off `orders.select('stage')` query instead of using the
+          shared orders context, so wrapping here is new. If a layout
+          above this route (e.g. app/account/layout.tsx) ALREADY wraps
+          with <OrdersProvider>, remove this wrapper and just call
+          useOrders() directly in AccountHomePageInner — double-wrapping
+          would spin up a second, redundant fetch of the same data. */}
+      <OrdersProvider>
+        <AccountHomePageInner />
+      </OrdersProvider>
     </Suspense>
   )
 }

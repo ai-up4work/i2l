@@ -314,7 +314,7 @@ export function formatCartLinesForWhatsApp(items: (CartLineItem & { name: string
 export const TERMS_VERSION = "2026-09-01";
 
 /** Where the full Terms and Conditions document lives. */
-export const TERMS_URL = "/legal/terms";
+export const TERMS_URL = "/policy/terms";
 
 /**
  * One-line summary shown next to the checkout checkbox — kept short and
