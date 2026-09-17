@@ -191,8 +191,9 @@ export interface Permissions {
   /** Manager-only: close a request outright without quoting it (maps to "declined" — there's no separate closed state) */
   canCloseRequests: boolean
   /**
-   * Manager-only (Super Admin gets this too, but Super Admin isn't part
-   * of this Role type — see /super-admin). Hard-delete rights on orders,
+   * Manager-only (Super Admin gets this too — see the shared
+   * MANAGER_PERMISSIONS in AdminDataContext.tsx, and
+   * app/admin/(protected)/super-admin/**). Hard-delete rights on orders,
    * sellers, listings, discounts, etc. Sales & Purchase and Warehouse
    * never get this — deactivate/hide is the only destructive action
    * available to them, per the platform's delete policy.

@@ -46,11 +46,18 @@ type ProfilePageProps = {
   onSignOut: () => void
 }
 
-// One row in the "Settings" rail — icon, label, chevron. Rows live inside
-// one shared grouped card (see the `divide-y` wrapper below) rather than
-// each being its own separate bordered box — a stack of four individual
-// cards with gaps between them read as loose/unrelated items; grouping
-// them under one border reads as "this is one list" instead.
+// A small label sitting above a group of rows — same job a card header
+// used to do, minus the card. Kept as its own component so the type
+// treatment (size, color, weight) stays identical everywhere it's used,
+// rather than three sections quietly drifting apart over time.
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-sm font-semibold text-ink/45">{children}</h2>
+}
+
+// One row in the settings rail — icon, label, chevron. Rows sit directly
+// in the page's flow, separated by hairline dividers (see the `divide-y`
+// wrapper below) rather than grouped inside a bordered card — the divider
+// alone is enough to read "these four belong together."
 function SettingsRow({
   label,
   icon: Icon,
@@ -64,7 +71,7 @@ function SettingsRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between px-5 py-4 text-left transition-colors duration-150 hover:bg-ink/[0.03]"
+      className="flex w-full items-center justify-between py-4 text-left transition-colors duration-150 first:pt-0 hover:text-teal-deep"
     >
       <span className="flex items-center gap-2.5 font-semibold text-ink">
         <Icon size={16} strokeWidth={1.8} className="text-ink/45" />
@@ -76,8 +83,8 @@ function SettingsRow({
 }
 
 // Read-only contact line (email/phone/address) — label icon, value text.
-// Not a button: these aren't actions, just display rows inside the
-// contact-info card, edited via the name-edit affordance above instead.
+// Not a button: these aren't actions, just display rows, edited via the
+// name-edit affordance above instead.
 function ContactRow({
   icon: Icon,
   value,
@@ -92,7 +99,7 @@ function ContactRow({
 }) {
   if (!value) return null
   return (
-    <div className="flex items-center gap-3 py-2.5 text-sm text-ink/70">
+    <div className="flex items-center gap-3 py-2.5 text-sm text-ink/70 first:pt-0">
       <Icon size={16} strokeWidth={1.8} className="shrink-0 text-ink/40" />
       <span className="truncate">{value}</span>
       {verified && (
@@ -144,8 +151,10 @@ export default function ProfilePage({
         }
       `}</style>
 
-      {/* Avatar + name card */}
-      <div className="mt-6 flex flex-col items-center gap-4 rounded-2xl border border-ink/10 bg-card p-8 text-center motion-safe:[animation:fadeUp_0.35s_ease-out_both]">
+      {/* Avatar + name — sits at the top of the flow rather than in its
+          own boxed card; a bottom rule is what separates it from Contact
+          info below, same device used everywhere else on this page. */}
+      <div className="flex flex-col items-center gap-4 border-b border-ink/10 pb-8 pt-2 text-center motion-safe:[animation:fadeUp_0.35s_ease-out_both]">
         <div className="relative">
           <span className="grid size-24 place-items-center overflow-hidden rounded-full border border-ink/10 bg-parchment">
             {avatarUrl ? (
@@ -207,21 +216,21 @@ export default function ProfilePage({
 
       {/* Contact info */}
       <div
-        className="mt-4 rounded-2xl border border-ink/10 bg-card p-6 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+        className="border-b border-ink/10 py-8 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
         style={{ animationDelay: '60ms' }}
       >
-        <h2 className="font-display text-base text-ink">Contact info</h2>
-        <div className="mt-1 divide-y divide-ink/5">
+        <SectionLabel>Contact info</SectionLabel>
+        <div className="mt-2 divide-y divide-ink/5">
           <ContactRow icon={Mail} value={email} />
           <ContactRow icon={Phone} value={phone} verified={phoneVerified} />
           <ContactRow icon={MapPin} value={address} />
         </div>
       </div>
 
-      {/* Settings rail — one grouped card with internal dividers, not
-          four separate floating boxes (see SettingsRow's doc comment). */}
+      {/* Settings rail — four rows sharing one divider, not four
+          separate floating boxes (see SettingsRow's doc comment). */}
       <div
-        className="mt-4 divide-y divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-card motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+        className="divide-y divide-ink/10 border-b border-ink/10 py-4 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
         style={{ animationDelay: '120ms' }}
       >
         <SettingsRow label="Addresses" icon={MapPin} onClick={onManageAddresses} />
@@ -233,7 +242,7 @@ export default function ProfilePage({
       <button
         type="button"
         onClick={onSignOut}
-        className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50/50 py-3.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+        className="mt-6 flex w-full items-center gap-2.5 py-2 text-sm font-semibold text-red-600 transition-colors hover:text-red-700 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
         style={{ animationDelay: '160ms' }}
       >
         <LogOut size={16} strokeWidth={1.8} />

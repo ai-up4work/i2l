@@ -417,7 +417,7 @@ function ShopByCategory() {
         ))}
       </div>
 
-      <div className="mt-10 flex justify-center">
+      <div className="mt-10 mb-8 flex justify-center">
         <a
           href="/account/requests/new"
           className="rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment"
@@ -426,7 +426,7 @@ function ShopByCategory() {
         </a>
       </div>
 
-      <Reveal className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      {/* <Reveal className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-mono text-[11px] font-extrabold uppercase tracking-[0.2em] text-gold">
             Deals &amp; Promos
@@ -458,7 +458,7 @@ function ShopByCategory() {
         >
           View all deals
         </a>
-      </div>
+      </div> */}
     </section>
   )
 }
@@ -527,8 +527,8 @@ function FinalCTA() {
             <button
               type="submit"
               disabled={submitted || !link.trim()}
-              aria-label="Start Shopping"
-              className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal px-4 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo-deep active:scale-95 disabled:cursor-default disabled:active:scale-100 sm:px-6"
+              aria-label={submitted ? 'Sent' : 'Start Shopping'}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal p-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo-deep active:scale-95 disabled:cursor-default disabled:active:scale-100 sm:px-6 sm:py-3"
             >
               {submitted ? (
                 <>

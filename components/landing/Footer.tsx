@@ -49,7 +49,7 @@ export default function Footer() {
               ))}
             </div>
 
-            <p className="mt-2 font-body text-[11px] text-ink/40">Scan to download the app</p>
+            {/* <p className="mt-2 font-body text-[11px] text-ink/40">Scan to download the app</p> */}
 
             {/* <div className="mt-4 flex flex-wrap gap-2">
               <span className="flex items-center gap-1.5 rounded-lg border border-ink/15 px-3 py-2 font-body text-xs font-semibold text-ink/80">

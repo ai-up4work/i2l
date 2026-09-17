@@ -301,69 +301,6 @@ const SITES: Site[] = [
   { id: "ef990cda-4177-419d-967a-f9e966bf389e", name: "Galle Hub", location: "Galle, LK" },
 ]
 
-// One mock logged-in user per role. RoleSwitcher flips `role`, and
-// currentUser is derived from this map — switching to Warehouse always
-// hands you a user already scoped to a site, same as production.
-const MOCK_USERS: Record<Role, CurrentUser> = {
-  manager: { id: "20910cf1-6c79-4891-b7b0-15fcf8fd636a", name: "Amara Perera", role: "manager" },
-  sales: { id: "857f794e-d28d-4800-b17e-4b1393461dda", name: "Nadia Fernando", role: "sales" },
-  warehouse: {
-    id: "00af059b-624d-4b31-9956-ed1c0feff14e",
-    name: "Kasun Silva",
-    role: "warehouse",
-    siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
-  },
-  // Full /admin operational access, Manager-equivalent — see
-  // ROLE_PERMISSIONS below, which literally reuses manager's permission
-  // object rather than duplicating it, so the two can never drift out of
-  // sync. Distinct id from manager's own — a real super_admin staff
-  // account is its own row, not literally the same person.
-  super_admin: { id: "f3a2b891-6d4e-4c3a-9f2e-8b1c5d7e9a04", name: "Owner Account", role: "super_admin" },
-}
-
-// Reference roster for the reassign-request dropdown AND the Reports
-// site-detail page's "staff assigned here" panel. Distinct from
-// MOCK_USERS (the single logged-in account per role). siteId is only
-// meaningful for warehouse entries — sales/manager aren't site-scoped,
-// same convention as CurrentUser.siteId.
-const STAFF_DIRECTORY: StaffMember[] = [
-  { id: "857f794e-d28d-4800-b17e-4b1393461dda", name: "Nadia Fernando", email: "nadia@wishdrop.lk", role: "sales", status: "active" },
-  { id: "e03e6489-a4d4-43ca-a43c-d415403ce80c", name: "Ruvindi Jayasekara", email: "ruvindi@wishdrop.lk", role: "sales", status: "active" },
-  { id: "20910cf1-6c79-4891-b7b0-15fcf8fd636a", name: "Amara Perera", email: "amara@wishdrop.lk", role: "manager", status: "active" },
-  {
-    id: "00af059b-624d-4b31-9956-ed1c0feff14e",
-    name: "Kasun Silva",
-    email: "kasun@wishdrop.lk",
-    role: "warehouse",
-    siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
-    status: "active",
-  },
-  {
-    id: "6e37890f-346f-4a55-a779-8320765a452d",
-    name: "Dimuthu Rajapaksha",
-    email: "dimuthu@wishdrop.lk",
-    role: "warehouse",
-    siteId: "925ea5ba-e910-4d7b-a351-13b06cda235f",
-    status: "active",
-  },
-  {
-    id: "3ed33c0b-b888-4660-9360-418f36e556ac",
-    name: "Harshani Weerasinghe",
-    email: "harshani@wishdrop.lk",
-    role: "warehouse",
-    siteId: "ef990cda-4177-419d-967a-f9e966bf389e",
-    status: "active",
-  },
-  {
-    id: "12f50202-9165-4dd3-accf-6116137ce9c1",
-    name: "Pasan Gunathilaka",
-    email: "pasan@wishdrop.lk",
-    role: "warehouse",
-    siteId: "e166db30-47fe-466d-b5ee-2f600300c50f",
-    status: "active",
-  },
-]
-
 // manager and super_admin intentionally share one object rather than
 // two copies that could quietly drift apart — "Super Admin gets full
 // /admin access, Manager-equivalent" (see the resolved open question in
@@ -987,16 +924,29 @@ const INITIAL_CHAT_THREADS: ChatThread[] = []
 
 interface AdminDataContextValue {
   role: Role
-  setRole: (role: Role) => void
   currentUser: CurrentUser
   permissions: Permissions
   sites: Site[]
   staffDirectory: StaffMember[]
   staffLoading: boolean
+  /**
+   * super_admin-only "view the console as a different role" — replaces
+   * the old RoleSwitcher, which let ANY role flip to any other (a dev
+   * convenience from before real staff auth existed). `role` above
+   * already reflects this when set: `previewRole ?? currentUser.role`.
+   * `currentUser` itself never changes — this only affects which
+   * role's permissions/nav/dashboard you see, not who you're
+   * authenticated as. setPreviewRole silently no-ops for anyone who
+   * isn't actually super_admin, so even a direct call to it from
+   * outside the intended UI (the sidebar's profile menu, or the
+   * Settings page) can't be used to escalate a lesser role.
+   */
+  previewRole: Role | null
+  setPreviewRole: (role: Role | null) => void
   createStaffAccount: (input: { name: string; email: string; role: Role; siteId?: string }) => Promise<{ ok: boolean; error?: string }>
   updateStaffAccount: (
     staffId: string,
-    patch: { name?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
+    patch: { name?: string; email?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
   ) => Promise<{ ok: boolean; error?: string }>
   deactivateStaffAccount: (staffId: string) => Promise<{ ok: boolean; error?: string }>
   deleteStaffAccount: (staffId: string) => Promise<{ ok: boolean; error?: string }>
@@ -1102,7 +1052,62 @@ interface AdminDataContextValue {
 const AdminDataContext = createContext<AdminDataContextValue | undefined>(undefined)
 
 export function AdminDataProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role>("manager")
+  // The REAL logged-in staff member, via /api/admin/auth/me — replaces
+  // the old mock role-switcher entirely (useState<Role>("manager") plus
+  // MOCK_USERS[role]). middleware.ts already guarantees anyone who
+  // reaches an /admin page resolves to an active staff_accounts row, so
+  // this fetch should always succeed in practice; the error state below
+  // is a defensive fallback (e.g. staff got deactivated in the moment
+  // between middleware's check and this request), not the expected path.
+  //
+  // `currentUser` starts as an inert placeholder rather than null —
+  // every hook below this point (useMemo/useCallback keyed off
+  // currentUser.role/.id/.siteId) still runs on every render regardless
+  // of what gets returned, since React hooks can't be called
+  // conditionally. A null currentUser would crash those on the first
+  // render, before the fetch resolves. This placeholder is never
+  // actually seen or acted on: the return statement at the bottom of
+  // this component renders a loading/error screen instead of `children`
+  // until `currentUserReady` is true, so nothing downstream ever reads
+  // this placeholder's values.
+  const [currentUser, setCurrentUser] = useState<CurrentUser>({ id: "", name: "", role: "sales" })
+  const [currentUserReady, setCurrentUserReady] = useState(false)
+  const [currentUserError, setCurrentUserError] = useState<string | null>(null)
+
+  // super_admin-only "preview as" — see AdminDataContextValue's own
+  // doc comment on previewRole. Guarded here, at the single place it's
+  // ever set, rather than trusting every call site to check first.
+  const [previewRole, setPreviewRoleState] = useState<Role | null>(null)
+  const setPreviewRole = (next: Role | null) => {
+    if (currentUser.role !== "super_admin") return
+    setPreviewRoleState(next)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/admin/auth/me")
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (!res.ok || !body.staff) {
+          setCurrentUserError(body.error ?? "Could not verify your staff account.")
+          return
+        }
+        setCurrentUser({
+          id: body.staff.id,
+          name: body.staff.name,
+          role: body.staff.role as Role,
+          siteId: body.staff.site_id ?? undefined,
+        })
+        setCurrentUserReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentUserError("Could not verify your staff account.")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Orders/purchases: real data, fetched on mount from Supabase — see
   // "REAL DATA ADAPTERS" above. Deliberately NOT usePersistentState:
@@ -1234,11 +1239,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // ── Staff directory — real, via /api/admin/staff (service-role writes,
   // since there's no staff-session RLS system yet — see that route's own
   // header comment for the honest gap: this creates the roster row, not
-  // a real login-capable account). Starts from the static seed above so
-  // the UI has something to render before the first real fetch resolves,
-  // same "seed, then overwrite" pattern loadRealOrders/loadRealRequests
-  // already use elsewhere in this file.
-  const [staffDirectory, setStaffDirectory] = useState<StaffMember[]>(STAFF_DIRECTORY)
+  // a real login-capable account). Used to seed from a static mock array
+  // so the UI had something to render before the first real fetch
+  // resolved — now starts empty and relies on `staffLoading` for that
+  // instead, now that the mock roster is gone entirely.
+  const [staffDirectory, setStaffDirectory] = useState<StaffMember[]>([])
   const [staffLoading, setStaffLoading] = useState(true)
 
   const mapStaffRow = (row: {
@@ -1279,7 +1284,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   /** Creates the staff_accounts roster row. Manager-callable for
    * sales/warehouse; the super_admin/manager-role case is only ever
-   * reachable from /super-admin/staff/new in the UI — this function
+   * reachable from /admin/super-admin/staff/new in the UI — this function
    * itself doesn't re-check role, matching the honest server-side gap
    * noted in the API route. */
   const createStaffAccount = async (input: {
@@ -1305,7 +1310,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const updateStaffAccount = async (
     staffId: string,
-    patch: { name?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
+    patch: { name?: string; email?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
   ): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await fetch(`/api/admin/staff/${staffId}`, {
@@ -1440,7 +1445,17 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const currentUser = MOCK_USERS[role]
+  // currentUser is now real state (see the fetch effect near the top of
+  // this component) — role is simply read off it, not the other way
+  // around like the old MOCK_USERS[role] lookup.
+  //
+  // previewRole layers on top for super_admin only: `role` below is
+  // what every permission check, nav filter, and dashboard redirect
+  // actually reads, so setting it here (rather than threading a second
+  // "effective role" through every consumer) is what makes "preview as
+  // Manager" work everywhere at once. currentUser.role stays the real,
+  // authenticated identity throughout — only this derived `role` shifts.
+  const role = previewRole && currentUser.role === "super_admin" ? previewRole : currentUser.role
   const permissions = ROLE_PERMISSIONS[role]
 
   const visibleOrders = useMemo(() => {
@@ -2346,7 +2361,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const requestLines = useMemo<RequestLine[]>(() => {
     return requests.map((r) => {
       const ageHours = hoursSince(r.submittedAt)
-      const staffName = STAFF_DIRECTORY.find((s) => s.id === r.assignedStaffId)?.name ?? "Unassigned"
+      const staffName = staffDirectory.find((s) => s.id === r.assignedStaffId)?.name ?? "Unassigned"
       const linkedOrder = orders.find((o) => o.linkedRequestId === r.id)
       const isOpen = r.status === "sent_for_review" || r.status === "quoted"
       const allItemsQuoted = r.items.length > 0 && r.items.every((i) => i.quote !== undefined)
@@ -2369,7 +2384,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         payment: r.payment,
       }
     })
-  }, [requests, orders])
+  }, [requests, orders, staffDirectory])
 
   const getRequestLine = (id: string) => requestLines.find((l) => l.id === id)
 
@@ -2684,12 +2699,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const value: AdminDataContextValue = {
     role,
-    setRole,
     currentUser,
     permissions,
     sites: SITES,
     staffDirectory,
     staffLoading,
+    previewRole,
+    setPreviewRole,
     createStaffAccount,
     updateStaffAccount,
     deactivateStaffAccount,
@@ -2764,6 +2780,37 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     markThreadRead,
     markSentViaWhatsApp,
     resetToSeedData,
+  }
+
+  // Real staff identity hasn't resolved yet (or failed to) — render a
+  // small loading/error screen INSTEAD OF children, rather than letting
+  // any admin page render with the inert placeholder currentUser from
+  // the top of this component. The Provider itself still always wraps
+  // with a validly-typed `value` (every hook above ran normally either
+  // way), so nothing about the context's shape changes — only whether
+  // `children` gets to render at all.
+  if (currentUserError) {
+    return (
+      <AdminDataContext.Provider value={value}>
+        <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-parchment px-6 text-center font-body">
+          <p className="font-display text-lg text-ink">Couldn&apos;t verify your staff account</p>
+          <p className="max-w-sm text-sm text-ink/55">{currentUserError}</p>
+          <a href="/admin/login" className="mt-2 text-sm font-semibold text-teal-deep hover:underline">
+            Back to sign in
+          </a>
+        </div>
+      </AdminDataContext.Provider>
+    )
+  }
+
+  if (!currentUserReady) {
+    return (
+      <AdminDataContext.Provider value={value}>
+        <div className="flex min-h-screen items-center justify-center bg-parchment font-body text-sm text-ink/40">
+          Loading your account…
+        </div>
+      </AdminDataContext.Provider>
+    )
   }
 
   return <AdminDataContext.Provider value={value}>{children}</AdminDataContext.Provider>

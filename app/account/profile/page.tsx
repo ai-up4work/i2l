@@ -39,12 +39,16 @@ import ProfilePage from '@/components/dashboard/ProfilePage'
 // to actually take effect everywhere consistently.
 
 // ---------- account-security section (formerly /account/settings) ----------
-// Same card/border/spacing language as ProfilePage.tsx and
-// app/account/address-book/page.tsx — kept as its own set of small
-// components rather than folded into ProfilePage.tsx itself, since
-// ProfilePage stays a fairly pure presentational component driven by
-// props, and this section owns its own real Supabase/auth calls the
-// same way the rest of this page wrapper does.
+// LAYOUT NOTE (revised): this used to sit inside its own bordered
+// bg-card box — a second white card floating next to ProfilePage's
+// cards, cut loose from the rest of the page and only as tall as its
+// own four rows, which left a slab of dead space beneath it on any
+// screen taller than the content. It's now un-boxed: on desktop it
+// hangs off a single vertical rule (border-l) that reads as one
+// continuous page split into two halves, not two unrelated cards, and
+// on mobile that rule becomes a top rule instead. Rows are separated by
+// hairline dividers only — no per-row backgrounds, borders, or shadows —
+// so "no white cards" holds all the way down.
 
 function SettingsCard({
   label,
@@ -56,10 +60,10 @@ function SettingsCard({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-ink/10 py-5 first:pt-0 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex flex-col gap-4 border-b border-ink/10 py-6 first:pt-0 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <div className="flex items-center gap-2 font-semibold text-ink">{label}</div>
-        <div className="mt-1 text-sm text-ink/60">{children}</div>
+        <div className="mt-1.5 text-sm leading-relaxed text-ink/60">{children}</div>
       </div>
       {action && <div className="flex-none">{action}</div>}
     </div>
@@ -231,7 +235,7 @@ export default function AccountProfilePage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-3xl px-6 pb-8 pt-6 lg:px-10">
-        <div className="mt-6 h-64 animate-pulse rounded-2xl border border-ink/10 bg-card/60" />
+        <div className="mt-6 h-64 animate-pulse rounded-2xl bg-ink/5" />
       </div>
     )
   }
@@ -267,15 +271,15 @@ export default function AccountProfilePage() {
       )}
 
       {/* Desktop: profile summary (left, fixed width) + account security
-          (right, flexible) side by side, instead of one narrow column
-          with a lot of empty margin either side on a wide viewport.
-          Below `lg:` this is just a plain stack, same as before — each
-          child keeps its own mobile-width styling. Right column is
-          still capped (max-w-xl below) rather than left to stretch:
-          SettingsCard's rows use justify-between to pin their action
-          button to the right edge, so letting the row itself get very
-          wide just stretches the empty gap between label and button. */}
-      <div className="lg:grid lg:grid-cols-[420px_minmax(0,1fr)] lg:items-start lg:gap-12 lg:px-10">
+          (right, flexible) side by side. `items-stretch` (the grid
+          default) instead of `items-start` is what actually matters
+          here — with items-start the two columns size to their own
+          content and the shorter one just stops, leaving a gap under
+          it. Stretching them means the right column's own border-l
+          rule always runs the full height of the row, so the two
+          halves read as one page rather than two independently-sized
+          boxes. Below `lg:` this is just a plain stack, same as before. */}
+      <div className="lg:grid lg:grid-cols-[480px_minmax(0,1fr)] lg:gap-20 lg:px-10">
         <ProfilePage
           name={user.name}
           email={user.email}
@@ -304,144 +308,143 @@ export default function AccountProfilePage() {
 
         {/* ---- Account security (formerly the standalone "Manage My
             Account" page at /account/settings) ---- */}
-        <div ref={securityRef} className="mx-auto mt-8 max-w-3xl scroll-mt-6 px-6 pb-8 lg:mx-0 lg:mt-0 lg:max-w-md lg:px-0">
+        <div
+          ref={securityRef}
+          className="mx-auto mt-10 max-w-3xl scroll-mt-6 border-t border-ink/10 px-6 pt-8 pb-8 lg:mx-0 lg:mt-0 lg:max-w-md lg:border-t-0 lg:border-l lg:px-0 lg:pb-0 lg:pl-14 lg:pt-1"
+        >
           <h2 className="font-display text-xl text-ink">Account security</h2>
           <p className="mt-1 text-sm text-ink/55">Your login, WhatsApp number, and account security.</p>
 
-          <div className="mt-4 rounded-2xl border border-ink/10 bg-card px-6 sm:px-8">
-          {/* Email dropped from here — it's already shown, unmasked, in
-              the Contact info card next to it. Repeating it a second
-              time in a different (masked) format read as two sources of
-              truth for the same field rather than one page. */}
-          <SettingsCard
-            label={
-              <>
-                <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-teal/12 text-teal-deep">
-                  <MessageCircle size={13} strokeWidth={2} />
-                </span>
-                WhatsApp Number
-              </>
-            }
-            action={
-              phoneStep === 'idle' ? (
-                user.phoneVerified ? (
-                  <span className="rounded-full bg-teal/12 px-2.5 py-1 text-[11px] font-semibold text-teal-deep">
-                    Verified
+          <div className="mt-6">
+            {/* Email dropped from here — it's already shown, unmasked, in
+                the Contact info card next to it. Repeating it a second
+                time in a different (masked) format read as two sources of
+                truth for the same field rather than one page. */}
+            <SettingsCard
+              label={
+                <>
+                  <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-teal/12 text-teal-deep">
+                    <MessageCircle size={13} strokeWidth={2} />
                   </span>
+                  WhatsApp Number
+                </>
+              }
+              action={
+                phoneStep === 'idle' ? (
+                  user.phoneVerified ? (
+                    <span className="rounded-full bg-teal/12 px-2.5 py-1 text-[11px] font-semibold text-teal-deep">
+                      Verified
+                    </span>
+                  ) : (
+                    <OutlineButton onClick={() => setPhoneStep('entering')}>Add</OutlineButton>
+                  )
+                ) : undefined
+              }
+            >
+              {phoneStep === 'idle' ? (
+                user.phoneVerified ? (
+                  "We'll use this number to send order updates on WhatsApp and to verify it's really you in chat."
                 ) : (
-                  <OutlineButton onClick={() => setPhoneStep('entering')}>Add</OutlineButton>
+                  "Add and verify your WhatsApp number so we can message you about your orders, and so our chat panel can confirm it's you."
                 )
-              ) : undefined
-            }
-          >
-            {phoneStep === 'idle' ? (
-              user.phoneVerified ? (
-                "We'll use this number to send order updates on WhatsApp and to verify it's really you in chat."
+              ) : phoneStep === 'entering' ? (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="tel"
+                    placeholder="+94 7X XXX XXXX"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(e.target.value)}
+                    className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
+                  />
+                  <div className="flex gap-2">
+                    <SolidButton onClick={handleSendOtp} disabled={phoneBusy || !phoneInput.trim()}>
+                      {phoneBusy ? 'Sending…' : 'Send code'}
+                    </SolidButton>
+                    <OutlineButton onClick={() => setPhoneStep('idle')}>Cancel</OutlineButton>
+                  </div>
+                </div>
               ) : (
-                "Add and verify your WhatsApp number so we can message you about your orders, and so our chat panel can confirm it's you."
-              )
-            ) : phoneStep === 'entering' ? (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <input
-                  type="tel"
-                  placeholder="+94 7X XXX XXXX"
-                  value={phoneInput}
-                  onChange={(e) => setPhoneInput(e.target.value)}
-                  className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
-                />
-                <div className="flex gap-2">
-                  <SolidButton onClick={handleSendOtp} disabled={phoneBusy || !phoneInput.trim()}>
-                    {phoneBusy ? 'Sending…' : 'Send code'}
-                  </SolidButton>
-                  <OutlineButton onClick={() => setPhoneStep('idle')}>Cancel</OutlineButton>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    placeholder="Enter the code we sent you"
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value)}
+                    className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
+                  />
+                  <div className="flex gap-2">
+                    <SolidButton onClick={handleVerifyOtp} disabled={phoneBusy || !otpInput.trim()}>
+                      {phoneBusy ? 'Verifying…' : 'Verify'}
+                    </SolidButton>
+                    <OutlineButton onClick={() => setPhoneStep('idle')}>Cancel</OutlineButton>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <input
-                  type="text"
-                  placeholder="Enter the code we sent you"
-                  value={otpInput}
-                  onChange={(e) => setOtpInput(e.target.value)}
-                  className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
-                />
-                <div className="flex gap-2">
-                  <SolidButton onClick={handleVerifyOtp} disabled={phoneBusy || !otpInput.trim()}>
-                    {phoneBusy ? 'Verifying…' : 'Verify'}
-                  </SolidButton>
-                  <OutlineButton onClick={() => setPhoneStep('idle')}>Cancel</OutlineButton>
-                </div>
-              </div>
-            )}
-            {phoneError && <p className="mt-2 text-xs font-semibold text-red-600">{phoneError}</p>}
-          </SettingsCard>
+              )}
+              {phoneError && <p className="mt-2 text-xs font-semibold text-red-600">{phoneError}</p>}
+            </SettingsCard>
 
-          <SettingsCard
-            label="Change Password"
-            action={
-              passwordStep === 'idle' ? (
-                <OutlineButton onClick={() => setPasswordStep('entering')}>Change</OutlineButton>
-              ) : undefined
-            }
-          >
-            {passwordStep === 'idle' ? (
-              passwordSaved ? (
-                <span className="font-semibold text-teal-deep">Password updated.</span>
+            <SettingsCard
+              label="Change Password"
+              action={
+                passwordStep === 'idle' ? (
+                  <OutlineButton onClick={() => setPasswordStep('entering')}>Change</OutlineButton>
+                ) : undefined
+              }
+            >
+              {passwordStep === 'idle' ? (
+                passwordSaved ? (
+                  <span className="font-semibold text-teal-deep">Password updated.</span>
+                ) : (
+                  '••••••••'
+                )
               ) : (
-                '••••••••'
-              )
-            ) : (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <input
-                  type="password"
-                  placeholder="New password"
-                  minLength={6}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
-                />
-                <div className="flex gap-2">
-                  <SolidButton onClick={handleChangePassword} disabled={passwordBusy}>
-                    {passwordBusy ? 'Saving…' : 'Save'}
-                  </SolidButton>
-                  <OutlineButton onClick={() => setPasswordStep('idle')}>Cancel</OutlineButton>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="password"
+                    placeholder="New password"
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
+                  />
+                  <div className="flex gap-2">
+                    <SolidButton onClick={handleChangePassword} disabled={passwordBusy}>
+                      {passwordBusy ? 'Saving…' : 'Save'}
+                    </SolidButton>
+                    <OutlineButton onClick={() => setPasswordStep('idle')}>Cancel</OutlineButton>
+                  </div>
                 </div>
-              </div>
-            )}
-            {passwordError && <p className="mt-2 text-xs font-semibold text-red-600">{passwordError}</p>}
-          </SettingsCard>
+              )}
+              {passwordError && <p className="mt-2 text-xs font-semibold text-red-600">{passwordError}</p>}
+            </SettingsCard>
 
-          {/*
-            Delete Account / Download Your Information are real GDPR-style
-            requests that need an actual backend flow (cascading delete or
-            a data-export job) — not built yet. Left as a support contact
-            instead of a fake button that looks like it works but does
-            nothing, or silently deletes data with no real implementation
-            behind it.
+            {/*
+              Delete Account / Download Your Information are real GDPR-style
+              requests that need an actual backend flow (cascading delete or
+              a data-export job) — not built yet. Left as a support contact
+              instead of a fake button that looks like it works but does
+              nothing, or silently deletes data with no real implementation
+              behind it.
 
-            Kept inside the same card as WhatsApp/Password rather than a
-            separate floating block below it — that split left an
-            unstyled patch of plain text sitting in open space beneath a
-            bordered card, which read as unfinished rather than
-            intentional. Still visually quieter than the rows above it
-            (see QuietLinkRow) so a rare, high-stakes action doesn't
-            compete with "Change Password" for attention — the quietness
-            comes from type weight and color, not from being cut loose
-            from the card.
-          */}
-          <QuietLinkRow
-            label="Delete Account"
-            description="NOTE: Account will NOT BE RECOVERABLE once deleted. Contact support to request this."
-            onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Delete%20my%20account')}
-          />
-          <QuietLinkRow
-            label="Download Your Information"
-            description="To request a copy of your personal data, contact support — we'll verify your identity and send it to you."
-            onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Data%20export%20request')}
-          />
+              Still visually quieter than the rows above it (see
+              QuietLinkRow) so a rare, high-stakes action doesn't compete
+              with "Change Password" for attention — the quietness comes
+              from type weight and color, not from being cut loose into a
+              separate box.
+            */}
+            <QuietLinkRow
+              label="Delete Account"
+              description="NOTE: Account will NOT BE RECOVERABLE once deleted. Contact support to request this."
+              onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Delete%20my%20account')}
+            />
+            <QuietLinkRow
+              label="Download Your Information"
+              description="To request a copy of your personal data, contact support — we'll verify your identity and send it to you."
+              onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Data%20export%20request')}
+            />
+          </div>
         </div>
       </div>
-    </div>
     </div>
   )
 }

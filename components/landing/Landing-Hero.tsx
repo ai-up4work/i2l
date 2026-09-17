@@ -103,7 +103,7 @@ export default function Hero() {
         />
       </div>
 
-      <div className="relative z-10 mx-auto flex h-full mt-12 max-w-8xl ml-8 flex-col justify-center px-6 lg:px-10">
+      <div className="relative z-10 mx-auto flex h-full mt-12 max-w-8xl flex-col justify-center px-6 lg:px-10">
         <div className="max-w-xl">
           <p className="font-body text-xs font-extrabold uppercase tracking-[0.2em] text-gold">
             Shop global. We deliver.
@@ -139,15 +139,16 @@ export default function Hero() {
             <button
               type="submit"
               disabled={submitted || !link.trim()}
-              className="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-teal px-6 py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
+              aria-label={submitted ? 'Sent' : 'Get Quote'}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-full sm:rounded-2xl bg-teal p-3 sm:px-6 sm:py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
             >
               {submitted ? (
                 <>
-                  Sent <Check size={15} />
+                  <span className="hidden sm:inline">Sent</span> <Check size={15} />
                 </>
               ) : (
                 <>
-                  Get Quote <ArrowRight size={15} />
+                  <span className="hidden sm:inline">Get Quote</span> <ArrowRight size={15} />
                 </>
               )}
             </button>

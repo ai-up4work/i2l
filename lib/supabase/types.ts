@@ -985,6 +985,12 @@ export interface Database {
           site_id: string | null
           status: string
           last_login: string | null
+          // Per-account toggle prefs for /admin/settings/notifications
+          // (new_request, order_delayed, chat_message, qc_flagged,
+          // purchase_issue) — see data/wishdrop-staff-notification-prefs.sql.
+          // Nullable/absent keys default to "on" client-side, so this
+          // column only ever needs to store the OFF exceptions.
+          notification_prefs: Record<string, boolean> | null
         }
         Insert: {
           id?: string
@@ -995,6 +1001,7 @@ export interface Database {
           site_id?: string | null
           status?: string
           last_login?: string | null
+          notification_prefs?: Record<string, boolean> | null
         }
         Update: Partial<Database['public']['Tables']['staff_accounts']['Insert']>
         Relationships: []

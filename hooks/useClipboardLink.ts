@@ -1,7 +1,7 @@
 // useClipboardLink.ts
 'use client'
 
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 // Very small check that the clipboard text is actually a URL, so we don't
 // clobber the field with unrelated copied text (an address, a note, etc).
@@ -70,6 +70,18 @@ type UseClipboardLinkOptions = {
  * which together cover the common case of copying a link elsewhere and
  * switching back to the app.
  *
+ * ONE-SHOT BEHAVIOR: the hook auto-fills at most once per mount. Once it
+ * has filled the field a single time, it stops checking the clipboard for
+ * the rest of that component's lifetime — even if the user deletes the
+ * field and refocuses the window/tab afterward, even if the clipboard
+ * still holds (or later holds) a different valid link. This is deliberate:
+ * without it, deleting an unwanted auto-filled link just causes it (or
+ * whatever's on the clipboard next) to reappear the moment the tab regains
+ * focus, which reads as the field "fighting back" against the user. If you
+ * need a way to pull a fresh link from the clipboard after the one-shot has
+ * fired, wire up an explicit "paste" button that calls `setValue` directly
+ * — that bypasses this hook entirely, as it should.
+ *
  * Usage:
  *   const [link, setLink] = useState('')
  *   useClipboardLink(link, setLink)
@@ -104,8 +116,16 @@ export function useClipboardLink(
     onAllowedDomain,
   } = options
 
+  // Flips to true the first (and only) time we auto-fill. Every later call
+  // to checkClipboard — from mount, focus, or visibility change — bails out
+  // immediately once this is true, regardless of what's on the clipboard or
+  // whether the field has since been emptied. See the "ONE-SHOT BEHAVIOR"
+  // note above the exported hook for why.
+  const hasAutoFilledRef = useRef(false)
+
   const checkClipboard = useCallback(async () => {
     if (!enabled) return
+    if (hasAutoFilledRef.current) return // already used our one auto-fill — never fill again
     if (onlyWhenEmpty && value.trim()) return
     if (!navigator.clipboard?.readText) return
 
@@ -114,6 +134,7 @@ export function useClipboardLink(
       const trimmed = text.trim()
       if (!text || !looksLikeUrl(trimmed) || trimmed === value) return
 
+      hasAutoFilledRef.current = true
       setValue(trimmed)
       onAutoFill?.(trimmed)
 

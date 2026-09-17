@@ -14,6 +14,7 @@ import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
 import { getOrCreateGeneralThread, sendChatMessage } from '@/lib/supabase/chat'
 import type { OgMetadata } from '@/lib/og-lookup'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getDualDeliveryPricing, type ProductPriceableItem } from '@/lib/pricing'
 
 const emptyDraft: Draft = {
   url: '',
@@ -25,6 +26,16 @@ const emptyDraft: Draft = {
   isLiquid: null,
   hasBatteries: null,
   estimatedPriceLKR: null,
+  // NEW — raw scrape data + delivery choice, carried through from
+  // ItemInfoModal so confirmRequest can rebuild the exact Economy/Express
+  // breakdown the customer saw in the review step (see applyScrapeResultToDraft
+  // and confirmRequest below). sourcePrice/sourceCurrency are the pre-LKR
+  // numbers getDualDeliveryPricing actually needs — unitPrice alone (already
+  // converted, and without service charge/delivery) isn't enough to rebuild it.
+  sourcePrice: null,
+  sourceCurrency: null,
+  weightKg: null,
+  deliveryChoice: 'economy',
 }
 
 const DRAFT_STORAGE_KEY = 'dashboard:pendingDraft'
@@ -98,8 +109,17 @@ type DashboardContextValue = {
   /** Writes the current draft to a real order (price already known) or a
    * Channel 3 request (no price yet, needs a Sales & Purchase quote).
    * Navigates to /account/orders on success; returns ok:false and stays
-   * put on failure so the customer can retry. */
+   * put on failure so the customer can retry.
+   *
+   * When a price IS known, the order is charged the FINAL Economy/Express
+   * total for whichever delivery mode the customer picked in the review
+   * step (item price + service charge + delivery) — not the bare item
+   * price. See setDeliveryChoice / draft.deliveryChoice below. */
   confirmRequest: () => Promise<ConfirmResult>
+  /** Stashes the customer's Economy/Express choice from the review step
+   * onto the draft, so confirmRequest can charge the matching final total.
+   * Wired up to ItemInfoModal's onDeliveryChoiceChange prop. */
+  setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
   /** Writes cart lines to a single real order. Does NOT navigate or clear
    * the cart itself — the caller (cart page) does that only once this
@@ -174,6 +194,18 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
     // an earlier attempt.
     needsVariantConfirmation: result.ogOnly === true,
     estimatedPriceLKR,
+    // NEW — raw (pre-LKR-conversion) price/currency + weight, kept
+    // alongside the converted unitPrice above so confirmRequest can
+    // rebuild the exact Economy/Express breakdown via
+    // getDualDeliveryPricing (which needs the source price/currency,
+    // not the already-converted LKR number). Only set when this
+    // scrape actually produced a trustworthy price — same gate as
+    // trustedPrice — otherwise carried over from the current draft so
+    // an unrelated re-scrape (e.g. selectVariant) doesn't clobber a
+    // previously-good value with nulls.
+    sourcePrice: trustedPrice != null ? trustedPrice : current.sourcePrice ?? null,
+    sourceCurrency: trustedPrice != null ? result.currencyCode ?? null : current.sourceCurrency ?? null,
+    weightKg: (result as ScrapeResult & { weightKg?: number | null }).weightKg ?? current.weightKg ?? null,
   }
 }
 
@@ -245,6 +277,30 @@ async function fetchOgMetadataClient(url: string): Promise<OgMetadata> {
   } catch {
     return { title: null, image: null, description: null }
   }
+}
+
+/**
+ * Rebuilds the same Economy/Express breakdown ReviewPricingBlock showed
+ * in ItemInfoModal, and returns the FINAL per-unit LKR total (item price
+ * + service charge + delivery) for whichever mode is in
+ * draft.deliveryChoice. Falls back to draft.unitPrice (the bare,
+ * pre-breakdown converted price) when there isn't enough raw data to
+ * rebuild the breakdown — e.g. an older persisted draft from before
+ * sourcePrice/sourceCurrency existed, or a hand-entered price with no
+ * scrape behind it at all. This mirrors canBuildBreakdown/toPriceableItem
+ * in ItemInfoModal.tsx; keep the two in sync if either changes.
+ */
+function finalUnitPriceLKRFor(draft: Draft): number {
+  if (draft.sourcePrice == null || !draft.sourceCurrency) return draft.unitPrice
+
+  const priceable: ProductPriceableItem = {
+    price: draft.sourcePrice,
+    currency: draft.sourceCurrency,
+    weightKg: draft.weightKg ?? undefined,
+  }
+  const dual = getDualDeliveryPricing(priceable)
+  const selected = draft.deliveryChoice === 'express' ? dual.express : dual.economy
+  return Math.round(selected.actualTotalLKR)
 }
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
@@ -322,11 +378,25 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     [draft, router],
   )
 
+  // Fired by ItemInfoModal's onDeliveryChoiceChange whenever the
+  // customer's Economy/Express toggle changes in the review step (and
+  // once, immediately, on entering that step for a priced listing — see
+  // that prop's own doc comment in ItemInfoModal.tsx). Just stashes the
+  // choice on draft; confirmRequest is what actually turns it into a
+  // final price via finalUnitPriceLKRFor.
+  const setDeliveryChoice = useCallback((choice: 'economy' | 'express') => {
+    setDraft((current) => ({ ...current, deliveryChoice: choice }))
+  }, [])
+
   // Writes the confirmed draft to Supabase. Two paths, split on whether a
   // price is already known:
   //   - Priced (scraped successfully, or hand-entered in ItemInfoModal):
   //     Channel 2 — goes straight to a real order, no admin quote needed,
-  //     since there's nothing left to price. Lands on Orders Hub.
+  //     since there's nothing left to price. The amount actually charged
+  //     is the FINAL Economy/Express total for draft.deliveryChoice (item
+  //     price + service charge + delivery — see finalUnitPriceLKRFor),
+  //     the same number ReviewPricingBlock showed the customer, not the
+  //     bare item price. Lands on Orders Hub.
   //   - Unpriced: Channel 3 — the link couldn't be priced automatically
   //     (no extractor matched, or the site blocked scraping — Instagram
   //     posts and heavily bot-protected sites are the classic case). This
@@ -349,6 +419,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     const supabase = createClient()
     try {
       if (draft.unitPrice > 0) {
+        // Final per-unit LKR total for whichever delivery mode the
+        // customer picked (item price + service charge + delivery) —
+        // NOT the bare draft.unitPrice, which is only the item's price
+        // with no delivery-mode charges applied. See finalUnitPriceLKRFor.
+        const finalUnitPriceLKR = finalUnitPriceLKRFor(draft)
+
         const domain = sourceDomainFor(draft.url)
         const snapshotId = await ensureProductSnapshot(supabase, {
           id: draft.url || draft.name,
@@ -361,14 +437,14 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           user_id: user.id,
           channel: 2,
           currency: 'LKR',
-          total_value: draft.unitPrice * draft.qty,
+          total_value: finalUnitPriceLKR * draft.qty,
         })
         const { error: itemError } = await supabase.from('order_items').insert({
           order_id: orderId,
           product_snapshot_id: snapshotId,
           title: draft.name,
           quantity: draft.qty,
-          unit_price: draft.unitPrice,
+          unit_price: finalUnitPriceLKR,
           seller_name: cleanSiteLabel(domain),
           seller_type: 'store',
           // Always a pasted link on this path (there's no catalogue
@@ -488,9 +564,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   // one pasted-link item is Channel 2 (scraped link) — mirrors the real
   // `orders.channel` column, which is per-order, not per-item, so a mixed
   // cart has to pick one. Every line here is always priced already (both
-  // sources only reach the cart once a real price is known), so there's
-  // no unpriced/Channel-3 branch on this path — Channel 3 only happens
-  // via confirmRequest above, before anything reaches the cart.
+  // sources only reach the cart once a real price is known — the cart
+  // page's own PriceBreakdownOverlay/getDualDeliveryPricing already
+  // resolved each line's delivery mode into CartOrderLine.unitPriceLKR
+  // before this is ever called), so there's no unpriced/Channel-3 branch
+  // on this path — Channel 3 only happens via confirmRequest above,
+  // before anything reaches the cart.
   const confirmCartOrder = useCallback(
     async (lines: CartOrderLine[]): Promise<ConfirmResult> => {
       if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
@@ -581,6 +660,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       beginRequestForUrl,
       saveItemInfo,
       confirmRequest,
+      setDeliveryChoice,
       selectVariant,
       confirmCartOrder,
     }),
@@ -599,6 +679,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       beginRequestForUrl,
       saveItemInfo,
       confirmRequest,
+      setDeliveryChoice,
       selectVariant,
       confirmCartOrder,
     ],

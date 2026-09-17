@@ -666,10 +666,14 @@ export default function HomePage({
             <div className="flex flex-col gap-3 sm:flex-row">
               <textarea
                 value={link}
-                onChange={(event) => setLink(event.target.value)}
+                onChange={(event) => setLink(event.target.value.replace(/\n/g, ''))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.preventDefault()
+                }}
                 placeholder="Paste product link here (e.g. https://example.com/item)"
                 rows={1}
-                className="min-h-[50px] flex-1 resize-y rounded-xl border border-white/15 bg-white/[0.07] p-3.5 text-sm text-white outline-none transition-all duration-200 placeholder:text-white/35 focus:border-gold/50 focus:bg-white/[0.1] focus:ring-2 focus:ring-gold/30"
+                wrap="off"
+                className="h-[50px] flex-1 resize-none overflow-x-auto overflow-y-hidden whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-3.5 text-center text-sm leading-[1.2] text-white outline-none transition-all duration-200 placeholder:text-white/35 focus:border-gold/50 focus:bg-white/[0.1] focus:ring-2 focus:ring-gold/30 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               />
               <button
                 type="submit"

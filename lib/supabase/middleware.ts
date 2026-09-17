@@ -4,9 +4,15 @@
 // token if it's expired, and keeps the browser client + server client
 // (Server Components can't set cookies themselves) in sync. This is the
 // standard @supabase/ssr pattern for Next.js App Router.
+//
+// Also returns the resolved `user` (and the bound `supabase` client) so
+// middleware.ts can make route-protection decisions off the SAME
+// just-refreshed session, instead of creating a second client and
+// re-doing the cookie dance.
 
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import type { User } from '@supabase/supabase-js'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -32,7 +38,9 @@ export async function updateSession(request: NextRequest) {
 
   // Do not remove — this refreshes the session and must run before any
   // other logic that reads auth state, per Supabase's SSR guidance.
-  await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  return supabaseResponse
+  return { supabaseResponse, supabase, user: user as User | null }
 }

@@ -28,11 +28,21 @@ import {
   BarChart3,
   UserCog,
   Building2,
+  LineChart,
+  History,
+  ShieldCheck,
+  Plug,
+  CreditCard,
+  SlidersHorizontal,
+  FileText,
+  Lock,
 } from "lucide-react"
 
 import { useAdminSidebar } from "@/contexts/AdminSidebarContext"
 import { useAdminData } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
+import { DASHBOARD_HREF } from "@/lib/admin/dashboard-routes"
+import { ROLE_LABEL as ROLE_LABELS, RolePreviewPopover } from "@/components/admin/Rolepreviewmenu"
 
 // Static sidebar nav — layout only, no auth/role logic wired up yet.
 // TODO: active-section logic beyond pathname match, real user in footer row.
@@ -55,20 +65,30 @@ type NavItem = {
   href: string
   icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>
   roles: Role[]
+  /** Shown, but not a real link — no route/backing feature exists yet.
+   * See the "Super Admin" group below: everything there except "All
+   * staff" is still a stub page (2-line placeholders from the initial
+   * /super-admin -> /admin/super-admin move), so linking to them would
+   * just be a dead end dressed up as a real feature. Locked items stay
+   * visible (so it's clear what's coming and roughly how it's grouped)
+   * but aren't clickable — flip this off one at a time as each one
+   * actually gets built, rather than adding the nav item back in later. */
+  locked?: boolean
 }
 
-const ROLE_LABELS: Record<Role, string> = {
-  manager: "Manager",
-  sales: "Sales & Purchase",
-  warehouse: "Warehouse",
-  super_admin: "Super Admin",
-}
-
-const DASHBOARD_HREF: Record<Role, string> = {
-  manager: "/admin/manager-dashboard",
-  sales: "/admin/sales-dashboard",
-  warehouse: "/admin/warehouse-dashboard",
-  super_admin: "/admin/super-admin-dashboard",
+// super_admin isn't listed in any nav item's own `roles` array below —
+// every single one only lists manager/sales/warehouse, and there was
+// nothing making super_admin see any of them. Combined with
+// MANAGER_PERMISSIONS being shared 1:1 with manager (see
+// AdminDataContext.tsx: `super_admin: MANAGER_PERMISSIONS`), a
+// super_admin could pass every auth check, land in /admin, and see a
+// completely empty sidebar — full permissions, nothing to click.
+// Centralizing the exception here (rather than appending "super_admin"
+// to every roles array by hand) means a new nav item added later with
+// just `roles: ["manager"]` still correctly includes super_admin
+// without anyone needing to remember it.
+function canSeeNavItem(item: NavItem, role: Role): boolean {
+  return role === "super_admin" || item.roles.includes(role)
 }
 
 function getTopItems(role: Role): NavItem[] {
@@ -79,7 +99,7 @@ function getTopItems(role: Role): NavItem[] {
     { label: "Customer chat", href: "/admin/chat", icon: MessageCircle, roles: ["manager", "sales"] },
     { label: "quote", href: "/admin/quote", icon: ClipboardList, roles: ["manager", "sales"] },
   ]
-  return items.filter((item) => item.roles.includes(role))
+  return items.filter((item) => canSeeNavItem(item, role))
 }
 
 type Group = { label: string; items: NavItem[] }
@@ -117,10 +137,56 @@ function getGroups(role: Role): Group[] {
         { label: "Warehouse Sites", href: "/admin/staff/warehouses", icon: Building2, roles: ["manager"] },
       ],
     },
+    {
+      // Only ever visible to super_admin — see canSeeNavItem above.
+      // These used to live under a separate, unstyled /super-admin
+      // route with no shared navigation at all; now they're just
+      // another group in the same sidebar, gated the same way
+      // everything else here is. "All staff" is distinct from the
+      // Manager group's "Staff" above: that one excludes Manager/Super
+      // Admin rows entirely (Manager account creation is Super
+      // Admin-only, per the roster page's own comment) — this one is
+      // the full roster, every role included.
+      label: "Super Admin",
+      items: [
+        { label: "Analytics", href: "/admin/super-admin/analytics", icon: LineChart, roles: ["super_admin"], locked: true },
+        { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"], locked: true },
+        { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },
+        { label: "All staff", href: "/admin/super-admin/staff", icon: Users, roles: ["super_admin"] },
+        {
+          label: "Pricing engine",
+          href: "/admin/super-admin/settings/pricing-engine",
+          icon: SlidersHorizontal,
+          roles: ["super_admin"],
+          locked: true,
+        },
+        {
+          label: "Templates",
+          href: "/admin/super-admin/settings/templates",
+          icon: FileText,
+          roles: ["super_admin"],
+          locked: true,
+        },
+        {
+          label: "Integrations",
+          href: "/admin/super-admin/settings/integrations",
+          icon: Plug,
+          roles: ["super_admin"],
+          locked: true,
+        },
+        {
+          label: "Payment gateway",
+          href: "/admin/super-admin/settings/payment-gateway",
+          icon: CreditCard,
+          roles: ["super_admin"],
+          locked: true,
+        },
+      ],
+    },
   ]
 
   return allGroups
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes(role)) }))
+    .map((group) => ({ ...group, items: group.items.filter((item) => canSeeNavItem(item, role)) }))
     .filter((group) => group.items.length > 0)
 }
 
@@ -260,28 +326,29 @@ export function AdminSidebar() {
           collapsed={collapsed}
         />
 
-        <button
-          type="button"
-          className={`mt-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 ${
-            collapsed ? "justify-center" : ""
-          }`}
-        >
-          <span className="relative flex-none">
-            <span className="block h-8 w-8 overflow-hidden rounded-full bg-teal-deep">
-              <Image src="/default-avatar.png" alt="" width={32} height={32} className="h-full w-full object-cover" />
-            </span>
-            <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-teal-deep ring-2 ring-card" />
-          </span>
-          {!collapsed && (
-            <>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-ink/80">{currentUser.name}</span>
-                <span className="block truncate text-xs text-ink/40">{ROLE_LABELS[role]}</span>
+        <RolePreviewPopover>
+          <div
+            className={`mt-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 ${
+              collapsed ? "justify-center" : ""
+            }`}
+          >
+            <span className="relative flex-none">
+              <span className="block h-8 w-8 overflow-hidden rounded-full bg-teal-deep">
+                <Image src="/default-avatar.png" alt="" width={32} height={32} className="h-full w-full object-cover" />
               </span>
-              <ChevronsUpDown size={13} className="flex-none text-ink/30" />
-            </>
-          )}
-        </button>
+              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-teal-deep ring-2 ring-card" />
+            </span>
+            {!collapsed && (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-ink/80">{currentUser.name}</span>
+                  <span className="block truncate text-xs text-ink/40">{ROLE_LABELS[role]}</span>
+                </span>
+                <ChevronsUpDown size={13} className="flex-none text-ink/30" />
+              </>
+            )}
+          </div>
+        </RolePreviewPopover>
       </div>
     </aside>
   )
@@ -300,6 +367,42 @@ function SidebarLink({
 }) {
   const Icon = item.icon
   const hasSignal = !!count && count > 0
+
+  // Locked: visible so it's clear the section exists and roughly what's
+  // planned, but not a real <Link> — there's no page behind it worth
+  // navigating to yet (see NavItem's own doc comment on `locked`).
+  // Deliberately a <div>, not a disabled <button> or a Link with
+  // pointer-events-none: a real anchor tag here would still be
+  // keyboard-focusable and "look" like a working link to a screen
+  // reader, which is worse than not being a link at all for something
+  // that goes nowhere.
+  if (item.locked) {
+    return (
+      <div className="group/nav relative">
+        <div
+          aria-disabled="true"
+          className={`relative flex cursor-not-allowed items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium text-ink/30 ${
+            collapsed ? "justify-center pl-3" : "pl-3.5"
+          }`}
+        >
+          <Icon size={18} strokeWidth={1.75} />
+          {!collapsed && <span className="truncate flex-1">{item.label}</span>}
+          {!collapsed && <Lock size={13} strokeWidth={2} className="flex-none text-ink/25" />}
+        </div>
+
+        <span
+          role="tooltip"
+          className={`pointer-events-none absolute z-20 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-parchment opacity-0 shadow-[0_8px_20px_-8px_rgba(32,36,43,0.45)] transition-all duration-150 group-hover/nav:opacity-100 ${
+            collapsed
+              ? "left-full top-1/2 ml-2 -translate-x-1 -translate-y-1/2 group-hover/nav:translate-x-0"
+              : "left-3.5 top-full mt-1 -translate-y-1 group-hover/nav:translate-y-0"
+          }`}
+        >
+          Coming soon
+        </span>
+      </div>
+    )
+  }
 
   return (
     <div className="group/nav relative">
