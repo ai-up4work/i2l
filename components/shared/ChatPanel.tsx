@@ -79,6 +79,50 @@ export default function ChatPanel({
     el.scrollTo({ top: el.scrollHeight })
   }, [messages.length])
 
+  // Jump to the most recent message whenever the panel is opened,
+  // independent of the message-count effect above — covers the case
+  // where the panel opens showing messages that were already loaded
+  // (no change in messages.length to trigger that effect) but the
+  // scroll container itself is a fresh mount sitting at the top.
+  // A single scroll-to-bottom right after mount isn't enough on its
+  // own: attachment thumbnails and other content can still be loading
+  // and growing the list's height *after* that first scroll runs, which
+  // leaves the panel appearing scrolled up from the true bottom. A
+  // ResizeObserver keeps re-pinning to the bottom for a short settle
+  // window (while the user hasn't scrolled away) so it reliably lands
+  // on the latest message once everything's finished laying out.
+  useEffect(() => {
+    if (!isOpen) return
+    const el = scrollRef.current
+    if (!el) return
+
+    let userScrolledAway = false
+    const handleUserScroll = () => {
+      // Bottom within ~24px still counts as "at the bottom" — anything
+      // further up means the user is deliberately reading history and
+      // the observer should stop overriding their scroll position.
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (distanceFromBottom > 24) userScrolledAway = true
+    }
+
+    const scrollToEnd = () => {
+      if (isLoadingOlderRef.current || userScrolledAway) return
+      el.scrollTop = el.scrollHeight
+    }
+
+    scrollToEnd()
+    el.addEventListener('scroll', handleUserScroll)
+    const observer = new ResizeObserver(scrollToEnd)
+    observer.observe(el)
+    const settleTimeout = setTimeout(() => observer.disconnect(), 800)
+
+    return () => {
+      observer.disconnect()
+      clearTimeout(settleTimeout)
+      el.removeEventListener('scroll', handleUserScroll)
+    }
+  }, [isOpen])
+
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el || !hasMoreMessages || loadingMoreMessages) return
@@ -120,7 +164,7 @@ export default function ChatPanel({
 
   return (
     <div
-      className={`fixed z-40 flex h-[32rem] w-[22rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-3xl border border-ink/10 bg-parchment shadow-lift ${positionClassName}`}
+      className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[32rem] w-[22rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
       role="dialog"
       aria-modal="true"
       aria-label="Chat with WishDrop support"
@@ -266,7 +310,7 @@ export default function ChatPanel({
       </div>
 
       {isLocked ? (
-        <div className="flex flex-col gap-2 border-t border-ink/10 bg-parchment p-3">
+        <div className="flex flex-col gap-2 border-t border-ink/10 bg-parchment p-3 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             onClick={login}
@@ -314,7 +358,7 @@ export default function ChatPanel({
               </button>
             </div>
           )}
-          <div className="flex items-center gap-2 p-2.5">
+          <div className="flex items-center gap-2 p-2.5 max-sm:pb-[max(0.625rem,env(safe-area-inset-bottom))]">
             <input
               ref={fileInputRef}
               type="file"
