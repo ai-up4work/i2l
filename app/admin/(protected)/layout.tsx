@@ -6,14 +6,21 @@
 // check, /admin/login is deliberately kept OUTSIDE it (see
 // app/admin/layout.tsx, now just a passthrough) so someone who isn't
 // signed in yet sees a plain login card instead of the full sidebar,
-// notification badges, and the signed-in-staff badge behind it — those
-// all come from AdminDataProvider/AdminSidebarProvider below, which
-// assume a real signed-in staff member and shouldn't render at all for
-// a visitor who hasn't gotten past the login form.
+// notification badges, and the header search below — those all come
+// from AdminDataProvider/AdminSidebarProvider below, which assume a
+// real signed-in staff member and shouldn't render at all for a
+// visitor who hasn't gotten past the login form.
+//
+// Header used to show CurrentStaffBadge (name + role) — removed
+// entirely, not just swapped out, since it exactly duplicated the
+// sidebar's own bottom profile row (same name, same role, both on
+// screen at once). GlobalSearch replaces it with something the app
+// didn't have anywhere else: jump straight to an order, request, or
+// staff member by typing a few characters, ⌘K from anywhere.
 import type { ReactNode } from "react";
 import { AdminDataProvider } from "@/contexts/AdminDataContext";
 import { AdminSidebarProvider } from "@/contexts/AdminSidebarContext";
-import { CurrentStaffBadge } from "@/components/admin/Currentstaffbadge";
+import { GlobalSearch } from "@/components/admin/GlobalSearch";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminContentShell } from "@/components/admin/admin-content-shell";
 
@@ -41,8 +48,8 @@ export default function AdminProtectedLayout({ children }: { children: ReactNode
         <div className="h-screen overflow-hidden bg-parchment">
           <AdminSidebar />
           <AdminContentShell>
-            <header className="flex flex-none items-center justify-end border-b border-indigo-100 bg-white/60 px-6 py-3">
-              <CurrentStaffBadge />
+            <header className="flex flex-none items-center justify-end border-b border-indigo-100 bg-white/60 px-6 py-3">              
+                <GlobalSearch />
             </header>
             <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
           </AdminContentShell>

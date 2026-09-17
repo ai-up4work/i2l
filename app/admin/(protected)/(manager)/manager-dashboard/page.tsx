@@ -75,10 +75,15 @@ export default function ManagerDashboardPage() {
   const breachedOrders = visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt)))
   const breachCount = breachedOrders.length
   const manualQuoteCount = visibleOrders.filter((o) => o.isManualQuote && o.stage !== "Delivered").length
+  // order.totalValue is customer-facing LKR (see lib/currency.ts — "the
+  // site only ever displays LKR"), not INR — the ₹ this used to render
+  // with was the wrong currency symbol entirely, not just wrong
+  // formatting. Purchase.actualUnitPriceINR/quotedUnitPriceINR (what
+  // staff pay sellers in India) genuinely are INR and correctly use ₹
+  // elsewhere (see purchases/page.tsx) — this is a different number.
   const inFlightValue = visibleOrders
     .filter((o) => o.stage !== "Delivered")
     .reduce((sum, o) => sum + o.totalValue, 0)
-
   const needsPurchase = visiblePurchaseLines.filter((l) => l.status === "needs_purchase").length
   const unavailable = visiblePurchaseLines.filter((l) => l.status === "unavailable").length
   const purchased = visiblePurchaseLines.filter((l) => l.status === "purchased").length
@@ -180,7 +185,7 @@ export default function ManagerDashboardPage() {
 
           <div className="rounded-2xl border border-ink/10 bg-card px-5 py-3 text-right">
             <p className="text-xs font-medium uppercase tracking-wide text-ink/40">In flight</p>
-            <p className="mt-0.5 font-display text-xl text-ink">₹{inFlightValue.toLocaleString("en-IN")}</p>
+            <p className="mt-0.5 font-display text-xl text-ink">Rs. {inFlightValue.toLocaleString("en-US")}</p>
           </div>
         </div>
 

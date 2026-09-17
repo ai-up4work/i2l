@@ -56,7 +56,7 @@ import { ROLE_LABEL as ROLE_LABELS, RolePreviewPopover } from "@/components/admi
 // derived from data useAdminData() already fetches/subscribes to (see
 // AdminDataContext's realtime section), so the badge updates on the
 // same debounced refetch as the rest of the page, with zero extra
-// requests. `getBadgeCounts` is the one place that decides what counts
+// requests. The `badgeCounts` useMemo below is the one place that decides what counts
 // as "unnoticed" per section — change the predicate there, not at each
 // call site, if the definition of "needs attention" for a queue changes.
 
@@ -219,8 +219,7 @@ export function AdminSidebar() {
    * Staff, Settings, ...) simply has no entry, which the lookup below
    * treats the same as zero.
    */
-  const badgeCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
+  const badgeCounts = useMemo(() => {    const counts: Record<string, number> = {}
 
     counts["/admin/orders"] = visibleOrders.filter((o) => o.delayed).length
 

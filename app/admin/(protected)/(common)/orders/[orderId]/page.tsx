@@ -301,7 +301,7 @@ export default function OrderDetailPage() {
 
                 <div className="text-right">
                   <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total</p>
-                  <p className="mt-0.5 font-display text-xl text-ink">₹{order.totalValue.toLocaleString("en-IN")}</p>
+                  <p className="mt-0.5 font-display text-xl text-ink">Rs. {order.totalValue.toLocaleString("en-US")}</p>
                 </div>
               </div>
             </div>

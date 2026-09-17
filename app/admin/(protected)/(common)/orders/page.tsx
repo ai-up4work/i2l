@@ -506,7 +506,7 @@ export default function OrdersPage() {
                     </div>
 
                     <div className="flex flex-none items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-center sm:gap-1.5">
-                      <span className="font-display text-base text-ink">₹{o.totalValue.toLocaleString("en-IN")}</span>
+                      <span className="font-display text-base text-ink">Rs. {o.totalValue.toLocaleString("en-US")}</span>
                       <ChevronRight size={16} className="hidden text-ink/25 sm:block" />
                     </div>
                   </div>

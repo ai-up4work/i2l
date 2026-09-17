@@ -15,15 +15,9 @@ import { ChevronRight, Plus, Search, SearchX, Crown, ShieldCheck, ShoppingBag, U
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
 import { STAFF_STATUS_LABEL, STAFF_STATUS_TONE, type StaffAccountStatus } from "@/lib/admin/mock"
+import { ROLE_LABEL } from "@/components/admin/Rolepreviewmenu"
 
 type RoleFilter = "all" | Role
-
-const ROLE_LABEL: Record<Role, string> = {
-  manager: "Manager",
-  sales: "Sales & Purchase",
-  warehouse: "Warehouse",
-  super_admin: "Super Admin",
-}
 
 const ROLE_ICON: Record<Role, React.ReactNode> = {
   manager: <UserCog size={11} />,

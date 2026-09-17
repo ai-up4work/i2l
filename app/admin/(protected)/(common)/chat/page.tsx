@@ -48,7 +48,8 @@ const PREVIEW_MESSAGE_LIMIT = 500 // recent messages fetched across all threads 
 const THREAD_QUERY_PARAM = 'thread'
 
 function initialsFor(name: string) {
-  const parts = name.trim().split(/\s+/)
+  const cleaned = name.replace(/^@/, '')
+  const parts = cleaned.trim().split(/\s+/)
   const first = parts[0]?.[0] ?? ''
   const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : ''
   return (first + last).toUpperCase()
@@ -521,7 +522,16 @@ function AdminChatPageInner() {
           ) : (
             rows.map((t, i) => {
               const isSelected = t.id === selectedId
-              const name = t.profiles?.full_name ?? t.profiles?.email ?? 'Customer'
+              // Mirrors displayHandle's own fallback order (chat_handle
+              // before giving up) rather than jumping straight to the
+              // generic 'Customer' the moment full_name/email are both
+              // empty — that gap is exactly why two customers with no
+              // name on file but a real chat_handle were both showing
+              // as identical, indistinguishable "Customer" cards.
+              const name =
+                t.profiles?.full_name ||
+                t.profiles?.email ||
+                (t.profiles?.chat_handle ? `@${t.profiles.chat_handle.replace(/^@/, '')}` : 'Customer')
               const preview = t.lastMessage ? parseReplyBody(t.lastMessage.text ?? '').text || (t.lastMessage.attachment_url ? '📷 Attachment' : '') : ''
               const label = threadLabel(t)
               return (
@@ -544,9 +554,14 @@ function AdminChatPageInner() {
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <p className="truncate text-[13px] font-medium text-ink">{name}</p>
-                        <span className="flex-none rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
-                          {displayHandle(t.profiles)}
-                        </span>
+                        {/* Skipped when `name` already IS the handle (see
+                            its own fallback above) — otherwise this would
+                            render the identical @handle twice in a row. */}
+                        {displayHandle(t.profiles) !== name && (
+                          <span className="flex-none rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
+                            {displayHandle(t.profiles)}
+                          </span>
+                        )}
                       </div>
                       {t.lastMessage && (
                         <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>
