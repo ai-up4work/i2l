@@ -84,8 +84,25 @@ export default function Sidebar({
         />
       )}
 
+      {/* FIX: desktop height was a flat `lg:h-screen` (100vh). AccountShell's
+          <Header> is `position: fixed` (out of flow), so `main` gets the
+          full 100vh from its own flex parent and then eats into that box
+          with `padding-top: var(--account-header-h-desktop)` to visually
+          push content below the header — leaving main's real available
+          content height as `100vh - headerHeight`, not 100vh. A flat
+          `h-screen` aside inside that box was therefore always taller than
+          the space it had, overflowed the bottom of `main` (which is
+          `overflow-hidden`), and got clipped — cutting the "Download App"
+          footer off by exactly the header's height. Any reflow (banner
+          collapsing, a modal toggling, a resize) could momentarily
+          reveal/re-clip that overflow, which read as the sidebar "jumping
+          down by the header amount and coming back". Sizing against the
+          same `--account-header-h-desktop` custom property main already
+          sets (inherited here since aside is main's descendant) makes the
+          aside exactly fit its real available space, so Download App stays
+          pinned at the true bottom with no clipping. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-[110] flex w-[300px] flex-none flex-col overflow-hidden border-r border-ink/10 bg-parchment transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-[110] flex w-[300px] flex-none flex-col overflow-hidden border-r border-ink/10 bg-parchment transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:z-auto lg:h-[calc(100vh-var(--account-header-h-desktop,0px))] lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
