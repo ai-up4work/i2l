@@ -94,15 +94,15 @@ export const sidebarGroups: SidebarGroup[] = [
       // { type: 'view', label: 'Service Records', view: 'serviceRecords' },
     ],
   },
-  // {
-  //   key: 'otherServices',
-  //   label: 'Other Services',
-  //   items: [
+  {
+    key: 'otherServices',
+    label: 'Other Services',
+    items: [
   //     { type: 'view', label: 'Shopping Community', view: 'shoppingCommunity' },
-  //     { type: 'view', label: 'Affiliated Stores', view: 'affiliatedStores' },
+      { type: 'view', label: 'Affiliated Stores', view: 'affiliatedStores' },
   //     // { type: 'link', label: 'Contact Preferences', href: '/account/contact-preferences' },
-  //   ],
-  // },
+    ],
+  },
   {
     key: 'policy',
     label: 'Policy',
