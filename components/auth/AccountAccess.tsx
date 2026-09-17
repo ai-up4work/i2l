@@ -8,12 +8,22 @@ import { useAuth } from '@/contexts/AuthContext'
 
 type Mode = 'login' | 'register'
 
+const DEFAULT_REDIRECT = '/account'
+
 function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, signIn, signUp, resetPassword } = useAuth()
 
-  const redirect = searchParams.get('redirect') || '/account'
+  // FIX: a `redirect` param of '/' (the landing page) used to be
+  // treated as a valid target and sent people there after logging in
+  // — only a MISSING param fell back to '/account'. Now '/' is treated
+  // the same as "no real redirect" too, so logging in from anywhere
+  // without a specific destination always lands on the account page,
+  // never back on the landing page.
+  const rawRedirect = searchParams.get('redirect')
+  const redirect = rawRedirect && rawRedirect !== '/' ? rawRedirect : DEFAULT_REDIRECT
+
   const [mode, setMode] = useState<Mode>(
     () => initialMode ?? (searchParams.get('mode') === 'register' ? 'register' : 'login'),
   )

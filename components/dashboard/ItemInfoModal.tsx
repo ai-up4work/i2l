@@ -68,6 +68,26 @@ import Image from 'next/image'
  * `pointer-events-none` with only the backdrop/panel opting back in,
  * since that's still correct and harmless.
  *
+ * VISIBLE CLOSE BUTTON: AccountShell now keeps the global site Header
+ * mounted (z-50) while this modal is open, which covers this panel's
+ * own in-header close button (top: 0 puts it directly under Header).
+ * Rather than change the full-viewport layout, a second floating close
+ * button (`FloatingCloseButton` below) sits just under the header at a
+ * higher z-index than both, so there's always a reachable, visible way
+ * to close the modal regardless of scroll position or step. The
+ * original in-panel button is left in place.
+ *
+ * ANIMATED OPEN/CLOSE: previously `if (!open) return null` unmounted
+ * the modal instantly on close, so only the open transition (via CSS
+ * keyframes) was ever visible — closing had no animation at all. This
+ * now tracks its own `mounted`/`entered` state: opening flips `mounted`
+ * true and then, one frame later, `entered` true (so the enter
+ * transition actually has a starting state to animate from); closing
+ * flips `entered` false immediately (kicking off the exact reverse
+ * transition) and only unmounts (`mounted` false) after the transition
+ * duration elapses. Both the backdrop and panel use the same
+ * `ANIMATION_MS` duration so enter and exit are visually symmetric.
+ *
  * Loading state: instead of a centered spinner, the loading state now
  * renders <ProductSkeleton /> — a pulsing placeholder shaped like the
  * eventual two-column image/details layout plus a tabs section, so the
@@ -172,6 +192,12 @@ type ItemOverlayProps = {
 type Step = 'listing' | 'review'
 type DeliveryChoice = 'economy' | 'express'
 
+// Shared duration for the open/close transition — the backdrop, the
+// panel, AND the setTimeout that actually unmounts on close all use
+// this same number, so the animation is exactly reversible instead of
+// close feeling like a different (or missing) motion from open.
+const ANIMATION_MS = 300
+
 function ConfirmCheckbox({
   checked,
   onChange,
@@ -194,6 +220,33 @@ function ConfirmCheckbox({
       </span>
       <span>{children}</span>
     </label>
+  )
+}
+
+/**
+ * Always-visible close control. Fixed at the viewport level (not inside
+ * the scrollable panel), positioned just under the global site Header
+ * using the same --account-header-h-mobile/-desktop CSS variables
+ * AccountShell sets on <main> — this modal is rendered inside that
+ * <main>, so it inherits them. Sits at a higher z-index than both
+ * Header (z-50) and the modal's own backdrop/panel (z-30), so it's
+ * always clickable no matter what's scrolled under it.
+ */
+function FloatingCloseButton({ onClick, visible }: { onClick: () => void; visible: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label="Close"
+      onClick={onClick}
+      className={`fixed right-3 z-[60] grid h-10 w-10 flex-none place-items-center rounded-full border border-ink/10 bg-parchment/95 text-ink/60 shadow-lift backdrop-blur-sm transition-all duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink sm:right-5
+        top-[calc(var(--account-header-h-mobile,0px)+1.25rem)]
+        lg:top-[calc(var(--account-header-h-desktop,0px)+1.25rem)]
+        ${visible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}
+        transition-opacity`}
+      style={{ transitionDuration: `${ANIMATION_MS}ms` }}
+    >
+      <X size={18} />
+    </button>
   )
 }
 
@@ -490,7 +543,7 @@ function SlowLoadNotice() {
 function ProductSkeleton() {
   return (
     <div
-      className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
+      className="flex flex-col gap-6 pt-8 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
       aria-hidden="true"
     >
       <div className="grid gap-6 sm:grid-cols-2">
@@ -602,6 +655,39 @@ export default function ItemInfoModal({
   const cart = useCart()
   const wishlist = useWishlist()
 
+  // Drives the mirrored open/close transition — see the file-level
+  // "ANIMATED OPEN/CLOSE" doc comment above. `mounted` controls whether
+  // anything renders at all; `entered` controls which end of the
+  // transition the backdrop/panel/floating button are animating toward.
+  const [mounted, setMounted] = useState(open)
+  const [entered, setEntered] = useState(false)
+  const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      if (unmountTimerRef.current) {
+        clearTimeout(unmountTimerRef.current)
+        unmountTimerRef.current = null
+      }
+      setMounted(true)
+      // Mount first with entered=false (so the panel/backdrop are
+      // painted in their "closed" position), then flip entered=true on
+      // the next frame so the transition has something to animate FROM
+      // — setting both at once would skip straight to the open state
+      // with no visible motion.
+      const raf = requestAnimationFrame(() => setEntered(true))
+      return () => cancelAnimationFrame(raf)
+    }
+
+    setEntered(false)
+    unmountTimerRef.current = setTimeout(() => {
+      setMounted(false)
+    }, ANIMATION_MS)
+    return () => {
+      if (unmountTimerRef.current) clearTimeout(unmountTimerRef.current)
+    }
+  }, [open])
+
   const lastResultKey = useRef<string | null>(null)
   useEffect(() => {
     const key = result ? `${result.site ?? ''}|${result.title ?? ''}` : null
@@ -634,7 +720,7 @@ export default function ItemInfoModal({
     }
   }, [step, result, deliveryChoice, onDeliveryChoiceChange])
 
-  if (!open) return null
+  if (!mounted) return null
 
   const showLoading = !result || loading
   const handleSelectVariant = (url: string) => onSelectVariant?.(url)
@@ -773,14 +859,16 @@ export default function ItemInfoModal({
       aria-label="Product details"
     >
       <div
-        className="item-overlay-bounds pointer-events-auto absolute inset-x-0 bg-ink/40 backdrop-blur-[1px] motion-safe:[animation:overlayFadeIn_0.2s_ease-out_both]"
+        className={`item-overlay-bounds pointer-events-auto absolute inset-x-0 bg-ink/40 backdrop-blur-[1px] transition-opacity ease-out ${
+          entered ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{ transitionDuration: `${ANIMATION_MS}ms` }}
         onClick={onClose}
       />
 
+      <FloatingCloseButton onClick={onClose} visible={entered} />
+
       <style>{`
-        @keyframes overlayFadeIn { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes panelSlideIn { from { transform: translateX(24px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }
-        @keyframes panelSlideInUp { from { transform: translateY(32px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
         @keyframes contentFadeIn { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: translateY(0) } }
         @keyframes tabFadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes priceUpdatePulse { 0% { opacity: 0.4 } 100% { opacity: 1 } }
@@ -795,16 +883,16 @@ export default function ItemInfoModal({
           top: 0;
           bottom: 0;
         }
-
-        @media (prefers-reduced-motion: no-preference) {
-          .item-overlay-panel { animation: panelSlideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
-        }
-        @media (prefers-reduced-motion: no-preference) and (min-width: 1024px) {
-          .item-overlay-panel { animation: panelSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
-        }
       `}</style>
 
-      <div className="item-overlay-bounds item-overlay-panel pointer-events-auto absolute right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift">
+      <div
+        className={`item-overlay-bounds pointer-events-auto absolute right-0 flex w-full max-w-full flex-col bg-parchment shadow-lift transition-[transform,opacity] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          entered
+            ? 'translate-x-0 translate-y-0 opacity-100'
+            : 'translate-y-8 opacity-0 lg:translate-x-8 lg:translate-y-0'
+        }`}
+        style={{ transitionDuration: `${ANIMATION_MS}ms` }}
+      >
         <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
           {step === 'review' ? (
             <button
@@ -837,7 +925,7 @@ export default function ItemInfoModal({
         </div>
 
         <div
-          className="flex flex-1 flex-col gap-6 overflow-auto p-4 pb-8 sm:gap-7 sm:p-7 sm:pb-10
+          className="flex flex-1 flex-col gap-6 overflow-auto p-4 pb-20 sm:gap-7 sm:p-7 sm:pb-24
             [scrollbar-width:thin] [scrollbar-color:theme(colors.ink/25%)_transparent]
             [&::-webkit-scrollbar]:w-1.5
             [&::-webkit-scrollbar-track]:bg-transparent
@@ -850,7 +938,7 @@ export default function ItemInfoModal({
               <SlowLoadNotice />
             </>
           ) : step === 'review' ? (
-            <div className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
+            <div className="flex flex-col gap-6 sm:gap-7 pt-8 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
               <div>
                 <h2 className="font-display text-2xl text-ink">Review your request</h2>
                 <p className="mt-1 text-sm text-ink/55">
@@ -958,7 +1046,7 @@ export default function ItemInfoModal({
           ) : (
             <div
               key={`${result!.site ?? ''}|${result!.title ?? ''}`}
-              className="flex flex-col gap-6 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
+              className="flex flex-col gap-6 sm:gap-7 pt-8 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
             >
               {platformView}
             </div>

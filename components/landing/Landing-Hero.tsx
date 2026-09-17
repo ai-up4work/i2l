@@ -6,6 +6,14 @@ import Image from 'next/image'
 import { ArrowRight, Check, Link } from 'lucide-react'
 import { OPEN_SHOP_EVENT } from '@/components/shared/Header'
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
+// Same flow FinalCTA (app/page.tsx) and /account's "Buy for me" form use
+// — see contexts/DashboardContext.tsx. Pasting a link here now scrapes
+// and prices the item via the shared ItemInfoModal (mounted once at the
+// <Home> page level) instead of redirecting to /account?link=..., which
+// required being signed in to even land on the page. Only actually
+// confirming the request (inside that modal) needs auth, and
+// DashboardContext.confirmRequest already handles that itself.
+import { useDashboard } from '@/contexts/DashboardContext'
 
 // Full pool of local-store logos for the hero's "Browse Stores" row — now
 // fetched live via useAffiliatedStores() inside Hero() below, instead of a
@@ -46,23 +54,24 @@ function useStoreCarousel(localStores: ReturnType<typeof useAffiliatedStores>['s
 
 export default function Hero() {
   const router = useRouter()
-  const [link, setLink] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  // pastedLink/setPastedLink/startItemInfo replace this component's old
+  // local link/submitted state + router.push('/account?link=...') redirect
+  // — see the DashboardContext import above. startItemInfo opens the same
+  // ItemInfoModal /account uses (mounted at the <Home> page level in
+  // app/page.tsx) and kicks off the scrape/lookup right here on the
+  // landing page, no auth required.
+  const { pastedLink: link, setPastedLink: setLink, startItemInfo } = useDashboard()
   const { stores } = useAffiliatedStores()
   const localStores = stores.filter((store) => store.storeType === 'local')
   const visibleStores = useStoreCarousel(localStores)
 
   function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-
-    const trimmed = link.trim()
-    if (!trimmed || submitted) return
-
-    setSubmitted(true)
-
-    window.setTimeout(() => {
-      router.push(`/account?link=${encodeURIComponent(trimmed)}`)
-    }, 500)
+    if (!link.trim()) {
+      event.preventDefault()
+      return
+    }
+    // startItemInfo (DashboardContext) calls event.preventDefault() itself.
+    void startItemInfo(event)
   }
 
   // Browse Stores is now a first-class secondary CTA on every breakpoint,
@@ -133,24 +142,15 @@ export default function Hero() {
               value={link}
               onChange={(event) => setLink(event.target.value)}
               placeholder="Paste product link (e.g. Amazon, eBay, etc.)"
-              disabled={submitted}
               className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={submitted || !link.trim()}
-              aria-label={submitted ? 'Sent' : 'Get Quote'}
+              disabled={!link.trim()}
+              aria-label="Get Quote"
               className="flex shrink-0 items-center justify-center gap-2 rounded-full sm:rounded-2xl bg-teal p-3 sm:px-6 sm:py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
             >
-              {submitted ? (
-                <>
-                  <span className="hidden sm:inline">Sent</span> <Check size={15} />
-                </>
-              ) : (
-                <>
-                  <span className="hidden sm:inline">Get Quote</span> <ArrowRight size={15} />
-                </>
-              )}
+              <span className="hidden sm:inline">Get Quote</span> <ArrowRight size={15} />
             </button>
           </form>
 

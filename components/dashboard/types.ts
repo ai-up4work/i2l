@@ -134,6 +134,26 @@ export type Draft = {
    * silently ordering "one of however many this comes in".
    */
   needsVariantConfirmation?: boolean
+  /**
+   * Pre-LKR-conversion price + currency from the scrape that produced
+   * the current unitPrice — kept alongside unitPrice (which is already
+   * converted, and doesn't include service charge/delivery) because
+   * getDualDeliveryPricing needs the raw source numbers to rebuild the
+   * exact Economy/Express breakdown. Null until a trustworthy scrape
+   * has come back (see applyScrapeResultToDraft in DashboardContext.tsx)
+   * or for a hand-entered price with no scrape behind it at all.
+   */
+  sourcePrice: number | null
+  sourceCurrency: string | null
+  /** Item weight in kg, when the scrape provided one — feeds into the
+   * Economy/Express delivery-cost calculation alongside sourcePrice. */
+  weightKg: number | null
+  /**
+   * Which delivery mode the customer picked in the review step
+   * (ItemInfoModal's Economy/Express toggle). confirmRequest reads this
+   * to charge the matching final per-unit total. Defaults to 'economy'.
+   */
+  deliveryChoice: 'economy' | 'express'
 }
 
 export type WarehouseAddress = {

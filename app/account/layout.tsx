@@ -67,21 +67,27 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
   const [addRequestOpen, setAddRequestOpen] = useState(false)
 
-  // True whenever ItemInfoModal is covering the screen. While true:
-  //  - Header is hidden outright (unmounted below).
-  //  - WelcomeBanner is unmounted outright too (not repositioned, not
-  //    collapsed — just not rendered). ItemInfoModal is now a true
-  //    full-viewport overlay (top: 0, bottom: 0 — see that file), so
-  //    there's no "gap above it" left for the banner to occupy or push
-  //    into anymore.
+  // True whenever ItemInfoModal is covering the screen.
+  //
+  // FIX: Header is now ALWAYS mounted, including while the modal is
+  // open — it used to be unmounted here (`{!overlayActive && <Header
+  // .../>}`), which meant there was nothing left for the modal to
+  // render behind. Header is `z-50` (see Header.tsx) and ItemInfoModal
+  // is `z-30`, so as long as Header stays in the DOM, the browser's own
+  // stacking order keeps it in front of the modal automatically — no
+  // extra z-index changes needed on either side.
+  //
+  // WelcomeBanner still unmounts while the modal is open (unrelated to
+  // the header/z-index issue): ItemInfoModal is a true full-viewport
+  // overlay (top: 0, bottom: 0 — see that file), so there's no "gap
+  // above it" left for the banner to occupy or push into.
   const overlayActive = modalOpen
 
-  // main's top padding only needs to reserve space for Header (which
-  // is unmounted, along with everything else, while the modal is
-  // open) — there's no more banner-height compensation to do here
-  // since the banner and modal are mutually exclusive now.
-  const effectiveHeaderHeightMobile = overlayActive ? 0 : HEADER_BAR_HEIGHT_MOBILE
-  const effectiveHeaderHeightDesktop = overlayActive ? 0 : HEADER_BAR_HEIGHT_DESKTOP
+  // main's top padding always reserves space for Header now that it's
+  // permanently mounted (previously zeroed while the modal was open,
+  // back when Header itself was removed from the DOM for that case).
+  const effectiveHeaderHeightMobile = HEADER_BAR_HEIGHT_MOBILE
+  const effectiveHeaderHeightDesktop = HEADER_BAR_HEIGHT_DESKTOP
 
   // FIX: previously never passed to Header, so its (also previously
   // unwired) back button never rendered at all — there was no way to
@@ -128,15 +134,13 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      {!overlayActive && (
-        <Header
-          variant="account"
-          view={view}
-          showBackButton={showBackButton}
-          onBack={handleBack}
-          onMenuClick={() => setSidebarOpen(true)}
-        />
-      )}
+      <Header
+        variant="account"
+        view={view}
+        showBackButton={showBackButton}
+        onBack={handleBack}
+        onMenuClick={() => setSidebarOpen(true)}
+      />
 
       <main
         className="flex min-h-0 flex-1 overflow-hidden bg-parchment pt-[var(--account-header-h-mobile)] lg:pt-[var(--account-header-h-desktop)]"
@@ -196,21 +200,26 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           onSubmit={handleAddRequestSubmit}
         />
 
-        {modalOpen && (
-          <ItemInfoModal
-            open={modalOpen}
-            result={scrapeResult}
-            qty={draft.qty}
-            onQtyChange={(qty) => setDraft({ ...draft, qty })}
-            onClose={closeModal}
-            onSubmitRequest={confirmRequest}
-            estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
-            loading={lookupLoading}
-            onSelectVariant={(url) => {
-              if (url) selectVariant(url)
-            }}
-          />
-        )}
+        {/* FIX: previously wrapped in `{modalOpen && (...)}`, which
+            unmounted ItemInfoModal from the tree the INSTANT modalOpen
+            went false — before its own internal close transition
+            (mounted/entered state, see that file) ever got a chance to
+            play. The modal now stays mounted at all times and manages
+            its own presence via the `open` prop internally, unmounting
+            itself only after its exit animation finishes. */}
+        <ItemInfoModal
+          open={modalOpen}
+          result={scrapeResult}
+          qty={draft.qty}
+          onQtyChange={(qty) => setDraft({ ...draft, qty })}
+          onClose={closeModal}
+          onSubmitRequest={confirmRequest}
+          estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
+          loading={lookupLoading}
+          onSelectVariant={(url) => {
+            if (url) selectVariant(url)
+          }}
+        />
 
         <style>{`
           .content-scroll {

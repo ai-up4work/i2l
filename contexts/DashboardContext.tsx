@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { productImage } from '@/components/dashboard/data'
 import { pathForView } from '@/components/dashboard/routes'
@@ -39,6 +39,8 @@ const emptyDraft: Draft = {
 }
 
 const DRAFT_STORAGE_KEY = 'dashboard:pendingDraft'
+const LOGIN_REDIRECT_PATH = '/auth/login'
+const LOGIN_REDIRECT_DELAY_MS = 2000
 
 function loadPersistedDraft(): Draft {
   if (typeof window === 'undefined') return emptyDraft
@@ -103,9 +105,9 @@ type DashboardContextValue = {
   scrapeResult: ScrapeResult | null
 
   resetDraft: () => void
-  startItemInfo: (event: React.FormEvent) => Promise<void>
+  startItemInfo: (event: FormEvent) => Promise<void>
   beginRequestForUrl: (url: string) => Promise<void>
-  saveItemInfo: (event: React.FormEvent) => void
+  saveItemInfo: (event: FormEvent) => void
   /** Writes the current draft to a real order (price already known) or a
    * Channel 3 request (no price yet, needs a Sales & Purchase quote).
    * Navigates to /account/orders on success; returns ok:false and stays
@@ -114,7 +116,12 @@ type DashboardContextValue = {
    * When a price IS known, the order is charged the FINAL Economy/Express
    * total for whichever delivery mode the customer picked in the review
    * step (item price + service charge + delivery) — not the bare item
-   * price. See setDeliveryChoice / draft.deliveryChoice below. */
+   * price. See setDeliveryChoice / draft.deliveryChoice below.
+   *
+   * If the customer isn't signed in, this returns ok:false immediately
+   * and schedules a redirect to the login page after a short delay (see
+   * LOGIN_REDIRECT_DELAY_MS) so they have time to read the error before
+   * being bounced. */
   confirmRequest: () => Promise<ConfirmResult>
   /** Stashes the customer's Economy/Express choice from the review step
    * onto the draft, so confirmRequest can charge the matching final total.
@@ -349,7 +356,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   )
 
   const startItemInfo = useCallback(
-    async (event: React.FormEvent) => {
+    async (event: FormEvent) => {
       event.preventDefault()
       await beginRequestForUrl(pastedLink)
     },
@@ -368,7 +375,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   )
 
   const saveItemInfo = useCallback(
-    (event: React.FormEvent) => {
+    (event: FormEvent) => {
       event.preventDefault()
       if (!draft.name.trim()) return
       persistDraft(draft)
@@ -413,8 +420,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   //     top by last_activity — see getMostRecentOrGeneralThread in
   //     lib/supabase/chat.ts) surfaces immediately — this is the "start a
   //     chat so the customer can continue" requirement.
+  //
+  // If the customer isn't signed in, no writes happen at all — this
+  // returns ok:false right away and schedules a redirect to the login
+  // page after LOGIN_REDIRECT_DELAY_MS so the error message is visible
+  // for a moment before the user is bounced there.
   const confirmRequest = useCallback(async (): Promise<ConfirmResult> => {
-    if (!user) return { ok: false, error: 'You need to be signed in to confirm a request.' }
+    if (!user) {
+      setTimeout(() => {
+        router.push(LOGIN_REDIRECT_PATH)
+      }, LOGIN_REDIRECT_DELAY_MS)
+      return { ok: false, error: 'You need to be signed in to confirm a request.' }
+    }
 
     const supabase = createClient()
     try {
@@ -573,7 +590,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const confirmCartOrder = useCallback(
     async (lines: CartOrderLine[]): Promise<ConfirmResult> => {
       if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
-      if (!user) return { ok: false, error: 'You need to be signed in to confirm an order.' }
+      if (!user) {
+        setTimeout(() => {
+          router.push(LOGIN_REDIRECT_PATH)
+        }, LOGIN_REDIRECT_DELAY_MS)
+        return { ok: false, error: 'You need to be signed in to confirm an order.' }
+      }
 
       const supabase = createClient()
       try {
@@ -636,7 +658,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
       }
     },
-    [user],
+    [user, router],
   )
 
   const value = useMemo<DashboardContextValue>(

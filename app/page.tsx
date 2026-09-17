@@ -8,7 +8,6 @@ import {
   type ElementType,
   type ReactNode,
 } from 'react'
-import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import {
   ArrowRight,
@@ -38,6 +37,18 @@ import DealCoupon, { dealToCoupon, type Deal } from '@/components/shared/DealCou
 import ChatButton from '@/components/shared/ChatButton'
 import ChatPanel from '@/components/shared/ChatPanel'
 import { ChatProvider } from '@/contexts/ChatContext'
+// DashboardProvider/useDashboard + ItemInfoModal — the SAME flow
+// /account's "Buy for me" form and AccountShell use (see
+// contexts/DashboardContext.tsx and app/account/layout.tsx). Pasting a
+// link here scrapes and prices the item with no auth required — only
+// DashboardContext's confirmRequest (fired from inside the modal on
+// "Confirm & send request") checks for a signed-in user, and it already
+// surfaces that as an inline error in the modal rather than a redirect.
+// This page sits outside app/account/**, so nothing about /account's
+// route protection in middleware.ts is touched by this at all — that
+// route stays exactly as gated as before.
+import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
+import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 
 /* ============================================================================
  * ROUTE CONSTANT — single source of truth for where a pasted link goes.
@@ -466,22 +477,28 @@ function ShopByCategory() {
 /* ============================================================================
  * FINAL CTA
  * ==========================================================================*/
+// Now backed by DashboardContext — pastedLink/setPastedLink/startItemInfo
+// are the exact same state and function /account's "Buy for me" form uses
+// (see components/dashboard/HomePage.tsx). Pasting a link here opens the
+// same ItemInfoModal (mounted once at the <Home> level below), scrapes and
+// prices the item, and lets the visitor review it — all without being
+// signed in. Only actually confirming the request (inside the modal) needs
+// auth, and DashboardContext.confirmRequest already handles that itself by
+// returning an inline error rather than this component redirecting anyone
+// to /auth/login or /account.
 function FinalCTA() {
-  const router = useRouter()
-  const [link, setLink] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const { pastedLink: link, setPastedLink: setLink, startItemInfo } = useDashboard()
 
   function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-
-    const trimmed = link.trim()
-    if (!trimmed || submitted) return
-
-    setSubmitted(true)
-
-    window.setTimeout(() => {
-      router.push(`/account?link=${encodeURIComponent(trimmed)}`)
-    }, 500)
+    if (!link.trim()) {
+      event.preventDefault()
+      return
+    }
+    // startItemInfo (DashboardContext) calls event.preventDefault() itself
+    // and kicks off beginRequestForUrl(pastedLink), which opens the modal
+    // and starts the scrape/lookup — identical to submitting the "Buy for
+    // me" form on /account.
+    void startItemInfo(event)
   }
 
   return (
@@ -521,29 +538,59 @@ function FinalCTA() {
               value={link}
               onChange={(event) => setLink(event.target.value)}
               placeholder="Paste product link here..."
-              disabled={submitted}
               className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={submitted || !link.trim()}
-              aria-label={submitted ? 'Sent' : 'Start Shopping'}
+              disabled={!link.trim()}
+              aria-label="Start Shopping"
               className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal p-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo-deep active:scale-95 disabled:cursor-default disabled:active:scale-100 sm:px-6 sm:py-3"
             >
-              {submitted ? (
-                <>
-                  <span className="hidden sm:inline">Sent</span> <Check size={15} />
-                </>
-              ) : (
-                <>
-                  <span className="hidden sm:inline">Start Shopping</span> <ArrowRight size={15} />
-                </>
-              )}
+              <span className="hidden sm:inline">Start Shopping</span> <ArrowRight size={15} />
             </button>
           </form>
         </div>
       </Reveal>
     </section>
+  )
+}
+
+/* ============================================================================
+ * ITEM INFO MODAL — mounted once at the page level so it can pop open
+ * over ANY section of the landing page (currently only triggered from
+ * FinalCTA's paste-link form, but not tied to that section specifically).
+ * Reads/writes DashboardContext exactly the way AccountShell does in
+ * app/account/layout.tsx — same props, same wiring, so this is the
+ * literal same review-and-submit flow, not a lookalike.
+ * ==========================================================================*/
+function HomeItemModal() {
+  const {
+    draft,
+    setDraft,
+    modalOpen,
+    closeModal,
+    confirmRequest,
+    lookupLoading,
+    scrapeResult,
+    selectVariant,
+  } = useDashboard()
+
+  if (!modalOpen) return null
+
+  return (
+    <ItemInfoModal
+      open={modalOpen}
+      result={scrapeResult}
+      qty={draft.qty}
+      onQtyChange={(qty) => setDraft({ ...draft, qty })}
+      onClose={closeModal}
+      onSubmitRequest={confirmRequest}
+      estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
+      loading={lookupLoading}
+      onSelectVariant={(url) => {
+        if (url) selectVariant(url)
+      }}
+    />
   )
 }
 
@@ -564,51 +611,61 @@ function FinalCTA() {
 // nearest one wins) but redundant — worth then removing the outer one in
 // app/(public)/layout.tsx to avoid two independent chat states existing
 // across your public pages.
-
+//
+// DashboardProvider is now ALSO mounted here, for the same structural
+// reason as ChatProvider above: this page sits outside app/account/**,
+// so the DashboardProvider that AccountLayout normally supplies never
+// reaches it. FinalCTA and HomeItemModal both call useDashboard(), so
+// this page needs its own instance — same pattern as ChatProvider, and
+// harmless/redundant (nearest provider wins) if this page is ever moved
+// under a layout that already supplies one.
 export default function Home() {
   return (
-    <ChatProvider>
-      <main className="bg-parchment">
-        <style>{`
-          @keyframes float-slow {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-          }
-          @keyframes fade-slide-in {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes pulse-ring {
-            0% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0.45); }
-            70% { box-shadow: 0 0 0 14px rgba(193, 39, 45, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0); }
-          }
-          .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
-          .animate-fade-slide-in { animation: fade-slide-in 0.45s ease-out both; }
-          .animate-pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
-          @media (prefers-reduced-motion: reduce) {
-            .animate-float-slow, .animate-fade-slide-in, .animate-pulse-ring {
-              animation: none !important;
+    <DashboardProvider>
+      <ChatProvider>
+        <main className="bg-parchment">
+          <style>{`
+            @keyframes float-slow {
+              0%, 100% { transform: translateY(0); }
+              50% { transform: translateY(-10px); }
             }
-          }
-        `}</style>
+            @keyframes fade-slide-in {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes pulse-ring {
+              0% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0.45); }
+              70% { box-shadow: 0 0 0 14px rgba(193, 39, 45, 0); }
+              100% { box-shadow: 0 0 0 0 rgba(193, 39, 45, 0); }
+            }
+            .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+            .animate-fade-slide-in { animation: fade-slide-in 0.45s ease-out both; }
+            .animate-pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
+            @media (prefers-reduced-motion: reduce) {
+              .animate-float-slow, .animate-fade-slide-in, .animate-pulse-ring {
+                animation: none !important;
+              }
+            }
+          `}</style>
 
-        <Header />
+          <Header />
 
-        <Hero />
-        <Partners />
-        <ShopByCategory />
-        <WhyChooseWishdrop />
-        <StatsBand />
-        <HowItWorks />
-        <Destinations />
-        <Community />
-        <Testimonials />
-        <FinalCTA />
-        <Footer />
-        <ChatButton />
-        <ChatPanel />
-      </main>
-    </ChatProvider>
+          <Hero />
+          <Partners />
+          <ShopByCategory />
+          <WhyChooseWishdrop />
+          <StatsBand />
+          <HowItWorks />
+          <Destinations />
+          <Community />
+          <Testimonials />
+          <FinalCTA />
+          <Footer />
+          <ChatButton />
+          <ChatPanel />
+          <HomeItemModal />
+        </main>
+      </ChatProvider>
+    </DashboardProvider>
   )
 }

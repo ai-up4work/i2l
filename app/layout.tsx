@@ -38,7 +38,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: some browser extensions (password
+    // managers, ad blockers, etc.) inject attributes like
+    // data-qb-installed onto <html> before React hydrates. That's a
+    // mismatch between server-rendered and client HTML that has
+    // nothing to do with our code — React's own hydration-mismatch
+    // docs call this out explicitly (react.dev/link/hydration-mismatch).
+    // suppressHydrationWarning only silences ATTRIBUTE mismatches on
+    // this one element; it does not suppress mismatches in children,
+    // so real hydration bugs elsewhere still surface normally.
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${fraunces.variable} ${spaceGrotesk.variable} font-sans`}
       >
