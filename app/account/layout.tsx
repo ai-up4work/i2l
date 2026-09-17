@@ -13,6 +13,9 @@ import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
 import { useAuth } from '@/contexts/AuthContext'
 import Header, { HEADER_BAR_HEIGHT_MOBILE, HEADER_BAR_HEIGHT_DESKTOP } from '@/components/shared/Header'
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
+import ChatButton from '@/components/shared/ChatButton'
+import ChatPanel from '@/components/shared/ChatPanel'
+import { ChatProvider } from '@/contexts/ChatContext'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { AdminDataProvider } from '@/contexts/AdminDataContext'
@@ -132,6 +135,13 @@ function AccountShell({ children }: { children: React.ReactNode }) {
     void logout()
   }
 
+  // Chat widget is hidden here whenever something else is already
+  // covering the screen — the full-viewport ItemInfoModal, the mobile
+  // sidebar drawer, the shop bottom sheet, or the add-request overlay —
+  // so it never floats on top of (or behind, unpredictably) another
+  // full-screen surface. It reappears once whatever's open closes.
+  const chatWidgetHidden = overlayActive || sidebarOpen || shopSheetOpen || addRequestOpen
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <Header
@@ -221,6 +231,16 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           }}
         />
 
+        {/* Support chat — same widget as the public site (PublicLayout),
+            just re-mounted here since the account area sits behind its
+            own layout tree and never renders PublicLayout. `bottom-24`
+            (96px) clears MobileBottomNav's 72px height on mobile with
+            room to spare, so the bubble sits above the nav bar rather
+            than behind or overlapping it. Hidden while anything else
+            full-screen is already open (see chatWidgetHidden above). */}
+        <ChatButton hidden={chatWidgetHidden} positionClassName="bottom-24 right-6 lg:bottom-8" />
+        <ChatPanel hidden={chatWidgetHidden} positionClassName="bottom-24 right-6 lg:bottom-8" />
+
         <style>{`
           .content-scroll {
             scrollbar-width: thin;
@@ -253,8 +273,13 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
-    <DashboardProvider>
-      <AccountShell>{children}</AccountShell>
-    </DashboardProvider>
+    // ChatProvider wraps the whole shell (same reasoning as PublicLayout):
+    // ChatButton and ChatPanel are siblings inside AccountShell that both
+    // call useChat(), so they need a shared provider ancestor above them.
+    <ChatProvider>
+      <DashboardProvider>
+        <AccountShell>{children}</AccountShell>
+      </DashboardProvider>
+    </ChatProvider>
   )
 }

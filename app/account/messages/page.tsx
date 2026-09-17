@@ -59,15 +59,54 @@ export default function AccountMessagesPage() {
   const [fileError, setFileError] = useState<string | null>(null)
 
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const isLoadingOlderRef = useRef(false)
 
   useEffect(() => {
     if (!isLocked) markRead()
   }, [isLocked, markRead])
 
   useEffect(() => {
+    if (isLoadingOlderRef.current) return
     bottomSentinelRef.current?.scrollIntoView({ block: 'end' })
   }, [messages.length])
+
+  // Land on the latest message once the page loads, and keep re-landing
+  // there for a short settle window — attachment thumbnails and other
+  // content can still be loading right after mount, growing the page's
+  // height *after* the effect above already scrolled, which leaves the
+  // page looking scrolled up from the true bottom. Stops overriding as
+  // soon as the user scrolls away on their own (e.g. to read history),
+  // and skips entirely while an older-messages load is preserving its
+  // own scroll position.
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    let userScrolledAway = false
+    const handleUserScroll = () => {
+      const distanceFromBottom = document.documentElement.scrollHeight - window.scrollY - window.innerHeight
+      if (distanceFromBottom > 24) userScrolledAway = true
+    }
+
+    const scrollToEnd = () => {
+      if (userScrolledAway || isLoadingOlderRef.current) return
+      bottomSentinelRef.current?.scrollIntoView({ block: 'end' })
+    }
+
+    scrollToEnd()
+    window.addEventListener('scroll', handleUserScroll)
+    const observer = new ResizeObserver(scrollToEnd)
+    observer.observe(container)
+    const settleTimeout = setTimeout(() => observer.disconnect(), 800)
+
+    return () => {
+      observer.disconnect()
+      clearTimeout(settleTimeout)
+      window.removeEventListener('scroll', handleUserScroll)
+    }
+  }, [])
 
   const dateGroups = useMemo(() => groupByDate(messages), [messages])
 
@@ -75,11 +114,13 @@ export default function AccountMessagesPage() {
   // ChatPanel), so "keep the same messages in view after prepending" is
   // done against document height instead of a local div's scrollTop.
   const handleLoadOlder = async () => {
+    isLoadingOlderRef.current = true
     const prevHeight = document.documentElement.scrollHeight
     await loadOlderMessages()
     requestAnimationFrame(() => {
       const newHeight = document.documentElement.scrollHeight
       window.scrollTo({ top: window.scrollY + (newHeight - prevHeight) })
+      isLoadingOlderRef.current = false
     })
   }
 
@@ -154,7 +195,7 @@ export default function AccountMessagesPage() {
         </div>
       ) : (
         <>
-          <div className="space-y-1 py-4">
+          <div ref={messagesContainerRef} className="space-y-1 py-4">
             {hasMoreMessages && messages.length > 0 && (
               <div className="flex justify-center pb-3">
                 {loadingMoreMessages ? (
