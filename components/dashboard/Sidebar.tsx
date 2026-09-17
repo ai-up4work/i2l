@@ -249,7 +249,7 @@ export default function Sidebar({
 
         {/* Download App */}
         <div className="relative z-10 flex items-center gap-3 border-t border-ink/10 px-6 py-6 font-body text-sm font-semibold text-ink">
-          Download App
+          Download App (Soon)
 
           <span className="ml-auto flex items-center gap-2.5">
             <i className="sidebar__icon sidebar__icon--downloadApp_IOS_icon" aria-label="iOS" />
