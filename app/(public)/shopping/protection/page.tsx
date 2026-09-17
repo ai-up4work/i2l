@@ -69,7 +69,7 @@ export default function ShoppingProtectionPage() {
                 Raise a Shopping Protection claim as soon as an issue is identified — ideally at
                 quality-check notification, and no later than <strong>7 days</strong> after
                 delivery for issues only discoverable once the item is in hand. Contact us via{' '}
-                <a href="/account/requests">My Requests</a>, <a href="/account/orders">My Orders</a>
+                <a href="/account/orders">My Requests</a>, <a href="/account/orders">My Orders</a>
                 , or <a href="/contact">Contact us</a>, with:
               </p>
               <ul>

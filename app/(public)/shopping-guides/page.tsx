@@ -90,7 +90,7 @@ export default function ShoppingGuidesPage() {
         <p className="mt-4 font-body text-xs text-ink/45">
           Looking for another store? Browse every affiliated store at{' '}
           <Link href="/stores" className="text-teal-deep underline underline-offset-2">/stores</Link>, or
-          paste a link from any store via <Link href="/account/requests/new" className="text-teal-deep underline underline-offset-2">New Request</Link>.
+          paste a link from any store via <Link href="/account/" className="text-teal-deep underline underline-offset-2">New Request</Link>.
         </p>
       </section>
     </main>

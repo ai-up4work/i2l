@@ -122,7 +122,7 @@ export default function AboutPage() {
               <ArrowRight size={15} />
             </Link>
             <Link
-              href="/account/requests/new"
+              href="/account/"
               className="inline-flex items-center gap-2 rounded-full border border-parchment/25 px-6 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-parchment/10"
             >
               Start a request

@@ -70,7 +70,7 @@ export default function DealsPage() {
 
       <div className="mt-10 flex justify-center">
         <Link
-          href="/account/requests/new"
+          href="/account/"
           className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-teal-deep"
         >
           Start a request

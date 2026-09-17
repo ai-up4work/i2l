@@ -20,7 +20,7 @@ const paths = [
     title: 'Send us a link',
     text: "Found something on a store we're not affiliated with? Paste the product link, tell us the size or variant you want, and we'll quote it for you.",
     cta: 'Start a request',
-    href: '/account/requests/new',
+    href: '/account',
   },
 ]
 
@@ -110,7 +110,7 @@ export default function ShoppingPage() {
             What can we get for you?
           </h2>
           <Link
-            href="/account/requests/new"
+            href="/account"
             className="mt-6 inline-flex items-center gap-2 rounded-full bg-gold px-6 py-3 font-body text-sm font-semibold text-ink transition-colors hover:bg-gold-deep hover:text-parchment"
           >
             Start a request

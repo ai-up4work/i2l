@@ -17,15 +17,15 @@ export const metadata = {
 }
 
 const categories = [
-  { name: 'Electronics', icon: Smartphone, blurb: 'Phones, audio, laptops, and accessories', href: '/account/requests/new?category=electronics' },
-  { name: 'Fashion', icon: Shirt, blurb: 'Clothing, footwear, and accessories', href: '/account/requests/new?category=fashion' },
-  { name: 'Beauty', icon: Sparkles, blurb: 'Skincare, makeup, and haircare', href: '/account/requests/new?category=beauty' },
-  { name: 'Home & Living', icon: Home, blurb: 'Décor, kitchen, and everyday essentials', href: '/account/requests/new?category=home' },
-  { name: 'Sports', icon: Dumbbell, blurb: 'Fitness gear, apparel, and equipment', href: '/account/requests/new?category=sports' },
-  { name: 'Toys & Games', icon: Gamepad2, blurb: 'Toys, board games, and consoles', href: '/account/requests/new?category=toys' },
-  { name: 'Anime', icon: Gem, blurb: 'Merch, figures, and streetwear', href: '/account/requests/new?category=anime' },
-  { name: 'Books', icon: BookOpen, blurb: 'Fiction, non-fiction, and manga', href: '/account/requests/new?category=books' },
-  { name: 'Baby & Kids', icon: Baby, blurb: 'Clothing, toys, and gear', href: '/account/requests/new?category=baby' },
+  { name: 'Electronics', icon: Smartphone, blurb: 'Phones, audio, laptops, and accessories', href: '/stores/new?category=electronics' },
+  { name: 'Fashion', icon: Shirt, blurb: 'Clothing, footwear, and accessories', href: '/stores/new?category=fashion' },
+  { name: 'Beauty', icon: Sparkles, blurb: 'Skincare, makeup, and haircare', href: '/stores/new?category=beauty' },
+  { name: 'Home & Living', icon: Home, blurb: 'Décor, kitchen, and everyday essentials', href: '/stores/new?category=home' },
+  { name: 'Sports', icon: Dumbbell, blurb: 'Fitness gear, apparel, and equipment', href: '/stores/new?category=sports' },
+  { name: 'Toys & Games', icon: Gamepad2, blurb: 'Toys, board games, and consoles', href: '/stores/new?category=toys' },
+  { name: 'Anime', icon: Gem, blurb: 'Merch, figures, and streetwear', href: '/stores/new?category=anime' },
+  { name: 'Books', icon: BookOpen, blurb: 'Fiction, non-fiction, and manga', href: '/stores/new?category=books' },
+  { name: 'Baby & Kids', icon: Baby, blurb: 'Clothing, toys, and gear', href: '/stores/new?category=baby' },
 ]
 
 export default function CategoriesPage() {
@@ -65,7 +65,7 @@ export default function CategoriesPage() {
 
       <p className="mt-12 font-body text-sm text-ink/55">
         Can't find the right category? Any category is a starting point, not a restriction —{' '}
-        <Link href="/account/requests/new" className="text-teal-deep underline underline-offset-2">submit a request</Link>{' '}
+        <Link href="/stores" className="text-teal-deep underline underline-offset-2">submit a request</Link>{' '}
         for anything, from any store.
       </p>
     </main>

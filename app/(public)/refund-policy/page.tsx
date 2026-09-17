@@ -149,7 +149,7 @@ export default function RefundPolicyPage() {
           body: (
             <p>
               Open the relevant request or order under{' '}
-              <a href="/account/requests">My Requests</a> or{' '}
+              <a href="/account/orders">My Requests</a> or{' '}
               <a href="/account/orders">My Orders</a> and use the “Get help with this order”
               option, or contact us through <a href="/contact">Contact us</a>, in-app chat, or
               WhatsApp with your order number. We will review the request, may ask for supporting

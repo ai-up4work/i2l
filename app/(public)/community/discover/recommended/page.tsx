@@ -60,7 +60,7 @@ export default function TrendingPage() {
       <p className="mt-12 font-body text-sm text-ink/55">
         Looking for something specific? Browse every{' '}
         <Link href="/stores" className="text-teal-deep underline underline-offset-2">affiliated store</Link>{' '}
-        or <Link href="/account/requests/new" className="text-teal-deep underline underline-offset-2">start a request</Link> for anything else.
+        or <Link href="/stores" className="text-teal-deep underline underline-offset-2">start a request</Link> for anything else.
       </p>
     </main>
   )

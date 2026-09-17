@@ -51,11 +51,6 @@ import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 
 /* ============================================================================
- * ROUTE CONSTANT — single source of truth for where a pasted link goes.
- * ==========================================================================*/
-const NEW_REQUEST_PATH = '/account/requests/new'
-
-/* ============================================================================
  * MOTION PRIMITIVE — scroll-triggered reveal, respects reduced motion.
  * ==========================================================================*/
 
@@ -390,14 +385,14 @@ const topDeals: Deal[] = [
 ]
 
 const shopCategories = [
-  { name: 'Electronics', image: '/categories/electronics.png', href: '/account/requests/new?category=electronics' },
-  { name: 'Fashion', image: '/categories/fashion.png', href: '/account/requests/new?category=fashion' },
-  { name: 'Beauty', image: '/categories/beauty.png', href: '/account/requests/new?category=beauty' },
-  { name: 'Home & Living', image: '/categories/home.png', href: '/account/requests/new?category=home' },
-  { name: 'Sports', image: '/categories/sports.png', href: '/account/requests/new?category=sports' },
-  { name: 'Toys & Games', image: '/categories/toys.png', href: '/account/requests/new?category=toys' },
-  { name: 'Anime', image: '/categories/anime.png', href: '/account/requests/new?category=anime' },
-  { name: 'Books', image: '/categories/books.png', href: '/account/requests/new?category=books' },
+  { name: 'Electronics', image: '/categories/electronics.png', href: '/stores?category=electronics' },
+  { name: 'Fashion', image: '/categories/fashion.png', href: '/stores?category=fashion' },
+  { name: 'Beauty', image: '/categories/beauty.png', href: '/stores?category=beauty' },
+  { name: 'Home & Living', image: '/categories/home.png', href: '/stores?category=home' },
+  { name: 'Sports', image: '/categories/sports.png', href: '/stores?category=sports' },
+  { name: 'Toys & Games', image: '/categories/toys.png', href: '/stores?category=toys' },
+  { name: 'Anime', image: '/categories/anime.png', href: '/stores?category=anime' },
+  { name: 'Books', image: '/categories/books.png', href: '/stores?category=books' },
 ]
 
 function ShopByCategory() {
@@ -430,7 +425,7 @@ function ShopByCategory() {
 
       <div className="mt-10 mb-8 flex justify-center">
         <a
-          href="/account/requests/new"
+          href="/stores"
           className="rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment"
         >
           Explore all categories

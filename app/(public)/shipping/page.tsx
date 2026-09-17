@@ -122,7 +122,7 @@ export default function ShippingPage() {
             Have something already picked out?
           </h2>
           <Link
-            href="/account/requests/new"
+            href="/account"
             className="mt-6 inline-flex items-center gap-2 rounded-full bg-gold px-6 py-3 font-body text-sm font-semibold text-ink transition-colors hover:bg-gold-deep hover:text-parchment"
           >
             Start a request
