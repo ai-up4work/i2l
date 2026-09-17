@@ -1,19 +1,11 @@
 // app/account/address-book/page.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Plus, MapPin, Pencil, Trash2, Star, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Plus, MapPin, Pencil, Trash2, Star, Loader2, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog'
 
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
@@ -66,6 +58,22 @@ function formatAddress(address: Address): string {
 
 const inputClass =
   'w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-ink/35 transition-colors focus:border-teal-deep focus:outline-none focus:ring-2 focus:ring-teal/20'
+
+const labelClass = 'mb-1 block text-xs font-semibold text-ink/55'
+
+// Common shipping destinations. Extend as your service area grows —
+// keeping this an explicit list (rather than free text) avoids typos
+// like "srilanka" / "Sri lanka" ending up in the DB.
+const COUNTRIES = [
+  'Sri Lanka',
+  'India',
+  'Maldives',
+  'United Arab Emirates',
+  'United Kingdom',
+  'United States',
+  'Australia',
+  'Singapore',
+]
 
 function AddressCard({
   address,
@@ -158,6 +166,95 @@ const emptyForm = {
   country: 'Sri Lanka',
 }
 
+// Basic sanity check, not full E.164 validation — just enough to catch
+// stray letters/typos before they hit the DB. Allows +, spaces, dashes.
+function isLikelyPhone(value: string) {
+  return /^[+\d][\d\s-]{6,}$/.test(value.trim())
+}
+
+function Modal({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean
+  onClose: () => void
+  title: string
+  children: React.ReactNode
+}) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Escape to close.
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
+  // Lock background scroll while open.
+  useEffect(() => {
+    if (!open) return
+    const original = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = original
+    }
+  }, [open])
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          {/* Backdrop — solid, opaque, no page content bleeding through */}
+          <div
+            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+            onClick={onClose}
+            aria-hidden="true"
+          />
+
+          {/* Panel */}
+          <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+            initial={{ opacity: 0, scale: 0.97, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 8 }}
+            transition={{ duration: 0.18, ease: EASE_OUT_EXPO }}
+            className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between px-6 pt-6">
+              <h2 id="modal-title" className="font-display text-lg text-ink">
+                {title}
+              </h2>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="rounded-full p-1.5 text-ink/40 transition-colors hover:bg-ink/[0.06] hover:text-ink"
+              >
+                <X size={18} strokeWidth={1.8} />
+              </button>
+            </div>
+            <div className="px-6 pb-6 pt-4">{children}</div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 function AddressBookSkeleton() {
   return (
     <div className="mx-auto max-w-6xl px-6 pb-16 lg:px-10" aria-hidden="true">
@@ -247,6 +344,10 @@ export default function AddressBookPage() {
     if (!user) return
     if (!form.fullName.trim() || !form.phone.trim() || !form.line1.trim() || !form.city.trim()) {
       setFormError('Full name, phone, address line 1, and city are required.')
+      return
+    }
+    if (!isLikelyPhone(form.phone)) {
+      setFormError('Please enter a valid phone number.')
       return
     }
 
@@ -373,81 +474,145 @@ export default function AddressBookPage() {
         <EmptyState onAddAddress={openAddDialog} />
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-display text-lg text-ink">
-              {editingId ? 'Edit address' : 'Add a new address'}
-            </DialogTitle>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-            <input
-              required
-              placeholder="Full name"
-              value={form.fullName}
-              onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-              className={inputClass}
-            />
-            <input
-              required
-              placeholder="Phone"
-              value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              className={inputClass}
-            />
-            <input
-              required
-              placeholder="Address line 1"
-              value={form.line1}
-              onChange={(e) => setForm((f) => ({ ...f, line1: e.target.value }))}
-              className={inputClass}
-            />
-            <input
-              placeholder="Address line 2 (optional)"
-              value={form.line2}
-              onChange={(e) => setForm((f) => ({ ...f, line2: e.target.value }))}
-              className={inputClass}
-            />
-            <div className="grid grid-cols-2 gap-3">
+      <Modal
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        title={editingId ? 'Edit address' : 'Add a new address'}
+      >
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <div>
+              <label htmlFor="addr-fullName" className={labelClass}>
+                Full name
+              </label>
               <input
+                id="addr-fullName"
                 required
-                placeholder="City"
-                value={form.city}
-                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
-                className={inputClass}
-              />
-              <input
-                placeholder="Postal code"
-                value={form.postalCode}
-                onChange={(e) => setForm((f) => ({ ...f, postalCode: e.target.value }))}
+                autoFocus
+                placeholder="e.g. Nimal Perera"
+                value={form.fullName}
+                onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
                 className={inputClass}
               />
             </div>
-            <input
-              placeholder="Country"
-              value={form.country}
-              onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
-              className={inputClass}
-            />
+
+            <div>
+              <label htmlFor="addr-phone" className={labelClass}>
+                Phone
+              </label>
+              <input
+                id="addr-phone"
+                required
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="e.g. +94 77 123 4567"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="addr-line1" className={labelClass}>
+                Address line 1
+              </label>
+              <input
+                id="addr-line1"
+                required
+                autoComplete="address-line1"
+                placeholder="House number and street"
+                value={form.line1}
+                onChange={(e) => setForm((f) => ({ ...f, line1: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="addr-line2" className={labelClass}>
+                Address line 2 <span className="font-normal text-ink/35">(optional)</span>
+              </label>
+              <input
+                id="addr-line2"
+                autoComplete="address-line2"
+                placeholder="Apartment, suite, unit, etc."
+                value={form.line2}
+                onChange={(e) => setForm((f) => ({ ...f, line2: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="addr-city" className={labelClass}>
+                  City
+                </label>
+                <input
+                  id="addr-city"
+                  required
+                  autoComplete="address-level2"
+                  placeholder="e.g. Negombo"
+                  value={form.city}
+                  onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="addr-postal" className={labelClass}>
+                  Postal code <span className="font-normal text-ink/35">(optional)</span>
+                </label>
+                <input
+                  id="addr-postal"
+                  inputMode="numeric"
+                  autoComplete="postal-code"
+                  placeholder="e.g. 11500"
+                  value={form.postalCode}
+                  onChange={(e) => setForm((f) => ({ ...f, postalCode: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="addr-country" className={labelClass}>
+                Country
+              </label>
+              <select
+                id="addr-country"
+                required
+                autoComplete="country-name"
+                value={form.country}
+                onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
+                className={`${inputClass} appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="%23555"><path d="M5.25 7.5L10 12.25L14.75 7.5H5.25Z"/></svg>')] bg-[length:16px] bg-[right_0.75rem_center] bg-no-repeat pr-9`}
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {formError && <p className="text-sm font-semibold text-red-600">{formError}</p>}
 
-            <DialogFooter>
-              <DialogClose className="rounded-full px-4 py-2.5 text-sm font-semibold text-ink/50 transition-colors hover:bg-ink/[0.06] hover:text-ink">
+            <div className="mt-2 flex items-center justify-end gap-3 border-t border-ink/[0.06] pt-4">
+              <button
+                type="button"
+                onClick={() => setDialogOpen(false)}
+                className="rounded-full px-4 py-2.5 text-sm font-semibold text-ink/50 transition-colors hover:bg-ink/[0.06] hover:text-ink"
+              >
                 Cancel
-              </DialogClose>
+              </button>
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center gap-2 rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               >
+                {saving && <Loader2 size={14} className="animate-spin" />}
                 {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add address'}
               </button>
-            </DialogFooter>
+            </div>
           </form>
-        </DialogContent>
-      </Dialog>
+      </Modal>
     </motion.div>
   )
 }
