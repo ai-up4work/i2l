@@ -362,11 +362,11 @@ export default function OrderDetailPage() {
                         <img
                           src={item.productImage ?? FALLBACK_PRODUCT_IMAGE}
                           alt={item.title}
-                          className="h-14 w-14 flex-none rounded-lg bg-ink/5 object-contain"
+                          className="h-18 w-18 flex-none rounded-lg bg-ink/5 object-contain"
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-ink">{item.title}</span>
+                            <span className="font-medium text-ink line-clamp-1 break-all">{item.title}</span>
                             <span className="shrink-0 text-ink/40">×{item.quantity}</span>
                           </div>
                           {isMixedOrder && (
