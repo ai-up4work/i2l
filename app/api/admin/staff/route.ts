@@ -82,6 +82,17 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { name, email, role, siteId } = body
+  // Explicit opt-out of the auto-sent email — skips inviteUserByEmail
+  // (and its shared rate limit, see below) entirely and uses
+  // generateLink instead, which creates the same real, login-capable
+  // auth user but never sends anything itself. The caller gets the raw
+  // invite URL back to copy/share by hand (WhatsApp, a DM, whatever) —
+  // useful any time Supabase's own testing-grade email sender either
+  // isn't configured with a real SMTP provider yet or has already hit
+  // its rate limit for the hour. Defaults to true (send it) since that
+  // was this route's only behavior before and is the right default once
+  // a real SMTP provider is configured.
+  const sendEmail = body.sendEmail !== false
 
   if (!name || !email || !role) {
     return NextResponse.json({ error: 'name, email, and role are required' }, { status: 400 })
@@ -101,34 +112,85 @@ export async function POST(req: NextRequest) {
   // client that sends a stale siteId value doesn't need special-casing.
   const resolvedSiteId = role === 'warehouse' ? siteId ?? null : null
 
-  // Real, login-capable account first — supabase.auth.admin.inviteUserByEmail
-  // creates the auth.users row AND emails them a link to set their own
-  // password (lands on /admin/set-password, which establishes the
-  // session automatically via the link's token — see that page). This
-  // replaces the earlier version of this route, which only ever created
-  // the roster row with no way for that person to actually sign in.
+  // Real, login-capable account either way — the two Supabase admin
+  // calls below both create a real auth.users row and a genuine
+  // one-time invite link that lands on /admin/set-password (which
+  // establishes the session via the link's token — see that page's own
+  // comment). They differ only in whether Supabase's own testing-grade
+  // email sender actually delivers that link:
+  //   - inviteUserByEmail: creates the user AND emails the link itself.
+  //     No link is returned to us — the recipient has to check their
+  //     inbox. Subject to Supabase's shared rate limit (very low by
+  //     default; see the "email rate limit exceeded" handling below).
+  //   - generateLink({ type: 'invite' }): creates the same kind of user
+  //     and link, but never sends anything — the link comes back in the
+  //     response instead, for the caller to copy/share by hand. Doesn't
+  //     touch the email rate limit at all, since no email is sent.
   //
-  // If inviteUserByEmail fails (e.g. this email already has ANY
-  // Supabase Auth account — a customer account counts too, since
-  // auth.users is shared across the whole project, not just staff),
-  // the staff_accounts row is never created either — a roster entry
-  // with no working login would just be a confusing half-state.
+  // If EITHER fails (e.g. this email already has ANY Supabase Auth
+  // account — a customer account counts too, since auth.users is shared
+  // across the whole project, not just staff), the staff_accounts row
+  // is never created — a roster entry with no working login would just
+  // be a confusing half-state.
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${siteUrl}/admin/set-password`,
-    data: { full_name: name, is_staff: true },
-  })
-  if (inviteError) {
-    const message = /already been registered|already exists/i.test(inviteError.message)
-      ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
-      : inviteError.message
-    return NextResponse.json({ error: message }, { status: 409 })
+  const redirectTo = `${siteUrl}/admin/set-password`
+  const userMetadata = { full_name: name, is_staff: true }
+
+  let invitedUserId: string
+  let inviteLink: string | null = null
+
+  if (sendEmail) {
+    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: userMetadata,
+    })
+
+    if (inviteError && /rate limit/i.test(inviteError.message)) {
+      // Don't just fail — fall back to generateLink so a rate-limited
+      // attempt still produces a working, shareable invite instead of a
+      // dead end. The caller (the "Add staff" page) is what actually
+      // surfaces "here's a link to copy" vs "check their email" to the
+      // admin, based on whether inviteLink comes back non-null below.
+      const { data: generated, error: generateError } = await admin.auth.admin.generateLink({
+        type: 'invite',
+        email,
+        options: { redirectTo, data: userMetadata },
+      })
+      if (generateError) {
+        return NextResponse.json({ error: generateError.message }, { status: 500 })
+      }
+      invitedUserId = generated.user.id
+      inviteLink = generated.properties.action_link
+    } else if (inviteError) {
+      const message = /already been registered|already exists/i.test(inviteError.message)
+        ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
+        : inviteError.message
+      return NextResponse.json({ error: message }, { status: 409 })
+    } else {
+      invitedUserId = invited.user.id
+    }
+  } else {
+    // Explicit "just give me a link" path — see sendEmail's doc comment
+    // above.
+    const { data: generated, error: generateError } = await admin.auth.admin.generateLink({
+      type: 'invite',
+      email,
+      options: { redirectTo, data: userMetadata },
+    })
+    if (generateError) {
+      const message = /already been registered|already exists/i.test(generateError.message)
+        ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
+        : generateError.message
+      return NextResponse.json({ error: message }, { status: 409 })
+    }
+    invitedUserId = generated.user.id
+    inviteLink = generated.properties.action_link
   }
 
   const { data, error } = await admin
     .from('staff_accounts')
     .insert({
-      user_id: invited.user.id,
+      user_id: invitedUserId,
       name,
       email,
       role,
@@ -142,12 +204,12 @@ export async function POST(req: NextRequest) {
     // Roster row failed after the auth user was already created —
     // clean up the orphaned auth user rather than leaving an invited
     // account with nowhere for it to actually belong.
-    await admin.auth.admin.deleteUser(invited.user.id).catch(() => {})
+    await admin.auth.admin.deleteUser(invitedUserId).catch(() => {})
     if (error.code === '23505') {
       return NextResponse.json({ error: `A staff account with the email "${email}" already exists.` }, { status: 409 })
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ staff: data }, { status: 201 })
+  return NextResponse.json({ staff: data, inviteLink }, { status: 201 })
 }

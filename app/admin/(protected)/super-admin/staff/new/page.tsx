@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, UserCog, ShoppingBag, Warehouse, Crown } from "lucide-react"
+import { ArrowLeft, UserCog, ShoppingBag, Warehouse, Crown, Copy, Check } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
@@ -38,8 +38,17 @@ export default function NewStaffPage() {
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<Role>("sales")
   const [siteId, setSiteId] = useState("")
+  const [sendEmail, setSendEmail] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set only when the create succeeded AND we got a link back to show
+  // (either because "Send invite email automatically" was unchecked, or
+  // the automatic email hit Supabase's rate limit and the route fell
+  // back to a copyable link on its own — see that route's own comment).
+  // Non-null is what keeps this page open on a "here's the link" panel
+  // instead of navigating straight back to the staff list.
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   if (effectiveRole !== "super_admin") return null
 
@@ -54,13 +63,85 @@ export default function NewStaffPage() {
       email: email.trim(),
       role,
       siteId: role === "warehouse" ? siteId : undefined,
+      sendEmail,
     })
     setSaving(false)
     if (!result.ok) {
       setError(result.error ?? "Failed to create staff account.")
       return
     }
+    if (result.inviteLink) {
+      setCreatedInviteLink(result.inviteLink)
+      return
+    }
     router.push("/admin/super-admin/staff")
+  }
+
+  const handleCopyLink = async () => {
+    if (!createdInviteLink) return
+    try {
+      await navigator.clipboard.writeText(createdInviteLink)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API can be unavailable (non-HTTPS, some embedded
+      // browsers) — the link is still selectable/visible in the input
+      // below either way, so this isn't a dead end even if it fails.
+    }
+  }
+
+  // Success state — the account is already created at this point; this
+  // is purely "here's the link, go deliver it yourself." Replaces the
+  // normal form entirely rather than layering a modal over it, since
+  // there's nothing left on this page to edit once the account exists.
+  if (createdInviteLink) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-2xl px-6 pb-24 pt-10 lg:px-10">
+          <h1 className="font-display text-3xl text-ink">Staff account created</h1>
+          <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+            No invite email was sent{sendEmail ? " (Supabase's email rate limit was hit)" : ""} — copy this link and
+            send it to {name.trim() || "them"} yourself. It's a one-time link that lets them set their own password
+            and sign in.
+          </p>
+
+          <div className={`mt-8 flex flex-col gap-3 p-6 ${panelClass}`}>
+            <label className="text-xs font-semibold text-ink/50">Invite link</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={createdInviteLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className={`flex-1 ${inputClass} select-all`}
+              />
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex flex-none items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90"
+              >
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-ink/40">
+              This link only works once and expires after a while, same as a normal Supabase invite — if it goes
+              unused too long, deactivate and re-add this person to get a fresh one.
+            </p>
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/super-admin/staff")}
+                className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -98,7 +179,7 @@ export default function NewStaffPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@wishdrop.shop"
+              placeholder="name@wishdrop.lk"
               className={`mt-1.5 w-full ${inputClass}`}
             />
           </div>

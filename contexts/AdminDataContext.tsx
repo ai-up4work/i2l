@@ -957,7 +957,17 @@ interface AdminDataContextValue {
    */
   previewRole: Role | null
   setPreviewRole: (role: Role | null) => void
-  createStaffAccount: (input: { name: string; email: string; role: Role; siteId?: string }) => Promise<{ ok: boolean; error?: string }>
+  createStaffAccount: (input: {
+    name: string
+    email: string
+    role: Role
+    siteId?: string
+    /** Defaults to true. Pass false to skip Supabase's auto-sent invite
+     * email entirely and get a copyable invite link back instead — see
+     * app/api/admin/staff route.ts's own doc comment for why (mainly:
+     * sidestepping Supabase's shared email rate limit). */
+    sendEmail?: boolean
+  }) => Promise<{ ok: boolean; error?: string; inviteLink?: string | null }>
   updateStaffAccount: (
     staffId: string,
     patch: { name?: string; email?: string; role?: Role; siteId?: string; status?: "active" | "deactivated" },
@@ -1139,8 +1149,29 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // time orders are (re)fetched below.
   const realOrderIdByDisplayId = useRef<Map<string, string>>(new Map())
 
-  const loadRealOrders = useCallback(async () => {
-    setOrdersLoading(true)
+  const loadRealOrders = useCallback(async (opts?: { silent?: boolean }) => {
+    // FIX: this used to call setOrdersLoading(true) unconditionally,
+    // including from the debounced real-time refetch below (any change
+    // on orders/order_items/purchases/order_item_issues schedules a
+    // call to this same function ~400ms later). Since dataLoading
+    // (ordersLoading || requestsLoading) gates every admin order/
+    // purchase/QC/request page's entire render behind a loading
+    // skeleton, that meant: an admin sets a quote or confirms an order
+    // -> the write lands -> ~400ms later the real-time subscription
+    // fires this same refetch -> the whole page (including the
+    // just-opened SendMessageModal review-before-send dialog) got
+    // replaced by the loading skeleton mid-interaction, before they'd
+    // had a chance to actually click Send — from the admin's side this
+    // looked exactly like "the page reloads and doesn't wait for the
+    // message to send," because the modal was yanked out from under
+    // them, not because the send itself was ever racing anything.
+    // `silent: true` (used by the real-time-triggered refetch and by
+    // confirmRequestReal's post-write refresh below) skips the loading
+    // flag entirely — the fresh data still swaps in via setOrders/
+    // setPurchases either way, just without blanking the page first.
+    // The initial mount effect and the dev-only resetToSeedData still
+    // call this with no args, so first paint keeps its loading state.
+    if (!opts?.silent) setOrdersLoading(true)
     const [adminOrders, realPurchases] = await Promise.all([fetchRealAdminOrders(), fetchRealPurchases()])
 
     realOrderIdByDisplayId.current = new Map(adminOrders.map((o) => [o.displayId, o.id]))
@@ -1211,8 +1242,13 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // type, so it's tracked here rather than added as a page-visible field.
   const requestUserIdByRequestId = useRef<Map<string, string>>(new Map())
 
-  const loadRealRequests = useCallback(async () => {
-    setRequestsLoading(true)
+  const loadRealRequests = useCallback(async (opts?: { silent?: boolean }) => {
+    // Same silent-refetch fix as loadRealOrders above — see its comment
+    // for the full story. The debounced real-time refetch (any change
+    // on `requests`) and confirmRequestReal's post-confirm refresh both
+    // pass `{ silent: true }` so a background sync never blanks the
+    // request detail page's SendMessageModal mid-interaction.
+    if (!opts?.silent) setRequestsLoading(true)
     const [realRequests, realThreads] = await Promise.all([fetchAdminRequests(), fetchAdminChatThreads()])
     requestUserIdByRequestId.current = new Map(realRequests.map((r) => [r.id, r.userId]))
     setRequests(
@@ -1306,7 +1342,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     email: string
     role: Role
     siteId?: string
-  }): Promise<{ ok: boolean; error?: string }> => {
+    sendEmail?: boolean
+  }): Promise<{ ok: boolean; error?: string; inviteLink?: string | null }> => {
     try {
       const res = await fetch("/api/admin/staff", {
         method: "POST",
@@ -1316,7 +1353,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       const body = await res.json()
       if (!res.ok) return { ok: false, error: body.error ?? "Failed to create staff account" }
       setStaffDirectory((prev) => [...prev, mapStaffRow(body.staff)])
-      return { ok: true }
+      return { ok: true, inviteLink: body.inviteLink ?? null }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Failed to create staff account" }
     }
@@ -1388,11 +1425,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
     const scheduleOrdersRefetch = () => {
       if (ordersRefetchTimer.current) clearTimeout(ordersRefetchTimer.current)
-      ordersRefetchTimer.current = setTimeout(() => loadRealOrders(), 400)
+      ordersRefetchTimer.current = setTimeout(() => loadRealOrders({ silent: true }), 400)
     }
     const scheduleRequestsRefetch = () => {
       if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
-      requestsRefetchTimer.current = setTimeout(() => loadRealRequests(), 400)
+      requestsRefetchTimer.current = setTimeout(() => loadRealRequests({ silent: true }), 400)
     }
     const scheduleStaffRefetch = () => {
       if (staffRefetchTimer.current) clearTimeout(staffRefetchTimer.current)
@@ -2516,7 +2553,18 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           : r
       )
     )
-    confirmRequestPaymentReal(requestId, { ...payment, staffId: currentUser.id })
+    // Fire-and-forget was silent before — a failed write (e.g. the
+    // missing-columns bug this fixed; see
+    // data/wishdrop-requests-payment-columns.sql) left the optimistic
+    // local state above as the ONLY place the confirmation existed, so
+    // it quietly evaporated on the next refetch with no error ever
+    // shown. Logging on failure doesn't fully fix that class of bug by
+    // itself (the button still needs a real error surface to be
+    // bulletproof), but it at least stops a real write failure from
+    // being completely invisible.
+    confirmRequestPaymentReal(requestId, { ...payment, staffId: currentUser.id }).then((res) => {
+      if (!res.ok) console.error('[confirmPayment] real write failed', res.error)
+    })
   }
 
   /**
@@ -2587,7 +2635,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const firstItem = request.items[0]
     if (userId && firstItem) {
       confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue).then((res) => {
-        if (res.ok) loadRealOrders()
+        if (res.ok) loadRealOrders({ silent: true })
         else console.error('[confirmRequest] real write failed', res.error)
       })
     }

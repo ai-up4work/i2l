@@ -208,7 +208,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [threadId, hasMoreMessages, loadingMoreMessages, messages])
 
   // Realtime: append anything new (from either side) that arrives while
-  // this thread is open, deduping against our own optimistic inserts.
+  // this thread is open. Dedupes by id both here AND on sendMessage's
+  // own optimistic appends below — this side can't assume it's always
+  // the one arriving second (see sendMessage's comment for why), so
+  // both sides guard against the other having already added the row.
   useEffect(() => {
     if (!threadId) return
     const unsubscribe = subscribeToThreadMessages(supabaseRef.current, threadId, (row) => {
@@ -237,7 +240,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             senderName,
             text: firstText,
           })
-          setMessages((prev) => [...prev, rowToMessage(row)])
+          // FIX: was an unconditional append — the realtime subscription
+          // above already dedupes against "our own optimistic inserts"
+          // per its comment, but that assumes this append always lands
+          // FIRST. It doesn't: the realtime event for this exact insert
+          // can (and, empirically, sometimes does — reliably right after
+          // an attachment upload adds extra latency to the await below)
+          // reach the client and run its own setMessages before this
+          // line's await even resolves. When that happens, the realtime
+          // handler adds the row first (correctly, nothing to dedupe
+          // against yet), and this unconditional append then adds the
+          // SAME row a second time — two array entries with the same
+          // `id`, which is exactly the "two children with the same key"
+          // warning. Same guard as the realtime handler now applies here
+          // too, so whichever of the two effects runs second is always
+          // the one that's a no-op, regardless of ordering.
+          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
         } else {
           for (let i = 0; i < files.length; i++) {
             const url = await uploadChatAttachment(supabaseRef.current, threadId, files[i])
@@ -248,7 +266,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               text: i === 0 ? firstText : '',
               attachmentUrl: url,
             })
-            setMessages((prev) => [...prev, rowToMessage(row)])
+            // Same race, same fix — see the single-message branch above.
+            setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
           }
         }
       } catch (err) {

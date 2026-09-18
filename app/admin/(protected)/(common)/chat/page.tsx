@@ -403,7 +403,13 @@ function AdminChatPageInner() {
           senderName: staffName,
           text: firstText,
         })
-        setMessages((prev) => [...prev, row])
+        // FIX: same race as the customer-side ChatContext.tsx had —
+        // this unconditional append could land AFTER the realtime
+        // subscription (below, line ~293) already added this exact row,
+        // producing two array entries with the same id and the
+        // "two children with the same key" React warning. Guard it the
+        // same way the realtime handler already does.
+        setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
       } else {
         for (let i = 0; i < pendingFiles.length; i++) {
           const url = await uploadChatAttachment(supabase, selectedId, pendingFiles[i])
@@ -414,7 +420,8 @@ function AdminChatPageInner() {
             text: i === 0 ? firstText : '',
             attachmentUrl: url,
           })
-          setMessages((prev) => [...prev, row])
+          // Same race, same fix — see the single-message branch above.
+          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
         }
       }
       setDraft('')

@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Plus, Search, SearchX, Crown, ShieldCheck, ShoppingBag, UserCog, Users, Warehouse } from "lucide-react"
+import { ChevronRight, Plus, Search, SearchX, Crown, ShieldCheck, ShoppingBag, Trash2, UserCog, Users, Warehouse } from "lucide-react"
 
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
@@ -37,10 +37,19 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 
 export default function AllStaffPage() {
   const router = useRouter()
-  const { role: effectiveRole, staffDirectory, sites } = useAdminData()
+  const { role: effectiveRole, currentUser, staffDirectory, sites, deleteStaffAccount } = useAdminData()
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all")
   const [siteFilter, setSiteFilter] = useState<string>("all")
+  // Single shared "which row is armed to delete" slot — same
+  // click-once-to-arm, click-again-to-confirm pattern used elsewhere in
+  // the admin panel (e.g. the order detail page's delete button), just
+  // scoped per-row here since this is a list. Only one row is ever
+  // armed at a time; picking a different row's delete (or clicking
+  // elsewhere) disarms the previous one rather than stacking confirms.
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     // Effective `role` (previewRole-aware) — same pattern as every
@@ -78,6 +87,21 @@ export default function AllStaffPage() {
   const countByRole = (r: Role) => staffDirectory.filter((s) => s.role === r).length
   const invitedCount = rows.filter((r) => r.displayStatus === "invited").length
   const hasActiveFilters = search.trim() !== "" || roleFilter !== "all" || siteFilter !== "all"
+
+  // Also removes the underlying Supabase Auth user (see
+  // app/api/admin/staff/[staffId]/route.ts's DELETE handler), not just
+  // the roster row, so the same email can genuinely be re-invited
+  // afterward.
+  const handleDelete = async (staffId: string) => {
+    setDeletingId(staffId)
+    setDeleteError(null)
+    const result = await deleteStaffAccount(staffId)
+    setDeletingId(null)
+    setConfirmingDeleteId(null)
+    if (!result.ok) {
+      setDeleteError(result.error ?? "Failed to delete this account.")
+    }
+  }
 
   if (effectiveRole !== "super_admin") return null
 
@@ -161,6 +185,12 @@ export default function AllStaffPage() {
 
         <p className="mt-4 text-xs font-medium text-ink/40">{filtered.length} of {staffDirectory.length} staff</p>
 
+        {deleteError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700 ring-1 ring-inset ring-red-200">
+            {deleteError}
+          </p>
+        )}
+
         {/* ── Roster list ── */}
         <div className="mt-3 space-y-3">
           {filtered.length === 0 ? (
@@ -215,6 +245,52 @@ export default function AllStaffPage() {
                   <span className="text-xs text-ink/40">
                     {!s.lastLogin ? "Never signed in" : `Active ${formatAge((Date.now() - new Date(s.lastLogin).getTime()) / 3_600_000)} ago`}
                   </span>
+
+                  {/* Self-protection — a Super Admin can't delete their
+                      own account from anywhere, same guard as the
+                      detail page (no one else could undo it). Stops
+                      propagation so clicking it doesn't also trigger
+                      the row's own onClick (navigating to the detail
+                      page). */}
+                  {s.id !== currentUser.id && (
+                    <span onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5">
+                      {confirmingDeleteId === s.id ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingDeleteId(null)}
+                            disabled={deletingId === s.id}
+                            className="rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(s.id)}
+                            disabled={deletingId === s.id}
+                            className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 size={12} />
+                            {deletingId === s.id ? "Deleting…" : "Confirm"}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteError(null)
+                            setConfirmingDeleteId(s.id)
+                          }}
+                          title="Delete account"
+                          aria-label={`Delete ${s.name}'s account`}
+                          className="grid h-7 w-7 flex-none place-items-center rounded-lg border border-ink/10 text-ink/40 transition-colors hover:border-red-600/25 hover:bg-red-600/5 hover:text-red-700"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </span>
+                  )}
+
                   <ChevronRight size={16} className="hidden text-ink/25 sm:block" />
                 </div>
               </div>

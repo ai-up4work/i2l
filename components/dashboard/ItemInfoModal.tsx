@@ -637,58 +637,109 @@ function ProductSkeleton() {
   )
 }
 
+// Derives a clean display label from a raw URL for the "we found
+// nothing" placeholder card below — same idea as DashboardContext's own
+// (unexported) sourceDomainFor, duplicated locally rather than imported
+// since that file also carries logic this component shouldn't depend
+// on. Never throws on a malformed URL.
+function hostnameFromUrl(url?: string | null): string | null {
+  if (!url) return null
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
+}
+
 // CHANNEL 3 — an outright scrape failure. Same reasoning as
 // GenericProductView above: no price at all here, so this never opens
 // the QuoteModal or touches the cart. onContinueViaChat calls
 // onSubmitRequest directly (handleStartChat), no review step.
+//
+// By the time this renders, useProductLookup has ALREADY tried the
+// OG-tag fallback and it came back genuinely empty (see
+// fetchOgFallback's doc comment in hooks/useProductLookup.ts) — there's
+// no more image/title data to go fetch here. What this section was
+// actually missing was visual consistency: GenericProductView (the
+// ogOnly case, one tier up) always shows an image-box + title even when
+// the image is a placeholder icon and the title falls back to "Untitled
+// item", so a card with literally nothing (no image, no name) read as
+// broken next to it. This now renders the same image-placeholder +
+// label shape — real image/title if either happened to survive on the
+// failed result, a ShoppingBag placeholder icon and the URL's own
+// hostname otherwise — so the section stays visually consistent even
+// with zero real data.
 function UnreadableListingFallback({
+  url,
+  title,
+  image,
   onRetry,
   onContinueViaChat,
   submitting,
   submitError,
 }: {
+  url?: string | null
+  title?: string | null
+  image?: string | null
   onRetry?: () => void
   onContinueViaChat: () => void
   submitting?: boolean
   submitError?: string | null
 }) {
+  const hostname = hostnameFromUrl(url)
   return (
-    <div className="flex flex-col items-center gap-4 rounded-xl border border-ink/10 bg-card p-6 text-center motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
-      <div className="grid h-12 w-12 flex-none place-items-center rounded-full bg-teal/10">
-        <MessageCircleQuestion size={22} className="text-teal-deep" />
+    <div className="flex flex-col gap-6 rounded-xl border border-ink/10 bg-card p-6 text-center motion-safe:[animation:contentFadeIn_0.25s_ease-out_both] sm:flex-row sm:items-center sm:gap-5 sm:text-left">
+      <div className="mx-auto grid h-20 w-20 flex-none place-items-center overflow-hidden rounded-xl border border-ink/10 bg-white sm:mx-0">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image} alt="" className="h-full w-full object-contain p-1.5" />
+        ) : (
+          <ShoppingBag size={26} className="text-ink/20" strokeWidth={1.2} />
+        )}
       </div>
-      <div>
-        <p className="text-sm font-semibold text-ink">We couldn&apos;t load this listing automatically</p>
-        <p className="mt-1.5 text-sm text-ink/55">
+
+      <div className="min-w-0 flex-1">
+        {hostname && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-parchment px-2 py-0.5 text-xs font-semibold text-ink/50 ring-1 ring-inset ring-ink/10">
+            <Zap size={11} className="text-teal-deep" strokeWidth={2} />
+            {hostname}
+          </span>
+        )}
+        <p className="mt-1.5 text-sm font-semibold text-ink">
+          {title || "We couldn't load this listing automatically"}
+        </p>
+        <p className="mt-1 text-sm text-ink/55">
           No problem — start a chat and our team will check the details, price, and options with you directly.
         </p>
-      </div>
-      {submitError && (
-        <p className="w-full rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
-          {submitError}
-        </p>
-      )}
-      <div className="flex w-full flex-col gap-2.5 sm:flex-row">
-        {onRetry && (
+
+        {submitError && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
+            {submitError}
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={submitting}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw size={15} />
+              Try again
+            </button>
+          )}
           <button
             type="button"
-            onClick={onRetry}
+            onClick={onContinueViaChat}
             disabled={submitting}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <RefreshCw size={15} />
-            Try again
+            {submitting ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={15} />}
+            {submitting ? 'Starting chat…' : 'Continue via chat'}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={onContinueViaChat}
-          disabled={submitting}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {submitting ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={15} />}
-          {submitting ? 'Starting chat…' : 'Continue via chat'}
-        </button>
+        </div>
       </div>
     </div>
   )
@@ -962,6 +1013,9 @@ export default function ItemInfoModal({
             </>
           ) : result!.error ? (
             <UnreadableListingFallback
+              url={result?.url}
+              title={result?.title}
+              image={result?.images?.[0]}
               onRetry={onRetry}
               onContinueViaChat={handleStartChat}
               submitting={submitting}
