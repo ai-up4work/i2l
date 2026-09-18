@@ -466,6 +466,19 @@ function mapOrderStageToDbStage(stage: OrderStage): DbOrderStage {
   }
 }
 
+// Same real signals Purchases' itemSource has always used (storeUrl vs
+// requestLink), extended to also catch Channel 3 via sellerType —
+// itemSource never needed that distinction because a Channel 3 order is
+// never mixed with 1/2 items (see OrderItem.channel's doc comment). Falls
+// back to undefined (caller uses the parent order's own channel instead)
+// when a row has neither signal, e.g. very old/seed data.
+function deriveItemChannel(item: AdminOrderItem): Channel | undefined {
+  if (item.sellerType === "individual") return 3
+  if (item.storeUrl) return 1
+  if (item.requestLink) return 2
+  return undefined
+}
+
 function mapAdminItemToOrderItem(item: AdminOrderItem): OrderItem {
   const sellerType: SellerType = item.sellerType === "individual" ? "manual" : "feed"
   return {
@@ -473,6 +486,7 @@ function mapAdminItemToOrderItem(item: AdminOrderItem): OrderItem {
     title: item.title,
     quantity: item.quantity,
     requestLink: item.requestLink,
+    channel: deriveItemChannel(item),
     variant: item.variant,
     unitPrice: item.unitPrice,
     productImage: item.image,

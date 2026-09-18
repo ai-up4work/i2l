@@ -55,6 +55,24 @@ export interface OrderItem {
   sourceSnapshot?: string
   /** Channel 3 only — the original link the customer submitted */
   requestLink?: string
+  /**
+   * Per-ITEM channel, distinct from the parent Order's `channel` (which
+   * is per-ORDER — a mixed cart checkout can bundle a catalogue item and
+   * a pasted-link item into ONE order, whose order-level `channel`
+   * reflects only whichever wins per DashboardContext.confirmCartOrder's
+   * rule, not every item in it). Derived in
+   * contexts/AdminDataContext.tsx's mapAdminItemToOrderItem from the same
+   * real signals Purchases' itemSource already used (storeUrl vs
+   * requestLink), plus sellerType to catch Channel 3: storeUrl set ->
+   * 1 (Affiliated store), sellerType 'individual' -> 3 (Manual request),
+   * requestLink set (and not individual) -> 2 (Scraped link). Optional —
+   * older/seed rows without enough signal fall back to the parent
+   * Order's own `channel`, same as before this field existed. Consumers
+   * that need "every distinct channel on this order" (see orderChannels()
+   * on /admin/orders) should read `item.channel ?? order.channel`, never
+   * just `order.channel` alone.
+   */
+  channel?: Channel
   /** Optional variant label shown next to the title (e.g. "Size M", "Matte black") */
   variant?: string
   /**

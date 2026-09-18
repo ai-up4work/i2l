@@ -217,28 +217,28 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
 }
 
 /**
- * Creates one `orders` row with a random human-readable display_id,
- * retrying on a (rare) unique-constraint collision. There's no DB
- * sequence/function exposed for this, so a client-generated random id is
- * the pragmatic option — it's purely a display number, never used as a
- * foreign key, so a retry-on-collision loop is safe and simple.
+ * Creates one `orders` row. display_id is no longer generated here — it
+ * used to be a client-side random 5-digit number with a retry-on-collision
+ * loop, since there was no DB-side way to produce one. Now
+ * orders.display_id has a real DEFAULT backed by a Postgres sequence (see
+ * data/wishdrop-order-display-id-sequence.sql), so leaving it out of the
+ * insert entirely lets the database assign a real, race-free, strictly
+ * increasing order number — no retry loop needed, and no risk of a stray
+ * caller inserting a malformed/colliding one.
  */
 async function createOrderWithRetry(
   supabase: SupabaseClient,
-  fields: { user_id: string; channel: 1 | 2 | 3; currency: string; total_value: number },
+  fields: {
+    user_id: string
+    channel: 1 | 2 | 3
+    currency: string
+    total_value: number
+    recipient_address_id?: string | null
+  },
 ): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const displayId = `WD-${Math.floor(10000 + Math.random() * 89999)}`
-    const { data, error } = await supabase
-      .from('orders')
-      .insert({ display_id: displayId, ...fields })
-      .select('id')
-      .single()
-    if (!error) return data.id as string
-    if (error.code !== '23505') throw error
-    // 23505 = unique_violation on display_id — loop and try a new one.
-  }
-  throw new Error('Could not generate a unique order number. Please try again.')
+  const { data, error } = await supabase.from('orders').insert(fields).select('id').single()
+  if (error) throw error
+  return data.id as string
 }
 
 function sourceDomainFor(url: string): string {

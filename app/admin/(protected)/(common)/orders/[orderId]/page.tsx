@@ -7,27 +7,11 @@ import Link from "next/link"
 import { AlertTriangle, ArrowLeft, ChevronRight, MessageSquare, PencilLine } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
-import { STAGE_ORDER, CHANNEL_LABEL, type OrderStage } from "@/types/admin"
+import { STAGE_ORDER, CHANNEL_LABEL, type Channel, type Order, type OrderStage } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 import QcIssueBanner from "@/components/shared/QcIssueBanner"
-
-// Order detail — restyled to match the card language now shared with
-// /admin/orders and the customer-facing "My Orders" page: a left-edge
-// status accent on the header card, the item image stack in place of a
-// plain text block, and small item thumbnails in the items list instead
-// of text-only rows. Backed by the same useAdminData() store the list
-// page and Purchases read from, so nothing here is a local copy —
-// editing stage/site/notes here is reflected everywhere else
-// immediately.
-//
-// The Advance/Roll back buttons are the OVERRIDE tool, gated on
-// canOverrideOrderStage (Manager only) — not canMutateOrderStage, which
-// still governs the real per-stage actions on QC/Pack & label/Export
-// bin/In transit for Warehouse-at-own-site + Manager-anywhere. A
-// Warehouse user opening this page sees the stage pips and history as
-// read-only, with a note pointing them to the actual queue action.
 
 const TONE_PILL: Record<StatusTone, string> = {
   teal: "bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25",
@@ -65,11 +49,6 @@ function DelayedPill() {
   )
 }
 
-// Same distinction as the list page's QcIssuePill — "Delayed" alone
-// doesn't say why. Only shown for a still-OPEN issue (resolution ===
-// 'pending'); once ops resolves it (coupon issued, shipped as-is, or a
-// replacement is on the way via retry_same), the order isn't actively
-// "in trouble" anymore even if order.delayed is still true from before.
 function QcIssuePill() {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
@@ -87,10 +66,16 @@ const STAGE_TONE: Record<OrderStage, StatusTone | "ink"> = {
   "Delivered": "teal",
 }
 
-// Same accent rule as the list page — delayed always reads as rose,
-// otherwise the stage tone. Kept in sync deliberately so a card looks
-// like the same order whether you're scanning the list or looking at
-// its detail page.
+// Same distinct-channel derivation as /admin/orders' orderChannels() —
+// kept in sync deliberately so a mixed order (e.g. one catalogue item +
+// one pasted-link item bundled into a single cart checkout) shows the
+// same set of badges whether you're scanning the list or looking at its
+// detail page, instead of the header collapsing to just order.channel.
+function orderChannels(o: Order): Channel[] {
+  const set = new Set<Channel>(o.items.map((i) => i.channel ?? o.channel))
+  return ([1, 2, 3] as Channel[]).filter((c) => set.has(c))
+}
+
 function orderAccent(stage: OrderStage, delayed: boolean): string {
   if (delayed) return "border-l-rose-500"
   switch (stage) {
@@ -169,14 +154,6 @@ export default function OrderDetailPage() {
   const [rollbackError, setRollbackError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
-  // QC issues for this order's items — fetched the same way the
-  // customer-facing order pages do (fetchQcIssuesForItems, batched by
-  // order_items.id), so ops sees the exact same photo/note/resolution
-  // the customer sees, plus a link through to the full internal view on
-  // /admin/qc-issues/[id] (staff note, WhatsApp status, etc. — not
-  // included in this customer-safe fetch). Declared before the
-  // dataLoading/not-found early returns below since hooks can't be
-  // conditional; the effect itself no-ops until `order` exists.
   const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
   useEffect(() => {
     if (!order) return
@@ -253,7 +230,6 @@ export default function OrderDetailPage() {
           Back to Orders
         </button>
 
-        {/* Manager-only hard delete — permissions.canDelete (Sales & Purchase, Warehouse never get this; they have no destructive control on an order at all). Two-click confirm: first click arms it, second click within the same render actually deletes. */}
         {permissions.canDelete && (
           <div className="mb-6 -mt-3 flex justify-end">
             <button
@@ -271,7 +247,6 @@ export default function OrderDetailPage() {
           </div>
         )}
 
-        {/* ── Header card — accent + image stack, matches the list/customer card language ── */}
         <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${accent}`}>
           <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center">
             <div className="h-28 w-full flex-none sm:w-56">
@@ -290,10 +265,12 @@ export default function OrderDetailPage() {
                     {order.customerName} <span className="text-ink/25">·</span> {siteName}{" "}
                     <span className="text-ink/25">·</span> placed {formatAge(hoursSince(order.placedAt))} ago
                   </p>
-                  <div className="mt-2.5 flex items-center gap-2">
-                    <Pill tone={CHANNEL_TONE[order.channel]}>
-                      Ch. {order.channel} · {CHANNEL_LABEL[order.channel]}
-                    </Pill>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    {orderChannels(order).map((ch) => (
+                      <Pill key={ch} tone={CHANNEL_TONE[ch]}>
+                        Ch. {ch} · {CHANNEL_LABEL[ch]}
+                      </Pill>
+                    ))}
                     {order.isManualQuote && <Pill tone="amber">Manual quote</Pill>}
                     <Pill tone={STAGE_TONE[order.stage]}>{order.stage}</Pill>
                   </div>
@@ -309,9 +286,7 @@ export default function OrderDetailPage() {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Main column */}
           <div className="space-y-6 lg:col-span-2">
-            {/* Stage control */}
             <SectionCard title="Pipeline stage">
               <StagePips current={order.stage} />
 
@@ -371,11 +346,16 @@ export default function OrderDetailPage() {
               )}
             </SectionCard>
 
-            {/* Items — channel-aware, now with a thumbnail per row */}
             <SectionCard title="Items">
+              {/* Per-item channel pill only shows once this order is
+                  actually mixed (see orderChannels() above) — a
+                  single-channel order already says so once in the header,
+                  repeating it on every line would just be noise. */}
               <ul className="space-y-2.5">
                 {order.items.map((item) => {
                   const issue = qcIssuesByItemId.get(item.id)
+                  const itemChannel = item.channel ?? order.channel
+                  const isMixedOrder = orderChannels(order).length > 1
                   return (
                     <li key={item.id} className="rounded-xl border border-ink/[0.06] bg-parchment/40 p-3.5 text-sm">
                       <div className="flex gap-3">
@@ -389,25 +369,35 @@ export default function OrderDetailPage() {
                             <span className="font-medium text-ink">{item.title}</span>
                             <span className="shrink-0 text-ink/40">×{item.quantity}</span>
                           </div>
+                          {isMixedOrder && (
+                            <div className="mt-1">
+                              <Pill tone={CHANNEL_TONE[itemChannel]}>
+                                Ch. {itemChannel} · {CHANNEL_LABEL[itemChannel]}
+                              </Pill>
+                            </div>
+                          )}
                           {item.variant && <p className="mt-1 text-xs text-ink/50">{item.variant}</p>}
                           {item.sku && <p className="mt-1 text-xs text-ink/45">Catalog SKU: {item.sku}</p>}
                           {item.sourceSnapshot && (
                             <p className="mt-1 text-xs text-ink/45">Source snapshot: {item.sourceSnapshot}</p>
                           )}
                           {item.requestLink && (
-                            <p className="mt-1 text-xs text-ink/45">
-                              Original request link: <span className="underline">{item.requestLink}</span>
+                            <p className="mt-1 line-clamp-2 break-all text-xs text-ink/45">
+                              Original request link:{" "}
+                              <a
+                                href={item.requestLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-teal-deep underline hover:text-teal-deep/80"
+                              >
+                                {item.requestLink}
+                              </a>
                             </p>
                           )}
                         </div>
                       </div>
 
-                      {/* Same customer-facing photo/note/resolution the
-                          customer sees on their own order page — plus a
-                          link through to the full internal view (staff
-                          note, seller-refund/WhatsApp status) that this
-                          customer-safe fetch deliberately doesn't
-                          include. */}
                       {issue && (
                         <div className="mt-3 border-t border-ink/[0.06] pt-3">
                           <QcIssueBanner issue={issue} />
@@ -431,7 +421,6 @@ export default function OrderDetailPage() {
               </Link>
             </SectionCard>
 
-            {/* Stage history — timeline */}
             <SectionCard title="Stage history">
               <ol className="space-y-4">
                 {order.stageHistory.map((ev, i) => (
@@ -450,9 +439,7 @@ export default function OrderDetailPage() {
             </SectionCard>
           </div>
 
-          {/* Side column */}
           <div className="space-y-6">
-            {/* Linked chat thread */}
             <SectionCard title="Chat thread">
               {order.linkedRequestId ? (
                 <Link
@@ -468,9 +455,6 @@ export default function OrderDetailPage() {
               )}
             </SectionCard>
 
-            {/* Internal notes — never customer-visible, never fed into chat.
-                Amber tint matches the "manual quote" pill — both mark things
-                a human wrote/priced by hand rather than the system. */}
             <section className="rounded-2xl border border-gold/30 bg-gold/[0.06] p-5">
               <h2 className="flex items-center gap-1.5 font-display text-base font-semibold text-ink">
                 <PencilLine size={15} className="text-gold-deep" />

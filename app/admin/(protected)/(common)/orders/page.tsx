@@ -11,27 +11,6 @@ import { STAGE_ORDER, STAGE_AGE_THRESHOLD_HOURS, CHANNEL_LABEL } from "@/types/a
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
 
-// Orders — every order across all three channels, independent of the
-// warehouse queue.
-//
-// DESIGN PASS (2026-09): restyled from a dense table into the same card
-// language as the customer-facing "My Orders" page — a left-edge status
-// accent, an item image stack, and a clean total/action area — instead
-// of a 10-column grid. Ops still needs to scan a lot of orders fast, so
-// the card keeps every field the table had (channel, stage, site, both
-// age readouts, override controls), just organized as one flexible row
-// per order instead of fixed grid tracks. This also removes the
-// separate "mobile summary row" the table needed, since a card-based
-// row is naturally responsive at any width.
-//
-// The stage dropdown here is the OVERRIDE control, not the normal way an
-// order progresses — that's what the QC/Pack & label/Export bin/In
-// transit pages are for, and canMutateOrderStage (Warehouse-at-own-site
-// + Manager-anywhere) still governs those. This page's override row is
-// gated on the separate `canOverrideOrderStage` permission (Manager
-// only), enforced both here and centrally in
-// AdminDataContext.updateOrderStage.
-
 type SortMode = "recent" | "stuck"
 
 const TONE_DOT: Record<StatusTone, string> = {
@@ -60,10 +39,6 @@ const STAGE_TONE: Record<OrderStage, StatusTone | "ink"> = {
   "Delivered": "teal",
 }
 
-// Left-edge accent per card — mirrors STATUS_ACCENT on the customer
-// "My Orders" page. Delayed/breached orders always read as rose
-// regardless of stage, since that's the thing ops needs to spot first
-// scanning down the list; otherwise the accent follows the stage tone.
 function orderAccent(order: Order, breach: boolean): string {
   if (order.delayed || breach) return "border-l-rose-500"
   switch (order.stage) {
@@ -104,13 +79,6 @@ function DelayedPill() {
   )
 }
 
-// Distinct from DelayedPill — "Delayed" is a generic catch-all (could be
-// customs, a stuck courier, anything), so seeing it alone doesn't tell
-// ops WHY. This pill specifically means "at least one item on this
-// order has an open QC fault" — computed from `purchases` (per-item
-// qcStatus, see AdminDataContext's mapToPurchases fix), not from
-// order.delayed, so it stays accurate even though flagging an item also
-// happens to set order.delayed as a side effect.
 function QcIssuePill() {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
@@ -140,8 +108,6 @@ function StatCard({
   )
 }
 
-// Compact "bar + label" age readout — used for both age fields on a
-// card. Label is fixed-width and never wraps.
 function AgeReadout({ label, hours, threshold }: { label: string; hours: number; threshold: number }) {
   const breach = threshold !== Infinity && hours > threshold
   const pct = threshold === Infinity ? 0 : Math.min(100, (hours / threshold) * 100)
@@ -162,6 +128,21 @@ function AgeReadout({ label, hours, threshold }: { label: string; hours: number;
   )
 }
 
+// Every distinct channel actually represented on this order, in Channel
+// order (1, 2, 3) regardless of item order. Reads each item's own
+// `channel` first (real per-item signal — see OrderItem.channel's doc
+// comment in types/admin.ts) and only falls back to the order-level
+// `channel` when an item doesn't carry its own — e.g. a mixed cart
+// checkout bundling a catalogue item and a pasted-link item into one
+// order used to always collapse to a single badge here, because the old
+// version of this helper read a `channel` field OrderItem never actually
+// had. Most orders still only ever have one distinct channel, since that's
+// the common case — this only visibly differs for a genuinely mixed order.
+function orderChannels(o: Order): Channel[] {
+  const set = new Set<Channel>(o.items.map((i) => i.channel ?? o.channel))
+  return ([1, 2, 3] as Channel[]).filter((c) => set.has(c))
+}
+
 const inputClass =
   "rounded-lg border border-ink/10 bg-card px-2.5 py-1.5 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
 
@@ -178,12 +159,6 @@ export default function OrdersPage() {
     purchases,
   } = useAdminData()
 
-  // Orders with at least one item currently sitting "flagged" per the
-  // real per-item QC signal — same set the QC page itself reads, so
-  // this list agrees with /admin/qc and /admin/qc-issues about which
-  // orders actually have an open fault, rather than relying on the
-  // generic order.delayed flag (which flagging also sets, but which
-  // other things — shipping delays, customs — set too).
   const qcFlaggedOrderIds = useMemo(
     () => new Set(purchases.filter((p) => p.qcStatus === "flagged").map((p) => p.orderId)),
     [purchases]
@@ -278,7 +253,6 @@ export default function OrdersPage() {
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
-        {/* ── Header ── */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
             <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
@@ -307,7 +281,6 @@ export default function OrdersPage() {
           )}
         </div>
 
-        {/* ── Stat strip ── */}
         <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Visible orders" value={visibleOrders.length} />
           <StatCard label="Delayed" value={delayedCount} tone={delayedCount > 0 ? "warning" : "default"} />
@@ -315,7 +288,6 @@ export default function OrdersPage() {
           <StatCard label="Manual quotes in flight" value={manualQuoteCount} hint="Channel 3, not yet delivered" />
         </div>
 
-        {/* ── Filters ── */}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
             {(["recent", "stuck"] as SortMode[]).map((mode) => (
@@ -417,12 +389,10 @@ export default function OrdersPage() {
           )}
         </div>
 
-        {/* ── Result count ── */}
         <p className="mt-4 text-xs font-medium text-ink/40">
           {filtered.length} of {visibleOrders.length} orders
         </p>
 
-        {/* ── Card list ── */}
         <div className="mt-3 space-y-3">
           {filtered.length === 0 ? (
             <EmptyState
@@ -439,6 +409,7 @@ export default function OrdersPage() {
               const blockedReason = blockedReasons[o.id]
               const siteMenuOpen = openSiteMenuFor === o.id
               const itemCount = o.items.reduce((sum, i) => sum + i.quantity, 0)
+              const channels = orderChannels(o)
 
               return (
                 <div
@@ -468,12 +439,6 @@ export default function OrdersPage() {
                       </span>
                     )}
 
-                    {/* w-32 is only a sensible fixed box for a single
-                        item (the stack fills it edge to edge). With 2+
-                        items the stack sizes itself to fit its fixed
-                        rail widths (see OrderItemImageStack) and would
-                        get clipped by a fixed-width parent, so it gets
-                        room to grow instead. */}
                         <div className="h-20 w-full flex-none sm:w-32">
                           <AnimatedItemCardStack items={o.items} className="h-full" />
                         </div>
@@ -494,9 +459,11 @@ export default function OrdersPage() {
                       </div>
 
                       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                        <Pill tone={CHANNEL_TONE[o.channel]}>
-                          Ch. {o.channel} · {CHANNEL_LABEL[o.channel]}
-                        </Pill>
+                        {channels.map((ch) => (
+                          <Pill key={ch} tone={CHANNEL_TONE[ch]}>
+                            Ch. {ch} · {CHANNEL_LABEL[ch]}
+                          </Pill>
+                        ))}
                         <span className="text-xs text-ink/45">
                           {itemCount} item{itemCount === 1 ? "" : "s"}
                         </span>
@@ -511,10 +478,6 @@ export default function OrdersPage() {
                     </div>
                   </div>
 
-                  {/* Override footer — Manager only, tucked below the
-                      main card so it never competes with the info ops
-                      scans for. See file header re: canOverrideOrderStage
-                      vs canMutateOrderStage. */}
                   {permissions.canOverrideOrderStage && (
                     <div
                       onClick={(e) => e.stopPropagation()}
