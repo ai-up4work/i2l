@@ -31,13 +31,13 @@ on conflict (id) do update set
   location = excluded.location;
 
 insert into public.staff_accounts (id, user_id, name, email, role, site_id, status) values
-  ('20910cf1-6c79-4891-b7b0-15fcf8fd636a', null, 'Amara Perera',          'amara.perera@wishdrop.lk',          'manager',   null,                                      'active'),
-  ('857f794e-d28d-4800-b17e-4b1393461dda', null, 'Nadia Fernando',        'nadia.fernando@wishdrop.lk',        'sales',     null,                                      'active'),
-  ('e03e6489-a4d4-43ca-a43c-d415403ce80c', null, 'Ruvindi Jayasekara',    'ruvindi.jayasekara@wishdrop.lk',    'sales',     null,                                      'active'),
-  ('00af059b-624d-4b31-9956-ed1c0feff14e', null, 'Kasun Silva',           'kasun.silva@wishdrop.lk',           'warehouse', 'e166db30-47fe-466d-b5ee-2f600300c50f',   'active'),
-  ('6e37890f-346f-4a55-a779-8320765a452d', null, 'Dimuthu Rajapaksha',    'dimuthu.rajapaksha@wishdrop.lk',    'warehouse', '925ea5ba-e910-4d7b-a351-13b06cda235f',   'active'),
-  ('3ed33c0b-b888-4660-9360-418f36e556ac', null, 'Harshani Weerasinghe',  'harshani.weerasinghe@wishdrop.lk',  'warehouse', 'ef990cda-4177-419d-967a-f9e966bf389e',   'active'),
-  ('12f50202-9165-4dd3-accf-6116137ce9c1', null, 'Pasan Gunathilaka',     'pasan.gunathilaka@wishdrop.lk',     'warehouse', 'e166db30-47fe-466d-b5ee-2f600300c50f',   'active')
+  ('20910cf1-6c79-4891-b7b0-15fcf8fd636a', null, 'Amara Perera',          'amara.perera@wishdrop.shop',          'manager',   null,                                      'active'),
+  ('857f794e-d28d-4800-b17e-4b1393461dda', null, 'Nadia Fernando',        'nadia.fernando@wishdrop.shop',        'sales',     null,                                      'active'),
+  ('e03e6489-a4d4-43ca-a43c-d415403ce80c', null, 'Ruvindi Jayasekara',    'ruvindi.jayasekara@wishdrop.shop',    'sales',     null,                                      'active'),
+  ('00af059b-624d-4b31-9956-ed1c0feff14e', null, 'Kasun Silva',           'kasun.silva@wishdrop.shop',           'warehouse', 'e166db30-47fe-466d-b5ee-2f600300c50f',   'active'),
+  ('6e37890f-346f-4a55-a779-8320765a452d', null, 'Dimuthu Rajapaksha',    'dimuthu.rajapaksha@wishdrop.shop',    'warehouse', '925ea5ba-e910-4d7b-a351-13b06cda235f',   'active'),
+  ('3ed33c0b-b888-4660-9360-418f36e556ac', null, 'Harshani Weerasinghe',  'harshani.weerasinghe@wishdrop.shop',  'warehouse', 'ef990cda-4177-419d-967a-f9e966bf389e',   'active'),
+  ('12f50202-9165-4dd3-accf-6116137ce9c1', null, 'Pasan Gunathilaka',     'pasan.gunathilaka@wishdrop.shop',     'warehouse', 'e166db30-47fe-466d-b5ee-2f600300c50f',   'active')
 on conflict (id) do update set
   name = excluded.name,
   email = excluded.email,

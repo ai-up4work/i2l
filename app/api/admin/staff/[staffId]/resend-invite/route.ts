@@ -46,46 +46,70 @@ async function requireStaffRole(): Promise<
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ staffId: string }> }) {
-  const { staffId: id } = await params
+  // Wrapped end-to-end: without this, any thrown error (e.g. a missing
+  // SUPABASE_SERVICE_ROLE_KEY blowing up createServiceRoleClient(), or
+  // any unexpected exception from the Supabase admin SDK) becomes a
+  // bare 500 with no body and nothing but a stack trace in the server
+  // console — this makes sure the real message always reaches the caller
+  // and the server log, instead of having to guess from a blank 500.
+  try {
+    // Param key MUST match the folder name exactly — this route lives
+    // at app/api/admin/staff/[staffId]/resend-invite/route.ts, so the
+    // segment is `staffId`, not `id`. Destructuring `{ id }` here would
+    // silently give `undefined` and reproduce the same
+    // "invalid input syntax for type uuid: undefined" failure.
+    const { staffId: id } = await params
 
-  const authCheck = await requireStaffRole()
-  if (!authCheck.ok) return authCheck.response
-  const { admin, role: callerRole } = authCheck
+    const authCheck = await requireStaffRole()
+    if (!authCheck.ok) return authCheck.response
+    const { admin, role: callerRole } = authCheck
 
-  if (callerRole !== 'manager' && callerRole !== 'super_admin') {
-    return NextResponse.json({ error: 'Only Manager or Super Admin can resend invites.' }, { status: 403 })
+    if (callerRole !== 'manager' && callerRole !== 'super_admin') {
+      return NextResponse.json({ error: 'Only Manager or Super Admin can resend invites.' }, { status: 403 })
+    }
+
+    const { data: target, error: lookupError } = await admin
+      .from('staff_accounts')
+      .select('id, email, role, user_id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 })
+    if (!target) return NextResponse.json({ error: 'Staff account not found.' }, { status: 404 })
+
+    // Same restriction as creating staff — Manager can't touch Manager/
+    // Super Admin rows, including resending their invites.
+    if (callerRole === 'manager' && (target.role === 'manager' || target.role === 'super_admin')) {
+      return NextResponse.json({ error: 'Manager cannot manage Manager or Super Admin accounts.' }, { status: 403 })
+    }
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin
+
+    // 'invite' vs 'recovery' matters here: a staff row created via
+    // inviteUserByEmail but never logged into has an unconfirmed email
+    // in auth.users. generateLink({ type: 'recovery' }) can fail for an
+    // unconfirmed user on some Supabase versions ("Signups not allowed
+    // for this instance" / "Email not confirmed"-style errors), while
+    // 'invite' works for exactly this not-yet-activated case. If the
+    // user_id is missing entirely (invite never even created the auth
+    // user), regenerate with 'invite' too, since 'recovery' requires an
+    // existing user and would 400.
+    const linkType = target.user_id ? 'invite' : 'invite'
+    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      type: linkType,
+      email: target.email,
+      options: { redirectTo: `${siteUrl}/admin/set-password` },
+    })
+
+    if (linkError) {
+      console.error('[resend-invite] generateLink failed', linkError)
+      return NextResponse.json({ error: linkError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ link: linkData.properties.action_link })
+  } catch (err) {
+    console.error('[resend-invite] unhandled error', err)
+    const message = err instanceof Error ? err.message : 'Unexpected server error.'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
-
-  const { data: target, error: lookupError } = await admin
-    .from('staff_accounts')
-    .select('id, email, role')
-    .eq('id', id)
-    .maybeSingle()
-
-  if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 })
-  if (!target) return NextResponse.json({ error: 'Staff account not found.' }, { status: 404 })
-
-  // Same restriction as creating staff — Manager can't touch Manager/
-  // Super Admin rows, including resending their invites.
-  if (callerRole === 'manager' && (target.role === 'manager' || target.role === 'super_admin')) {
-    return NextResponse.json({ error: 'Manager cannot manage Manager or Super Admin accounts.' }, { status: 403 })
-  }
-
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin
-  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-    type: 'recovery',
-    email: target.email,
-    options: { redirectTo: `${siteUrl}/admin/set-password` },
-  })
-
-  if (linkError) return NextResponse.json({ error: linkError.message }, { status: 500 })
-
-  // Best-effort: also fire the normal recovery email through whatever
-  // mailer is configured. If it doesn't arrive (default Supabase mailer
-  // is unreliable), the link above still works as a manual fallback.
-  await admin.auth.resetPasswordForEmail(target.email, {
-    redirectTo: `${siteUrl}/admin/set-password`,
-  }).catch(() => {})
-
-  return NextResponse.json({ link: linkData.properties.action_link })
 }

@@ -33,7 +33,7 @@ export default function PrivacyPolicyPage() {
                 warehousing, customs, or shipping themselves.
               </p>
               <p>
-                This policy applies to personal data we collect through wishdrop.lk (and any
+                This policy applies to personal data we collect through wishdrop.shop (and any
                 subdomains), our account dashboard, our WhatsApp and in-app chat channels, and
                 any related customer support interactions. It does not cover the privacy
                 practices of third-party stores, marketplaces, couriers, or payment processors

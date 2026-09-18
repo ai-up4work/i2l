@@ -16,8 +16,8 @@ const channels = [
   {
     icon: Mail,
     title: 'Email',
-    detail: "support@wishdrop.lk — for anything that needs attachments or isn't urgent.",
-    action: 'support@wishdrop.lk',
+    detail: "support@wishdrop.shop — for anything that needs attachments or isn't urgent.",
+    action: 'support@wishdrop.shop',
   },
   {
     icon: Phone,

@@ -42,7 +42,7 @@ function hashStr(s: string): number {
 export function getStaffMeta(id: string, name: string): StaffMeta {
   const h = hashStr(id)
   const invited = h % 11 === 0 // roughly 1 in 11 accounts is a pending invite
-  const email = `${name.toLowerCase().replace(/[^a-z]+/g, ".")}@wishdrop.lk`
+  const email = `${name.toLowerCase().replace(/[^a-z]+/g, ".")}@wishdrop.shop`
 
   if (invited) {
     return {
