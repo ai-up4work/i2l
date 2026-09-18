@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, ShoppingCart, Zap, ArrowLeft, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle, Truck, Plane, Info } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { useRouter } from 'next/navigation'
+import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle, Truck, Plane, Info } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
@@ -29,209 +31,65 @@ import {
 } from '@/lib/pricing'
 import Image from 'next/image'
 
-/**
- * Right-side "Product Details" overlay. Now a thin shell: backdrop,
- * slide-in animation, header (status text + close), and the request
- * "review" step. All product-specific rendering — gallery, price,
- * variants, AND the WishDrop commerce layer (estimated price,
- * delivery/QC, qty/wishlist/cart/request buttons, Description/Details/
- * Shipping tabs) — lives inside whichever platform view is picked below,
- * via the shared <StoreCommercePanel> each one renders. This modal owns
- * NONE of that UI directly anymore.
- *
- * Header text: shows a status message ("Reading listing…" / "Listing"
- * on error) only while there's no title to show yet or something went
- * wrong. Once the listing has loaded successfully, the header shows
- * nothing on the left — the product page this modal opens on top of
- * already displays the title/store name above it, so repeating a
- * "Product details" label here was redundant.
- *
- * FULL-VIEWPORT OVERLAY: this modal now always covers the ENTIRE
- * screen (top: 0, bottom: 0), regardless of --account-header-h, the
- * WelcomeBanner, or the mobile bottom nav. Those all live underneath
- * it and are irrelevant while it's open — AccountShell no longer
- * renders WelcomeBanner at all while this modal is open (see that
- * file), so there's nothing left for this modal to "push down" for or
- * leave a gap above. Previously the panel's top/bottom followed
- * --account-header-h and MOBILE_BOTTOM_NAV_HEIGHT so the banner could
- * visually sit above it — that entire mechanism is gone now.
- *
- * Backdrop bounds: the dimmed/blurred backdrop shares the same
- * .item-overlay-bounds top/bottom offsets as the panel (inset-x-0
- * instead of inset-0), so both now simply span the full viewport.
- *
- * Click-through fix: the outer `fixed inset-0` wrapper used to be a
- * fully "live" hit-target for its entire box, even in the region above
- * .item-overlay-bounds (the gap left uncovered on mobile, where the
- * WelcomeBanner lived). Since the panel now always spans the full
- * viewport, that gap no longer exists — but the wrapper stays
- * `pointer-events-none` with only the backdrop/panel opting back in,
- * since that's still correct and harmless.
- *
- * VISIBLE CLOSE BUTTON: AccountShell now keeps the global site Header
- * mounted (z-50) while this modal is open, which covers this panel's
- * own in-header close button (top: 0 puts it directly under Header).
- * Rather than change the full-viewport layout, a second floating close
- * button (`FloatingCloseButton` below) sits just under the header at a
- * higher z-index than both, so there's always a reachable, visible way
- * to close the modal regardless of scroll position or step. The
- * original in-panel button is left in place.
- *
- * ANIMATED OPEN/CLOSE: previously `if (!open) return null` unmounted
- * the modal instantly on close, so only the open transition (via CSS
- * keyframes) was ever visible — closing had no animation at all. This
- * now tracks its own `mounted`/`entered` state: opening flips `mounted`
- * true and then, one frame later, `entered` true (so the enter
- * transition actually has a starting state to animate from); closing
- * flips `entered` false immediately (kicking off the exact reverse
- * transition) and only unmounts (`mounted` false) after the transition
- * duration elapses. Both the backdrop and panel use the same
- * `ANIMATION_MS` duration so enter and exit are visually symmetric.
- *
- * Loading state: instead of a centered spinner, the loading state now
- * renders <ProductSkeleton /> — a pulsing placeholder shaped like the
- * eventual two-column image/details layout plus a tabs section, so the
- * panel doesn't visually "jump" once the real listing content pops in.
- *
- * CART/REQUEST SEPARATION: "Add to Cart" (handleAddToCart) and "Confirm
- * & send request" (handleConfirmRequest) are two independent commitments
- * — a cart line lives in CartContext and is checked out from
- * /account/cart; a request lives in DashboardContext.requests and is
- * submitted via onSubmitRequest (DashboardContext's confirmRequest,
- * called directly — see that prop's own doc comment for why there's no
- * separate confirm/preview page anymore), which read only from `draft`
- * — never from cart state. They used to both write to CartContext, which
- * meant confirming a request also silently created a cart line for the
- * same product — and if that cart was later checked out, it would mint a
- * SECOND, duplicate request. Only handleAddToCart touches cart.addItem
- * now.
- *
- * DELIVERY CHOICE + REAL PRICING IN THE REVIEW STEP: previously this
- * step showed at most one soft number (estimatedPrice string, or
- * estimatedPriceLKR with a "final price confirmed by our team" caveat)
- * with no way to compare Economy vs Express before sending the
- * request — unlike the cart page, which runs every line through
- * getDualDeliveryPricing and lets the customer toggle delivery mode
- * with a live breakdown. Now, whenever the scraped listing has a real,
- * numeric price (i.e. NOT an ogOnly/unpriced/manual-check listing),
- * the review step does the same thing: a compact DeliveryModeToggle,
- * a full Price/Service charge/Delivery/Total breakdown for the
- * selected mode, and a two-up comparison of both. `onDeliveryChoiceChange`
- * is fired whenever the customer's choice changes so the parent can
- * stash it on the draft before calling onSubmitRequest — this modal
- * still never talks to DashboardContext directly, same as before.
- * Unpriced/manual-check listings keep the old, gentler messaging
- * ("Price to be confirmed by our team") since there's no real number
- * to build a breakdown out of yet.
- */
-
 type ItemOverlayProps = {
   open: boolean
   result?: ScrapeResult | null
   estimatedPrice?: string
   estimatedPriceNote?: string
-  /**
-   * Best-effort LKR estimate for the current draft (see
-   * Draft.estimatedPriceLKR's doc comment) — shown in the review step
-   * as "About LKR X,XXX, final price confirmed by our team" so the
-   * customer sees SOME number before sending a request, even for a
-   * generic/ogOnly item that can't be auto-priced for checkout. Null
-   * when currency genuinely couldn't be determined — shown as "price
-   * to be confirmed" rather than guessing. Only used as a fallback now,
-   * for listings where a real dual-delivery breakdown can't be built
-   * (see DeliveryChoice section below).
-   */
   estimatedPriceLKR?: number | null
   onSelectVariant?: (url: string) => void
   qty: number
   onQtyChange: (qty: number) => void
   onClose: () => void
-  /**
-   * Directly performs the request/order write (DashboardContext's
-   * confirmRequest) and returns whether it succeeded — no separate
-   * confirm/preview page in between anymore. Previously this was
-   * onRequestItem: () => void, backed by saveItemInfo, which persisted
-   * the draft to localStorage and navigated to /account/requests/confirm
-   * — a page whose two consent checkboxes duplicated the ones already
-   * rendered right here in the review step below (confirmsRestrictions/
-   * confirmsPreowned), and whose price display used draft.unitPrice
-   * directly, which is 0 for any ogOnly/unpriced item by design (see
-   * applyScrapeResultToDraft) — so that page showed a bare "$0.00" for
-   * exactly the cases that most needed a real number. confirmRequest
-   * itself already ends by routing to /account/messages for the
-   * unpriced case (or Orders Hub for a real Channel 2 order) — calling
-   * it here directly means clicking "Confirm & send request" does
-   * exactly that, immediately, with nothing in between. The old
-   * /account/requests/confirm and /preview pages are unreachable from
-   * this flow now — left in place rather than deleted, in case anything
-   * else still links to them directly.
-   */
-  onSubmitRequest: () => Promise<{ ok: boolean; error?: string }>
-  /**
-   * Fired whenever the customer's Economy/Express choice in the review
-   * step changes (including once, on first mount of the review step,
-   * with the default 'economy'). Optional — this modal still works
-   * without it. Wire it up on the parent side to stash the choice on
-   * DashboardContext's draft before calling onSubmitRequest, if the
-   * request flow should honor it; without this prop the modal is purely
-   * informational about delivery choice, same as before for pricing.
-   */
+  // Kept for backwards compatibility with callers; no longer invoked from
+  // here since "get quote" -> "add to cart" -> cart page is now the order
+  // path instead of an in-modal confirm/send-request step.
+  onSubmitRequest?: () => Promise<{ ok: boolean; error?: string }>
   onDeliveryChoiceChange?: (choice: DeliveryChoice) => void
   loading?: boolean
-  /**
-   * Re-runs the lookup for the same URL from scratch (useProductLookup's
-   * retry-then-OG-fallback chain runs again). Only rendered when both of
-   * those already ran once and still came up empty — see
-   * UnreadableListingFallback below. Optional so this modal doesn't
-   * break if a future caller doesn't wire it up; the "Continue via
-   * chat" path still works without it.
-   */
   onRetry?: () => void
 }
 
-type Step = 'listing' | 'review'
 type DeliveryChoice = 'economy' | 'express'
 
-// Shared duration for the open/close transition — the backdrop, the
-// panel, AND the setTimeout that actually unmounts on close all use
-// this same number, so the animation is exactly reversible instead of
-// close feeling like a different (or missing) motion from open.
 const ANIMATION_MS = 300
 
-function ConfirmCheckbox({
-  checked,
-  onChange,
-  children,
-}: {
-  checked: boolean
-  onChange: (value: boolean) => void
-  children: React.ReactNode
-}) {
-  return (
-    <label className="flex cursor-pointer items-start gap-3.5 text-[13px] leading-relaxed text-ink">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
-      <span
-        aria-hidden="true"
-        className="mt-0.5 grid h-5 w-5 flex-none place-items-center rounded-md border-2 border-teal/70 bg-transparent transition-colors duration-150 peer-checked:border-teal peer-checked:bg-teal"
-      >
-        <svg viewBox="0 0 16 16" className="h-3 w-3 scale-0 text-parchment transition-transform duration-150 peer-checked:scale-100" fill="none">
-          <path d="M3 8.5L6.2 11.5L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-      <span>{children}</span>
-    </label>
-  )
+// Counts a displayed LKR figure smoothly from its previous value to a new
+// one whenever `value` changes (delivery method switch, qty change, etc.)
+// instead of the number jump-cutting.
+function AnimatedLKR({ value }: { value: number }) {
+  const [display, setDisplay] = useState(value)
+  const prevRef = useRef(value)
+  const rafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const from = prevRef.current
+    const to = value
+    if (from === to) return
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+
+    const start = performance.now()
+    const duration = 420
+
+    function tick(now: number) {
+      const p = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - p, 3)
+      setDisplay(Math.round(from + (to - from) * eased))
+      if (p < 1) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        prevRef.current = to
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [value])
+
+  return <span className="tabular-nums">{formatLKR(display)}</span>
 }
 
-/**
- * Always-visible close control. Fixed at the viewport level (not inside
- * the scrollable panel), positioned just under the global site Header
- * using the same --account-header-h-mobile/-desktop CSS variables
- * AccountShell sets on <main> — this modal is rendered inside that
- * <main>, so it inherits them. Sits at a higher z-index than both
- * Header (z-50) and the modal's own backdrop/panel (z-30), so it's
- * always clickable no matter what's scrolled under it.
- */
 function FloatingCloseButton({ onClick, visible }: { onClick: () => void; visible: boolean }) {
   return (
     <button
@@ -265,13 +123,6 @@ function toProductSnapshot(result: ScrapeResult) {
   }
 }
 
-/**
- * Turns a scraped listing into the shape getDualDeliveryPricing expects
- * — same idea as the cart page's toPriceableItem(CartProduct), just
- * sourced from a ScrapeResult instead of a cart line. Only meaningful
- * when result.price is a real number; callers must check
- * canBuildBreakdown(result) before trusting the output.
- */
 function toPriceableItem(result: ScrapeResult): ProductPriceableItem {
   return {
     price: result.price != null ? Number(result.price) : 0,
@@ -280,14 +131,6 @@ function toPriceableItem(result: ScrapeResult): ProductPriceableItem {
   }
 }
 
-/**
- * A real Economy/Express breakdown only makes sense when we actually
- * have a numeric source price to build it from. ogOnly / manual-check
- * listings (see GenericProductView's doc comment) have no trustworthy
- * price yet — for those we fall back to the older, softer
- * estimatedPrice / estimatedPriceLKR messaging instead of fabricating a
- * confident-looking breakdown out of a 0.
- */
 function canBuildBreakdown(result: ScrapeResult): boolean {
   return !result.ogOnly && result.price != null && !Number.isNaN(Number(result.price)) && Number(result.price) > 0
 }
@@ -303,8 +146,17 @@ function DeliveryModeToggle({
     { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={14} strokeWidth={1.8} /> },
     { key: 'express', label: 'Express', sub: '12–15 days', icon: <Plane size={14} strokeWidth={1.8} /> },
   ]
+  const activeIndex = options.findIndex((o) => o.key === value)
+
   return (
-    <div className="flex gap-2">
+    <div className="relative grid grid-cols-2 gap-1 rounded-xl bg-ink/[0.03] p-1">
+      {/* Sliding highlight behind the active option, instead of each
+          button re-coloring its own border/background independently. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg bg-teal/10 ring-1 ring-inset ring-teal/25 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+        style={{ transform: activeIndex === 1 ? 'translateX(calc(100% + 0.25rem))' : 'translateX(0)' }}
+      />
       {options.map((opt) => {
         const active = value === opt.key
         return (
@@ -313,13 +165,11 @@ function DeliveryModeToggle({
             type="button"
             onClick={() => onChange(opt.key)}
             aria-pressed={active}
-            className={`flex flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
-              active ? 'border-teal/50 bg-teal/10' : 'border-ink/12 bg-transparent hover:bg-ink/[0.03]'
-            }`}
+            className="relative z-10 flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors"
           >
             <span className={active ? 'text-teal-deep' : 'text-ink/40'}>{opt.icon}</span>
             <span className="min-w-0">
-              <span className={`block text-sm font-semibold ${active ? 'text-teal-deep' : 'text-ink'}`}>
+              <span className={`block text-sm font-semibold transition-colors ${active ? 'text-teal-deep' : 'text-ink'}`}>
                 {opt.label}
               </span>
               <span className="block text-[11px] text-ink/40">{opt.sub}</span>
@@ -342,7 +192,9 @@ function BreakdownRows({ option, qty }: { option: DeliveryPriceOption; qty: numb
       {rows.map((row) => (
         <div key={row.label} className="flex items-baseline justify-between gap-3">
           <span className="text-[11px] text-ink/45">{row.label}</span>
-          <span className="text-xs tabular-nums text-ink/70">{formatLKR(row.value)}</span>
+          <span className="text-xs text-ink/70">
+            <AnimatedLKR value={row.value} />
+          </span>
         </div>
       ))}
     </div>
@@ -361,25 +213,20 @@ function CompareColumn({
   active?: boolean
 }) {
   return (
-    <div className={`rounded-xl ${active ? 'bg-teal/10' : 'bg-ink/[0.03]'} px-3 py-2.5`}>
+    <div className={`rounded-xl transition-colors duration-300 ${active ? 'bg-teal/10' : 'bg-ink/[0.03]'} px-3 py-2.5`}>
       <p className={`mb-1.5 text-xs font-semibold ${active ? 'text-teal-deep' : 'text-ink/50'}`}>{heading}</p>
       <BreakdownRows option={option} qty={qty} />
       <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-ink/[0.08] pt-2">
         <span className="text-xs font-semibold text-ink">Total</span>
-        <span className="text-sm font-bold tabular-nums text-ink">{formatLKR(option.actualTotalLKR * qty)}</span>
+        <span className="text-sm font-bold text-ink">
+          <AnimatedLKR value={option.actualTotalLKR * qty} />
+        </span>
       </div>
     </div>
   )
 }
 
-/**
- * Review-step pricing block: DeliveryModeToggle + a full breakdown for
- * the selected mode + a compact side-by-side comparison of both — the
- * same information the cart page's PriceBreakdownOverlay shows per
- * line, condensed to fit the narrow slide-in panel. Only rendered when
- * canBuildBreakdown(result) is true.
- */
-function ReviewPricingBlock({
+function QuotePricingBlock({
   result,
   qty,
   deliveryChoice,
@@ -394,28 +241,35 @@ function ReviewPricingBlock({
   const selected = deliveryChoice === 'economy' ? dual.economy : dual.express
 
   return (
-    <div className="flex flex-col gap-3.5 rounded-xl border border-ink/10 bg-card p-4">
+    <div className="flex flex-col gap-4">
       <div>
-        <p className="mb-1.5 text-xs font-semibold text-ink/50">Delivery method</p>
+        <p className="mb-2 text-xs font-semibold text-ink/50">Delivery method</p>
         <DeliveryModeToggle value={deliveryChoice} onChange={onDeliveryChoiceChange} />
       </div>
 
-      <div className="rounded-xl bg-teal/10 px-3 py-2.5">
-        <p className="mb-1.5 text-xs font-semibold text-teal-deep">
-          Breakdown · {deliveryChoice === 'economy' ? 'Economy' : 'Express'} (selected)
-        </p>
-        <BreakdownRows option={selected} qty={qty} />
-        <p className="mt-1.5 text-[10px] leading-snug text-ink/35">
-          Price includes currency conversion, freight &amp; handling.
-        </p>
-        <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-ink/[0.08] pt-2">
-          <span className="text-xs font-semibold text-ink">Total</span>
-          <span className="text-sm font-bold tabular-nums text-ink">{formatLKR(selected.actualTotalLKR * qty)}</span>
+      {/* Prominent total for the selected method — the number that
+          actually matters, given room to breathe instead of competing
+          with the per-line breakdown for attention. A short pulse marks
+          the moment the delivery method (and therefore the total) changes. */}
+      <div
+        key={deliveryChoice}
+        className="rounded-xl bg-teal/10 px-4 py-3.5 ring-1 ring-inset ring-teal/15 motion-safe:[animation:priceUpdatePulse_0.3s_ease-out]"
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs font-semibold text-teal-deep">
+            Total · {deliveryChoice === 'economy' ? 'Economy' : 'Express'}
+          </span>
+          <span className="font-display text-2xl leading-none text-ink">
+            <AnimatedLKR value={selected.actualTotalLKR * qty} />
+          </span>
         </div>
+        <p className="mt-1.5 text-[10px] leading-snug text-ink/40">
+          Includes currency conversion, freight &amp; handling.
+        </p>
       </div>
 
       <div>
-        <p className="mb-1.5 flex items-center gap-1 text-xs font-semibold text-ink/50">
+        <p className="mb-2 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-ink/40">
           <Info size={11} />
           Compare delivery methods
         </p>
@@ -428,8 +282,183 @@ function ReviewPricingBlock({
   )
 }
 
-// Fallback for an unrecognized result.site — now also renders its own
-// StoreCommercePanel, same as every named platform view.
+// Small, centered pricing-only modal. This is what "Get quote" opens now —
+// it exists purely so the shopper can understand the cost breakdown. The
+// actual order path is Add to cart -> Go to cart, handled inline here.
+//
+// Rendered via a portal straight to document.body. It used to render as a
+// nested child of ItemInfoModal's root wrapper, which is `pointer-events-none`
+// and caps out at z-30 — so this modal silently inherited `pointer-events: none`
+// (nothing in it was clickable) and could never stack above the site's global
+// header (its z-[200] only applied within that z-30 stacking context). Portaling
+// it out fixes both: it gets its own top-level stacking context so z-[200] is
+// truly global, and it explicitly re-enables pointer events for itself.
+function QuoteModal({
+  open,
+  onClose,
+  result,
+  estimatedPrice,
+  estimatedPriceLKR,
+  qty,
+  onQtyChange,
+  deliveryChoice,
+  onDeliveryChoiceChange,
+  hasBreakdown,
+  onAddToCart,
+  justAdded,
+  onGoToCart,
+}: {
+  open: boolean
+  onClose: () => void
+  result: ScrapeResult | null
+  estimatedPrice?: string
+  estimatedPriceLKR?: number | null
+  qty: number
+  onQtyChange: (qty: number) => void
+  deliveryChoice: DeliveryChoice
+  onDeliveryChoiceChange: (choice: DeliveryChoice) => void
+  hasBreakdown: boolean
+  onAddToCart: () => void
+  justAdded: boolean
+  onGoToCart: () => void
+}) {
+  const [entered, setEntered] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      const raf = requestAnimationFrame(() => setEntered(true))
+      return () => cancelAnimationFrame(raf)
+    }
+    setEntered(false)
+  }, [open])
+
+  if (!open) return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] grid place-items-center p-4 pointer-events-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Pricing quote"
+    >
+      <div
+        className={`absolute inset-0 bg-ink/50 backdrop-blur-sm transition-opacity ${entered ? 'opacity-100' : 'opacity-0'}`}
+        style={{ transitionDuration: `${ANIMATION_MS}ms` }}
+        onClick={onClose}
+      />
+
+      <div
+        className={`relative flex w-full max-w-sm flex-col gap-5 rounded-2xl bg-parchment p-5 shadow-lift transition-all ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          entered ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-3 scale-95 opacity-0'
+        }`}
+        style={{ transitionDuration: `${ANIMATION_MS}ms` }}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-lg text-ink">Pricing</h3>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-full text-ink/50 transition-colors hover:bg-ink/5 hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {result && (
+          <div className="flex items-center gap-3">
+            <div className="grid h-12 w-12 flex-none place-items-center overflow-hidden rounded-lg border border-ink/10 bg-white">
+              {result.images?.[0] ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={result.images[0]} alt="" className="h-full w-full object-contain p-1" />
+              ) : (
+                <ShoppingCart size={16} className="text-ink/20" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-ink">{result.title ?? 'Untitled item'}</p>
+              <div className="mt-1 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  aria-label="Decrease quantity"
+                  onClick={() => onQtyChange(Math.max(1, qty - 1))}
+                  className="grid h-6 w-6 place-items-center rounded-md border border-ink/10 text-ink/50 transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal-deep"
+                >
+                  <Minus size={12} />
+                </button>
+                <span className="min-w-[16px] text-center text-xs font-bold tabular-nums text-ink">{qty}</span>
+                <button
+                  type="button"
+                  aria-label="Increase quantity"
+                  onClick={() => onQtyChange(qty + 1)}
+                  className="grid h-6 w-6 place-items-center rounded-md border border-ink/10 text-ink/50 transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal-deep"
+                >
+                  <Plus size={12} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {hasBreakdown && result ? (
+          <QuotePricingBlock
+            result={result}
+            qty={qty}
+            deliveryChoice={deliveryChoice}
+            onDeliveryChoiceChange={onDeliveryChoiceChange}
+          />
+        ) : (
+          <div className="rounded-xl border border-ink/10 bg-card p-4">
+            {estimatedPrice ? (
+              <>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">Estimated total</span>
+                <p className="font-display text-2xl text-ink">{estimatedPrice}</p>
+              </>
+            ) : estimatedPriceLKR != null ? (
+              <>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">About</span>
+                <p className="font-display text-2xl text-ink">LKR {estimatedPriceLKR.toLocaleString('en-LK')}</p>
+                <p className="mt-1 text-xs text-ink/40">Final price confirmed by our team before anything is charged.</p>
+              </>
+            ) : (
+              <div className="flex items-start gap-2 text-ink/60">
+                <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
+                <p className="text-xs">Price to be confirmed by our team.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {justAdded ? (
+            <button
+              type="button"
+              onClick={onGoToCart}
+              className="flex items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98]"
+            >
+              <ShoppingCart size={16} />
+              Go to cart
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onAddToCart}
+              className="flex items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98]"
+            >
+              <ShoppingCart size={16} />
+              Add to cart
+            </button>
+          )}
+          <p className="text-center text-xs text-ink/40">
+            Adding to cart doesn&apos;t charge you — you can review everything at checkout.
+          </p>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
   const { result, qty, onQtyChange, onRequestReview, loading, canAct } = props
   const images = result.images?.length ? result.images : []
@@ -454,23 +483,11 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
           {result.currencyCode ?? ''} {result.price ?? '—'}
         </p>
 
-        {/* We couldn't fully read this listing — no dedicated extractor
-            for this site, so we're going off the page's own basic tags
-            (see ScrapeResult.ogOnly's doc comment): no confirmed
-            size/color options, and pricing that hasn't been double-
-            checked. Framed as "we'll confirm it with you", not
-            "something's broken" — it isn't, this is just handed to a
-            real person instead of being auto-confirmed, same as any
-            link our system can't fully read on its own. No "Add to
-            Cart" here on purpose — only "Request this item", which
-            always gets a human's eyes on the price and variant before
-            anything is charged (see confirmRequest/
-            applyScrapeResultToDraft in DashboardContext.tsx). */}
         <div className="mt-4 flex items-start gap-2 rounded-xl bg-teal/[0.06] p-3 text-sm text-ink/70 ring-1 ring-inset ring-teal/15">
           <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
           <span>
-            This one needs a quick manual check — sizes, colors, and the final price. Send us the request and our
-            team will confirm everything with you before anything is charged.
+            This one needs a quick manual check — sizes, colors, and the final price. Get a quote to see pricing,
+            then add it to your cart and our team will confirm everything with you before anything is charged.
           </span>
         </div>
 
@@ -500,29 +517,19 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
             disabled={!canAct}
             loading={loading}
             unavailable={result.unavailable}
-            icon={<ShoppingCart size={16} />}
+            icon={<Info size={16} />}
             className="flex-1 whitespace-nowrap rounded-xl bg-teal-deep px-5 py-3 text-sm font-bold text-parchment hover:bg-teal"
           >
-            Request this item
+            Get quote
           </RequestActionButton>
         </div>
-        <p className="mt-2 text-xs text-ink/40">You won&rsquo;t be charged now — this only sends a request.</p>
+        <p className="mt-2 text-xs text-ink/40">You won&rsquo;t be charged now — this only shows pricing.</p>
       </div>
 
     </div>
   )
 }
 
-// Some sites (bot-protection on Gymshark's included) can't be read with
-// a plain fetch and fall through to slower tiers — a headless render,
-// then a paid residential-proxy fallback — that can legitimately take
-// 20-40+ seconds, occasionally longer (the API route's own maxDuration
-// is set to 5 minutes specifically to give that room). A bare pulsing
-// skeleton with zero explanation for that long reads as frozen/broken
-// to a real person, who's likely to just give up and leave. This shows
-// a short, honest reassurance line once loading has clearly gone past
-// a normal fetch's timescale — not before, so it doesn't clutter the
-// common case where a site returns in a second or two.
 function SlowLoadNotice() {
   const [show, setShow] = useState(false)
   useEffect(() => {
@@ -537,9 +544,6 @@ function SlowLoadNotice() {
   )
 }
 
-// Pulsing placeholder shown while the listing is being scraped/read.
-// Shaped like the eventual two-column layout (image + details) plus a
-// tabs section, so there's no layout jump once real content lands.
 function ProductSkeleton() {
   return (
     <div
@@ -547,10 +551,8 @@ function ProductSkeleton() {
       aria-hidden="true"
     >
       <div className="grid gap-6 sm:grid-cols-2">
-        {/* image */}
         <div className="aspect-square animate-pulse rounded-xl border border-ink/10 bg-ink/5" />
 
-        {/* details */}
         <div className="flex flex-col gap-3">
           <div className="h-5 w-24 animate-pulse rounded-full bg-ink/10" />
           <div className="h-6 w-full animate-pulse rounded-md bg-ink/10" />
@@ -569,7 +571,6 @@ function ProductSkeleton() {
         </div>
       </div>
 
-      {/* tabs */}
       <div className="flex flex-col gap-3">
         <div className="flex gap-4 border-b border-ink/10 pb-2">
           <div className="h-4 w-20 animate-pulse rounded-md bg-ink/10" />
@@ -584,17 +585,7 @@ function ProductSkeleton() {
   )
 }
 
-// Shown only once useProductLookup has already retried the scrape once
-// (5s later) AND tried the OG-only fallback, and both still came up
-// empty. Deliberately says nothing about *why* — no "captcha",
-// "blocked", "timed out", or any other internal scraper detail — a
-// customer can't act on that, and naming it just invites confusion.
-// Instead of a dead end, this hands the customer straight to a real
-// person: "Continue via chat" jumps to the exact same review step a
-// normal (priced or unpriced) listing would, just without a preview
-// card, so the request still goes out with the link attached and our
-// team fills in the rest.
-function UnreadableListingFallback({ onRetry, onContinueViaChat }: { onRetry?: () => void; onContinueViaChat: () => void }) {
+function UnreadableListingFallback({ onRetry, onGetQuote }: { onRetry?: () => void; onGetQuote: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 rounded-xl border border-ink/10 bg-card p-6 text-center motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
       <div className="grid h-12 w-12 flex-none place-items-center rounded-full bg-teal/10">
@@ -619,7 +610,7 @@ function UnreadableListingFallback({ onRetry, onContinueViaChat }: { onRetry?: (
         )}
         <button
           type="button"
-          onClick={onContinueViaChat}
+          onClick={onGetQuote}
           className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98]"
         >
           <MessageCircle size={15} />
@@ -640,25 +631,17 @@ export default function ItemInfoModal({
   qty,
   onQtyChange,
   onClose,
-  onSubmitRequest,
   onDeliveryChoiceChange,
   loading = false,
   onRetry,
 }: ItemOverlayProps) {
-  const [step, setStep] = useState<Step>('listing')
-  const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
-  const [confirmsPreowned, setConfirmsPreowned] = useState(false)
+  const router = useRouter()
+  const [quoteOpen, setQuoteOpen] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
   const cart = useCart()
   const wishlist = useWishlist()
 
-  // Drives the mirrored open/close transition — see the file-level
-  // "ANIMATED OPEN/CLOSE" doc comment above. `mounted` controls whether
-  // anything renders at all; `entered` controls which end of the
-  // transition the backdrop/panel/floating button are animating toward.
   const [mounted, setMounted] = useState(open)
   const [entered, setEntered] = useState(false)
   const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -670,11 +653,6 @@ export default function ItemInfoModal({
         unmountTimerRef.current = null
       }
       setMounted(true)
-      // Mount first with entered=false (so the panel/backdrop are
-      // painted in their "closed" position), then flip entered=true on
-      // the next frame so the transition has something to animate FROM
-      // — setting both at once would skip straight to the open state
-      // with no visible motion.
       const raf = requestAnimationFrame(() => setEntered(true))
       return () => cancelAnimationFrame(raf)
     }
@@ -693,32 +671,29 @@ export default function ItemInfoModal({
     const key = result ? `${result.site ?? ''}|${result.title ?? ''}` : null
     if (key && key !== lastResultKey.current) {
       lastResultKey.current = key
-      setStep('listing')
-      setConfirmsRestrictions(false)
-      setConfirmsPreowned(false)
+      setQuoteOpen(false)
       setDeliveryChoice('economy')
     }
   }, [result])
 
   useEffect(() => {
-    if (!open) setStep('listing')
+    if (!open) setQuoteOpen(false)
   }, [open])
 
+  // Keep "Added to cart" (and the resulting "Go to cart" button) visible
+  // while the quote modal is open; only start the fade-back-to-"Add to
+  // cart" countdown once it's closed.
   useEffect(() => {
-    if (!justAdded) return
+    if (!justAdded || quoteOpen) return
     const timer = setTimeout(() => setJustAdded(false), 1600)
     return () => clearTimeout(timer)
-  }, [justAdded])
+  }, [justAdded, quoteOpen])
 
-  // Let the parent know the current delivery choice whenever it changes
-  // (and once, on entering the review step with a priced listing), so it
-  // can be stashed on the draft before onSubmitRequest fires. See this
-  // prop's own doc comment above.
   useEffect(() => {
-    if (step === 'review' && result && canBuildBreakdown(result)) {
+    if (quoteOpen && result && canBuildBreakdown(result)) {
       onDeliveryChoiceChange?.(deliveryChoice)
     }
-  }, [step, result, deliveryChoice, onDeliveryChoiceChange])
+  }, [quoteOpen, result, deliveryChoice, onDeliveryChoiceChange])
 
   if (!mounted) return null
 
@@ -726,7 +701,6 @@ export default function ItemInfoModal({
   const handleSelectVariant = (url: string) => onSelectVariant?.(url)
   const productSnapshot = result && !result.error ? toProductSnapshot(result) : null
   const inWishlist = productSnapshot ? wishlist.isInWishlist(productSnapshot.id) : false
-  const canSubmitReview = confirmsRestrictions && confirmsPreowned
   const hasBreakdown = !!result && !result.error && canBuildBreakdown(result)
 
   function handleToggleWishlist() {
@@ -746,42 +720,12 @@ export default function ItemInfoModal({
     setJustAdded(true)
   }
 
-  async function handleConfirmRequest() {
-    // Submitting a request only needs onSubmitRequest() — everything it
-    // needs (name/url/qty/unitPrice/image) already lives in
-    // DashboardContext's `draft`, populated earlier by
-    // beginRequestForUrl/selectVariant. This no longer touches
-    // cart.addItem: doing so here meant confirming a request also
-    // created a cart line for the same product, which could later be
-    // checked out into a second, duplicate request. Cart and requests
-    // are separate commitments now — see the file-level doc comment.
-    //
-    // Called directly, awaited, right here — no separate confirm/
-    // preview page anymore (see onSubmitRequest's own doc comment for
-    // why that page was redundant). On success, onSubmitRequest's own
-    // implementation (confirmRequest in DashboardContext.tsx) already
-    // navigates away (to /account/messages for the usual unpriced case,
-    // or Orders Hub for a real Channel 2 order) — this only needs to
-    // close the modal itself, not decide where to go next. On failure,
-    // stay right here on the review step with the error visible instead
-    // of silently losing the customer's place.
-    setSubmitError(null)
-    setSubmitting(true)
-    const result = await onSubmitRequest()
-    setSubmitting(false)
-    if (!result.ok) {
-      setSubmitError(result.error ?? 'Something went wrong sending your request. Please try again.')
-      return
-    }
+  function handleGoToCart() {
+    setQuoteOpen(false)
     onClose()
-    setStep('listing')
-    setConfirmsRestrictions(false)
-    setConfirmsPreowned(false)
-    setDeliveryChoice('economy')
+    router.push('/cart')
   }
 
-  // Every prop a platform view (and StoreCommercePanel) needs — same
-  // shape for all ten platforms plus the generic fallback.
   const commerceProps = result && !result.error
     ? {
         result,
@@ -794,7 +738,7 @@ export default function ItemInfoModal({
         onToggleWishlist: handleToggleWishlist,
         onAddToCart: handleAddToCart,
         justAdded,
-        onRequestReview: () => setStep('review'),
+        onRequestReview: () => setQuoteOpen(true),
         loading,
         canAct: !!productSnapshot,
       }
@@ -803,16 +747,6 @@ export default function ItemInfoModal({
   const platformView = (() => {
     if (!commerceProps) return null
 
-    // An ogOnly result came from the generic Open Graph/JSON-LD fallback
-    // (see og-only.ts's doc comment), not a real per-site extractor —
-    // it structurally can't find MRP, variants, or a trustworthy
-    // availability signal, so a branded platform view (with its own
-    // "in stock"/"out of stock" pill and confidently-labeled buttons)
-    // would be showing more certainty than the data actually supports,
-    // no matter which `site` got detected. Route straight to
-    // GenericProductView instead — no availability claim, always lets
-    // the customer send the request and have a real person confirm
-    // stock/price, i.e. straight to chat rather than a guessed status.
     if (commerceProps.result.ogOnly) return <GenericProductView {...commerceProps} />
 
     switch (commerceProps.result.site) {
@@ -874,11 +808,6 @@ export default function ItemInfoModal({
         @keyframes priceUpdatePulse { 0% { opacity: 0.4 } 100% { opacity: 1 } }
         @keyframes heartPop { 0% { transform: scale(0.7) } 60% { transform: scale(1.15) } 100% { transform: scale(1) } }
 
-        /* Full-viewport overlay: always spans the entire screen, top to
-           bottom. No longer follows --account-header-h or any bottom-
-           nav reservation — AccountShell doesn't render WelcomeBanner
-           (or anything else) above this modal anymore, so there's
-           nothing left to leave room for. */
         .item-overlay-bounds {
           top: 0;
           bottom: 0;
@@ -894,26 +823,15 @@ export default function ItemInfoModal({
         style={{ transitionDuration: `${ANIMATION_MS}ms` }}
       >
         <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
-          {step === 'review' ? (
-            <button
-              type="button"
-              onClick={() => setStep('listing')}
-              className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-ink/70 transition-colors hover:text-ink"
-            >
-              <ArrowLeft size={15} className="flex-none" />
-              Back to listing
-            </button>
-          ) : (
-            <div
-              key={showLoading ? 'loading' : result?.error ? 'error' : 'listing'}
-              className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
-            >
-              <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
-              <span className="truncate text-sm font-semibold text-ink/70">
-                {showLoading ? 'Reading listing…' : 'Listing'}
-              </span>
-            </div>
-          )}
+          <div
+            key={showLoading ? 'loading' : result?.error ? 'error' : 'listing'}
+            className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
+          >
+            <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
+            <span className="truncate text-sm font-semibold text-ink/70">
+              {showLoading ? 'Reading listing…' : 'Listing'}
+            </span>
+          </div>
           <button
             type="button"
             aria-label="Close"
@@ -937,112 +855,8 @@ export default function ItemInfoModal({
               <ProductSkeleton />
               <SlowLoadNotice />
             </>
-          ) : step === 'review' ? (
-            <div className="flex flex-col gap-6 sm:gap-7 pt-8 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
-              <div>
-                <h2 className="font-display text-2xl text-ink">Review your request</h2>
-                <p className="mt-1 text-sm text-ink/55">
-                  Check the details below, then confirm to send this as a request — you&apos;re not paying yet.
-                </p>
-              </div>
-
-              <div className="flex gap-4 rounded-xl border border-ink/10 bg-card p-4">
-                <div className="grid h-20 w-20 flex-none place-items-center overflow-hidden rounded-lg border border-ink/10 bg-white">
-                  {result!.images?.[0] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={result!.images[0]} alt="" className="h-full w-full object-contain p-1.5" />
-                  ) : (
-                    <ShoppingCart size={20} className="text-ink/20" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-ink">{result!.title ?? 'Untitled item'}</p>
-                  <p className="mt-1 text-xs text-ink/45">Quantity: {qty}</p>
-                  {!hasBreakdown && (
-                    estimatedPrice ? (
-                      <div className="mt-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
-                          Estimated total
-                        </span>
-                        <p className="font-display text-lg text-ink">{estimatedPrice}</p>
-                      </div>
-                    ) : estimatedPriceLKR != null ? (
-                      <div className="mt-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">
-                          About
-                        </span>
-                        <p className="font-display text-lg text-ink">LKR {estimatedPriceLKR.toLocaleString('en-LK')}</p>
-                        <p className="text-xs text-ink/40">Final price confirmed by our team before anything is charged.</p>
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs text-ink/40">Price to be confirmed by our team.</p>
-                    )
-                  )}
-                </div>
-              </div>
-
-              {/* Real Economy/Express breakdown, same numbers the cart
-                  page would show — only when the listing has a
-                  trustworthy source price to build one from. */}
-              {hasBreakdown && (
-                <ReviewPricingBlock
-                  result={result!}
-                  qty={qty}
-                  deliveryChoice={deliveryChoice}
-                  onDeliveryChoiceChange={setDeliveryChoice}
-                />
-              )}
-
-              <div className="flex flex-col gap-3.5 rounded-xl border border-ink/10 bg-card p-4">
-                <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
-                  I confirm this item doesn&apos;t violate WishDrop&apos;s parcel restrictions or contain prohibited
-                  items, and I accept the Purchase Protection plan&apos;s refund and return criteria.
-                </ConfirmCheckbox>
-                <ConfirmCheckbox checked={confirmsPreowned} onChange={setConfirmsPreowned}>
-                  I understand a pre-owned item&apos;s condition can&apos;t be verified against the seller&apos;s
-                  description, so pre-owned, fragile, and untracked-mail items aren&apos;t eligible for refunds or
-                  returns.
-                </ConfirmCheckbox>
-              </div>
-
-              {submitError && (
-                <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
-                  {submitError}
-                </p>
-              )}
-
-              <div
-                className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2.5 border-t border-ink/10 bg-parchment/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm
-                  sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
-              >
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setStep('listing')}
-                    disabled={submitting}
-                    className="flex-none rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmRequest}
-                    disabled={!canSubmitReview || submitting}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/25"
-                  >
-                    {submitting ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <ShoppingCart size={16} />
-                    )}
-                    {submitting ? 'Sending…' : 'Confirm & send request'}
-                  </button>
-                </div>
-                <p className="text-xs text-ink/40">You will not be charged now. This is just a request.</p>
-              </div>
-            </div>
           ) : result!.error ? (
-            <UnreadableListingFallback onRetry={onRetry} onContinueViaChat={() => setStep('review')} />
+            <UnreadableListingFallback onRetry={onRetry} onGetQuote={() => setQuoteOpen(true)} />
           ) : (
             <div
               key={`${result!.site ?? ''}|${result!.title ?? ''}`}
@@ -1053,6 +867,22 @@ export default function ItemInfoModal({
           )}
         </div>
       </div>
+
+      <QuoteModal
+        open={quoteOpen}
+        onClose={() => setQuoteOpen(false)}
+        result={result ?? null}
+        estimatedPrice={estimatedPrice}
+        estimatedPriceLKR={estimatedPriceLKR}
+        qty={qty}
+        onQtyChange={onQtyChange}
+        deliveryChoice={deliveryChoice}
+        onDeliveryChoiceChange={setDeliveryChoice}
+        hasBreakdown={hasBreakdown}
+        onAddToCart={handleAddToCart}
+        justAdded={justAdded}
+        onGoToCart={handleGoToCart}
+      />
     </div>
   )
 }
