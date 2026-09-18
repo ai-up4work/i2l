@@ -31,6 +31,29 @@ import {
 } from '@/lib/pricing'
 import Image from 'next/image'
 
+/**
+ * CHANNEL 1/2 (priced, real listing) vs CHANNEL 3 (unpriced — ogOnly or
+ * an outright scrape failure) take two DIFFERENT paths through this
+ * modal, on purpose:
+ *
+ * - Channel 1/2: "Add to Cart" is the primary commit — no price is
+ *   ever charged here, only added as a cart line (see handleAddToCart).
+ *   "Get quote" opens the small centered <QuoteModal> purely to preview
+ *   the Economy/Express breakdown before committing, with "Add to
+ *   cart" / "Go to cart" (-> /account/cart) inside it. onSubmitRequest
+ *   is never called on this path.
+ * - Channel 3 (GenericProductView / UnreadableListingFallback): there
+ *   is no trustworthy price to build a cart line or a breakdown from
+ *   (an unpriced item would otherwise silently become a $0 cart line —
+ *   see toPriceableItem's `price: ... ?? 0` fallback), so neither
+ *   "Add to Cart" nor the QuoteModal apply here at all. Its action
+ *   (onGoToChat/handleStartChat) calls onSubmitRequest directly —
+ *   DashboardContext's confirmRequest, which creates the `requests` row
+ *   and seeds the chat thread itself, then navigates to
+ *   /account/messages — no intermediate modal step, straight into a
+ *   real conversation with the team.
+ */
+
 type ItemOverlayProps = {
   open: boolean
   result?: ScrapeResult | null
@@ -41,9 +64,14 @@ type ItemOverlayProps = {
   qty: number
   onQtyChange: (qty: number) => void
   onClose: () => void
-  // Kept for backwards compatibility with callers; no longer invoked from
-  // here since "get quote" -> "add to cart" -> cart page is now the order
-  // path instead of an in-modal confirm/send-request step.
+  /**
+   * Only ever called for a Channel 3 item (see file-level doc comment
+   * above) — GenericProductView's "Chat about this item" and
+   * UnreadableListingFallback's "Continue via chat" both call this
+   * directly, with no modal step in between. Every Channel 1/2 listing
+   * goes through Add to Cart / the QuoteModal instead and never touches
+   * this prop at all.
+   */
   onSubmitRequest?: () => Promise<{ ok: boolean; error?: string }>
   onDeliveryChoiceChange?: (choice: DeliveryChoice) => void
   loading?: boolean
@@ -282,9 +310,12 @@ function QuotePricingBlock({
   )
 }
 
-// Small, centered pricing-only modal. This is what "Get quote" opens now —
-// it exists purely so the shopper can understand the cost breakdown. The
-// actual order path is Add to cart -> Go to cart, handled inline here.
+// Small, centered pricing-only modal. This is what "Get quote" opens for
+// a CHANNEL 1/2 (priced) listing — it exists purely so the shopper can
+// understand the cost breakdown. The actual order path is Add to cart ->
+// Go to cart, handled inline here. NEVER shown for a Channel 3 item — see
+// the file-level doc comment; GenericProductView/UnreadableListingFallback
+// don't open this at all.
 //
 // Rendered via a portal straight to document.body. It used to render as a
 // nested child of ItemInfoModal's root wrapper, which is `pointer-events-none`
@@ -459,8 +490,22 @@ function QuoteModal({
   )
 }
 
-function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
-  const { result, qty, onQtyChange, onRequestReview, loading, canAct } = props
+// CHANNEL 3 fallback for an unrecognized/ogOnly result.site — this is
+// the generic Open Graph/JSON-LD path (see ScrapeResult.ogOnly's doc
+// comment): no confirmed size/color options, and no price that's been
+// double-checked. Deliberately NOT wired to Add to Cart or the
+// QuoteModal (see the file-level doc comment) — its single action
+// (onGoToChat) calls onSubmitRequest directly and skips straight to a
+// real conversation with the team, since that was always where this had
+// to end up anyway.
+function GenericProductView(
+  props: Parameters<typeof AmazonProductView>[0] & {
+    onGoToChat: () => void
+    submitting: boolean
+    submitError: string | null
+  },
+) {
+  const { result, qty, onQtyChange, onGoToChat, loading, canAct, submitting, submitError } = props
   const images = result.images?.length ? result.images : []
   return (
     <div className="grid gap-6 sm:grid-cols-2">
@@ -486,10 +531,16 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
         <div className="mt-4 flex items-start gap-2 rounded-xl bg-teal/[0.06] p-3 text-sm text-ink/70 ring-1 ring-inset ring-teal/15">
           <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
           <span>
-            This one needs a quick manual check — sizes, colors, and the final price. Get a quote to see pricing,
-            then add it to your cart and our team will confirm everything with you before anything is charged.
+            This one needs a quick manual check — sizes, colors, and the final price. Start a chat and our team
+            will confirm everything with you there, before anything is charged.
           </span>
         </div>
+
+        {submitError && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
+            {submitError}
+          </p>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
@@ -513,17 +564,18 @@ function GenericProductView(props: Parameters<typeof AmazonProductView>[0]) {
           </div>
 
           <RequestActionButton
-            onClick={onRequestReview}
+            onClick={onGoToChat}
             disabled={!canAct}
-            loading={loading}
+            loading={loading || submitting}
+            loadingLabel={submitting ? 'Starting chat…' : 'Loading…'}
             unavailable={result.unavailable}
-            icon={<Info size={16} />}
+            icon={<MessageCircle size={16} />}
             className="flex-1 whitespace-nowrap rounded-xl bg-teal-deep px-5 py-3 text-sm font-bold text-parchment hover:bg-teal"
           >
-            Get quote
+            Chat about this item
           </RequestActionButton>
         </div>
-        <p className="mt-2 text-xs text-ink/40">You won&rsquo;t be charged now — this only shows pricing.</p>
+        <p className="mt-2 text-xs text-ink/40">You won&rsquo;t be charged now — this opens a chat with our team.</p>
       </div>
 
     </div>
@@ -585,7 +637,21 @@ function ProductSkeleton() {
   )
 }
 
-function UnreadableListingFallback({ onRetry, onGetQuote }: { onRetry?: () => void; onGetQuote: () => void }) {
+// CHANNEL 3 — an outright scrape failure. Same reasoning as
+// GenericProductView above: no price at all here, so this never opens
+// the QuoteModal or touches the cart. onContinueViaChat calls
+// onSubmitRequest directly (handleStartChat), no review step.
+function UnreadableListingFallback({
+  onRetry,
+  onContinueViaChat,
+  submitting,
+  submitError,
+}: {
+  onRetry?: () => void
+  onContinueViaChat: () => void
+  submitting?: boolean
+  submitError?: string | null
+}) {
   return (
     <div className="flex flex-col items-center gap-4 rounded-xl border border-ink/10 bg-card p-6 text-center motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
       <div className="grid h-12 w-12 flex-none place-items-center rounded-full bg-teal/10">
@@ -594,15 +660,21 @@ function UnreadableListingFallback({ onRetry, onGetQuote }: { onRetry?: () => vo
       <div>
         <p className="text-sm font-semibold text-ink">We couldn&apos;t load this listing automatically</p>
         <p className="mt-1.5 text-sm text-ink/55">
-          No problem — send us the link and our team will check the details, price, and options with you directly.
+          No problem — start a chat and our team will check the details, price, and options with you directly.
         </p>
       </div>
+      {submitError && (
+        <p className="w-full rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
+          {submitError}
+        </p>
+      )}
       <div className="flex w-full flex-col gap-2.5 sm:flex-row">
         {onRetry && (
           <button
             type="button"
             onClick={onRetry}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
+            disabled={submitting}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw size={15} />
             Try again
@@ -610,11 +682,12 @@ function UnreadableListingFallback({ onRetry, onGetQuote }: { onRetry?: () => vo
         )}
         <button
           type="button"
-          onClick={onGetQuote}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98]"
+          onClick={onContinueViaChat}
+          disabled={submitting}
+          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <MessageCircle size={15} />
-          Continue via chat
+          {submitting ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={15} />}
+          {submitting ? 'Starting chat…' : 'Continue via chat'}
         </button>
       </div>
     </div>
@@ -631,6 +704,7 @@ export default function ItemInfoModal({
   qty,
   onQtyChange,
   onClose,
+  onSubmitRequest,
   onDeliveryChoiceChange,
   loading = false,
   onRetry,
@@ -639,6 +713,11 @@ export default function ItemInfoModal({
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
+  // CHANNEL 3 ONLY — tracks the direct onSubmitRequest call from
+  // GenericProductView/UnreadableListingFallback. Channel 1/2's Add to
+  // Cart / QuoteModal path never touches these.
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const cart = useCart()
   const wishlist = useWishlist()
 
@@ -673,6 +752,7 @@ export default function ItemInfoModal({
       lastResultKey.current = key
       setQuoteOpen(false)
       setDeliveryChoice('economy')
+      setSubmitError(null)
     }
   }, [result])
 
@@ -723,7 +803,26 @@ export default function ItemInfoModal({
   function handleGoToCart() {
     setQuoteOpen(false)
     onClose()
-    router.push('/cart')
+    router.push('/account/cart')
+  }
+
+  // CHANNEL 3 ONLY. Calls onSubmitRequest (DashboardContext's
+  // confirmRequest) directly — no QuoteModal, no cart. confirmRequest's
+  // own unpriced branch creates the `requests` row, seeds the chat
+  // thread, and navigates to /account/messages, so this only needs to
+  // close the modal on success. On failure it stays right here with the
+  // error visible instead of losing the customer's place.
+  async function handleStartChat() {
+    if (!onSubmitRequest) return
+    setSubmitError(null)
+    setSubmitting(true)
+    const res = await onSubmitRequest()
+    setSubmitting(false)
+    if (!res.ok) {
+      setSubmitError(res.error ?? 'Something went wrong starting the chat. Please try again.')
+      return
+    }
+    onClose()
   }
 
   const commerceProps = result && !result.error
@@ -739,6 +838,12 @@ export default function ItemInfoModal({
         onAddToCart: handleAddToCart,
         justAdded,
         onRequestReview: () => setQuoteOpen(true),
+        // Channel 3 only — see GenericProductView's file comment.
+        // Every named/branded view below ignores these three, same as
+        // it already ignores any other prop it doesn't destructure.
+        onGoToChat: handleStartChat,
+        submitting,
+        submitError,
         loading,
         canAct: !!productSnapshot,
       }
@@ -856,7 +961,12 @@ export default function ItemInfoModal({
               <SlowLoadNotice />
             </>
           ) : result!.error ? (
-            <UnreadableListingFallback onRetry={onRetry} onGetQuote={() => setQuoteOpen(true)} />
+            <UnreadableListingFallback
+              onRetry={onRetry}
+              onContinueViaChat={handleStartChat}
+              submitting={submitting}
+              submitError={submitError}
+            />
           ) : (
             <div
               key={`${result!.site ?? ''}|${result!.title ?? ''}`}

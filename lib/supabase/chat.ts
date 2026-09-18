@@ -118,7 +118,24 @@ export async function uploadChatAttachment(
  * creating it on first contact. Used as the guaranteed fallback by
  * getMostRecentOrGeneralThread below when the user has no thread at all
  * yet. Per-request threads are created separately at request-submission
- * time (see DashboardContext's confirmRequest). */
+ * time (see DashboardContext's confirmRequest).
+ *
+ * FIX: was `.maybeSingle()` on the filtered find query, which throws
+ * PGRST116 ("multiple (or no) rows returned") the instant a user
+ * already has more than one general thread (request_id/order_id both
+ * null) — exactly the failure mode getMostRecentOrGeneralThread's own
+ * doc comment below describes having fixed, except that fix was only
+ * ever applied there, not here, even though this function has the same
+ * shape of query and is what that one calls as its fallback. Any user
+ * with a legacy duplicate (or one created by a past race between two
+ * concurrent getOrCreateGeneralThread calls both missing the "not
+ * found yet" window) hit a hard failure on literally every future
+ * unpriced/Channel-3 request — confirmRequest calls this directly, so
+ * there was no fallback once it started throwing. Same fix as that
+ * function: order + limit(1) can never return more than one row, so
+ * `.maybeSingle()` on it can never throw PGRST116, only genuinely
+ * return null when there's no row at all.
+ */
 export async function getOrCreateGeneralThread(supabase: SupabaseClient, userId: string): Promise<string> {
   const { data: existing, error: findError } = await supabase
     .from('chat_threads')
@@ -126,6 +143,8 @@ export async function getOrCreateGeneralThread(supabase: SupabaseClient, userId:
     .eq('user_id', userId)
     .is('request_id', null)
     .is('order_id', null)
+    .order('last_activity', { ascending: false })
+    .limit(1)
     .maybeSingle()
   if (findError) throw findError
   if (existing) return existing.id
