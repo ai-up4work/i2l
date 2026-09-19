@@ -568,6 +568,7 @@ function mapToOrder(
     delayed: o.delayed,
     exportHold: o.exportHold,
     isManualQuote: o.channel === 3,
+    warehouseSubstage: o.substage,
     items: o.items.map(mapAdminItemToOrderItem),
     stageHistory: fullStageHistory,
     internalNotes: internalNotes.map((n) => ({
@@ -579,6 +580,10 @@ function mapToOrder(
     linkedRequestId: undefined,
     chatThreadId: o.chatThreadId ?? undefined,
     destination: o.recipient ? `${o.recipient.city}, ${o.recipient.country}` : undefined,
+    recipientAddressId: o.recipient?.id,
+    recipientAddressLine: o.recipient
+      ? [o.recipient.addressLine1, o.recipient.addressLine2, o.recipient.city].filter(Boolean).join(", ")
+      : undefined,
     handlingNote: undefined,
     packedAt,
     packageWeightKg: packageDetails?.weightKg,
@@ -1201,6 +1206,20 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
   const [purchases, setPurchases] = useState<Purchase[]>(INITIAL_PURCHASES)
   const [ordersLoading, setOrdersLoading] = useState(true)
+  // Export bin hold/release races against the debounced real-time
+  // refetch below: bulkSetExportHold fires several individual UPDATEs,
+  // each of which triggers its own realtime change event, and if the
+  // debounced refetch's SELECT happens to land before every one of
+  // those writes has actually committed, it reads a partially-stale
+  // snapshot and — since loadRealOrders fully replaces `orders` — stomps
+  // a just-made "release all" back to held for whichever rows it read
+  // stale, before a LATER refetch finally shows the real, settled state.
+  // This tracks "what we just deliberately set exportHold to" per order
+  // id; loadRealOrders re-applies it over anything a refetch returns
+  // until a refetch actually confirms the value for real, at which
+  // point the override clears itself so a later, genuinely different
+  // change (from another staff member, say) isn't masked indefinitely.
+  const pendingExportHoldRef = useRef<Map<string, boolean>>(new Map())
   // Every page-facing id (Order.id, PurchaseLine.orderId, etc.) is the
   // human-facing display_id ("WD-238491"), matching what this file has
   // always shown — but every real write needs the row's actual uuid.
@@ -1295,6 +1314,20 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         nextPurchases.push(...mapToPurchases(o, purchaseByOrderId.get(o.id), flaggedItemIds, awaitingRepurchaseItemIds))
       }
     })
+
+    // Guard against the exportHold race described on
+    // pendingExportHoldRef's own comment above: if this fetch's snapshot
+    // disagrees with something we just deliberately set, trust our own
+    // recent write over this read rather than flicker the UI back to
+    // stale. Once a fetch actually agrees, the override has done its
+    // job and clears — so a later, real change (including from someone
+    // else) isn't masked forever.
+    for (const order of nextOrders) {
+      const pending = pendingExportHoldRef.current.get(order.id)
+      if (pending === undefined) continue
+      if (order.exportHold === pending) pendingExportHoldRef.current.delete(order.id)
+      else order.exportHold = pending
+    }
 
     setOrders(nextOrders)
     setPurchases(nextPurchases)
@@ -1813,6 +1846,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // both go out together in one pickup instead of two.
   const toggleExportHold = (orderId: string) => {
     const wasHeld = orders.find((o) => o.id === orderId)?.exportHold ?? false
+    pendingExportHoldRef.current.set(orderId, !wasHeld)
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, exportHold: !o.exportHold } : o)))
     const realId = resolveRealId(orderId)
     if (realId) realSetOrderExportHold(realId, !wasHeld)
@@ -1820,6 +1854,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const bulkSetExportHold = (orderIds: string[], exportHold: boolean) => {
     const idSet = new Set(orderIds)
+    orderIds.forEach((id) => pendingExportHoldRef.current.set(id, exportHold))
     setOrders((prev) => prev.map((o) => (idSet.has(o.id) ? { ...o, exportHold } : o)))
     orderIds.forEach((id) => {
       const realId = resolveRealId(id)
@@ -2372,6 +2407,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         site: siteName,
         channel: order.channel,
         destination: order.destination ?? siteName,
+        recipientAddressId: order.recipientAddressId,
+        recipientAddressLine: order.recipientAddressLine,
         itemCount: order.items.reduce((sum, i) => sum + i.quantity, 0),
         weightKg: order.packageWeightKg,
         labelRef: order.labelRef,

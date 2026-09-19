@@ -137,6 +137,13 @@ export interface Order {
   exportHold: boolean
   /** True only for confirmed Channel 3 orders — priced by a human, never lib/pricing.ts */
   isManualQuote: boolean
+  /** Real sub-phase within "Quality check" — qc_pending/null is QC
+   * proper, qc_passed is the Pack & label queue, packed/in_transit are
+   * already past packedAt (Export bin/In transit) and normally read via
+   * packedAt/pickedUpAt instead. Exposed mainly so something checking
+   * "still upstream of Export bin" can tell Quality check and Pack &
+   * label apart, since both share the same top-level stage. */
+  warehouseSubstage?: "qc_pending" | "qc_passed" | "packed" | "in_transit" | null
   items: OrderItem[]
   stageHistory: StageHistoryEvent[]
   internalNotes: InternalNote[]

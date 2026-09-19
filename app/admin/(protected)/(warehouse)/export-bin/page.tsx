@@ -17,20 +17,22 @@ import type { ExportBinLine } from "@/types/admin"
 // chosen in the toolbar applies to both.
 //
 // CUSTOMER GROUPING + HOLD: when a customer has more than one order sitting
-// in the bin for the same address, they're shown together under one group
-// header instead of scattered through the oldest-first list — makes it
-// obvious at a glance that two orders could go out in one pickup. The
-// group's own "Hold together"/"Release" button (and each row's own toggle)
-// sets Order.exportHold, a manual, reversible flag: a held order can't be
-// selected or picked up until it's released, so it's a deliberate two-step
-// (release, then pick up) rather than something a bulk action could catch
-// by accident. Grouping key is customerId + the order's real linked
-// address id (recipientAddressId) when it has one — an exact match, not a
-// guess — so two different street addresses in the same city never get
-// merged just because they share a city. An order with no address linked
-// yet falls back to matching on the coarser city-level `destination`
-// string instead, and is flagged in the UI so the admin knows to verify
-// it by eye rather than trust it outright.
+// in the bin, they're shown together under one group header instead of
+// scattered through the oldest-first list — makes it obvious at a glance
+// that two orders could go out in one pickup. The group's own "Hold
+// together"/"Release" button (and each row's own toggle) sets
+// Order.exportHold, a manual, reversible flag: a held order can't be
+// selected or picked up until it's released, so it's a deliberate
+// two-step (release, then pick up) rather than something a bulk action
+// could catch by accident. Grouping is customer-first: a customer's
+// orders only split into separate groups when two or more DIFFERENT real
+// addresses are actually seen among them — an order with no address on
+// file at all (recipientAddressId and destination both empty, e.g. a
+// Channel 3 order created before checkout ever captured one) joins its
+// siblings' confirmed address rather than forming its own unmatched
+// island, which is what used to happen when the key required an exact
+// address match on every order. The UI flags a group with no confirmed
+// address anywhere in it so the admin knows to verify by eye.
 
 const COURIERS = ["Domex", "Pronto"] as const
 type Courier = (typeof COURIERS)[number]
@@ -89,42 +91,84 @@ export default function ExportBinPage() {
       .sort((a, b) => b.packedAgeHours - a.packedAgeHours)
   }, [visibleExportBinLines, query])
 
-  // Groups lines by customer + address so a customer with several orders
-  // in the bin at once is shown together. Uses the REAL address id
-  // (recipientAddressId) when the order has one linked — two different
-  // street addresses in the same city no longer get merged just because
-  // `destination` (city-level only) happens to match. Falls back to the
-  // coarser destination string only for the rare order with no address
-  // linked yet (e.g. a Channel 3 order created before checkout captures
-  // one) — those are flagged in the UI as "no exact address on file" so
-  // the admin knows to double-check before treating them as a match.
-  // A "group" of one is still a real entry here; the row renderer below
-  // only shows group chrome once a group actually has 2+ members.
+  // Groups lines by customer, splitting into separate address-groups only
+  // when there's real evidence of two or more DIFFERENT addresses for
+  // that customer — not just whenever one order happens to be missing
+  // address data. This matters because an order with NO linked address
+  // at all (recipientAddressId and destination both empty — e.g. a
+  // Channel 3 order created before checkout ever captured one) used to
+  // form its own island: it could never match anything, even its own
+  // sibling orders from the same customer, since the old key required
+  // recipientAddressId to actually match. Now: bucket by customer first;
+  // if the customer's orders in the bin reference at most one distinct
+  // real address between them, they're ALL one group (an addressless
+  // order joins its siblings' confirmed address rather than splitting
+  // off). Only when two-plus distinct real addresses are actually seen
+  // does a customer's orders split into separate groups — addressless
+  // orders in that case get their own small "unverified" group rather
+  // than being guessed into one specific address.
   const groups = useMemo(() => {
-    const byKey = new Map<
-      string,
-      { key: string; customerId: string; customerName: string; destination: string; addressLine?: string; addressIsExact: boolean; lines: ExportBinLine[] }
-    >()
-    for (const line of filtered) {
-      const addressIsExact = !!line.recipientAddressId
-      const key = `${line.customerId}|${line.recipientAddressId ?? line.destination}`
-      const existing = byKey.get(key)
-      if (existing) existing.lines.push(line)
-      else
-        byKey.set(key, {
-          key,
-          customerId: line.customerId,
-          customerName: line.customerName,
-          destination: line.destination,
-          addressLine: line.recipientAddressLine,
-          addressIsExact,
-          lines: [line],
-        })
+    type Group = {
+      key: string
+      customerId: string
+      customerName: string
+      destination: string
+      addressLine?: string
+      addressIsExact: boolean
+      lines: ExportBinLine[]
     }
+
+    const byCustomer = new Map<string, ExportBinLine[]>()
+    for (const line of filtered) {
+      byCustomer.set(line.customerId, [...(byCustomer.get(line.customerId) ?? []), line])
+    }
+
+    const result: Group[] = []
+    for (const [customerId, lines] of byCustomer) {
+      const distinctAddressIds = [...new Set(lines.map((l) => l.recipientAddressId).filter((id): id is string => !!id))]
+
+      if (distinctAddressIds.length <= 1) {
+        // At most one real address known across this customer's orders
+        // in the bin — confident to merge everyone together, address-
+        // missing siblings included.
+        const addressLine = lines.find((l) => l.recipientAddressLine)?.recipientAddressLine
+        result.push({
+          key: `${customerId}|${distinctAddressIds[0] ?? "no-address"}`,
+          customerId,
+          customerName: lines[0].customerName,
+          destination: lines[0].destination,
+          addressLine,
+          addressIsExact: distinctAddressIds.length === 1,
+          lines,
+        })
+      } else {
+        // Genuinely two-plus different real addresses for this customer
+        // — split by address. An addressless line can't be assumed to
+        // belong to any one of them, so it gets its own small group,
+        // separate from either confirmed address.
+        const byAddress = new Map<string, ExportBinLine[]>()
+        for (const line of lines) {
+          const subKey = line.recipientAddressId ?? "no-address"
+          byAddress.set(subKey, [...(byAddress.get(subKey) ?? []), line])
+        }
+        for (const [subKey, subLines] of byAddress) {
+          result.push({
+            key: `${customerId}|${subKey}`,
+            customerId,
+            customerName: subLines[0].customerName,
+            destination: subLines[0].destination,
+            addressLine: subLines.find((l) => l.recipientAddressLine)?.recipientAddressLine,
+            addressIsExact: subKey !== "no-address",
+            lines: subLines,
+          })
+        }
+      }
+    }
+
     // filtered is already oldest-first; sorting groups by their oldest
     // member keeps that same overall ordering with members now clustered
     // under their group instead of scattered through the flat list.
-    return [...byKey.values()].sort(
+    return result.sort(
       (a, b) => Math.max(...b.lines.map((l) => l.packedAgeHours)) - Math.max(...a.lines.map((l) => l.packedAgeHours)),
     )
   }, [filtered])
@@ -146,13 +190,24 @@ export default function ExportBinPage() {
   // would report BOTH as "Quality check," silently hiding that one
   // hadn't even been purchased yet. Now tracks each stage's count
   // separately so the message lists what's actually true for each order.
+  // BUG FIX #2: "Pack & label" isn't its own top-level Order.stage — an
+  // order there still has stage === "Quality check" (Pack & label is a
+  // sub-phase inside it, tracked via warehouseSubstage). The first fix
+  // above correctly read the real stage but didn't look one level
+  // deeper, so an order genuinely in Quality check and a different one
+  // already QC-passed and sitting in Pack & label both got counted as
+  // plain "Quality check" and merged together. qc_passed = Pack & label;
+  // qc_pending or no substage yet = Quality check proper. (packed/
+  // in_transit substages can't appear here — packedAt would already be
+  // set, which is filtered out above.)
   const upstreamByCustomer = useMemo(() => {
-    const map = new Map<string, { ordered: number; qualityCheck: number }>()
+    const map = new Map<string, { ordered: number; qualityCheck: number; packLabel: number }>()
     for (const order of visibleOrders) {
       if (order.packedAt) continue // already at/past Export bin
       if (order.stage !== "Ordered" && order.stage !== "Quality check") continue
-      const existing = map.get(order.customerId) ?? { ordered: 0, qualityCheck: 0 }
+      const existing = map.get(order.customerId) ?? { ordered: 0, qualityCheck: 0, packLabel: 0 }
       if (order.stage === "Ordered") existing.ordered += 1
+      else if (order.warehouseSubstage === "qc_passed") existing.packLabel += 1
       else existing.qualityCheck += 1
       map.set(order.customerId, existing)
     }
@@ -384,9 +439,23 @@ export default function ExportBinPage() {
                     upstream.qualityCheck > 0
                       ? `${upstream.qualityCheck} order${upstream.qualityCheck === 1 ? "" : "s"} in Quality check`
                       : null,
+                    upstream.packLabel > 0
+                      ? `${upstream.packLabel} order${upstream.packLabel === 1 ? "" : "s"} in Pack & label`
+                      : null,
                   ].filter((p): p is string => p !== null)
                 : []
               const anyHeldAlready = group.lines.some((l) => l.exportHold)
+              // Nothing else is still coming for this customer. If any of
+              // this group is on hold, the wait it was held FOR is over —
+              // still not auto-released (that's a real action changing
+              // whether a customer's order gets shipped, so it stays a
+              // deliberate click), but the button should now prompt
+              // "release," not keep offering "hold," so it isn't left
+              // sitting held with nothing left to wait on until someone
+              // happens to remember.
+              const allSiblingsArrived = upstreamParts.length === 0
+              const readyToRelease = anyHeldAlready && allSiblingsArrived
+              const releaseAllGroup = () => bulkSetExportHold(group.lines.map((l) => l.orderId), false)
 
               return (
                 <div key={group.key}>
@@ -402,29 +471,47 @@ export default function ExportBinPage() {
                       />
                       <Users2 size={13} className="text-ink/40" />
                       <span className="text-xs font-semibold text-ink/70">
-                        {group.customerName} · {group.lines.length} orders · {group.addressLine ?? group.destination}
+                        {group.customerName} · {group.lines.length} orders ·{" "}
+                        {group.addressLine || group.destination || "no address on file"}
                       </span>
                       {!group.addressIsExact && (
                         <span
                           className="text-[11px] font-medium text-amber-700"
-                          title="These orders share a city, not a confirmed matching address — open each order to verify before shipping together."
+                          title="None of these orders has a confirmed address on file yet — open each order to verify the customer wants them shipped together."
                         >
-                          (same city — verify address)
+                          (no address on file — verify manually)
                         </span>
                       )}
                       <span className="ml-auto" />
-                      <button
-                        type="button"
-                        onClick={toggleGroupHold}
-                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
-                          groupAllHeld
-                            ? "border border-teal/30 bg-teal/[0.06] text-teal-deep hover:bg-teal/[0.12]"
-                            : "border border-amber-500/30 bg-amber-500/[0.08] text-amber-700 hover:bg-amber-500/[0.14]"
-                        }`}
-                      >
-                        {groupAllHeld ? <PlayCircle size={13} /> : <PauseCircle size={13} />}
-                        {groupAllHeld ? "Release all — ready for pickup" : "Hold all — wait to ship together"}
-                      </button>
+                      {groupAllHeld ? (
+                        <button
+                          type="button"
+                          onClick={toggleGroupHold}
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1 text-xs font-semibold text-teal-deep outline-none transition-colors hover:bg-teal/[0.12] focus-visible:ring-2 focus-visible:ring-teal/40"
+                        >
+                          <PlayCircle size={13} />
+                          Release all — ready for pickup
+                        </button>
+                      ) : readyToRelease ? (
+                        <button
+                          type="button"
+                          onClick={releaseAllGroup}
+                          title="Every other order this customer had upstream has now arrived — nothing left to wait on."
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-600/30 bg-emerald-600/[0.08] px-3 py-1 text-xs font-semibold text-emerald-700 outline-none transition-colors hover:bg-emerald-600/[0.16] focus-visible:ring-2 focus-visible:ring-emerald-600/40"
+                        >
+                          <PlayCircle size={13} />
+                          All arrived — release all
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={toggleGroupHold}
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/[0.08] px-3 py-1 text-xs font-semibold text-amber-700 outline-none transition-colors hover:bg-amber-500/[0.14] focus-visible:ring-2 focus-visible:ring-teal/40"
+                        >
+                          <PauseCircle size={13} />
+                          Hold all — wait to ship together
+                        </button>
+                      )}
                     </div>
                   )}
                   {upstreamParts.length > 0 && (
@@ -432,7 +519,12 @@ export default function ExportBinPage() {
                       <span aria-hidden>⏳</span>
                       <span>
                         {group.customerName} also has{" "}
-                        <span className="font-semibold">{upstreamParts.join(" and ")}</span> — not in this bin yet.
+                        <span className="font-semibold">
+                          {upstreamParts.length <= 1
+                            ? upstreamParts[0]
+                            : `${upstreamParts.slice(0, -1).join(", ")} and ${upstreamParts[upstreamParts.length - 1]}`}
+                        </span>{" "}
+                        — not in this bin yet.
                       </span>
                       {!anyHeldAlready && !isMultiOrder && (
                         <button
