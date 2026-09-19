@@ -43,6 +43,7 @@ import { useAdminData } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
 import { DASHBOARD_HREF } from "@/lib/admin/dashboard-routes"
 import { ROLE_LABEL as ROLE_LABELS, RolePreviewPopover } from "@/components/admin/Rolepreviewmenu"
+import Flag from "@/components/ui/Flag"
 
 // Static sidebar nav — layout only, no auth/role logic wired up yet.
 // TODO: active-section logic beyond pathname match, real user in footer row.
@@ -59,6 +60,18 @@ import { ROLE_LABEL as ROLE_LABELS, RolePreviewPopover } from "@/components/admi
 // requests. The `badgeCounts` useMemo below is the one place that decides what counts
 // as "unnoticed" per section — change the predicate there, not at each
 // call site, if the definition of "needs attention" for a queue changes.
+//
+// COUNTRY SIGNAL: the Warehouse group's stages happen on two different
+// sides of the pipeline — QC / QC Issues / Pack & label / Export bin are
+// still physically at the India warehouse, Shipped / Delivered have
+// already landed in Sri Lanka, and In transit is the gap between the
+// two. `country` on a NavItem drives a colored left accent + background
+// tint on that item's sidebar row (see COUNTRY_COLOR / getCountryStyle
+// below) so it's visible at a glance which side of the border a stage's
+// orders are on. This is purely a visual label on the nav item itself —
+// it doesn't read any per-order data, so it doesn't change if a
+// specific order is delayed crossing over; it just marks where the
+// *stage* normally sits.
 
 type NavItem = {
   label: string
@@ -74,6 +87,12 @@ type NavItem = {
    * but aren't clickable — flip this off one at a time as each one
    * actually gets built, rather than adding the nav item back in later. */
   locked?: boolean
+  /** Which side of the pipeline this stage physically happens in.
+   * "IN" = still at the India warehouse, "SL" = arrived in Sri Lanka,
+   * "both" = in transit between the two. Drives the sidebar's colored
+   * left accent + background tint. Omit for anything outside the
+   * India->Sri Lanka warehouse pipeline. */
+  country?: "IN" | "SL" | "both"
 }
 
 // super_admin isn't listed in any nav item's own `roles` array below —
@@ -120,13 +139,13 @@ function getGroups(role: Role): Group[] {
     {
       label: "Warehouse",
       items: [
-        { label: "Quality check", href: "/admin/qc", icon: CheckCircle2, roles: ["manager", "warehouse"] },
-        { label: "QC Issues", href: "/admin/qc-issues", icon: AlertTriangle, roles: ["manager", "warehouse"] },
-        { label: "Pack & label", href: "/admin/pack-label", icon: PackageCheck, roles: ["manager", "warehouse"] },
-        { label: "Export bin", href: "/admin/export-bin", icon: Warehouse, roles: ["manager", "warehouse"] },
-        { label: "In transit", href: "/admin/in-transit", icon: Truck, roles: ["manager", "warehouse"] },
-        { label: "Shipped", href: "/admin/shipped", icon: Send, roles: ["manager", "warehouse"] },
-        { label: "Delivered", href: "/admin/delivered", icon: PartyPopper, roles: ["manager", "warehouse"] },
+        { label: "Quality check", href: "/admin/qc", icon: CheckCircle2, roles: ["manager", "warehouse"], country: "IN" },
+        { label: "QC Issues", href: "/admin/qc-issues", icon: AlertTriangle, roles: ["manager", "warehouse"], country: "IN" },
+        { label: "Pack & label", href: "/admin/pack-label", icon: PackageCheck, roles: ["manager", "warehouse"], country: "IN" },
+        { label: "Export bin", href: "/admin/export-bin", icon: Warehouse, roles: ["manager", "warehouse"], country: "IN" },
+        { label: "In transit", href: "/admin/in-transit", icon: Truck, roles: ["manager", "warehouse"], country: "both" },
+        { label: "Shipped", href: "/admin/shipped", icon: Send, roles: ["manager", "warehouse"], country: "SL" },
+        { label: "Delivered", href: "/admin/delivered", icon: PartyPopper, roles: ["manager", "warehouse"], country: "SL" },
       ],
     },
     {
@@ -190,6 +209,76 @@ function getGroups(role: Role): Group[] {
     .filter((group) => group.items.length > 0)
 }
 
+// India: real flag proportions are a horizontal stack — saffron / white
+// / green, each a third of the height. Sri Lanka's real flag is more
+// involved (lion panel + two vertical stripes inside a maroon field
+// with a gold border); simplified here to its distinctive vertical
+// gold/green/orange bands against the maroon field, since a literal
+// lion doesn't read at nav-row scale. Both are applied as the row's
+// *entire* background at low opacity, not just a corner chip or accent
+// bar, so the whole button visually reads as "this stage's flag."
+const IN_STRIPES =
+  "linear-gradient(180deg, #FF993330 0%, #FF993330 33%, #FFFFFF30 33%, #FFFFFF30 66%, #13880830 66%, #13880830 100%)"
+
+const SL_BANDS =
+  "linear-gradient(90deg, #FFBE2930 0%, #FFBE2930 6%, #00534E30 6%, #00534E30 11%, #EB740030 11%, #EB740030 16%, #8D153A30 16%, #8D153A30 100%)"
+
+/**
+ * Full-row background for a nav item, keyed off its country. Active
+ * state always wins (returns undefined so the existing teal active
+ * background shows through unobstructed) — a page you're currently on
+ * should never be visually competing with a second pattern. "both" (in
+ * transit) splits the row into two halves via layered backgrounds:
+ * India's stripes on the left, Sri Lanka's bands on the right, meeting
+ * in the middle.
+ */
+function getCountryRowStyle(country: NavItem["country"], active: boolean): React.CSSProperties | undefined {
+  if (active || !country) return undefined
+  if (country === "IN") return { backgroundImage: IN_STRIPES }
+  if (country === "SL") return { backgroundImage: SL_BANDS }
+  // both: two backgrounds, each confined to half the row width via
+  // background-size/position, so India owns the left half and Sri
+  // Lanka the right — a literal "leaving one flag, arriving at the
+  // other" read for the in-transit stage.
+  return {
+    backgroundImage: `${IN_STRIPES}, ${SL_BANDS}`,
+    backgroundSize: "50% 100%, 50% 100%",
+    backgroundPosition: "left, right",
+    backgroundRepeat: "no-repeat, no-repeat",
+  }
+}
+
+const COUNTRY_TITLE = {
+  IN: "India",
+  SL: "Sri Lanka",
+  both: "In transit: India → Sri Lanka",
+} as const
+
+// Feeds the shared <Flag> component, which converts an emoji into a
+// real flagcdn.com image (see components/ui/Flag.tsx) — sidesteps the
+// Windows/Chrome-Edge issue where flag emoji silently render as plain
+// "IN"/"SL" text instead of a flag, since there's no reliance on the
+// OS's emoji font at all.
+const COUNTRY_EMOJI = {
+  IN: "🇮🇳",
+  SL: "🇱🇰",
+} as const
+
+function CountryFlagIcon({ country, className }: { country: NavItem["country"]; className?: string }) {
+  if (!country) return null
+  if (country === "both") {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Flag flag={COUNTRY_EMOJI.IN} className={className} />
+        <span className="text-[9px] leading-none text-ink/40">→</span>
+        <Flag flag={COUNTRY_EMOJI.SL} className={className} />
+      </span>
+    )
+  }
+  return <Flag flag={COUNTRY_EMOJI[country]} className={className} />
+}
+
+
 export function AdminSidebar() {
   const pathname = usePathname()
   const { collapsed, toggle, isMobile } = useAdminSidebar()
@@ -219,9 +308,14 @@ export function AdminSidebar() {
    * Staff, Settings, ...) simply has no entry, which the lookup below
    * treats the same as zero.
    */
-  const badgeCounts = useMemo(() => {    const counts: Record<string, number> = {}
+  const badgeCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
 
-    counts["/admin/orders"] = visibleOrders.filter((o) => o.delayed).length
+    // Only counts as "needs attention" while it's still in flight — a
+    // delayed order that has since reached Delivered doesn't need
+    // anyone to act on it anymore, so it shouldn't keep inflating this
+    // badge just because `delayed` was never explicitly cleared on it.
+    counts["/admin/orders"] = visibleOrders.filter((o) => o.delayed && o.stage !== "Delivered").length
 
     counts["/admin/requests"] = requestLines.filter(
       (r) => r.slaBreached || r.status === "sent_for_review"
@@ -366,6 +460,7 @@ function SidebarLink({
 }) {
   const Icon = item.icon
   const hasSignal = !!count && count > 0
+  const countryRowStyle = getCountryRowStyle(item.country, active)
 
   // Locked: visible so it's clear the section exists and roughly what's
   // planned, but not a real <Link> — there's no page behind it worth
@@ -408,23 +503,43 @@ function SidebarLink({
       <Link
         href={item.href}
         aria-current={active ? "page" : undefined}
+        style={countryRowStyle}
+        title={item.country ? COUNTRY_TITLE[item.country] : undefined}
         className={`relative flex items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium transition-colors before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:transition-colors before:duration-200 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 ${
           collapsed ? "justify-center pl-3" : "pl-3.5"
         } ${
           active
             ? "bg-teal/[0.08] text-teal-deep before:bg-teal-deep"
-            : "text-ink/55 before:bg-transparent hover:bg-ink/[0.04] hover:text-ink"
+            : "text-ink/55 before:bg-transparent hover:brightness-95 hover:text-ink"
         }`}
       >
         <span className="relative flex-none">
           <Icon size={18} strokeWidth={1.75} />
-          {/* Collapsed: a plain dot on the icon corner — enough to say
-              "something here", without a number crowding an 18px icon. */}
-          {collapsed && hasSignal && (
+          {/* Collapsed: country flag badges the icon corner when this
+              row has one (real flagcdn image via CountryFlagIcon, so it
+              renders correctly even on Windows); otherwise the plain
+              unread dot shows instead — the two never both apply since
+              a country row's own background already signals activity. */}
+          {collapsed && item.country && (
+            <span className="absolute -right-1.5 -top-1.5 overflow-hidden rounded-[2px] shadow-sm ring-1 ring-card">
+              <CountryFlagIcon country={item.country === "both" ? "IN" : item.country} className="h-2 w-3 object-cover" />
+            </span>
+          )}
+          {collapsed && !item.country && hasSignal && (
             <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
           )}
         </span>
         {!collapsed && <span className="truncate flex-1">{item.label}</span>}
+        {/* Expanded: the literal flag(s), rendered as real images via
+            the shared Flag component — sits before the count pill so
+            neither crowds out the label truncation. The row's own
+            background (countryRowStyle above) gives the ambient color
+            signal; this gives the precise, always-correct glyph. */}
+        {!collapsed && item.country && (
+          <span className="flex-none">
+            <CountryFlagIcon country={item.country} className="h-2.5 w-4 rounded-[1px] object-cover shadow-sm" />
+          </span>
+        )}
         {/* Expanded: a count pill, right-aligned. Capped at "9+" so a
             three-digit backlog doesn't blow out the row width. */}
         {!collapsed && hasSignal && (
@@ -440,6 +555,7 @@ function SidebarLink({
           className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-x-1 -translate-y-1/2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-parchment opacity-0 shadow-[0_8px_20px_-8px_rgba(32,36,43,0.45)] transition-all duration-150 group-hover/nav:translate-x-0 group-hover/nav:opacity-100"
         >
           {item.label}
+          {item.country ? ` · ${COUNTRY_TITLE[item.country]}` : ""}
           {hasSignal ? ` · ${count! > 9 ? "9+" : count}` : ""}
         </span>
       )}

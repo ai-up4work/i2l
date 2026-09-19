@@ -34,6 +34,7 @@
 // settled on.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth';
 import { fetchJsonApiProduct, fetchJsonApiProducts, fetchJsonApiCategories } from '@/lib/store-providers/jsonapi';
 import {
   fetchShopifyProduct,
@@ -247,6 +248,23 @@ function extractHandle(input: string, providerType: 'shopify' | 'woocommerce' | 
 }
 
 export async function POST(req: NextRequest) {
+  // Super Admin only: `baseUrl` below comes straight from the caller and
+  // turns into a real, server-side outbound HTTP request (SSRF surface)
+  // rather than a DB read/write like every other admin route — this used
+  // to have NO auth check at all, so gate it before touching the body.
+  const auth = await requireStaffRole(SUPER_ADMIN_ONLY);
+  if (!auth.ok) {
+    // Every other response on this route is { ok: false, error } (see
+    // TestExtractorResult/TestExtractorProductResult below) and neither
+    // frontend call site checks res.ok before parsing — match that shape
+    // here instead of returning admin-auth's bare { error } response, so
+    // "not authorized" renders the same normal error message the UI
+    // already knows how to show, not a shapeless failure.
+    const status = auth.response.status;
+    const body = await auth.response.json();
+    return NextResponse.json({ ok: false, error: body.error ?? 'Not authorized.' }, { status });
+  }
+
   let body: RequestBody;
   try {
     body = (await req.json()) as RequestBody;

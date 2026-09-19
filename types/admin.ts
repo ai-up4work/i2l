@@ -75,6 +75,12 @@ export interface OrderItem {
   channel?: Channel
   /** Optional variant label shown next to the title (e.g. "Size M", "Matte black") */
   variant?: string
+  /** Real, per-item QC-passed timestamp (order_items.qc_passed_at) — the
+   * fix for a real bug where passing one item silently marked every
+   * sibling item on the same order as passed too, since QC status used
+   * to be tracked only at the order level. See markItemQcPassed in
+   * lib/supabase/orders-admin.ts and data/wishdrop-qc-per-item-pass.sql. */
+  qcPassedAt?: string
   /**
    * Per-unit price quoted to the customer. Drives the Purchases queue.
    * When absent (older/simple seeds), Purchases falls back to

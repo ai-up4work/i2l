@@ -637,6 +637,13 @@ export interface Database {
           store_url: string | null
           request_link: string | null
           screenshot_url: string | null
+          // Real, per-item QC-passed signal — see markItemQcPassed in
+          // lib/supabase/orders-admin.ts and
+          // data/wishdrop-qc-per-item-pass.sql for the bug this fixes
+          // (marking one item passed used to flip the whole order's
+          // substage, silently marking every sibling item as passed too).
+          qc_passed_at: string | null
+          qc_note: string | null
         }
         Insert: {
           id?: string
@@ -651,6 +658,8 @@ export interface Database {
           store_url?: string | null
           request_link?: string | null
           screenshot_url?: string | null
+          qc_passed_at?: string | null
+          qc_note?: string | null
         }
         Update: Partial<Database['public']['Tables']['order_items']['Insert']>
         Relationships: []

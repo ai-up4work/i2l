@@ -313,7 +313,19 @@ export async function confirmRequestPaymentReal(
   payment: { amount: number; method: string; reference?: string; staffId: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
-  const { error } = await supabase
+  // .select() + checking the result is not optional here — Supabase
+  // does NOT return an error when a row-level security policy blocks
+  // every row an .update() would have matched; it silently reports
+  // success with zero rows affected. Without this check, a staff
+  // member's update to a request they don't "own" under RLS (see
+  // data/wishdrop-admin-requests-chat-rls-fix.sql — requests' default
+  // policy is `auth.uid() = user_id`, which is never true for a staff
+  // session updating a customer's request) would look identical to a
+  // real success: no error, optimistic UI shows "confirmed," and the
+  // next refetch silently reverts it once the real (unchanged) row
+  // comes back — with nothing anywhere explaining why. This is exactly
+  // that bug, not a hypothetical one.
+  const { data, error } = await supabase
     .from('requests')
     .update({
       payment_amount: payment.amount,
@@ -323,7 +335,15 @@ export async function confirmRequestPaymentReal(
       payment_confirmed_by: payment.staffId,
     })
     .eq('id', requestId)
-  return error ? { ok: false, error: error.message } : { ok: true }
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!data || data.length === 0) {
+    return {
+      ok: false,
+      error: 'The payment could not be recorded — this request may not be accessible to your account (a permissions issue, not a data problem). Run data/wishdrop-admin-requests-chat-rls-fix.sql if this keeps happening.',
+    }
+  }
+  return { ok: true }
 }
 
 export async function declineRequestReal(requestId: string): Promise<{ ok: boolean; error?: string }> {

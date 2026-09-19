@@ -162,6 +162,30 @@ export async function setWarehouseSubstage(
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
+/**
+ * Real, per-item QC-passed write — the fix for a genuine bug where
+ * passing ONE item flipped the whole order's substage to 'qc_passed'
+ * (setWarehouseSubstage above is order-wide, by design, for the
+ * later packed/in_transit markers), which silently made every OTHER
+ * item on that order read as "passed" too — including ones nobody had
+ * actually inspected yet. See data/wishdrop-qc-per-item-pass.sql.
+ *
+ * Deliberately does NOT call setWarehouseSubstage itself — the caller
+ * (AdminDataContext.tsx's submitQcResult) checks whether every item on
+ * the order now has qc_passed_at set, and only advances the order-wide
+ * substage once that's actually true, so 'qc_passed' keeps meaning
+ * "every item on this order has been individually verified" rather than
+ * "at least one has."
+ */
+export async function markItemQcPassed(orderItemId: string, note?: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('order_items')
+    .update({ qc_passed_at: new Date().toISOString(), qc_note: note?.trim() || null })
+    .eq('id', orderItemId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
 function parseSubstageFromNoteText(text: string): WarehouseSubstage | null {
   if (!text.startsWith(SUBSTAGE_NOTE_PREFIX)) return null
   const rest = text.slice(SUBSTAGE_NOTE_PREFIX.length)
@@ -224,6 +248,8 @@ export interface AdminOrderItem {
   storeUrl?: string
   requestLink?: string
   screenshotUrl?: string
+  /** Real, per-item QC-passed timestamp — see markItemQcPassed below. */
+  qcPassedAt?: string
 }
 
 export interface StageHistoryEvent {
@@ -310,6 +336,13 @@ type OrderRow = {
     store_url: string | null
     request_link: string | null
     screenshot_url: string | null
+    // Real, per-item QC-passed signal — see
+    // data/wishdrop-qc-per-item-pass.sql for the bug this fixes
+    // (marking ONE item passed used to flip the whole ORDER's substage
+    // to 'qc_passed', silently marking every sibling item as passed too,
+    // inspected or not).
+    qc_passed_at: string | null
+    qc_note: string | null
     product_snapshots: { image_url: string | null } | null
   }[]
   addresses: { recipient_name: string; city: string; country: string } | null
@@ -367,6 +400,7 @@ function mapRowToAdminOrder(
       storeUrl: it.store_url ?? undefined,
       requestLink: it.request_link ?? undefined,
       screenshotUrl: it.screenshot_url ?? undefined,
+      qcPassedAt: it.qc_passed_at ?? undefined,
     })),
   }
 }
@@ -374,7 +408,7 @@ function mapRowToAdminOrder(
 const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_value, delayed, site_id,
   request_id, chat_thread_id, carrier, tracking_number, estimated_delivery, delivered_confirmed_by,
   created_at, stage_entered_at,
-  order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, product_snapshots ( image_url ) ),
+  order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, qc_passed_at, qc_note, product_snapshots ( image_url ) ),
   addresses ( recipient_name, city, country )`
 
 /**

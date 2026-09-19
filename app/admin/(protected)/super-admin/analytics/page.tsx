@@ -197,12 +197,6 @@ export default function AnalyticsPage() {
               </dd>
             </div>
             <div className="px-5 py-3">
-              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Shipping SLA hit</dt>
-              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${metricTextTone(slaTrend.overallHitRate)}`}>
-                {formatPercent(slaTrend.overallHitRate)}
-              </dd>
-            </div>
-            <div className="px-5 py-3">
               <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Delayed now</dt>
               <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${delayedNow > 0 ? "text-rose-700" : "text-ink"}`}>
                 {delayedNow}

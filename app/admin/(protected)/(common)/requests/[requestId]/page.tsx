@@ -76,6 +76,10 @@ export default function RequestDetailPage() {
   // busy state / error surface on the Confirm button itself.
   const [confirmingOrder, setConfirmingOrder] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  // Same reasoning, same pattern, for "Confirm payment received" — see
+  // confirmPayment's own doc comment in AdminDataContext.tsx.
+  const [confirmingPayment, setConfirmingPayment] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
 
   useEffect(() => {
     // Effective `role`, not currentUser.role — same fix/reasoning as
@@ -213,14 +217,25 @@ export default function RequestDetailPage() {
     })
   }
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     const amount = Number(paymentAmountInput)
     if (!Number.isFinite(amount) || amount <= 0) return
-    confirmPayment(request.id, {
+    setPaymentError(null)
+    setConfirmingPayment(true)
+    // Awaited now — see confirmPayment's own doc comment in
+    // AdminDataContext.tsx for why: the message below must never send
+    // on the strength of a payment confirmation that might not have
+    // actually been written for real.
+    const result = await confirmPayment(request.id, {
       amount,
       method: paymentMethod,
       reference: paymentReference.trim() || undefined,
     })
+    setConfirmingPayment(false)
+    if (!result.ok) {
+      setPaymentError(result.error ?? "Could not record this payment. Please try again.")
+      return
+    }
     setPendingMessage({
       title: "Send payment confirmation to customer?",
       text: paymentConfirmedMessage(itemLabelFor(request.items[0].id), amount, paymentMethod),
@@ -547,11 +562,12 @@ export default function RequestDetailPage() {
                     <button
                       type="button"
                       onClick={handleConfirmPayment}
-                      disabled={!paymentAmountInput || Number(paymentAmountInput) <= 0}
+                      disabled={!paymentAmountInput || Number(paymentAmountInput) <= 0 || confirmingPayment}
                       className="w-full rounded-lg bg-teal px-3 py-2 text-sm font-semibold text-white hover:bg-teal-deep disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
                     >
-                      Confirm payment received
+                      {confirmingPayment ? "Confirming…" : "Confirm payment received"}
                     </button>
+                    {paymentError && <p className="mt-2 text-xs font-semibold text-red-600">{paymentError}</p>}
                   </>
                 )}
               </div>

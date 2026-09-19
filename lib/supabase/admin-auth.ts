@@ -86,3 +86,9 @@ export const SOURCING_ROLES = ['super_admin', 'manager', 'sales'] as const
 /** Hard-delete (sellers, orders, listings) is Manager/Super Admin only —
  * Sales & Purchase gets deactivate/hide but never a true delete. */
 export const DELETE_ROLES = ['super_admin', 'manager'] as const
+
+/** Diagnostics/dev tooling that makes real, admin-triggered outbound HTTP
+ * requests to a seller-supplied URL (e.g. test-extractor) — Super Admin
+ * only, since this is the one place a caller's input becomes a live
+ * server-side fetch target, not just a DB read/write. */
+export const SUPER_ADMIN_ONLY = ['super_admin'] as const

@@ -407,6 +407,7 @@ import {
   reassignOrderSite as realReassignOrderSite,
   addInternalNote as realAddInternalNote,
   setWarehouseSubstage as realSetWarehouseSubstage,
+  markItemQcPassed,
   packOrderReal as realPackOrder,
   markShippedReal as realMarkShipped,
   setOrderPackageDetails as realSetOrderPackageDetails,
@@ -493,6 +494,7 @@ function mapAdminItemToOrderItem(item: AdminOrderItem): OrderItem {
     sellerName: item.sellerName,
     sellerType,
     storeUrl: sellerType === "feed" ? item.storeUrl : undefined,
+    qcPassedAt: item.qcPassedAt,
   }
 }
 
@@ -665,20 +667,28 @@ function mapToPurchases(
   // nothing more precise to read for "passed"/"pending".
   const qcStatusForItem = (itemId: string): QCStatus | undefined => {
     if (flaggedItemIds.has(itemId)) return "flagged"
-    // Any substage AT or PAST qc_passed means this item already cleared
-    // QC — not just an exact "qc_passed" match. o.substage is a single
-    // marker that advances forward (qc_passed -> packed -> in_transit)
-    // while o.stage stays "quality_check" the whole time (it only flips
-    // to "shipped" once /admin/in-transit's "Mark shipped" is clicked —
-    // see orders-admin.ts's WarehouseSubstage vocabulary/mapping
-    // comment). An exact "qc_passed" check alone means the moment an
-    // order gets packed or picked up for transit, substage no longer
-    // equals "qc_passed" and this fell through to the stage ===
-    // "quality_check" branch below, reading back as "pending" —
-    // reappearing on /admin/qc for an item that already passed and had
-    // moved on to Export Bin/In-Transit, with nothing wrong with it at
-    // all. This was a real, reported bug, not a hypothetical edge case.
-    if (o.stage === "shipped" || o.stage === "delivered" || o.substage === "qc_passed" || o.substage === "packed" || o.substage === "in_transit") return "passed"
+    // Real, per-item signal — checked FIRST and always wins. This is
+    // the fix for a real, reported bug: marking one item "passed" used
+    // to flip the whole order's substage to 'qc_passed' (see
+    // submitQcResult in this file), which made every sibling item read
+    // as passed too via the order-level check below, whether or not it
+    // had actually been inspected. order_items.qc_passed_at
+    // (data/wishdrop-qc-per-item-pass.sql) is real and per-item, so it's
+    // trustworthy on its own regardless of what the rest of the order is
+    // doing.
+    const item = o.items.find((i) => i.id === itemId)
+    if (item?.qcPassedAt) return "passed"
+    // The order-level substage check below is still valid for
+    // 'packed'/'in_transit' — submitQcResult only ever advances the
+    // order that far once EVERY item already has qc_passed_at set (see
+    // its own comment), so by the time an order reaches those substages
+    // every item has necessarily passed already; this is just a cheap
+    // shortcut for that already-guaranteed case, not a second source of
+    // truth. Deliberately does NOT also check substage === "qc_passed"
+    // here — that used to be exactly the order-wide marker that caused
+    // this bug, and every item that's genuinely passed already matched
+    // the qc_passed_at check above regardless.
+    if (o.stage === "shipped" || o.stage === "delivered" || o.substage === "packed" || o.substage === "in_transit") return "passed"
     if (o.stage === "quality_check") return "pending"
     return undefined
   }
@@ -1091,7 +1101,8 @@ interface AdminDataContextValue {
   /** Records the confirmed variant (size/color/etc.) once the admin has confirmed it with the customer. Prepended onto the order's item name at confirm time. */
   setRequestVariant: (requestId: string, itemId: string, variant: string) => void
   /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. */
-  confirmPayment: (requestId: string, payment: { amount: number; method: string; reference?: string }) => void
+  /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. Returns the REAL write's result — a caller MUST check .ok before treating this as done, since a silent real-write failure here used to leave a false "confirmed" state on screen that reverted moments later once the next refetch overwrote it with the (still-unconfirmed) truth, all while any "payment confirmed" message the caller sent had already gone out. */
+  confirmPayment: (requestId: string, payment: { amount: number; method: string; reference?: string }) => Promise<{ ok: boolean; error?: string }>
   /** Moves a fully-quoted, fully-paid request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. Returns the REAL order's display id (once the real write lands) so the caller can name the order in the confirmation message — not the local optimistic guess, which never matches what the DB actually assigns (see the function's own comment). */
   confirmRequest: (requestId: string) => Promise<{ ok: boolean; orderDisplayId?: string; error?: string }>
   /** Declines/rejects a request outright — terminal, same as Manager's "close" action */
@@ -1322,6 +1333,14 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         submittedAt: r.submittedAt,
         assignedStaffId: r.assignedStaffId,
         chatThreadId: r.chatThreadId,
+        // FIX: this was missing, so the debounced real-time refetch (any
+        // change on `requests`, including confirmPayment's own write)
+        // would silently overwrite a just-confirmed payment with an
+        // object that has no `payment` at all — the DB row was always
+        // correct, but the UI would flip back to "Confirm payment
+        // received" and disable "Confirm -> creates order" a moment
+        // after the admin had just confirmed it.
+        payment: r.payment,
       })),
     )
     setChatThreads(
@@ -2186,11 +2205,31 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         }
       }
     } else if (status === "passed" && realId) {
-      // Real write: 'quality_check' stays the real DB stage — passing QC
-      // is tracked as a substage marker (qc_passed), not an enum change.
-      // See orders-admin.ts header for why (packOrder below is what
-      // actually flips the real stage to 'shipped').
-      realSetWarehouseSubstage(realId, "qc_passed", currentUser.id, note.trim() || "Passed QC")
+      // Real, per-item write — see markItemQcPassed's own doc comment
+      // for the bug this fixes (marking one item passed used to flip
+      // the WHOLE order's substage, silently marking every sibling item
+      // as passed too). Only touches this one order_items row.
+      markItemQcPassed(purchase.orderItemId, note.trim() || "Passed QC").then((res) => {
+        if (!res.ok) {
+          console.error('[submitQcResult] markItemQcPassed failed', res.error)
+          return
+        }
+        // 'quality_check' stays the real DB stage — passing QC is
+        // tracked as a substage marker (qc_passed), not an enum change.
+        // See orders-admin.ts header for why (packOrder is what
+        // actually flips the real stage to 'shipped'). Only advance
+        // that ORDER-WIDE marker once every item on the order has
+        // actually passed individually — checked against local `orders`
+        // state, which is accurate for every item except the one just
+        // written above, so that one is assumed true rather than
+        // waiting on a refetch to see its own write reflected back.
+        const order = orders.find((o) => o.id === purchase.orderId)
+        const allItemsPassed = order?.items.every((item) => item.id === purchase.orderItemId || !!item.qcPassedAt)
+        if (allItemsPassed) {
+          realSetWarehouseSubstage(realId, "qc_passed", currentUser.id, "All items passed QC")
+        }
+        loadRealOrders({ silent: true })
+      })
     }
   }
 
@@ -2607,8 +2646,33 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * correcting — a request is only ever paid once in practice, so this
    * overwrites rather than keeping a revision trail the way quotes do.
    */
-  const confirmPayment = (requestId: string, payment: { amount: number; method: string; reference?: string }) => {
-    if (!Number.isFinite(payment.amount) || payment.amount <= 0) return
+  const confirmPayment = async (
+    requestId: string,
+    payment: { amount: number; method: string; reference?: string },
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!Number.isFinite(payment.amount) || payment.amount <= 0) {
+      return { ok: false, error: "Enter a valid payment amount." }
+    }
+    // Real write FIRST, awaited — this used to be fire-and-forget with
+    // the optimistic local update applied unconditionally beforehand.
+    // A real failure (bad staff FK, a genuinely missing column, RLS,
+    // whatever) was only ever logged to the console: the UI still
+    // showed "payment confirmed" immediately, the caller's
+    // SendMessageModal still sent a "we've received your payment"
+    // message on the strength of that false state, and moments later
+    // the next refetch quietly overwrote the optimistic update with the
+    // real (still-unconfirmed) row — a customer told their payment was
+    // recorded, a request stuck unconfirmable, and nothing on screen
+    // ever explained why. Doing the real write first and only touching
+    // local state (and returning ok:true) once it actually succeeds
+    // means the UI can never show a "confirmed" state that isn't real,
+    // and the caller gets a real error to surface instead of silence.
+    const res = await confirmRequestPaymentReal(requestId, { ...payment, staffId: currentUser.id })
+    if (!res.ok) {
+      console.error('[confirmPayment] real write failed', res.error)
+      return { ok: false, error: res.error ?? "Could not record this payment. Please try again." }
+    }
+
     const now = new Date().toISOString()
     setRequests((prev) =>
       prev.map((r) =>
@@ -2626,18 +2690,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           : r
       )
     )
-    // Fire-and-forget was silent before — a failed write (e.g. the
-    // missing-columns bug this fixed; see
-    // data/wishdrop-requests-payment-columns.sql) left the optimistic
-    // local state above as the ONLY place the confirmation existed, so
-    // it quietly evaporated on the next refetch with no error ever
-    // shown. Logging on failure doesn't fully fix that class of bug by
-    // itself (the button still needs a real error surface to be
-    // bulletproof), but it at least stops a real write failure from
-    // being completely invisible.
-    confirmRequestPaymentReal(requestId, { ...payment, staffId: currentUser.id }).then((res) => {
-      if (!res.ok) console.error('[confirmPayment] real write failed', res.error)
-    })
+    return { ok: true }
   }
 
   /**
