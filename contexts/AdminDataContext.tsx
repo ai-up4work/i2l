@@ -420,7 +420,7 @@ import {
   type DbOrderStage,
 } from "@/lib/supabase/orders-admin"
 
-import { fetchQcIssuesForItems } from "@/lib/supabase/qc-issues"
+import { fetchQcIssuesForItems, markReplacementPurchased, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 
 import {
   fetchAdminRequests,
@@ -612,11 +612,28 @@ function mapToOrder(
  * order-level `qc_passed` substage marker — so that half of the
  * GRANULARITY NOTE limitation still stands; only "flagged" is fixable
  * without a schema change, because order_item_issues already exists.
+ *
+ * `awaitingRepurchaseItemIds` closes a real bug this same mechanism used
+ * to have: once "Retry with a new unit" flips an issue's resolution from
+ * 'pending' to 'retry_same' (a real write), the item drops OUT of
+ * `flaggedItemIds` — and with nothing else to go on, it fell straight
+ * back to the order-level fallback below (order.stage still
+ * 'quality_check' -> "pending"), making the item look like it was back
+ * in the QC queue despite nobody having repurchased it yet. That local
+ * "needs_purchase" state (reorderFaultyItem) was client-only, so the
+ * very next realtime-triggered refetch — which fires on almost any
+ * order-related write, including the resolution change that just
+ * happened — silently overwrote it. `order_item_issues.replacement_purchased_at`
+ * (see data/wishdrop-qc-repurchase-signal.sql) is the real, durable fix:
+ * an item stays correctly "needs_purchase" across any number of
+ * refetches until it's actually marked purchased again (see
+ * markPurchased below, which writes this column for real).
  */
 function mapToPurchases(
   o: AdminOrder,
   realPurchase: AdminPurchase | undefined,
-  flaggedItemIds: Set<string>
+  flaggedItemIds: Set<string>,
+  awaitingRepurchaseItemIds: Set<string>,
 ): Purchase[] {
   const now = new Date().toISOString()
   const fallbackUnitPrice = Math.round(o.totalValue / Math.max(o.items.length, 1))
@@ -654,6 +671,23 @@ function mapToPurchases(
   }
 
   return o.items.map((item) => {
+    // Checked BEFORE the normal qcStatus derivation below — an item
+    // waiting to be repurchased isn't "purchased" at all anymore, real
+    // per-order purchase/QC data notwithstanding. See this function's
+    // own doc comment for why this needs to be a real, durable signal
+    // rather than the local-only reset reorderFaultyItem used to do
+    // alone.
+    if (awaitingRepurchaseItemIds.has(item.id)) {
+      return {
+        id: `${o.id}:${item.id}`,
+        orderId: o.displayId,
+        orderItemId: item.id,
+        status: "needs_purchase" as PurchaseStatus,
+        enteredQueueAt: now,
+        issueNote: "Repurchase — the original unit was flagged faulty in QC. Buy a replacement from the same seller.",
+      }
+    }
+
     const qcStatus = qcStatusForItem(item.id)
     return {
       id: `${o.id}:${item.id}`,
@@ -1144,6 +1178,16 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // time orders are (re)fetched below.
   const realOrderIdByDisplayId = useRef<Map<string, string>>(new Map())
 
+  // itemId -> its most recent order_item_issues row, kept in sync every
+  // time orders are (re)fetched — markPurchased below needs this to know
+  // whether the item it's being called for is a repurchase (an open
+  // 'retry_same' issue with no replacement_purchased_at yet) so it can
+  // write that column for real. Doing the fetch itself lives in
+  // loadRealOrders since it's already fetching every order's items in
+  // bulk; this ref is just what makes that result reachable from
+  // markPurchased without re-fetching it.
+  const openQcIssueByItemId = useRef<Map<string, CustomerVisibleQcIssue>>(new Map())
+
   const loadRealOrders = useCallback(async (opts?: { silent?: boolean }) => {
     // FIX: this used to call setOrdersLoading(true) unconditionally,
     // including from the debounced real-time refetch below (any change
@@ -1179,6 +1223,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // the customer-facing OrdersHubPage/track page use.
     const allItemIds = adminOrders.flatMap((o) => o.items.map((i) => i.id))
     const qcIssuesByItemId = await fetchQcIssuesForItems(allItemIds)
+    openQcIssueByItemId.current = qcIssuesByItemId
     // Only an OPEN issue (resolution still 'pending', i.e. nobody has
     // decided what to do about it yet) should keep an item pinned as
     // "flagged" on the QC page. Once ops resolves it — including
@@ -1195,6 +1240,15 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const flaggedItemIds = new Set(
       [...qcIssuesByItemId.entries()].filter(([, issue]) => issue.resolution === "pending").map(([itemId]) => itemId)
     )
+    // Resolved as 'retry_same' but not yet actually repurchased — see
+    // mapToPurchases' doc comment for why this needs to be a real,
+    // durable signal (order_item_issues.replacement_purchased_at) and
+    // not the local-only state reorderFaultyItem used to rely on alone.
+    const awaitingRepurchaseItemIds = new Set(
+      [...qcIssuesByItemId.entries()]
+        .filter(([, issue]) => issue.resolution === "retry_same" && !issue.replacementPurchasedAt)
+        .map(([itemId]) => itemId)
+    )
 
     const [histories, notesLists, packageDetailsList] = await Promise.all([
       Promise.all(adminOrders.map((o) => fetchOrderStageHistory(o.id))),
@@ -1208,7 +1262,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       const mapped = mapToOrder(o, histories[i], notesLists[i], packageDetailsList[i])
       if (mapped) {
         nextOrders.push(mapped)
-        nextPurchases.push(...mapToPurchases(o, purchaseByOrderId.get(o.id), flaggedItemIds))
+        nextPurchases.push(...mapToPurchases(o, purchaseByOrderId.get(o.id), flaggedItemIds, awaitingRepurchaseItemIds))
       }
     })
 
@@ -1810,6 +1864,23 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // repeating the same mistake in new code either.
     const orderForNote = orders.find((o) => o.id === orderId)
     const isReorderForNote = orderForNote != null && orderForNote.stage !== "Ordered"
+
+    // Real, durable write closing the loop on a repurchase — see
+    // mapToPurchases' doc comment and data/wishdrop-qc-repurchase-signal.sql
+    // for the full "why". Fire-and-forget, same pattern as addInternalNote
+    // below: the local Purchase[] update further down already gives the
+    // admin immediate feedback, but this is what makes the item survive
+    // the NEXT refetch as "bought again, awaiting QC" instead of
+    // snapping back to "needs_purchase" the instant this very write's own
+    // realtime event fires (order_item_issues is one of the tables this
+    // app subscribes to).
+    const openIssue = openQcIssueByItemId.current.get(orderItemId)
+    const isRepurchase = openIssue?.resolution === "retry_same" && !openIssue.replacementPurchasedAt
+    if (isRepurchase && openIssue) {
+      markReplacementPurchased(openIssue.id).catch((err) =>
+        console.error("[markPurchased] failed to record replacement-purchased", err),
+      )
+    }
 
     setPurchases((prev) => {
       const existing = prev.find((p) => p.orderId === orderId && p.orderItemId === orderItemId)

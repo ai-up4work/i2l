@@ -248,10 +248,12 @@ export default function QCDetailPage() {
     // review-before-send pattern as the request detail page —
     // navigation happens once the modal is dismissed (send or skip)
     // instead of on a fixed timer, so the SendMessageModal below isn't
-    // yanked away mid-decision. No thread on file (a Channel 1/2 order
-    // today — see Order.chatThreadId's doc comment) falls back to the
-    // old auto-navigate-after-save behavior, since there's nowhere to
-    // send a message anyway.
+    // yanked away mid-decision. Every order gets a real chat thread at
+    // creation now, regardless of channel (see confirmCartOrder in
+    // DashboardContext.tsx and Order.chatThreadId's doc comment in
+    // types/admin.ts) — line!.chatThreadId being falsy here would now
+    // mean something upstream failed to set it, not an expected gap for
+    // a Channel 1/2 order.
     if (status === "flagged" && line!.chatThreadId) {
       setSaving(false)
       setSaved(true)

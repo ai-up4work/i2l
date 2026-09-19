@@ -1151,6 +1151,10 @@ export interface Database {
           whatsapp_sent_at: string | null
           created_by: string | null
           resolved_at: string | null
+          // Set for real once the item's replacement has actually been
+          // bought again — see data/wishdrop-qc-repurchase-signal.sql.
+          // Null means "retry_same but still waiting to be repurchased".
+          replacement_purchased_at: string | null
           created_at: string
         }
         Insert: {
@@ -1169,6 +1173,7 @@ export interface Database {
           whatsapp_sent_at?: string | null
           created_by?: string | null
           resolved_at?: string | null
+          replacement_purchased_at?: string | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['order_item_issues']['Insert']>

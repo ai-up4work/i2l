@@ -12,6 +12,7 @@ import {
   Package,
   Percent,
   ShoppingBag,
+  Trash2,
   User,
 } from "lucide-react"
 
@@ -148,6 +149,13 @@ export default function Header({
   const [shopSheetOpen, setShopSheetOpen] = useState(false)
   const [wishlistPanelOpen, setWishlistPanelOpen] = useState(false)
   const [cartPanelOpen, setCartPanelOpen] = useState(false)
+  const [clearCartConfirming, setClearCartConfirming] = useState(false)
+
+  // Reset the confirm step whenever the panel closes, so reopening it
+  // later never lands mid-confirmation from a previous visit.
+  useEffect(() => {
+    if (!cartPanelOpen) setClearCartConfirming(false)
+  }, [cartPanelOpen])
 
   const [hasMounted, setHasMounted] = useState(false)
   useEffect(() => { setHasMounted(true) }, [])
@@ -649,9 +657,41 @@ export default function Header({
         viewAllHref="/account/cart"
         viewAllLabel={`View cart (${cartCount})`}
         footer={
-          <a href="/account/cart" onClick={() => setCartPanelOpen(false)} className={checkoutButtonClass}>
-            CHECKOUT
-          </a>
+          <div className="flex flex-col gap-2">
+            <a href="/account/cart" onClick={() => setCartPanelOpen(false)} className={checkoutButtonClass}>
+              CHECKOUT
+            </a>
+            {clearCartConfirming ? (
+              <div className="flex items-center justify-center gap-3">
+                <span className="text-xs text-ink/50">Clear your whole cart?</span>
+                <button
+                  type="button"
+                  onClick={() => setClearCartConfirming(false)}
+                  className={`text-xs font-semibold text-ink/50 hover:text-ink ${focusRing}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    cart.clearCart()
+                    setClearCartConfirming(false)
+                  }}
+                  className={`text-xs font-semibold text-red-600 hover:text-red-700 ${focusRing}`}
+                >
+                  Confirm
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setClearCartConfirming(true)}
+                className={`flex items-center justify-center gap-1.5 text-xs font-semibold text-ink/45 hover:text-red-600 ${focusRing}`}
+              >
+                <Trash2 size={12} /> Clear cart
+              </button>
+            )}
+          </div>
         }
       >
         {cartPreview.map((line) => (

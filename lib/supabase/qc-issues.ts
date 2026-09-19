@@ -103,6 +103,14 @@ export interface CustomerVisibleQcIssue {
   resolution: QcIssueResolution
   sellerRefundObtained: boolean | null
   resolvedAt: string | null
+  // Set once a 'retry_same' issue's replacement has actually been
+  // bought again (see markReplacementPurchased below) — null means
+  // "retry_same but still waiting on the Purchases queue to be
+  // repurchased". This is the real, durable signal mapToPurchases
+  // (AdminDataContext.tsx) needs to tell those two states apart
+  // without depending on local-only client state that a realtime
+  // refetch would otherwise silently clobber.
+  replacementPurchasedAt: string | null
   createdAt: string
 }
 
@@ -111,8 +119,19 @@ export async function fetchQcIssuesForItems(orderItemIds: string[]): Promise<Map
   const supabase = createClient()
   const { data, error } = await supabase
     .from('order_item_issues')
-    .select('id, order_item_id, issue_type, customer_note, photo_url, resolution, seller_refund_obtained, resolved_at, created_at')
+    .select(
+      'id, order_item_id, issue_type, customer_note, photo_url, resolution, seller_refund_obtained, resolved_at, replacement_purchased_at, created_at',
+    )
     .in('order_item_id', orderItemIds)
+    // An item can have more than one issue row over its lifetime (a
+    // second fault after a first replacement creates a fresh row rather
+    // than overwriting the old one — see qc/[id]/page.tsx's save()).
+    // Ascending by created_at + a plain Map means the LAST write here
+    // wins per order_item_id, i.e. the most recent issue — without this
+    // ordering, which one wins is whatever order Postgres happens to
+    // return them in, which could silently resurface a long-resolved
+    // issue instead of the current open one.
+    .order('created_at', { ascending: true })
   if (error) {
     console.error('[fetchQcIssuesForItems]', error)
     return new Map()
@@ -129,10 +148,30 @@ export async function fetchQcIssuesForItems(orderItemIds: string[]): Promise<Map
         resolution: r.resolution as QcIssueResolution,
         sellerRefundObtained: r.seller_refund_obtained,
         resolvedAt: r.resolved_at,
+        replacementPurchasedAt: r.replacement_purchased_at,
         createdAt: r.created_at,
       },
     ]),
   )
+}
+
+/**
+ * Real, durable write marking a 'retry_same' issue's replacement as
+ * actually bought again — called from AdminDataContext's markPurchased
+ * the moment an item with an open retry_same issue (and no
+ * replacement_purchased_at yet) is marked purchased. This is what lets
+ * mapToPurchases tell "still needs repurchasing" apart from "bought
+ * again, now waiting on a fresh QC pass" across a refetch, instead of
+ * relying on local-only state that a realtime refetch would silently
+ * overwrite the moment anything else on the order changes.
+ */
+export async function markReplacementPurchased(issueId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('order_item_issues')
+    .update({ replacement_purchased_at: new Date().toISOString() })
+    .eq('id', issueId)
+  return error ? { ok: false, error: error.message } : { ok: true }
 }
 
 /** Opens a QC issue for a flagged item — the first step, before any resolution is decided. */

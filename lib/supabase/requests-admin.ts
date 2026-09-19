@@ -432,31 +432,44 @@ export async function confirmRequestReal(
   // has a real DEFAULT backed by a Postgres sequence (see
   // data/wishdrop-order-display-id-sequence.sql), the same mechanism
   // Channel 1/2 checkout relies on via createOrderWithRetry
-  // (contexts/DashboardContext.tsx). This used to be a client-side random
-  // 5-digit number with a retry-on-collision loop; the DB-side sequence
-  // makes that unnecessary (and removes the small but real chance of two
-  // concurrent confirmations racing each other on the same random number).
-  const { data, error } = await supabase
-    .from('orders')
-    .insert({
-      user_id: userId,
-      channel: 3,
-      stage: 'ordered',
-      currency: 'LKR',
-      total_value: quote,
-      request_id: requestId,
-      // Carries the customer's chat thread onto the order itself, so
-      // any later order-level action (purchase failed, QC flagged,
-      // shipped, delivered) can message the same thread without
-      // re-deriving it through the request — see Order.chatThreadId's
-      // doc comment in types/admin.ts.
-      chat_thread_id: existing.chat_thread_id,
-    })
-    .select('id, display_id')
-    .single()
-  if (error) return { ok: false, error: error.message }
-  const orderId = data.id as string
-  const displayId = data.display_id as string
+  // (contexts/DashboardContext.tsx). The retry loop below exists for the
+  // same reason createOrderWithRetry's does: this table can still contain
+  // legacy rows whose display_id came from the OLD client-side random
+  // generator this function used to use, which drew from the exact same
+  // numeric range the sequence starts at. A `23505` on display_id is a
+  // real transitional collision against one of those rows, not a
+  // hypothetical one — retrying re-evaluates the same DEFAULT expression
+  // and gets a fresh, guaranteed-new value from the sequence each time.
+  const MAX_ATTEMPTS = 5
+  let orderId = ''
+  let displayId = ''
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const { data, error } = await supabase
+      .from('orders')
+      .insert({
+        user_id: userId,
+        channel: 3,
+        stage: 'ordered',
+        currency: 'LKR',
+        total_value: quote,
+        request_id: requestId,
+        // Carries the customer's chat thread onto the order itself, so
+        // any later order-level action (purchase failed, QC flagged,
+        // shipped, delivered) can message the same thread without
+        // re-deriving it through the request — see Order.chatThreadId's
+        // doc comment in types/admin.ts.
+        chat_thread_id: existing.chat_thread_id,
+      })
+      .select('id, display_id')
+      .single()
+    if (!error) {
+      orderId = data.id as string
+      displayId = data.display_id as string
+      break
+    }
+    const isDisplayIdCollision = error.code === '23505' && /display_id/i.test(error.message)
+    if (!isDisplayIdCollision || attempt === MAX_ATTEMPTS - 1) return { ok: false, error: error.message }
+  }
 
   // Clean, customer-facing title — never the raw ops note, which can
   // carry an internal tag like "[Confirm size/color with customer]"

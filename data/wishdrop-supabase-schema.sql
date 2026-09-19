@@ -396,11 +396,31 @@ create type order_seller_type as enum ('store', 'individual');
 -- for the full rationale (this is the fresh-database version of that same fix).
 create sequence public.order_display_id_seq start with 10000 increment by 1;
 
+-- A function, not an inline expression, specifically so nextval() is
+-- called exactly once per row — an inline expression that calls
+-- nextval() twice (once to pad, once to measure length) would burn two
+-- sequence values per insert and format the wrong one. Pad width is
+-- greatest(actual digit count, 5) so a short number still zero-pads to
+-- "WD-10004", but a 6+ digit number is used in full rather than
+-- silently truncated — see data/wishdrop-order-display-id-fix-truncation-bug.sql
+-- for the real production bug this avoids (lpad(string, length)
+-- truncates, not just pads, when string is already longer than length).
+create or replace function public.next_order_display_id() returns text
+language plpgsql
+as $$
+declare
+  n bigint;
+begin
+  n := nextval('public.order_display_id_seq');
+  return 'WD-' || lpad(n::text, greatest(length(n::text), 5), '0');
+end;
+$$;
+
 create table public.orders (
   id uuid primary key default gen_random_uuid(),
   -- customer-facing "WD-10499" style id, assigned by the DB so callers
   -- never need to generate or retry-on-collision one themselves.
-  display_id text unique not null default ('WD-' || lpad(nextval('public.order_display_id_seq')::text, 5, '0')),
+  display_id text unique not null default public.next_order_display_id(),       -- customer-facing "WD-10499" style id, assigned by the DB so callers never need to generate or retry-on-collision one themselves.
   user_id uuid not null references auth.users(id) on delete cascade,
   channel smallint not null check (channel in (1,2,3)),
   stage order_stage not null default 'ordered',

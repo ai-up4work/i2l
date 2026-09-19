@@ -24,6 +24,8 @@ import {
   ChevronRight,
   X,
   Info,
+  Check,
+  Trash2,
 } from 'lucide-react'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useDashboard } from '@/contexts/DashboardContext'
@@ -342,48 +344,62 @@ function ReviewLine({
   line,
   deliveryChoice,
   onOpenBreakdown,
+  selected,
+  onToggleSelected,
 }: {
   line: CartLineItem
   deliveryChoice: DeliveryChoice
   onOpenBreakdown: () => void
+  selected: boolean
+  onToggleSelected: () => void
 }) {
   const dual = getDualDeliveryPricing(toPriceableItem(line.product))
   const option = deliveryChoice === 'economy' ? dual.economy : dual.express
   const grandLineTotal = option.actualTotalLKR * line.qty
 
   return (
-    <button
-      type="button"
-      onClick={onOpenBreakdown}
-      className="flex w-full items-start gap-3 rounded-xl px-1 py-1 text-left transition-colors hover:bg-ink/[0.04]"
-    >
-      <div className="h-16 w-16 flex-none overflow-hidden rounded-xl border border-ink/10 bg-white">
-        {line.product.image ? (
-          <Image src={line.product.image} alt="" className="h-full w-full object-cover" width={64} height={64} />
-        ) : (
-          <div className="grid h-full w-full place-items-center text-ink/15">
-            <ShoppingBag size={16} strokeWidth={1.3} />
+    <div className="flex w-full items-start gap-2 rounded-xl px-1 py-1 transition-colors hover:bg-ink/[0.04]">
+      <button
+        type="button"
+        onClick={onToggleSelected}
+        aria-pressed={selected}
+        aria-label={selected ? `Remove ${line.product.title} from this checkout` : `Include ${line.product.title} in this checkout`}
+        className={`mt-1.5 flex h-5 w-5 flex-none items-center justify-center rounded-md border transition-colors ${
+          selected ? 'border-teal-deep bg-teal-deep text-white' : 'border-ink/25 bg-white text-transparent hover:border-ink/40'
+        }`}
+      >
+        <Check size={12} strokeWidth={3} />
+      </button>
+
+      <button type="button" onClick={onOpenBreakdown} className="flex min-w-0 flex-1 items-start gap-3 text-left">
+        <div className="h-16 w-16 flex-none overflow-hidden rounded-xl border border-ink/10 bg-white">
+          {line.product.image ? (
+            <Image src={line.product.image} alt="" className="h-full w-full object-cover" width={64} height={64} />
+          ) : (
+            <div className="grid h-full w-full place-items-center text-ink/15">
+              <ShoppingBag size={16} strokeWidth={1.3} />
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="line-clamp-1 text-sm font-semibold text-ink">{line.product.title}</p>
+            <p className="flex-none text-sm font-bold tabular-nums text-ink">{formatLKR(grandLineTotal)}</p>
           </div>
-        )}
-      </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="line-clamp-1 text-sm font-semibold text-ink">{line.product.title}</p>
-          <p className="flex-none text-sm font-bold tabular-nums text-ink">{formatLKR(grandLineTotal)}</p>
-        </div>
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <SourceBadge product={line.product} />
+            <span className="flex-none text-xs font-medium text-ink/40">{line.qty}×</span>
+          </div>
 
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <SourceBadge product={line.product} />
-          <span className="flex-none text-xs font-medium text-ink/40">{line.qty}×</span>
+          <div className="mt-1 flex items-center gap-0.5 text-[11px] font-semibold text-teal-deep">
+            View price breakdown
+            <ChevronRight size={12} strokeWidth={2.5} />
+          </div>
         </div>
-
-        <div className="mt-1 flex items-center gap-0.5 text-[11px] font-semibold text-teal-deep">
-          View price breakdown
-          <ChevronRight size={12} strokeWidth={2.5} />
-        </div>
-      </div>
-    </button>
+      </button>
+    </div>
   )
 }
 
@@ -432,6 +448,65 @@ function CartPageContent() {
 
   const [breakdownLineId, setBreakdownLineId] = useState<string | null>(null)
   const breakdownLine = cart.items.find((line) => line.product.id === breakdownLineId) ?? null
+
+  // Which cart lines are actually being checked out right now — lets the
+  // customer leave some items in the cart for later instead of forcing
+  // every visit to checkout to mean "buy everything currently in the
+  // bag." Every item defaults to selected (matching the old "checkout
+  // means the whole cart" behavior) and stays that way unless explicitly
+  // unchecked; newly-added items also default to selected, and an item
+  // removed from the cart is pruned from this set automatically.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(cart.items.map((line) => line.product.id)))
+  const [clearConfirming, setClearConfirming] = useState(false)
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const cartIds = new Set(cart.items.map((line) => line.product.id))
+      let changed = false
+      const next = new Set(prev)
+      cart.items.forEach((line) => {
+        if (!next.has(line.product.id)) {
+          next.add(line.product.id)
+          changed = true
+        }
+      })
+      next.forEach((id) => {
+        if (!cartIds.has(id)) {
+          next.delete(id)
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [cart.items])
+
+  const selectedLines = useMemo(
+    () => cart.items.filter((line) => selectedIds.has(line.product.id)),
+    [cart.items, selectedIds],
+  )
+  const allSelected = cart.items.length > 0 && selectedLines.length === cart.items.length
+
+  const toggleLineSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(cart.items.map((line) => line.product.id)))
+  }
+
+  const handleClearCart = () => {
+    if (!clearConfirming) {
+      setClearConfirming(true)
+      return
+    }
+    cart.clearCart()
+    setClearConfirming(false)
+  }
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -526,7 +601,7 @@ function CartPageContent() {
     let serviceChargeSubtotalLKR = 0
     let deliverySubtotalLKR = 0
 
-    cart.items.forEach((line) => {
+    selectedLines.forEach((line) => {
       const dual = getDualDeliveryPricing(toPriceableItem(line.product))
       const option = deliveryChoice === 'economy' ? dual.economy : dual.express
       priceSubtotalLKR += option.priceLKR * line.qty
@@ -555,7 +630,7 @@ function CartPageContent() {
       discountLKR,
       grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR - discountLKR,
     }
-  }, [cart.items, deliveryChoice, appliedCoupon])
+  }, [selectedLines, deliveryChoice, appliedCoupon])
 
   const pendingRequestCount = useOrders().orders.length
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
@@ -591,11 +666,11 @@ function CartPageContent() {
   }
 
   const handleConfirm = async () => {
-    if (cart.items.length === 0 || confirming || !detailsComplete) return
+    if (selectedLines.length === 0 || confirming || !detailsComplete) return
     setConfirming(true)
     setCheckoutError(null)
 
-    const lines = cart.items.map((line) => {
+    const lines = selectedLines.map((line) => {
       const dual = getDualDeliveryPricing(toPriceableItem(line.product))
       const option = deliveryChoice === 'economy' ? dual.economy : dual.express
       return {
@@ -627,7 +702,10 @@ function CartPageContent() {
     // Mark the coupon used only after the order actually succeeded —
     // an order failure shouldn't burn a one-time-use code.
     if (appliedCoupon) loyalty.useCoupon(appliedCoupon.id)
-    cart.clearCart()
+    // Only remove what was actually checked out — an item left
+    // unselected on purpose (see selectedIds) should still be sitting in
+    // the cart afterward, not silently wiped along with everything else.
+    selectedLines.forEach((line) => cart.removeItem(line.product.id))
     router.push('/account/orders')
   }
 
@@ -876,7 +954,48 @@ function CartPageContent() {
             in view while the form above scrolls. */}
         <div className="rounded-2xl border border-ink/10 bg-card lg:sticky lg:top-6">
           <div className="px-6 py-6">
-            <h2 className="font-display text-lg text-ink">Review your cart</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-display text-lg text-ink">Review your cart</h2>
+              {clearConfirming ? (
+                <div className="flex flex-none items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setClearConfirming(false)}
+                    className="text-xs font-semibold text-ink/50 hover:text-ink"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearCart}
+                    className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                  >
+                    <Trash2 size={12} /> Confirm
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleClearCart}
+                  className="flex flex-none items-center gap-1 text-xs font-semibold text-ink/45 hover:text-red-600"
+                >
+                  <Trash2 size={12} /> Clear cart
+                </button>
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="text-xs font-semibold text-teal-deep hover:underline"
+              >
+                {allSelected ? 'Deselect all' : 'Select all'}
+              </button>
+              <span className="text-xs text-ink/45">
+                {selectedLines.length} of {cart.items.length} selected for checkout
+              </span>
+            </div>
 
             <div className="mt-4 divide-y divide-ink/[0.06]">
               {cart.items.map((line) => (
@@ -885,6 +1004,8 @@ function CartPageContent() {
                     line={line}
                     deliveryChoice={deliveryChoice}
                     onOpenBreakdown={() => setBreakdownLineId(line.product.id)}
+                    selected={selectedIds.has(line.product.id)}
+                    onToggleSelected={() => toggleLineSelected(line.product.id)}
                   />
                 </div>
               ))}
@@ -940,7 +1061,7 @@ function CartPageContent() {
                 Order breakdown · {deliveryChoice === 'economy' ? 'Economy' : 'Express'}
               </p>
               <div className="flex items-center justify-between text-sm text-ink/50">
-                <span>Price ({cart.itemCount} unit{cart.itemCount !== 1 ? 's' : ''})</span>
+                <span>Price ({selectedLines.reduce((sum, l) => sum + l.qty, 0)} unit{selectedLines.reduce((sum, l) => sum + l.qty, 0) !== 1 ? 's' : ''})</span>
                 <span className="tabular-nums">{formatLKR(priceSubtotalLKR)}</span>
               </div>
               <div className="flex items-center justify-between text-sm text-ink/50">
@@ -966,13 +1087,19 @@ function CartPageContent() {
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={confirming || !detailsComplete}
-              title={!detailsComplete ? 'Fill in shipping details and accept the terms to continue' : undefined}
+              disabled={confirming || !detailsComplete || selectedLines.length === 0}
+              title={
+                selectedLines.length === 0
+                  ? 'Select at least one item to check out'
+                  : !detailsComplete
+                    ? 'Fill in shipping details and accept the terms to continue'
+                    : undefined
+              }
               className="mt-5 flex w-full items-center justify-center gap-2.5 rounded-full bg-teal-deep px-6 py-4 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Lock size={15} />
-              {confirming ? 'Confirming…' : 'Confirm order'}
-              {!confirming && <ArrowRight size={16} />}
+              {confirming ? 'Confirming…' : selectedLines.length === 0 ? 'Select items to continue' : 'Confirm order'}
+              {!confirming && selectedLines.length > 0 && <ArrowRight size={16} />}
             </button>
 
             {checkoutError && (

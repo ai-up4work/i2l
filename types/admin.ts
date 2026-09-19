@@ -126,12 +126,18 @@ export interface Order {
   /** Present when this order traces back to a Channel 3 request/chat thread */
   linkedRequestId?: string
   /** The customer's chat thread for this order, when one exists — set at
-   * creation for Channel 3 orders (mirrors the real orders.chat_thread_id
-   * column). Undefined for Channel 1/2 orders today, since those don't
-   * get a thread linked at order-creation time yet. Purchase/QC/shipping
-   * actions that want to message the customer read this (via
-   * PurchaseLine.chatThreadId / QCLine.chatThreadId) rather than each
-   * re-deriving it from linkedRequestId. */
+   * creation for every channel (mirrors the real orders.chat_thread_id
+   * column). Channel 1/2 checkout (confirmCartOrder in
+   * DashboardContext.tsx) used to skip this entirely, which silently
+   * broke every "review before send" customer message downstream (QC
+   * flagged, replacement passed, purchase failed, arrived in Sri Lanka,
+   * delivered) for those orders — each of those call sites gates on this
+   * being truthy, so no thread meant no modal and no message, without
+   * any error to notice. Fixed by reusing the same getOrCreateGeneralThread
+   * call Channel 3 already used. Purchase/QC/shipping actions that want
+   * to message the customer read this (via PurchaseLine.chatThreadId /
+   * QCLine.chatThreadId) rather than each re-deriving it from
+   * linkedRequestId. */
   chatThreadId?: string
   /** Customer-facing delivery city/area — shown on the Pack & label queue */
   destination?: string
@@ -302,7 +308,7 @@ export interface PurchaseLine {
   status: PurchaseStatus
   issueNote?: string
   ageLabel: string
-  /** The customer's chat thread for this line's order, when one exists — see Order.chatThreadId. Undefined means there's currently no way to message this customer directly (Channel 1/2 order with no thread yet). */
+  /** The customer's chat thread for this line's order, when one exists — see Order.chatThreadId. Every channel gets one at order creation now; undefined here would mean something upstream failed to set it, not an expected Channel 1/2 gap anymore. */
   chatThreadId?: string
 }
 

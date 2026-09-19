@@ -242,14 +242,35 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
 }
 
 /**
- * Creates one `orders` row. display_id is no longer generated here — it
- * used to be a client-side random 5-digit number with a retry-on-collision
+ * Creates one `orders` row. display_id is not generated here — it used
+ * to be a client-side random 5-digit number with a retry-on-collision
  * loop, since there was no DB-side way to produce one. Now
- * orders.display_id has a real DEFAULT backed by a Postgres sequence (see
- * data/wishdrop-order-display-id-sequence.sql), so leaving it out of the
- * insert entirely lets the database assign a real, race-free, strictly
- * increasing order number — no retry loop needed, and no risk of a stray
- * caller inserting a malformed/colliding one.
+ * orders.display_id has a real DEFAULT backed by a Postgres sequence
+ * (see data/wishdrop-order-display-id-sequence.sql), so leaving it out
+ * of the insert lets the database assign a real, strictly increasing
+ * order number.
+ *
+ * The retry loop below still exists, but for a different reason than
+ * before: the sequence itself can never repeat a value, but this
+ * project's `orders` table can still contain rows whose display_id came
+ * from somewhere other than the sequence — every order created before
+ * this migration used the old client-side random generator (both this
+ * function's own prior version, and Channel 3's confirmRequestReal),
+ * and both drew from the exact same range the sequence starts at
+ * (10000+). The migration's own setval step is supposed to catch the
+ * sequence up past every such existing row, but that's a one-time,
+ * point-in-time calculation — if it's ever re-run against a database
+ * that's had more legacy-format rows inserted since, or simply wasn't
+ * re-run after a fresh batch of test data, the sequence can still hand
+ * out a value that collides with one of those pre-existing rows. A
+ * `23505` (unique_violation) on display_id specifically is exactly that
+ * transitional collision, and it's real ("duplicate key value violates
+ * unique constraint orders_display_id_key" in production) — not a
+ * hypothetical edge case. Retrying is safe and sufficient: display_id is
+ * still never set explicitly, so each retry re-evaluates the same
+ * DEFAULT expression and gets a brand new value from the sequence,
+ * which by definition can't repeat. A handful of attempts is more than
+ * enough headroom even against a wide legacy range.
  */
 async function createOrderWithRetry(
   supabase: SupabaseClient,
@@ -259,11 +280,19 @@ async function createOrderWithRetry(
     currency: string
     total_value: number
     recipient_address_id?: string | null
+    chat_thread_id?: string | null
   },
 ): Promise<string> {
-  const { data, error } = await supabase.from('orders').insert(fields).select('id').single()
-  if (error) throw error
-  return data.id as string
+  const MAX_ATTEMPTS = 5
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const { data, error } = await supabase.from('orders').insert(fields).select('id').single()
+    if (!error) return data.id as string
+    const isDisplayIdCollision = error.code === '23505' && /display_id/i.test(error.message)
+    if (!isDisplayIdCollision || attempt === MAX_ATTEMPTS - 1) throw error
+  }
+  // Unreachable — the loop above always either returns or throws — but
+  // keeps TypeScript satisfied that every path returns a string.
+  throw new Error('Could not create order: ran out of retry attempts.')
 }
 
 function sourceDomainFor(url: string): string {
@@ -662,6 +691,22 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           addressId = addressRow.id as string
         }
 
+        // One thread per customer, same as Channel 3's confirmRequest —
+        // find it (or create it on this customer's very first contact)
+        // rather than leaving the order with no thread at all. Channel
+        // 1/2 orders never got this: createOrderWithRetry never set
+        // chat_thread_id, so every downstream "review before send"
+        // customer message (QC flagged, replacement passed, purchase
+        // failed, arrived in Sri Lanka, delivered — see
+        // lib/chat/customerMessageTemplates.ts and every page that
+        // imports it) silently skipped both the SendMessageModal AND the
+        // send itself for these orders, since each of those call sites
+        // gates on `line.chatThreadId` being truthy. Nothing about that
+        // gating was wrong — it's the right behavior when there's
+        // genuinely no thread — the bug was that Channel 1/2 orders
+        // never got one in the first place.
+        const threadId = await getOrCreateGeneralThread(supabase, user.id)
+
         const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
         const channel: 1 | 2 = lines.every((line) => line.source === 'catalogue') ? 1 : 2
         const orderId = await createOrderWithRetry(supabase, {
@@ -670,6 +715,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           currency: 'LKR',
           total_value: total,
           recipient_address_id: addressId,
+          chat_thread_id: threadId,
         })
 
         const itemRows = await Promise.all(

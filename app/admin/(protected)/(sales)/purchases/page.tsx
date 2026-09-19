@@ -332,7 +332,16 @@ function PurchaseRow({
                 title={line.issueNote}
                 className="inline-flex flex-none items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200"
               >
-                Reorder
+                {/* "Repurchase" only for an item actually back on this
+                    queue waiting to be bought again (status is
+                    needs_purchase with an issueNote — see
+                    mapToPurchases' awaitingRepurchaseItemIds branch).
+                    An item still just sitting flagged in QC (status
+                    stays "purchased" with a QC-flag issueNote) hasn't
+                    had that decision made yet, so it gets a distinct,
+                    accurate label instead of implying a repurchase
+                    that hasn't actually been requested. */}
+                {line.status === "needs_purchase" ? "Repurchase" : "Flagged"}
               </span>
             )}
           </span>

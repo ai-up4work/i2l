@@ -29,10 +29,10 @@ import { purchaseFailedMessage } from "@/lib/chat/customerMessageTemplates"
 // the outcome. Two terminal actions: mark purchased (records actual price
 // paid, since quoted vs. paid can drift) or flag unavailable (free-text
 // reason). Flagging unavailable now offers a SendMessageModal draft to the
-// customer's chat thread (line.chatThreadId — only set today for Channel 3
-// orders; see Order.chatThreadId's doc comment in types/admin.ts), editable
-// before it sends, same pattern as the request detail page's quote/payment
-// messages.
+// customer's chat thread (line.chatThreadId — set for every order at
+// creation regardless of channel now; see Order.chatThreadId's doc comment
+// in types/admin.ts), editable before it sends, same pattern as the
+// request detail page's quote/payment messages.
 //
 // Backed by AdminDataContext, same as the order detail page — marking a
 // line here is immediately reflected on the Purchases list, and the
