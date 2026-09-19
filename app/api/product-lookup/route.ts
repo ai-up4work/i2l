@@ -3,6 +3,8 @@ import { scrapeProduct } from '@/lib/scrape/parsers'
 import { matchAffiliatedSellerUrl } from '@/lib/store-config-db'
 import { extractProductIdentifier } from '@/lib/store-providers/product-id'
 import { fetchStoreProductForRedirectCheck } from '@/lib/store-providers/product'
+import { upsertScrapeHealth } from '@/lib/supabase/scrape-health-write'
+import { looksLikeShortlink, resolveFinalUrl } from '@/lib/scrape/resolve-redirect'
 
 // Must be >= the ScraperAPI TOTAL_BUDGET_MS (5 min) or the platform
 // will kill the function before scrapeProduct() gets a chance to
@@ -19,12 +21,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing required query param: url' }, { status: 400 })
   }
 
+  // A shortlink's own domain (bit.ly, amzn.to, a WhatsApp-shared
+  // affiliate link, ...) has nothing to do with the real product —
+  // resolve it to the real destination BEFORE anything below keys off
+  // the URL's hostname (matchAffiliatedSellerUrl, scrapeProduct,
+  // upsertScrapeHealth's domain attribution). Cheap heuristic gate
+  // first (looksLikeShortlink) so the common case — a customer pastes
+  // an already-real store URL — never pays for an extra round trip.
+  // Best-effort: resolveFinalUrl returns the original url unchanged on
+  // any failure, so a shortener having a bad day never blocks the
+  // request.
+  const resolvedUrl = looksLikeShortlink(url) ? await resolveFinalUrl(url) : url
+  if (resolvedUrl !== url) {
+    console.log('[product-lookup] resolved shortlink', { original: url, resolved: resolvedUrl })
+  }
+
   // Cheap, cached check (see matchAffiliatedSellerUrl — 24h platform-wide
   // cache) before ever spending scraper budget: is this actually one of
   // our own affiliated sellers' storefront URLs? If so, we already have
   // this seller's real config/pricing in our own DB — no need to run
   // their storefront through the external scraper like an unknown site.
-  const matchedSeller = await matchAffiliatedSellerUrl(url)
+  const matchedSeller = await matchAffiliatedSellerUrl(resolvedUrl)
 
   if (matchedSeller) {
     // Best-effort extraction of which specific product this URL points
@@ -34,7 +51,7 @@ export async function GET(request: Request) {
     // guessed id that doesn't resolve (wrong convention, jsonapi/mock
     // store, product removed, etc.) falls back to the store's catalog
     // page rather than sending the customer to a 404 product route.
-    const productId = extractProductIdentifier(url, matchedSeller.config.type)
+    const productId = extractProductIdentifier(resolvedUrl, matchedSeller.config.type)
 
     if (productId) {
       try {
@@ -61,6 +78,35 @@ export async function GET(request: Request) {
   // means an abandoned request actually stops the upstream ScraperAPI
   // call instead of running to completion (and billing) with nobody
   // there to receive the result.
-  const result = await scrapeProduct(url, { needVariants, signal: request.signal })
+  const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal })
+  if (resolvedUrl !== url) result.resolvedFromShortlink = true
+
+  // Internal QA testing traffic (app/demo/scraper-qa) is explicitly
+  // excluded from Scrape health, per product decision — a developer
+  // testing "does gymshark.com scrape correctly" ten times in a row
+  // shouldn't inflate that domain's real counts or overwrite its
+  // success sample with test data. Every genuine customer-facing
+  // caller (ItemInfoModal, useLiveProductData, ...) hits this same
+  // route WITHOUT this header, so they're unaffected.
+  const isQaTraffic = request.headers.get('x-scrape-source') === 'qa-tool'
+
+  if (!isQaTraffic) {
+    // Fire-and-forget: this is the one real call site the Scrape health
+    // panel's fail_count/success_count depend on (see
+    // scrape-health-write.ts's own header for the gap this closes) —
+    // intentionally NOT awaited, so a slow or failing health-tracking
+    // write can never add latency to, or break, the actual response the
+    // customer is waiting on. Same success definition the client already
+    // uses (hooks/useProductLookup.ts: `!data.error`). On a success, also
+    // carries the real title/image/price through so ops can see an
+    // actual example of what this domain's product pages look like, not
+    // just a bare count (see wishdrop-scrape-health-success-sample.sql).
+    upsertScrapeHealth(resolvedUrl, !result.error, {
+      title: result.title,
+      imageUrl: result.images?.[0],
+      price: result.price,
+    })
+  }
+
   return NextResponse.json(result)
 }

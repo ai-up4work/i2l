@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   Activity,
   AlertTriangle,
+  CheckCircle2,
   ChevronDown,
   ExternalLink,
   ImageIcon,
@@ -495,6 +496,36 @@ function CustomerLinksTab({
                       </div>
                     )}
 
+                    {/* Channel 2 — a real successful scrape from this
+                        domain, shown in green: this is what "the scrape
+                        worked, the item just went straight into a cart"
+                        looks like, as opposed to the red Channel 3 list
+                        below (a link that failed and had to fall back to
+                        a manual request). See
+                        wishdrop-scrape-health-success-sample.sql for why
+                        this is a single latest example, not a history. */}
+                    {d.lastSuccessAt && (
+                      <div className="mb-4 rounded-xl border border-teal/25 bg-teal/[0.05] px-3.5 py-3">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold text-teal-deep">
+                          <CheckCircle2 size={12} aria-hidden />
+                          Ch. 2 · Last successful scrape ({daysAgo(d.lastSuccessAt)})
+                        </p>
+                        <div className="mt-2 flex items-center gap-3">
+                          {d.lastSuccessImageUrl && (
+                            <img
+                              src={d.lastSuccessImageUrl}
+                              alt=""
+                              className="h-12 w-12 flex-none rounded-lg border border-ink/10 object-cover"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-ink/80">{d.lastSuccessTitle ?? "Untitled product"}</p>
+                            {d.lastSuccessPrice && <p className="text-xs text-ink/50">{d.lastSuccessPrice}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <label htmlFor={`note-${d.domain}`} className="text-xs font-medium text-ink/50">
                         Ops note
@@ -509,14 +540,20 @@ function CustomerLinksTab({
 
                     {d.submissions.length > 0 && (
                       <>
-                        <p className="mt-4 text-xs font-medium text-ink/50">
-                          Recent fallback submissions ({d.submissions.length})
+                        {/* Channel 3 — links that failed to scrape and
+                            fell back to a manual request, shown in red:
+                            the mirror image of the green Channel 2
+                            section above. This is the "needs a human"
+                            case, not the "worked fine" one. */}
+                        <p className="mt-4 flex items-center gap-1.5 text-xs font-medium text-rose-700">
+                          <AlertTriangle size={12} aria-hidden />
+                          Ch. 3 · Recent fallback submissions ({d.submissions.length})
                         </p>
                         <div className="mt-2 flex flex-col gap-2">
                           {d.submissions.map((s) => (
                             <div
                               key={s.id}
-                              className="flex items-start justify-between gap-3 rounded-xl border border-ink/10 bg-card px-3.5 py-2.5 transition-colors hover:border-ink/20"
+                              className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/40 px-3.5 py-2.5 transition-colors hover:border-rose-300"
                             >
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2 text-xs text-ink/50">

@@ -1,117 +1,111 @@
-// app/api/account/whatsapp/send-code/route.ts
-//
-// Replaces Supabase Auth's phone_change OTP for this one flow — see
-// lib/phone.ts and AuthContext.tsx's own comments for exactly why:
-// updateUser()'s phone-change flow has no `channel` option in the
-// installed @supabase/supabase-js, only `signInWithOtp()` does, and
-// that's a sign-in flow, not "verify and attach a phone to my existing
-// account." This generates its own 6-digit code and delivers it over
-// WhatsApp via this app's existing Cloud API integration
-// (lib/chat/whatsapp.ts) instead.
-//
-// Requires a WhatsApp Business "Authentication" category template,
-// approved in Meta's WhatsApp Manager, since this is a business-
-// initiated message and the customer very likely has no open 24-hour
-// conversation window with WishDrop's WhatsApp number yet (this may be
-// the very first message they ever get from it) — sendTextMessage()
-// would be rejected by Meta outside that window; only an approved
-// template can be sent cold. Configure via:
-//   WHATSAPP_OTP_TEMPLATE_NAME  – the approved template's name
-//   WHATSAPP_OTP_TEMPLATE_LANG  – its approved language code, e.g. "en_US"
-// The template must have exactly one body variable (the code).
+import { NextResponse } from 'next/server'
+import { scrapeProduct } from '@/lib/scrape/parsers'
+import { matchAffiliatedSellerUrl } from '@/lib/store-config-db'
+import { extractProductIdentifier } from '@/lib/store-providers/product-id'
+import { fetchStoreProductForRedirectCheck } from '@/lib/store-providers/product'
+import { upsertScrapeHealth } from '@/lib/supabase/scrape-health-write'
+import { looksLikeShortlink, resolveFinalUrl } from '@/lib/scrape/resolve-redirect'
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createHash, randomInt } from 'crypto'
-import { createClient } from '@/lib/supabase/server'
-import { normalizeSriLankanMobile } from '@/lib/phone'
-import { sendTemplateMessage } from '@/lib/chat/whatsapp'
+// Must be >= the ScraperAPI TOTAL_BUDGET_MS (5 min) or the platform
+// will kill the function before scrapeProduct() gets a chance to
+// finish and return — silently reintroducing the exact "server
+// finished but nobody was listening" problem this whole fix is for.
+export const maxDuration = 300 // seconds
 
-const CODE_TTL_MINUTES = 5
-// Same length as the SMS OTP flow this replaces — long enough to not be
-// guessable within the short attempt-limited window (see verify-code),
-// short enough to type comfortably off a WhatsApp notification.
-const CODE_LENGTH = 6
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const url = searchParams.get('url')
+  const needVariants = searchParams.get('needVariants') === 'true'
 
-function hashCode(code: string): string {
-  return createHash('sha256').update(code).digest('hex')
-}
-
-export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
-  let body: { phone?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'Malformed request body.' }, { status: 400 })
+  if (!url) {
+    return NextResponse.json({ error: 'Missing required query param: url' }, { status: 400 })
   }
 
-  // Re-validate server-side — the client (lib/phone.ts) already does
-  // this too, but a request body is never trusted just because the UI
-  // that built it happened to check first.
-  const normalized = normalizeSriLankanMobile(body.phone ?? '')
-  if (!normalized) {
-    return NextResponse.json({ error: 'Enter a valid Sri Lankan mobile number.' }, { status: 400 })
+  // A shortlink's own domain (bit.ly, amzn.to, a WhatsApp-shared
+  // affiliate link, ...) has nothing to do with the real product —
+  // resolve it to the real destination BEFORE anything below keys off
+  // the URL's hostname (matchAffiliatedSellerUrl, scrapeProduct,
+  // upsertScrapeHealth's domain attribution). Cheap heuristic gate
+  // first (looksLikeShortlink) so the common case — a customer pastes
+  // an already-real store URL — never pays for an extra round trip.
+  // Best-effort: resolveFinalUrl returns the original url unchanged on
+  // any failure, so a shortener having a bad day never blocks the
+  // request.
+  const resolvedUrl = looksLikeShortlink(url) ? await resolveFinalUrl(url) : url
+  if (resolvedUrl !== url) {
+    console.log('[product-lookup] resolved shortlink', { original: url, resolved: resolvedUrl })
   }
 
-  const templateName = process.env.WHATSAPP_OTP_TEMPLATE_NAME
-  const templateLang = process.env.WHATSAPP_OTP_TEMPLATE_LANG
-  if (!templateName || !templateLang) {
-    // Fails loudly rather than silently "succeeding" with no message
-    // ever actually sent — see this file's header for the setup step
-    // this depends on.
-    console.error('[whatsapp/send-code] WHATSAPP_OTP_TEMPLATE_NAME/LANG not configured')
-    return NextResponse.json(
-      { error: "We can't send verification codes right now — please try again later or contact support." },
-      { status: 500 },
-    )
+  // Cheap, cached check (see matchAffiliatedSellerUrl — 24h platform-wide
+  // cache) before ever spending scraper budget: is this actually one of
+  // our own affiliated sellers' storefront URLs? If so, we already have
+  // this seller's real config/pricing in our own DB — no need to run
+  // their storefront through the external scraper like an unknown site.
+  const matchedSeller = await matchAffiliatedSellerUrl(resolvedUrl)
+
+  if (matchedSeller) {
+    // Best-effort extraction of which specific product this URL points
+    // to, per that provider's own path convention (see
+    // extractProductIdentifier) — then VALIDATED against the real
+    // catalog via fetchStoreProduct before we ever redirect to it. A
+    // guessed id that doesn't resolve (wrong convention, jsonapi/mock
+    // store, product removed, etc.) falls back to the store's catalog
+    // page rather than sending the customer to a 404 product route.
+    const productId = extractProductIdentifier(resolvedUrl, matchedSeller.config.type)
+
+    if (productId) {
+      try {
+          const product = await fetchStoreProductForRedirectCheck(matchedSeller.platform, productId)        
+        if (product) {
+          // NOTE: this app's product detail route is singular
+          // "/product/[productId]", not "/products/[productId]" — do
+          // not pluralize this segment.
+          return NextResponse.json({
+            internalRedirect: `/stores/${matchedSeller.platform}/product/${encodeURIComponent(productId)}`,
+          })
+        }
+      } catch (err) {
+        console.error('[product-lookup] failed to validate matched product', matchedSeller.platform, productId, err)
+      }
+    }
+
+    // No identifier extracted, or it didn't resolve to a real product —
+    // send the customer to the store's catalog page instead.
+    return NextResponse.json({ internalRedirect: `/stores/${matchedSeller.platform}` })
   }
 
-  const code = randomInt(0, 10 ** CODE_LENGTH).toString().padStart(CODE_LENGTH, '0')
-  const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60_000).toISOString()
+  // request.signal fires if the client disconnects — threading it down
+  // means an abandoned request actually stops the upstream ScraperAPI
+  // call instead of running to completion (and billing) with nobody
+  // there to receive the result.
+  const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal })
 
-  // Written before the send attempt: if the WhatsApp API call itself
-  // fails, failing the request is enough — there's no reason a failed
-  // send should also leave stale, un-attemptable OTP state behind, but
-  // there's also no reason it shouldn't be able to overwrite whatever
-  // was pending before, so order here doesn't matter much. Kept before
-  // the send for one real reason: if the process crashes between the
-  // two calls, the customer sees "check your WhatsApp" state that never
-  // actually got a message — sending first, then recording, would risk
-  // the opposite (a message that arrives with nothing here to check it
-  // against). Neither ordering is perfect without a transaction spanning
-  // an external API call, which isn't possible; this is the safer
-  // failure mode of the two.
-  const { error: updateError } = await supabase
-    .from('profiles')
-    .update({
-      pending_phone: normalized,
-      phone_otp_code_hash: hashCode(code),
-      phone_otp_expires_at: expiresAt,
-      phone_otp_attempts: 0,
+  // Internal QA testing traffic (app/demo/scraper-qa) is explicitly
+  // excluded from Scrape health, per product decision — a developer
+  // testing "does gymshark.com scrape correctly" ten times in a row
+  // shouldn't inflate that domain's real counts or overwrite its
+  // success sample with test data. Every genuine customer-facing
+  // caller (ItemInfoModal, useLiveProductData, ...) hits this same
+  // route WITHOUT this header, so they're unaffected.
+  const isQaTraffic = request.headers.get('x-scrape-source') === 'qa-tool'
+
+  if (!isQaTraffic) {
+    // Fire-and-forget: this is the one real call site the Scrape health
+    // panel's fail_count/success_count depend on (see
+    // scrape-health-write.ts's own header for the gap this closes) —
+    // intentionally NOT awaited, so a slow or failing health-tracking
+    // write can never add latency to, or break, the actual response the
+    // customer is waiting on. Same success definition the client already
+    // uses (hooks/useProductLookup.ts: `!data.error`). On a success, also
+    // carries the real title/image/price through so ops can see an
+    // actual example of what this domain's product pages look like, not
+    // just a bare count (see wishdrop-scrape-health-success-sample.sql).
+    upsertScrapeHealth(resolvedUrl, !result.error, {
+      title: result.title,
+      imageUrl: result.images?.[0],
+      price: result.price,
     })
-    .eq('id', user.id)
-  if (updateError) {
-    console.error('[whatsapp/send-code] failed to record pending OTP', updateError)
-    return NextResponse.json({ error: 'Could not start verification. Please try again.' }, { status: 500 })
   }
 
-  try {
-    // Cloud API wants digits only, no leading '+' — see
-    // lib/chat/whatsapp.ts's own comment on sendTextMessage for why.
-    const toDigitsOnly = normalized.replace('+', '')
-    await sendTemplateMessage(toDigitsOnly, templateName, templateLang, [code])
-  } catch (err) {
-    console.error('[whatsapp/send-code] WhatsApp send failed', err)
-    return NextResponse.json(
-      { error: "We couldn't send a code to that number. Double-check it's a WhatsApp number and try again." },
-      { status: 502 },
-    )
-  }
-
-  return NextResponse.json({ ok: true })
+  return NextResponse.json(result)
 }

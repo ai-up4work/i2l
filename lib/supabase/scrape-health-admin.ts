@@ -27,10 +27,11 @@
 //     (build extractor / pursue affiliate / dismiss) persist for real
 //     instead of resetting on every reload — see
 //     data/wishdrop-scrape-health-decision-columns.sql, which this file
-//     assumes has been run. upsertScrapeHealth is also the hook meant
-//     to be called from the actual scrape pipeline (see its own doc
-//     comment) so fail_count/success_count start reflecting real
-//     attempts, not just ones that gave up and became a request.
+//     assumes has been run. upsertScrapeHealth (lib/supabase/
+//     scrape-health-write.ts) is the hook called from the actual scrape
+//     pipeline (/api/product-lookup) so fail_count/success_count now
+//     reflect every real attempt, not just ones that gave up and became
+//     a request.
 
 import { createClient } from '@/lib/supabase/client'
 
@@ -53,9 +54,16 @@ export type DomainHealthRecord = {
   decision: DomainDecision
   opsNote: string
   submissions: FallbackSubmission[]
-  /** Real counters from scrape_health, when a row exists for this domain (see upsertScrapeHealth) — null until the scrape pipeline is instrumented and has actually seen this domain. Distinct from requests30d/AllTime, which count only the attempts that gave up and became a manual request; these count every attempt, successful or not. */
+  /** Real counters from scrape_health (see upsertScrapeHealth in scrape-health-write.ts, now wired into /api/product-lookup) — null only until this domain's first real scrape attempt since instrumentation went live. Distinct from requests30d/AllTime, which count only the attempts that gave up and became a manual request; these count every attempt, successful or not. */
   failCount: number | null
   successCount: number | null
+  /** A real example of a successful scrape from this domain — see
+   * wishdrop-scrape-health-success-sample.sql. All null until this
+   * domain has had at least one real success since instrumentation. */
+  lastSuccessTitle: string | null
+  lastSuccessImageUrl: string | null
+  lastSuccessPrice: string | null
+  lastSuccessAt: string | null
 }
 
 function initialsFromName(name: string): string {
@@ -129,6 +137,10 @@ export async function fetchDomainHealthFromRequests(): Promise<DomainHealthRecor
         submissions: [submission],
         failCount: null,
         successCount: null,
+        lastSuccessTitle: null,
+        lastSuccessImageUrl: null,
+        lastSuccessPrice: null,
+        lastSuccessAt: null,
       })
     }
   }
@@ -150,7 +162,11 @@ export async function fetchDomainHealth(): Promise<DomainHealthRecord[]> {
   const supabase = createClient()
   const [fromRequests, { data: healthRows, error }] = await Promise.all([
     fetchDomainHealthFromRequests(),
-    supabase.from('scrape_health').select('domain, fail_count, success_count, last_failure, decision, ops_note'),
+    supabase
+      .from('scrape_health')
+      .select(
+        'domain, fail_count, success_count, last_failure, decision, ops_note, last_success_title, last_success_image_url, last_success_price, last_success_at',
+      ),
   ])
   if (error) console.error('[fetchDomainHealth] scrape_health read failed', error)
 
@@ -163,6 +179,10 @@ export async function fetchDomainHealth(): Promise<DomainHealthRecord[]> {
       existing.opsNote = h.ops_note ?? ''
       existing.failCount = h.fail_count
       existing.successCount = h.success_count
+      existing.lastSuccessTitle = h.last_success_title
+      existing.lastSuccessImageUrl = h.last_success_image_url
+      existing.lastSuccessPrice = h.last_success_price
+      existing.lastSuccessAt = h.last_success_at
     } else {
       byDomain.set(h.domain, {
         domain: h.domain,
@@ -174,6 +194,10 @@ export async function fetchDomainHealth(): Promise<DomainHealthRecord[]> {
         submissions: [],
         failCount: h.fail_count,
         successCount: h.success_count,
+        lastSuccessTitle: h.last_success_title,
+        lastSuccessImageUrl: h.last_success_image_url,
+        lastSuccessPrice: h.last_success_price,
+        lastSuccessAt: h.last_success_at,
       })
     }
   }
@@ -194,28 +218,27 @@ export async function updateDomainDecision(
   patch: { decision?: DomainDecision; opsNote?: string }
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
-  const { error } = await supabase.from('scrape_health').upsert(
-    {
-      domain,
-      ...(patch.decision !== undefined ? { decision: patch.decision } : {}),
-      ...(patch.opsNote !== undefined ? { ops_note: patch.opsNote } : {}),
-    },
-    { onConflict: 'domain' }
-  )
+  // Built as a concretely-typed variable rather than two inline
+  // conditional spreads — see orders-admin.ts's reassignOrderSite for
+  // why that form collapses Supabase's generic Update<T>/Insert<T>
+  // field types to `never`; same shape here since this is an upsert.
+  const payload: { domain: string; decision?: DomainDecision; ops_note?: string } = { domain }
+  if (patch.decision !== undefined) payload.decision = patch.decision
+  if (patch.opsNote !== undefined) payload.ops_note = patch.opsNote
+  const { error } = await supabase.from('scrape_health').upsert(payload, { onConflict: 'domain' })
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
 // ---------------------------------------------------------------------
 // upsertScrapeHealth lives in a SEPARATE file
-// (lib/supabase/scrape-health-write.ts), not here — this file is
-// imported into the 'use client' admin page (fetchDomainHealth,
-// updateDomainDecision, fetchSellerFeedHealth all run in the browser),
-// while the write needs the service-role client (server-only, must
-// never reach a client bundle — see that file's own doc comment for
-// why) since it's called from the /api/product-lookup route handler on
-// behalf of ANY visitor, not an authenticated admin session, and
-// scrape_health has no user_id to scope an "own row" RLS policy against
-// in the first place.
+// (lib/supabase/scrape-health-write.ts) — this file is imported into
+// the 'use client' admin page (fetchDomainHealth, updateDomainDecision,
+// fetchSellerFeedHealth all run in the browser), while the write needs
+// the service-role client (server-only, must never reach a client
+// bundle — see that file's own doc comment for why) since it's called
+// from the /api/product-lookup route handler on behalf of ANY visitor,
+// not an authenticated admin session, and scrape_health has no user_id
+// to scope an "own row" RLS policy against in the first place.
 // ---------------------------------------------------------------------
 
 // ---------------------------------------------------------------------

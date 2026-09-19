@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle, Truck, Plane, Info } from 'lucide-react'
+import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle, Truck, Plane, Info, Link } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
@@ -523,6 +523,15 @@ function GenericProductView(
           <Zap size={11} className="text-teal-deep" strokeWidth={2} />
           {result.site ?? 'Online store'}
         </span>
+        {result.resolvedFromShortlink && (
+          <span
+            title="This was a shortened link — resolved to the real product page before we read it."
+            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 text-xs font-semibold text-ink/50 ring-1 ring-inset ring-ink/10"
+          >
+            <Link size={11} className="text-teal-deep" strokeWidth={2} />
+            Shortlink
+          </span>
+        )}
         <h3 className="mt-2 font-display text-xl leading-snug text-ink">{result.title ?? 'Untitled item'}</h3>
         <p className="mt-2 font-display text-xl text-ink">
           {result.currencyCode ?? ''} {result.price ?? '—'}

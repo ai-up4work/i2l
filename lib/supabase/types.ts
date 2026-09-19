@@ -1112,6 +1112,10 @@ export interface Database {
           linked_seller_id: string | null
           decision: string
           ops_note: string | null
+          last_success_title: string | null
+          last_success_image_url: string | null
+          last_success_price: string | null
+          last_success_at: string | null
         }
         Insert: {
           domain: string
@@ -1121,6 +1125,10 @@ export interface Database {
           linked_seller_id?: string | null
           decision?: string
           ops_note?: string | null
+          last_success_title?: string | null
+          last_success_image_url?: string | null
+          last_success_price?: string | null
+          last_success_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['scrape_health']['Insert']>
         Relationships: []
@@ -1255,7 +1263,7 @@ export interface Database {
       // see data/wishdrop-scrape-health-increment-fn.sql for why this is
       // a database-side function rather than a plain client upsert.
       increment_scrape_health: {
-        Args: { p_domain: string; p_success: boolean }
+        Args: { p_domain: string; p_success: boolean; p_title?: string; p_image_url?: string; p_price?: string }
         Returns: undefined
       }
     }

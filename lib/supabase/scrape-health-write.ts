@@ -42,19 +42,37 @@ function domainFor(url: string): string {
  * defined the same way the client already does (hooks/useProductLookup.ts:
  * `!data.error`), so "success" here means exactly what it means there.
  *
+ * `sample` is only meaningful (and only ever written) on a real
+ * success — see wishdrop-scrape-health-success-sample.sql for why this
+ * exists: a bare count told ops a domain scrapes fine, but never showed
+ * what actually came back. A sample field left undefined doesn't erase
+ * a previously-recorded one (see the RPC's own comment on why), so a
+ * success that couldn't extract every field still doesn't blank out an
+ * otherwise-good example.
+ *
  * Fire-and-forget by design: the caller should not `await` this inline
  * in the critical path of returning a scrape result to the customer —
  * see this function's call site in product-lookup/route.ts for the
  * "don't let a health-tracking failure or slowdown affect the actual
  * product lookup" pattern. Failures here are logged, never thrown.
  */
-export async function upsertScrapeHealth(url: string, success: boolean): Promise<void> {
+export async function upsertScrapeHealth(
+  url: string,
+  success: boolean,
+  sample?: { title?: string | null; imageUrl?: string | null; price?: string | null },
+): Promise<void> {
   const domain = domainFor(url)
   if (domain === 'unknown') return // nothing meaningful to attribute this attempt to
 
   try {
     const supabase = createServiceRoleClient()
-    const { error } = await supabase.rpc('increment_scrape_health', { p_domain: domain, p_success: success })
+    const { error } = await supabase.rpc('increment_scrape_health', {
+      p_domain: domain,
+      p_success: success,
+      p_title: sample?.title ?? undefined,
+      p_image_url: sample?.imageUrl ?? undefined,
+      p_price: sample?.price ?? undefined,
+    })
     if (error) console.error('[upsertScrapeHealth]', domain, error)
   } catch (err) {
     console.error('[upsertScrapeHealth] threw', domain, err)

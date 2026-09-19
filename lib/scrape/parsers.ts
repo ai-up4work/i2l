@@ -163,6 +163,14 @@ export type ScrapeResult = {
   itemEndDate?: string | null
   variantsNote?: string | null
   internalRedirect?: string
+  /** True when the URL the customer pasted was a shortlink (bit.ly,
+   * amzn.in, an affiliate redirect, etc.) that got resolved to its real
+   * destination before scraping — see lib/scrape/resolve-redirect.ts.
+   * `url` above is already the resolved, real product URL either way;
+   * this is purely a transparency flag so the customer/admin can see
+   * "this came from a shortened link" rather than it looking identical
+   * to a plain pasted product URL. */
+  resolvedFromShortlink?: boolean
 }
 
 export type SiteId =
