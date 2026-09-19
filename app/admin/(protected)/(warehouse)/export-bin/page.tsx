@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { Archive, Inbox, PackageCheck, Printer, Search, SearchX, Truck, X } from "lucide-react"
+import { Archive, Inbox, PackageCheck, PauseCircle, PlayCircle, Printer, Search, SearchX, Truck, Users2, X } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import type { ExportBinLine } from "@/types/admin"
@@ -15,6 +15,22 @@ import type { ExportBinLine } from "@/types/admin"
 // Nothing is handed to a courier by a bare row click. Use the per-row
 // "Mark picked up" button, or tick rows and use the selection bar. The courier
 // chosen in the toolbar applies to both.
+//
+// CUSTOMER GROUPING + HOLD: when a customer has more than one order sitting
+// in the bin for the same address, they're shown together under one group
+// header instead of scattered through the oldest-first list — makes it
+// obvious at a glance that two orders could go out in one pickup. The
+// group's own "Hold together"/"Release" button (and each row's own toggle)
+// sets Order.exportHold, a manual, reversible flag: a held order can't be
+// selected or picked up until it's released, so it's a deliberate two-step
+// (release, then pick up) rather than something a bulk action could catch
+// by accident. Grouping key is customerId + the order's real linked
+// address id (recipientAddressId) when it has one — an exact match, not a
+// guess — so two different street addresses in the same city never get
+// merged just because they share a city. An order with no address linked
+// yet falls back to matching on the coarser city-level `destination`
+// string instead, and is flagged in the UI so the admin knows to verify
+// it by eye rather than trust it outright.
 
 const COURIERS = ["Domex", "Pronto"] as const
 type Courier = (typeof COURIERS)[number]
@@ -40,8 +56,17 @@ function ageTone(hours: number) {
 }
 
 export default function ExportBinPage() {
-  const { visibleExportBinLines, canActOnExportBinLine, markPickedUp, sites, currentUser, permissions } =
-    useAdminData()
+  const {
+    visibleExportBinLines,
+    visibleOrders,
+    canActOnExportBinLine,
+    markPickedUp,
+    toggleExportHold,
+    bulkSetExportHold,
+    sites,
+    currentUser,
+    permissions,
+  } = useAdminData()
 
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set()) // line ids
@@ -64,8 +89,86 @@ export default function ExportBinPage() {
       .sort((a, b) => b.packedAgeHours - a.packedAgeHours)
   }, [visibleExportBinLines, query])
 
+  // Groups lines by customer + address so a customer with several orders
+  // in the bin at once is shown together. Uses the REAL address id
+  // (recipientAddressId) when the order has one linked — two different
+  // street addresses in the same city no longer get merged just because
+  // `destination` (city-level only) happens to match. Falls back to the
+  // coarser destination string only for the rare order with no address
+  // linked yet (e.g. a Channel 3 order created before checkout captures
+  // one) — those are flagged in the UI as "no exact address on file" so
+  // the admin knows to double-check before treating them as a match.
+  // A "group" of one is still a real entry here; the row renderer below
+  // only shows group chrome once a group actually has 2+ members.
+  const groups = useMemo(() => {
+    const byKey = new Map<
+      string,
+      { key: string; customerId: string; customerName: string; destination: string; addressLine?: string; addressIsExact: boolean; lines: ExportBinLine[] }
+    >()
+    for (const line of filtered) {
+      const addressIsExact = !!line.recipientAddressId
+      const key = `${line.customerId}|${line.recipientAddressId ?? line.destination}`
+      const existing = byKey.get(key)
+      if (existing) existing.lines.push(line)
+      else
+        byKey.set(key, {
+          key,
+          customerId: line.customerId,
+          customerName: line.customerName,
+          destination: line.destination,
+          addressLine: line.recipientAddressLine,
+          addressIsExact,
+          lines: [line],
+        })
+    }
+    // filtered is already oldest-first; sorting groups by their oldest
+    // member keeps that same overall ordering with members now clustered
+    // under their group instead of scattered through the flat list.
+    return [...byKey.values()].sort(
+      (a, b) => Math.max(...b.lines.map((l) => l.packedAgeHours)) - Math.max(...a.lines.map((l) => l.packedAgeHours)),
+    )
+  }, [filtered])
+
+  // Orders from the SAME customer that haven't reached Export bin yet —
+  // still in Purchasing/Quality check (or Ordered, before that), and not
+  // yet packed. This is the gap the grouping above can't see on its own:
+  // a customer's second order might still be upstream when their first
+  // one lands here, so without this a lone order looks like there's
+  // nothing to wait for even when there actually is. Matched on
+  // customerId only, not destination — an upstream order's destination
+  // field is less reliably populated than a packed one's, so this is
+  // deliberately a broader "heads up, check this" signal rather than a
+  // strict match; the admin still opens the linked order to confirm.
+  // BUG FIX: this used to keep a single `earliestStage` field that got
+  // overwritten by whichever matching order the loop saw LAST, not the
+  // earliest one — so a customer with one order still at "Ordered" (not
+  // yet purchased) and another at "Quality check" (e.g. in Pack & label)
+  // would report BOTH as "Quality check," silently hiding that one
+  // hadn't even been purchased yet. Now tracks each stage's count
+  // separately so the message lists what's actually true for each order.
+  const upstreamByCustomer = useMemo(() => {
+    const map = new Map<string, { ordered: number; qualityCheck: number }>()
+    for (const order of visibleOrders) {
+      if (order.packedAt) continue // already at/past Export bin
+      if (order.stage !== "Ordered" && order.stage !== "Quality check") continue
+      const existing = map.get(order.customerId) ?? { ordered: 0, qualityCheck: 0 }
+      if (order.stage === "Ordered") existing.ordered += 1
+      else existing.qualityCheck += 1
+      map.set(order.customerId, existing)
+    }
+    return map
+  }, [visibleOrders])
+
+  // Permission-based only (existing meaning, used for the "different
+  // site, view only" case on each row) — kept separate from hold, which
+  // is a second, independent gate on top of it.
   const actionable = useMemo(() => filtered.filter(canActOnExportBinLine), [filtered, canActOnExportBinLine])
-  const allVisibleSelected = actionable.length > 0 && actionable.every((o) => selected.has(o.id))
+  // What bulk "select all"/pickup actually operates on: actionable AND
+  // not on hold. A held line is deliberately excluded here so it can
+  // never be swept up by a bulk action — releasing it first is a
+  // separate, explicit step (see the row/group release button).
+  const pickupEligible = useMemo(() => actionable.filter((o) => !o.exportHold), [actionable])
+  const allVisibleSelected = pickupEligible.length > 0 && pickupEligible.every((o) => selected.has(o.id))
 
   const totalWeight = visibleExportBinLines.reduce((sum, o) => sum + (o.weightKg ?? 0), 0)
   const oldestHours = visibleExportBinLines.reduce((max, o) => Math.max(max, o.packedAgeHours), 0)
@@ -85,7 +188,7 @@ export default function ExportBinPage() {
   const toggleSelectAllVisible = () =>
     setSelected((prev) => {
       const next = new Set(prev)
-      actionable.forEach((o) => (allVisibleSelected ? next.delete(o.id) : next.add(o.id)))
+      pickupEligible.forEach((o) => (allVisibleSelected ? next.delete(o.id) : next.add(o.id)))
       return next
     })
 
@@ -140,6 +243,10 @@ export default function ExportBinPage() {
               label="Oldest waiting"
               value={visibleExportBinLines.length ? formatAge(oldestHours) : "—"}
               tone={oldestHours >= 48 ? "text-rose-700" : oldestHours >= 24 ? "text-amber-700" : undefined}
+            />
+            <Stat
+              label="On hold"
+              value={String(visibleExportBinLines.filter((l) => l.exportHold).length)}
             />
           </dl>
         </div>
@@ -230,7 +337,7 @@ export default function ExportBinPage() {
               aria-label="Select all visible orders"
               checked={allVisibleSelected}
               onChange={toggleSelectAllVisible}
-              disabled={actionable.length === 0}
+              disabled={pickupEligible.length === 0}
               className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
             />
             <span>Order</span>
@@ -248,17 +355,111 @@ export default function ExportBinPage() {
               onClearFilters={clearFilters}
             />
           ) : (
-            filtered.map((line) => (
-              <ExportBinRow
-                key={line.id}
-                line={line}
-                canAct={canActOnExportBinLine(line)}
-                selected={selected.has(line.id)}
-                courier={courier}
-                onToggleSelect={() => toggleSelect(line.id)}
-                onMarkPickedUp={() => handleSinglePickup(line)}
-              />
-            ))
+            groups.map((group) => {
+              const isMultiOrder = group.lines.length > 1
+              const groupSelectable = group.lines.filter((l) => canActOnExportBinLine(l) && !l.exportHold)
+              const groupAllSelected = groupSelectable.length > 0 && groupSelectable.every((l) => selected.has(l.id))
+              const groupAllHeld = group.lines.every((l) => l.exportHold)
+
+              const toggleGroupSelect = () =>
+                setSelected((prev) => {
+                  const next = new Set(prev)
+                  groupSelectable.forEach((l) => (groupAllSelected ? next.delete(l.id) : next.add(l.id)))
+                  return next
+                })
+
+              const toggleGroupHold = () => bulkSetExportHold(group.lines.map((l) => l.orderId), !groupAllHeld)
+
+              // Does this SAME customer have another order still on its
+              // way here (not yet packed)? Shown even for a lone order in
+              // the bin — that's exactly the case the grouping above
+              // can't catch on its own, since there's nothing to "group"
+              // with yet.
+              const upstream = upstreamByCustomer.get(group.customerId)
+              const upstreamParts = upstream
+                ? [
+                    upstream.ordered > 0
+                      ? `${upstream.ordered} order${upstream.ordered === 1 ? "" : "s"} still awaiting purchase`
+                      : null,
+                    upstream.qualityCheck > 0
+                      ? `${upstream.qualityCheck} order${upstream.qualityCheck === 1 ? "" : "s"} in Quality check`
+                      : null,
+                  ].filter((p): p is string => p !== null)
+                : []
+              const anyHeldAlready = group.lines.some((l) => l.exportHold)
+
+              return (
+                <div key={group.key}>
+                  {isMultiOrder && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] bg-ink/[0.02] px-5 py-2.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select all ${group.lines.length} orders for ${group.customerName}`}
+                        checked={groupAllSelected}
+                        disabled={groupSelectable.length === 0}
+                        onChange={toggleGroupSelect}
+                        className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
+                      />
+                      <Users2 size={13} className="text-ink/40" />
+                      <span className="text-xs font-semibold text-ink/70">
+                        {group.customerName} · {group.lines.length} orders · {group.addressLine ?? group.destination}
+                      </span>
+                      {!group.addressIsExact && (
+                        <span
+                          className="text-[11px] font-medium text-amber-700"
+                          title="These orders share a city, not a confirmed matching address — open each order to verify before shipping together."
+                        >
+                          (same city — verify address)
+                        </span>
+                      )}
+                      <span className="ml-auto" />
+                      <button
+                        type="button"
+                        onClick={toggleGroupHold}
+                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                          groupAllHeld
+                            ? "border border-teal/30 bg-teal/[0.06] text-teal-deep hover:bg-teal/[0.12]"
+                            : "border border-amber-500/30 bg-amber-500/[0.08] text-amber-700 hover:bg-amber-500/[0.14]"
+                        }`}
+                      >
+                        {groupAllHeld ? <PlayCircle size={13} /> : <PauseCircle size={13} />}
+                        {groupAllHeld ? "Release all — ready for pickup" : "Hold all — wait to ship together"}
+                      </button>
+                    </div>
+                  )}
+                  {upstreamParts.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-ink/[0.06] bg-amber-500/[0.06] px-5 py-2 text-xs text-amber-800">
+                      <span aria-hidden>⏳</span>
+                      <span>
+                        {group.customerName} also has{" "}
+                        <span className="font-semibold">{upstreamParts.join(" and ")}</span> — not in this bin yet.
+                      </span>
+                      {!anyHeldAlready && !isMultiOrder && (
+                        <button
+                          type="button"
+                          onClick={toggleGroupHold}
+                          className="ml-auto inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-600/30 bg-amber-600/[0.1] px-2.5 py-1 font-semibold text-amber-800 outline-none transition-colors hover:bg-amber-600/[0.18] focus-visible:ring-2 focus-visible:ring-amber-600/40"
+                        >
+                          <PauseCircle size={12} /> Hold to wait
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {group.lines.map((line) => (
+                    <ExportBinRow
+                      key={line.id}
+                      line={line}
+                      canAct={canActOnExportBinLine(line)}
+                      selected={selected.has(line.id)}
+                      courier={courier}
+                      onToggleSelect={() => toggleSelect(line.id)}
+                      onMarkPickedUp={() => handleSinglePickup(line)}
+                      onToggleHold={() => toggleExportHold(line.orderId)}
+                    />
+                  ))}
+                </div>
+              )
+            })
           )}
         </div>
 
@@ -318,6 +519,7 @@ function ExportBinRow({
   courier,
   onToggleSelect,
   onMarkPickedUp,
+  onToggleHold,
 }: {
   line: ExportBinLine
   canAct: boolean
@@ -325,15 +527,21 @@ function ExportBinRow({
   courier: string
   onToggleSelect: () => void
   onMarkPickedUp: () => void
+  onToggleHold: () => void
 }) {
   const tone = ageTone(line.packedAgeHours)
+  // Held blocks pickup/selection outright — release is its own explicit
+  // click, not something a bulk "select all"/pickup action can bypass.
+  // See the file header comment for why this stays a deliberate
+  // two-step instead of a soft warning.
+  const pickupDisabled = !canAct || line.exportHold
 
   const pickupButton = (label: string) => (
     <button
       type="button"
-      disabled={!canAct}
+      disabled={pickupDisabled}
       onClick={onMarkPickedUp}
-      title={canAct ? `Mark picked up by ${courier}` : undefined}
+      title={canAct ? (line.exportHold ? "On hold — release before picking up" : `Mark picked up by ${courier}`) : undefined}
       className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep outline-none transition-colors hover:bg-teal/[0.12] focus-visible:ring-2 focus-visible:ring-teal/40 disabled:cursor-not-allowed disabled:opacity-30"
     >
       <Truck size={13} />
@@ -341,17 +549,34 @@ function ExportBinRow({
     </button>
   )
 
+  const holdButton = (
+    <button
+      type="button"
+      disabled={!canAct}
+      onClick={onToggleHold}
+      title={line.exportHold ? "Release — make eligible for pickup again" : "Hold — wait for a sibling order before shipping"}
+      className={`inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 disabled:cursor-not-allowed disabled:opacity-30 ${
+        line.exportHold
+          ? "border border-teal/30 bg-teal/[0.06] text-teal-deep hover:bg-teal/[0.12]"
+          : "border border-ink/15 bg-white text-ink/50 hover:bg-parchment/60"
+      }`}
+    >
+      {line.exportHold ? <PlayCircle size={13} /> : <PauseCircle size={13} />}
+      {line.exportHold ? "Release" : "Hold"}
+    </button>
+  )
+
   return (
     <div
       className={`grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] px-5 py-4 transition-colors last:border-b-0 sm:gap-y-0 sm:py-3.5 ${GRID} ${
-        selected ? "bg-teal/[0.06]" : "hover:bg-ink/[0.015]"
+        selected ? "bg-teal/[0.06]" : line.exportHold ? "bg-amber-500/[0.04]" : "hover:bg-ink/[0.015]"
       }`}
     >
       <input
         type="checkbox"
         aria-label={`Select ${line.orderNumber}`}
         checked={selected}
-        disabled={!canAct}
+        disabled={pickupDisabled}
         onChange={onToggleSelect}
         className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
       />
@@ -365,9 +590,19 @@ function ExportBinRow({
         </Link>
         <span className="block truncate text-xs text-ink/50">{line.customerName}</span>
         {!canAct && <span className="block text-[11px] text-ink/40">View only, different site</span>}
+        {line.exportHold && (
+          <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+            <PauseCircle size={11} /> On hold
+          </span>
+        )}
       </div>
 
-      <span className="col-start-2 truncate text-sm text-ink/70 sm:col-start-auto">{line.destination}</span>
+      <span
+        className="col-start-2 truncate text-sm text-ink/70 sm:col-start-auto"
+        title={line.recipientAddressLine ?? undefined}
+      >
+        {line.destination}
+      </span>
 
       <span className="col-start-2 sm:col-start-auto">
         <span className="inline-flex max-w-full items-center gap-1.5 truncate whitespace-nowrap rounded-md bg-ink/[0.04] px-2 py-1 text-xs font-medium text-ink/60 ring-1 ring-inset ring-ink/10">
@@ -385,7 +620,8 @@ function ExportBinRow({
         {line.packedAgeLabel}
       </span>
 
-      <span className="col-start-2 sm:col-start-auto sm:justify-self-end">
+      <span className="col-start-2 flex items-center justify-end gap-2 sm:col-start-auto">
+        {holdButton}
         <span className="sm:hidden">{pickupButton(`Mark picked up by ${courier}`)}</span>
         <span className="hidden sm:inline">{pickupButton("Mark picked up")}</span>
       </span>

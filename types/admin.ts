@@ -116,6 +116,12 @@ export interface PackageDimensionsCm {
 
 export interface Order {
   id: string
+  /** Real auth uid of the customer this order belongs to — same person
+   * across every order/request they have, unlike customerName (a display
+   * string that two different customers could share). Lets Export bin
+   * group a customer's own orders together reliably instead of matching
+   * on name text. */
+  customerId: string
   customerName: string
   channel: Channel
   stage: OrderStage
@@ -124,6 +130,11 @@ export interface Order {
   stageEnteredAt: string // ISO — when it entered its *current* stage
   totalValue: number
   delayed: boolean
+  /** Manual staff-set hold, keeping a packed order back from courier
+   * pickup on purpose — e.g. waiting on a sibling order from the same
+   * customer/address so both go out in one pickup. Toggled from Export
+   * bin; has no effect before an order reaches that queue. */
+  exportHold: boolean
   /** True only for confirmed Channel 3 orders — priced by a human, never lib/pricing.ts */
   isManualQuote: boolean
   items: OrderItem[]
@@ -147,6 +158,16 @@ export interface Order {
   chatThreadId?: string
   /** Customer-facing delivery city/area — shown on the Pack & label queue */
   destination?: string
+  /** Real address row id (addresses.id) this order ships to — the exact
+   * key for "is this genuinely the same address," unlike destination
+   * above, which is only city+country and could match two different
+   * street addresses in the same city. Undefined when the order has no
+   * linked address yet (e.g. a Channel 3 order before checkout). */
+  recipientAddressId?: string
+  /** Full one-line street address (line1[, line2], city) for display
+   * wherever "same address, not just same city" needs to be shown to a
+   * human, e.g. Export bin's customer grouping. */
+  recipientAddressLine?: string
   /** Packing instruction (fragile, gift wrap, etc.) surfaced on Pack & label */
   handlingNote?: string
   /**
@@ -438,16 +459,26 @@ export interface ExportBinLine {
   id: string
   orderId: string
   orderNumber: string
+  /** See Order.customerId's own doc comment — the grouping key Export
+   * bin uses to spot several orders belonging to the same customer. */
+  customerId: string
   customerName: string
   siteId: string
   site: string
   channel: Channel
   destination: string
+  /** See Order.recipientAddressId's own doc comment — the real grouping
+   * key, when present, instead of the coarser destination string. */
+  recipientAddressId?: string
+  /** See Order.recipientAddressLine's own doc comment. */
+  recipientAddressLine?: string
   itemCount: number
   weightKg?: number
   labelRef?: string
   packedAgeHours: number
   packedAgeLabel: string
+  /** See Order.exportHold's own doc comment. */
+  exportHold: boolean
 }
 
 // ---------------------------------------------------------------------------

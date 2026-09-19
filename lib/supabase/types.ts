@@ -581,6 +581,7 @@ export interface Database {
           currency: string
           total_value: number
           delayed: boolean
+          export_hold: boolean
           site_id: string | null
           request_id: string | null
           chat_thread_id: string | null
@@ -609,6 +610,7 @@ export interface Database {
           currency?: string
           total_value?: number
           delayed?: boolean
+          export_hold?: boolean
           site_id?: string | null
           request_id?: string | null
           chat_thread_id?: string | null

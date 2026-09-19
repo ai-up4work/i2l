@@ -404,6 +404,7 @@ import {
   fetchOrderPackageDetails,
   setOrderStage as realSetOrderStage,
   setOrderDelayed as realSetOrderDelayed,
+  setOrderExportHold as realSetOrderExportHold,
   reassignOrderSite as realReassignOrderSite,
   addInternalNote as realAddInternalNote,
   setWarehouseSubstage as realSetWarehouseSubstage,
@@ -556,6 +557,7 @@ function mapToOrder(
 
   return {
     id: o.displayId,
+    customerId: o.customerId,
     customerName: o.customerName,
     channel: o.channel,
     stage,
@@ -564,6 +566,7 @@ function mapToOrder(
     stageEnteredAt: o.stageEnteredAt,
     totalValue: o.totalValue,
     delayed: o.delayed,
+    exportHold: o.exportHold,
     isManualQuote: o.channel === 3,
     items: o.items.map(mapAdminItemToOrderItem),
     stageHistory: fullStageHistory,
@@ -1040,6 +1043,9 @@ interface AdminDataContextValue {
   /** Explicit version of toggleDelayed — sets rather than flips, for callers (like closing out a QC issue) that need to conditionally clear it rather than blindly toggle. */
   setOrderDelayedExplicit: (orderId: string, delayed: boolean) => void
   bulkFlagDelayed: (orderIds: string[]) => void
+  /** Export bin "Hold"/"Release" — see Order.exportHold's own doc comment. */
+  toggleExportHold: (orderId: string) => void
+  bulkSetExportHold: (orderIds: string[], exportHold: boolean) => void
   addInternalNote: (orderId: string, body: string) => void
   purchaseLines: PurchaseLine[]
   visiblePurchaseLines: PurchaseLine[]
@@ -1798,6 +1804,29 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     })
   }
 
+  // -- Export bin: hold/release ---------------------------------------
+  // Same optimistic-then-real pattern as toggleDelayed/bulkFlagDelayed
+  // above — a manual, reversible flag with no audit trail, just a plain
+  // boolean an admin can flip as often as they like. Used to keep a
+  // packed order sitting in Export bin on purpose (not yet handed to a
+  // courier) while waiting on a sibling order from the same customer, so
+  // both go out together in one pickup instead of two.
+  const toggleExportHold = (orderId: string) => {
+    const wasHeld = orders.find((o) => o.id === orderId)?.exportHold ?? false
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, exportHold: !o.exportHold } : o)))
+    const realId = resolveRealId(orderId)
+    if (realId) realSetOrderExportHold(realId, !wasHeld)
+  }
+
+  const bulkSetExportHold = (orderIds: string[], exportHold: boolean) => {
+    const idSet = new Set(orderIds)
+    setOrders((prev) => prev.map((o) => (idSet.has(o.id) ? { ...o, exportHold } : o)))
+    orderIds.forEach((id) => {
+      const realId = resolveRealId(id)
+      if (realId) realSetOrderExportHold(realId, exportHold)
+    })
+  }
+
   const addInternalNote = (orderId: string, body: string) => {
     if (!body.trim()) return
     setOrders((prev) =>
@@ -2337,6 +2366,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         id: order.id,
         orderId: order.id,
         orderNumber: order.id,
+        customerId: order.customerId,
         customerName: order.customerName,
         siteId: order.siteId,
         site: siteName,
@@ -2347,6 +2377,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         labelRef: order.labelRef,
         packedAgeHours,
         packedAgeLabel: formatAge(packedAgeHours),
+        exportHold: order.exportHold,
       }]
     })
   }, [orders])
@@ -2716,9 +2747,18 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const now = new Date().toISOString()
     const siteId = SITES[0].id // no site signal on a Channel 3 request yet — defaults to the first hub
     const totalValue = request.items.reduce((sum, i) => sum + (i.quote ?? 0), 0)
+    // Moved up from below the real write — needed on the optimistic
+    // Order object's customerId too now, not just confirmRequestReal's
+    // call below, so both use the same real uid instead of guessing.
+    const userId = requestUserIdByRequestId.current.get(requestId)
+    const firstItem = request.items[0]
+    if (!userId || !firstItem) {
+      return { ok: false, error: "Could not find this request's customer or item to confirm." }
+    }
 
     const newOrder: Order = {
       id: newOrderId,
+      customerId: userId,
       customerName: request.customerName,
       channel: 3,
       stage: "Ordered",
@@ -2727,6 +2767,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       stageEnteredAt: now,
       totalValue,
       delayed: false,
+      exportHold: false,
       isManualQuote: true,
       linkedRequestId: request.id,
       chatThreadId: request.chatThreadId,
@@ -2759,12 +2800,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // actually assigns via its own sequence (see
     // data/wishdrop-order-display-id-sequence.sql). Sending a customer
     // a made-up order number they can never actually look up would be
-    // worse than a brief wait for the real one.
-    const userId = requestUserIdByRequestId.current.get(requestId)
-    const firstItem = request.items[0]
-    if (!userId || !firstItem) {
-      return { ok: false, error: "Could not find this request's customer or item to confirm." }
-    }
+    // worse than a brief wait for the real one. userId/firstItem were
+    // already resolved above (needed there for the optimistic order's
+    // customerId) — reused here rather than looked up twice.
     const res = await confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue)
     if (res.ok) {
       loadRealOrders({ silent: true })
@@ -2918,6 +2956,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     toggleDelayed,
     setOrderDelayedExplicit,
     bulkFlagDelayed,
+    toggleExportHold,
+    bulkSetExportHold,
     addInternalNote,
     purchaseLines,
     visiblePurchaseLines,

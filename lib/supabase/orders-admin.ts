@@ -285,6 +285,11 @@ export interface AdminOrder {
   currency: string
   totalValue: number
   delayed: boolean
+  /** Manual staff-set hold, keeping a packed order back from courier
+   * pickup on purpose — e.g. waiting on a sibling order from the same
+   * customer/address so both go out in one pickup. Toggled from Export
+   * bin; has no effect before an order reaches that queue. */
+  exportHold: boolean
   carrier?: string
   trackingNumber?: string
   estimatedDelivery?: string
@@ -293,7 +298,7 @@ export interface AdminOrder {
   stageEnteredAt: string
   requestId: string | null
   chatThreadId: string | null
-  recipient?: { name: string; city: string; country: string }
+  recipient?: { id: string; name: string; addressLine1: string; addressLine2?: string; city: string; country: string }
   items: AdminOrderItem[]
 }
 
@@ -316,6 +321,7 @@ type OrderRow = {
   currency: string
   total_value: number
   delayed: boolean
+  export_hold: boolean
   site_id: string | null
   request_id: string | null
   chat_thread_id: string | null
@@ -345,7 +351,7 @@ type OrderRow = {
     qc_note: string | null
     product_snapshots: { image_url: string | null } | null
   }[]
-  addresses: { recipient_name: string; city: string; country: string } | null
+  addresses: { id: string; recipient_name: string; address_line1: string; address_line2: string | null; city: string; country: string } | null
 }
 
 function mapRowToAdminOrder(
@@ -370,6 +376,7 @@ function mapRowToAdminOrder(
     currency: row.currency,
     totalValue: row.total_value,
     delayed: row.delayed,
+    exportHold: row.export_hold,
     carrier: row.carrier ?? undefined,
     trackingNumber: row.tracking_number ?? undefined,
     estimatedDelivery: row.estimated_delivery ?? undefined,
@@ -379,7 +386,14 @@ function mapRowToAdminOrder(
     requestId: row.request_id,
     chatThreadId: row.chat_thread_id,
     recipient: row.addresses
-      ? { name: row.addresses.recipient_name, city: row.addresses.city, country: row.addresses.country }
+      ? {
+          id: row.addresses.id,
+          name: row.addresses.recipient_name,
+          addressLine1: row.addresses.address_line1,
+          addressLine2: row.addresses.address_line2 ?? undefined,
+          city: row.addresses.city,
+          country: row.addresses.country,
+        }
       : undefined,
     items: row.order_items.map((it) => ({
       id: it.id,
@@ -405,11 +419,11 @@ function mapRowToAdminOrder(
   }
 }
 
-const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_value, delayed, site_id,
+const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_value, delayed, export_hold, site_id,
   request_id, chat_thread_id, carrier, tracking_number, estimated_delivery, delivered_confirmed_by,
   created_at, stage_entered_at,
   order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, qc_passed_at, qc_note, product_snapshots ( image_url ) ),
-  addresses ( recipient_name, city, country )`
+  addresses ( id, recipient_name, address_line1, address_line2, city, country )`
 
 /**
  * Resolves customer name/email, site name, and substage markers for a
@@ -618,18 +632,30 @@ export async function setOrderDelayed(orderId: string, delayed: boolean): Promis
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
+/** Export bin "Hold"/"Release" — see orders.export_hold's own column
+ * comment in the schema for why this stays a plain reversible boolean
+ * (same shape as setOrderDelayed above) rather than a one-way timestamp
+ * field like packedAt/pickedUpAt. */
+export async function setOrderExportHold(orderId: string, exportHold: boolean): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase.from('orders').update({ export_hold: exportHold }).eq('id', orderId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
 export async function reassignOrderSite(orderId: string, siteId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   // Reassigning mid-QC restarts QC at the new site by default (route spec note).
   const { data: order } = await supabase.from('orders').select('stage').eq('id', orderId).maybeSingle()
   const restartsQc = order?.stage === 'quality_check'
-  const { error } = await supabase
-    .from('orders')
-    .update({
-      site_id: siteId,
-      ...(restartsQc ? { stage_entered_at: new Date().toISOString() } : {}),
-    })
-    .eq('id', orderId)
+  // Built as a concretely-typed variable rather than an inline
+  // `{ site_id: siteId, ...(cond ? {...} : {}) }` spread — Supabase's
+  // generic .update<T>() infers T from a conditional spread as a union
+  // of the two possible shapes, and its excess-property-check helper
+  // distributes over that union in a way that collapses shared fields
+  // like site_id to `never`. A single concrete object type sidesteps it.
+  const payload: { site_id: string; stage_entered_at?: string } = { site_id: siteId }
+  if (restartsQc) payload.stage_entered_at = new Date().toISOString()
+  const { error } = await supabase.from('orders').update(payload).eq('id', orderId)
   if (error) return { ok: false, error: error.message }
   if (restartsQc) await setWarehouseSubstage(orderId, 'qc_pending', staffId, 'Restarted — reassigned to a new site')
   return { ok: true }
@@ -687,14 +713,15 @@ export async function setOrderShipping(
   fields: { carrier?: string; trackingNumber?: string; estimatedDelivery?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
-  const { error } = await supabase
-    .from('orders')
-    .update({
-      ...(fields.carrier !== undefined ? { carrier: fields.carrier } : {}),
-      ...(fields.trackingNumber !== undefined ? { tracking_number: fields.trackingNumber } : {}),
-      ...(fields.estimatedDelivery !== undefined ? { estimated_delivery: fields.estimatedDelivery } : {}),
-    })
-    .eq('id', orderId)
+  // Built as a concretely-typed variable rather than three inline
+  // conditional spreads — see reassignOrderSite's own comment above on
+  // why that form collapses Supabase's generic Update<T> field types to
+  // `never`.
+  const payload: { carrier?: string; tracking_number?: string; estimated_delivery?: string } = {}
+  if (fields.carrier !== undefined) payload.carrier = fields.carrier
+  if (fields.trackingNumber !== undefined) payload.tracking_number = fields.trackingNumber
+  if (fields.estimatedDelivery !== undefined) payload.estimated_delivery = fields.estimatedDelivery
+  const { error } = await supabase.from('orders').update(payload).eq('id', orderId)
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
