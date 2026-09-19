@@ -291,6 +291,7 @@ export function AdminSidebar() {
     visiblePackLines,
     visibleExportBinLines,
     visibleInTransitLines,
+    visibleShippedLines,
     requestLines,
     chatThreads,
   } = useAdminData()
@@ -334,6 +335,13 @@ export function AdminSidebar() {
 
     counts["/admin/in-transit"] = visibleInTransitLines.filter((l) => l.deliveryStatus === "overdue").length
 
+    // FIX: this key was missing entirely, so Shipped could never show a
+    // badge no matter how much was sitting in the queue — every other
+    // Warehouse-group stage has one, this one just got left out. Reuses
+    // the same 48h threshold /admin/shipped's own ageTone() already
+    // marks red/urgent with, rather than inventing a separate number.
+    counts["/admin/shipped"] = visibleShippedLines.filter((l) => l.shippedAgeHours >= 48).length
+
     return counts
   }, [
     visibleOrders,
@@ -344,6 +352,7 @@ export function AdminSidebar() {
     visiblePackLines,
     visibleExportBinLines,
     visibleInTransitLines,
+    visibleShippedLines,
   ])
 
   const isActive = (href: string) =>
