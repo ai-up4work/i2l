@@ -83,7 +83,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { type: 'view', label: 'My Boards', view: 'boards' },
       { type: 'view', label: 'My Cart', view: 'cart' },
       { type: 'view', label: 'Recently Viewed', view: 'recentlyViewed' },
-      { type: 'view', label: 'My Favourite Stores', view: 'myFollowing' },
+      // { type: 'view', label: 'My Favourite Stores', view: 'myFollowing' },
     ],
   },
   {
