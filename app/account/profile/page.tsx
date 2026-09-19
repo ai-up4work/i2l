@@ -24,6 +24,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
 import { useImageUpload } from '@/lib/upload/useImageUpload'
+import { normalizeSriLankanMobile, friendlyPhoneAuthError } from '@/lib/phone'
 
 // This route existed as a dead file for a while — `pathForView('profile')`
 // (see components/dashboard/routes.ts, wired to the header's "view
@@ -359,13 +360,25 @@ export default function AccountProfilePage() {
 
   async function handleSendOtp() {
     setPhoneError(null)
-    setPhoneBusy(true)
-    const { error } = await requestPhoneVerification(phoneInput.trim())
-    setPhoneBusy(false)
-    if (error) {
-      setPhoneError(error)
+    // Reject an obviously-invalid number locally, before it ever reaches
+    // Supabase's phone-auth endpoint — see lib/phone.ts's own comment
+    // for exactly why this didn't exist before.
+    const normalized = normalizeSriLankanMobile(phoneInput)
+    if (!normalized) {
+      setPhoneError('Enter a valid Sri Lankan mobile number, e.g. 077 123 4567.')
       return
     }
+    setPhoneBusy(true)
+    const { error } = await requestPhoneVerification(normalized)
+    setPhoneBusy(false)
+    if (error) {
+      setPhoneError(friendlyPhoneAuthError(error))
+      return
+    }
+    // Keep the field showing (and handleVerifyOtp sending) the exact
+    // normalized value Supabase was actually asked to text the code to
+    // — not whatever raw, differently-formatted text the customer typed.
+    setPhoneInput(normalized)
     setPhoneStep('verifying')
   }
 
@@ -375,7 +388,7 @@ export default function AccountProfilePage() {
     const { error } = await verifyPhone(phoneInput.trim(), otpInput.trim())
     setPhoneBusy(false)
     if (error) {
-      setPhoneError(error)
+      setPhoneError(friendlyPhoneAuthError(error))
       return
     }
     setPhoneStep('idle')
