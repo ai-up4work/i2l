@@ -23,7 +23,7 @@ import { panelClass } from "@/components/admin/seller/shared"
 import type { PurchaseStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { SendMessageModal } from "@/components/admin/SendMessageModal"
-import { purchaseFailedMessage } from "@/lib/chat/customerMessageTemplates"
+import { purchaseFailedMessage, formatItemLabel } from "@/lib/chat/customerMessageTemplates"
 
 // Purchase detail — everything ops needs to go buy one line item and record
 // the outcome. Two terminal actions: mark purchased (records actual price
@@ -385,7 +385,7 @@ export default function PurchaseDetailPage() {
                         if (line.chatThreadId) {
                           setPendingMessage({
                             title: "Let the customer know?",
-                            text: purchaseFailedMessage(line.productTitle, issueNote),
+                            text: purchaseFailedMessage(line.orderId, formatItemLabel(line.productTitle, line.variant), issueNote),
                             threadId: line.chatThreadId,
                           })
                         }

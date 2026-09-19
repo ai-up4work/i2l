@@ -100,7 +100,7 @@ export default function ShippedPage() {
     ids.forEach((orderId) => markDelivered(orderId))
     setMessageQueue((prev) => [
       ...prev,
-      ...lines.filter((l): l is ShippedLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: deliveredMessage() })),
+      ...lines.filter((l): l is ShippedLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: deliveredMessage(l.orderId) })),
     ])
     setJustDelivered(ids)
     setSelected(new Set())
@@ -111,7 +111,7 @@ export default function ShippedPage() {
     const line = visibleShippedLines.find((l) => l.orderId === orderId)
     markDelivered(orderId)
     if (line?.chatThreadId) {
-      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: deliveredMessage() }])
+      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: deliveredMessage(line.orderId) }])
     }
     setJustDelivered([orderId])
     setSelected((prev) => {

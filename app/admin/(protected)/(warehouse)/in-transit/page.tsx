@@ -132,7 +132,7 @@ export default function InTransitPage() {
     ids.forEach((orderId) => markShipped(orderId))
     setMessageQueue((prev) => [
       ...prev,
-      ...lines.filter((l): l is InTransitLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: arrivedInSriLankaMessage() })),
+      ...lines.filter((l): l is InTransitLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: arrivedInSriLankaMessage(l.orderId) })),
     ])
     setJustShipped(ids)
     setSelected(new Set())
@@ -145,7 +145,7 @@ export default function InTransitPage() {
     const line = visibleInTransitLines.find((l) => l.orderId === orderId)
     markShipped(orderId)
     if (line?.chatThreadId) {
-      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: arrivedInSriLankaMessage() }])
+      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: arrivedInSriLankaMessage(line.orderId) }])
     }
     setJustShipped([orderId])
     setSelected((prev) => {

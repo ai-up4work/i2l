@@ -25,7 +25,7 @@ import { CHANNEL_LABEL, QC_STATUS_LABEL, type QCStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { panelClass, groupClass, SectionHeading } from "@/components/admin/seller/shared"
 import { SendMessageModal } from "@/components/admin/SendMessageModal"
-import { qcFlaggedMessage, replacementPassedMessage } from "@/lib/chat/customerMessageTemplates"
+import { qcFlaggedMessage, replacementPassedMessage, formatItemLabel } from "@/lib/chat/customerMessageTemplates"
 
 // QCStatus only ever holds pending | passed | flagged — there's no separate
 // "failed" state — so the verdict control below is a single Pass/Flag pair
@@ -259,7 +259,7 @@ export default function QCDetailPage() {
       setSaved(true)
       setPendingMessage({
         title: "Let the customer know about this issue?",
-        text: qcFlaggedMessage(line!.productTitle, customerNote),
+        text: qcFlaggedMessage(line!.orderId, formatItemLabel(line!.productTitle, line!.variant), customerNote),
         threadId: line!.chatThreadId,
       })
       return
@@ -269,7 +269,7 @@ export default function QCDetailPage() {
       setSaved(true)
       setPendingMessage({
         title: "Let the customer know the replacement passed?",
-        text: replacementPassedMessage(line!.productTitle),
+        text: replacementPassedMessage(line!.orderId, formatItemLabel(line!.productTitle, line!.variant)),
         threadId: line!.chatThreadId,
       })
       return

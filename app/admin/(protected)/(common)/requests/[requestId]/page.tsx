@@ -10,7 +10,7 @@ import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
 import { panelClass } from "@/components/admin/seller/shared"
 import { useImageUpload } from "@/lib/upload/useImageUpload"
 import { SendMessageModal } from "@/components/admin/SendMessageModal"
-import { quoteMessage, paymentConfirmedMessage, orderConfirmedMessage, requestDeclinedMessage } from "@/lib/chat/customerMessageTemplates"
+import { quoteMessage, paymentConfirmedMessage, orderConfirmedMessage, requestDeclinedMessage, formatItemLabel, cleanRequestItemNote } from "@/lib/chat/customerMessageTemplates"
 
 // Work one Channel 3 request through to a priced, confirmable state.
 // Manager + Sales & Purchase only.
@@ -70,6 +70,12 @@ export default function RequestDetailPage() {
   // Only one of these is ever open at a time in practice (a human does
   // one action, reviews it, then does the next), so one slot is enough.
   const [pendingMessage, setPendingMessage] = useState<{ title: string; text: string } | null>(null)
+  // handleConfirm now awaits the real order-creation write (see its own
+  // comment below) before it can put a real order id in the
+  // confirmation message — these back that brief wait with a visible
+  // busy state / error surface on the Confirm button itself.
+  const [confirmingOrder, setConfirmingOrder] = useState(false)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
 
   useEffect(() => {
     // Effective `role`, not currentUser.role — same fix/reasoning as
@@ -158,12 +164,23 @@ export default function RequestDetailPage() {
   const canWork = canWorkRequestLine(request)
   const isOpen = request.status === "sent_for_review" || request.status === "quoted"
 
+  // Every customer-facing message needs to name the actual item, not a
+  // bare "your item" — this is the one place that composes that label
+  // (cleaned note + confirmed variant, if any) so every trigger below
+  // builds it the same way. See formatItemLabel/cleanRequestItemNote's
+  // own doc comments in customerMessageTemplates.ts.
+  const itemLabelFor = (itemId: string): string => {
+    const item = request.items.find((i) => i.id === itemId)
+    if (!item) return "your item"
+    return formatItemLabel(cleanRequestItemNote(item.note), item.confirmedVariant)
+  }
+
   const handleSetQuote = (itemId: string) => {
     const amount = Number(quoteInputs[itemId])
     if (!Number.isFinite(amount) || amount <= 0) return
     const hadQuoteBefore = request.items.find((i) => i.id === itemId)?.quote !== undefined
     setQuote(request.id, itemId, amount)
-    setPendingMessage({ title: "Send quote to customer?", text: quoteMessage(amount, hadQuoteBefore) })
+    setPendingMessage({ title: "Send quote to customer?", text: quoteMessage(itemLabelFor(itemId), amount, hadQuoteBefore) })
   }
 
   const handleSaveVariant = (itemId: string) => {
@@ -177,11 +194,22 @@ export default function RequestDetailPage() {
     if (url) setRequestScreenshot(request.id, itemId, url)
   }
 
-  const handleConfirm = () => {
-    confirmRequest(request.id)
+  const handleConfirm = async () => {
+    setConfirmError(null)
+    setConfirmingOrder(true)
+    // Awaited now — the real order id only exists once confirmRequest's
+    // own real write actually lands (see that function's doc comment in
+    // AdminDataContext.tsx). A brief wait here is the tradeoff for never
+    // telling a customer a made-up order number they can't look up.
+    const result = await confirmRequest(request.id)
+    setConfirmingOrder(false)
+    if (!result.ok || !result.orderDisplayId) {
+      setConfirmError(result.error ?? "Could not confirm this request. Please try again.")
+      return
+    }
     setPendingMessage({
       title: "Send order confirmation to customer?",
-      text: orderConfirmedMessage(request.totalQuote ?? 0, request.items.length),
+      text: orderConfirmedMessage(result.orderDisplayId, itemLabelFor(request.items[0].id), request.totalQuote ?? 0, request.items.length),
     })
   }
 
@@ -193,12 +221,15 @@ export default function RequestDetailPage() {
       method: paymentMethod,
       reference: paymentReference.trim() || undefined,
     })
-    setPendingMessage({ title: "Send payment confirmation to customer?", text: paymentConfirmedMessage(amount, paymentMethod) })
+    setPendingMessage({
+      title: "Send payment confirmation to customer?",
+      text: paymentConfirmedMessage(itemLabelFor(request.items[0].id), amount, paymentMethod),
+    })
   }
 
   const handleDecline = () => {
     declineRequest(request.id)
-    setPendingMessage({ title: "Let the customer know?", text: requestDeclinedMessage() })
+    setPendingMessage({ title: "Let the customer know?", text: requestDeclinedMessage(itemLabelFor(request.items[0].id)) })
   }
 
   const handleRetryScrape = () => {
@@ -536,11 +567,12 @@ export default function RequestDetailPage() {
                 <button
                   type="button"
                   onClick={handleConfirm}
-                  disabled={!request.allItemsQuoted || !request.payment}
+                  disabled={!request.allItemsQuoted || !request.payment || confirmingOrder}
                   className="w-full rounded-lg bg-teal-deep px-3 py-2 text-sm font-semibold text-white hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
                 >
-                  Confirm → creates order
+                  {confirmingOrder ? "Confirming…" : "Confirm → creates order"}
                 </button>
+                {confirmError && <p className="text-xs font-semibold text-red-600">{confirmError}</p>}
                 {!request.allItemsQuoted && (
                   <p className="text-xs text-ink/40">
                     {request.items.length > 1

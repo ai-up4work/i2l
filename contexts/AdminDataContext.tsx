@@ -665,7 +665,20 @@ function mapToPurchases(
   // nothing more precise to read for "passed"/"pending".
   const qcStatusForItem = (itemId: string): QCStatus | undefined => {
     if (flaggedItemIds.has(itemId)) return "flagged"
-    if (o.stage === "shipped" || o.stage === "delivered" || o.substage === "qc_passed") return "passed"
+    // Any substage AT or PAST qc_passed means this item already cleared
+    // QC — not just an exact "qc_passed" match. o.substage is a single
+    // marker that advances forward (qc_passed -> packed -> in_transit)
+    // while o.stage stays "quality_check" the whole time (it only flips
+    // to "shipped" once /admin/in-transit's "Mark shipped" is clicked —
+    // see orders-admin.ts's WarehouseSubstage vocabulary/mapping
+    // comment). An exact "qc_passed" check alone means the moment an
+    // order gets packed or picked up for transit, substage no longer
+    // equals "qc_passed" and this fell through to the stage ===
+    // "quality_check" branch below, reading back as "pending" —
+    // reappearing on /admin/qc for an item that already passed and had
+    // moved on to Export Bin/In-Transit, with nothing wrong with it at
+    // all. This was a real, reported bug, not a hypothetical edge case.
+    if (o.stage === "shipped" || o.stage === "delivered" || o.substage === "qc_passed" || o.substage === "packed" || o.substage === "in_transit") return "passed"
     if (o.stage === "quality_check") return "pending"
     return undefined
   }
@@ -1079,8 +1092,8 @@ interface AdminDataContextValue {
   setRequestVariant: (requestId: string, itemId: string, variant: string) => void
   /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. */
   confirmPayment: (requestId: string, payment: { amount: number; method: string; reference?: string }) => void
-  /** Moves a fully-quoted, fully-paid request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. */
-  confirmRequest: (requestId: string) => void
+  /** Moves a fully-quoted, fully-paid request to confirmed AND creates its Channel 3 order — the only way that order is created. Maps every item on the request into its own OrderItem. Returns the REAL order's display id (once the real write lands) so the caller can name the order in the confirmation message — not the local optimistic guess, which never matches what the DB actually assigns (see the function's own comment). */
+  confirmRequest: (requestId: string) => Promise<{ ok: boolean; orderDisplayId?: string; error?: string }>
   /** Declines/rejects a request outright — terminal, same as Manager's "close" action */
   declineRequest: (requestId: string) => void
   reassignRequest: (requestId: string, staffId: string) => void
@@ -1987,33 +2000,25 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * The real per-item mechanism behind a QC issue's "Retry with a new
-   * unit" — resets this ONE item's Purchase record to "needs_purchase"
-   * so it reappears on the Purchases queue as its own actionable line,
-   * distinct from its siblings on the same order. Deliberately does
-   * NOT touch order.stage or any other item on the order: the rest of
-   * the order can already be sitting "passed" in QC or even packed —
+   * Optimistic, LOCAL-ONLY nudge for immediate UI feedback right after
+   * "Retry with a new unit" is clicked (see resolveRetrySame in
+   * lib/supabase/qc-issues.ts, called just before this from
+   * /admin/qc-issues/[issueId]/page.tsx's handleRetrySame) — resets this
+   * ONE item's local Purchase row to "needs_purchase" so the Purchases
+   * queue updates instantly instead of waiting on a refetch. Deliberately
+   * does NOT touch order.stage or any other item on the order: the rest
+   * of the order can already be sitting "passed" in QC or even packed —
    * this only pulls the one faulty item itself back a stage.
    *
-   * Why local-only state is fine here, not a shortcut: the real
-   * `purchases` table has no per-item column at all (see mapToPurchases'
-   * GRANULARITY NOTE) — every mutator on this queue (markPurchased,
-   * flagUnavailable, this function) already only exists in local
-   * Purchase[] state, with a real DB write only firing once, in bulk,
-   * the moment every item on the order is purchased (see the
-   * realUpsertPurchaseForOrder call above). This function has the exact
-   * same durability profile as the rest of the Purchases queue already
-   * has today — it survives client-side navigation within this session,
-   * same as every other purchase-queue action, but (like the rest of
-   * this queue) doesn't survive a hard refresh without a real
-   * `order_item_id` column on `purchases`, which is the actual
-   * schema-change fix if/when this needs to be durable.
-   *
-   * Clearing enteredQcAt/qcStatus here is what makes the item vanish
-   * from /admin/qc (and therefore keeps its ORDER out of Pack & label,
-   * since that still requires every item's qcStatus === "passed") until
-   * it's bought again and re-inspected — matching "it has to wait until
-   * either I reorder and get and delivered".
+   * This is no longer what makes the repurchase state CORRECT, only what
+   * makes it feel instant — the real, durable signal is
+   * order_item_issues.replacement_purchased_at (written by
+   * markReplacementPurchased, read by mapToPurchases'
+   * awaitingRepurchaseItemIds), which is what survives the realtime
+   * refetch that fires moments later on the very order_item_issues write
+   * resolveRetrySame just made. Before that durable signal existed, this
+   * local reset alone was what got silently overwritten by that refetch
+   * — see mapToPurchases' doc comment for the full story of that bug.
    */
   const reorderFaultyItem = (orderId: string, orderItemId: string, issueNote: string) => {
     setPurchases((prev) =>
@@ -2648,11 +2653,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * must be on record before the request becomes a real order (matches
    * confirmRequestReal's own server-side guard in requests-admin.ts).
    */
-  const confirmRequest = (requestId: string) => {
+  const confirmRequest = async (requestId: string): Promise<{ ok: boolean; orderDisplayId?: string; error?: string }> => {
     const request = requests.find((r) => r.id === requestId)
-    if (!request || request.status !== "quoted") return
+    if (!request || request.status !== "quoted") return { ok: false, error: "This request isn't ready to confirm." }
     const allQuoted = request.items.every((i) => i.quote !== undefined)
-    if (!allQuoted || !request.payment) return
+    if (!allQuoted || !request.payment) return { ok: false, error: "This request isn't ready to confirm." }
 
     const newOrderId = `WD-${1000 + orders.length + 1}`
     const now = new Date().toISOString()
@@ -2694,19 +2699,26 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
     // Real write: creates the actual channel=3 `orders` row (the only
     // place that happens) and flips the real request to 'confirmed'.
-    // Fire-and-forget like every other mutator here, but this one also
-    // refreshes real orders afterward so the freshly created order
-    // (with its real display_id, which won't match the locally-guessed
-    // newOrderId above) shows up correctly instead of the app carrying
-    // two different ids for the same order.
+    // AWAITED now, not fire-and-forget — the caller needs the real
+    // orderDisplayId back to put in the "order confirmed" message,
+    // since the local newOrderId above is only ever a guess (a plain
+    // count-based string) that essentially never matches what the DB
+    // actually assigns via its own sequence (see
+    // data/wishdrop-order-display-id-sequence.sql). Sending a customer
+    // a made-up order number they can never actually look up would be
+    // worse than a brief wait for the real one.
     const userId = requestUserIdByRequestId.current.get(requestId)
     const firstItem = request.items[0]
-    if (userId && firstItem) {
-      confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue).then((res) => {
-        if (res.ok) loadRealOrders({ silent: true })
-        else console.error('[confirmRequest] real write failed', res.error)
-      })
+    if (!userId || !firstItem) {
+      return { ok: false, error: "Could not find this request's customer or item to confirm." }
     }
+    const res = await confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue)
+    if (res.ok) {
+      loadRealOrders({ silent: true })
+      return { ok: true, orderDisplayId: res.orderDisplayId }
+    }
+    console.error('[confirmRequest] real write failed', res.error)
+    return { ok: false, error: res.error }
   }
 
   /** Terminal, whether it's a Sales decline (unavailable/declined by customer) or a Manager close. */
