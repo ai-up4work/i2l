@@ -83,9 +83,17 @@ export default function ManagerDashboardPage() {
   // order.totalValue is customer-facing LKR (see lib/currency.ts — "the
   // site only ever displays LKR"), not INR — the ₹ this used to render
   // with was the wrong currency symbol entirely, not just wrong
-  // formatting. Purchase.actualUnitPriceINR/quotedUnitPriceINR (what
-  // staff pay sellers in India) genuinely are INR and correctly use ₹
-  // elsewhere (see purchases/page.tsx) — this is a different number.
+  // formatting. Purchase.actualUnitPriceINR (what staff actually paid
+  // sellers in India) genuinely is INR and correctly uses ₹ in
+  // purchases/[PurchaseId]/page.tsx — this is a different number.
+  // CORRECTION: quotedUnitPriceINR (now renamed
+  // quotedUnitPriceLKR — see its own doc comment in types/admin.ts) was
+  // NEVER actually INR either, despite its old name — it was built from
+  // order.totalValue, the same genuinely-LKR field this comment is
+  // about. Every ₹ symbol shown against it (purchases/page.tsx,
+  // purchases/[PurchaseId]/page.tsx) was the same wrong-currency-symbol
+  // bug this comment originally called out for order.totalValue, just
+  // not caught here at the time this comment was written.
   const inFlightValue = visibleOrders
     .filter((o) => o.stage !== "Delivered")
     .reduce((sum, o) => sum + o.totalValue, 0)

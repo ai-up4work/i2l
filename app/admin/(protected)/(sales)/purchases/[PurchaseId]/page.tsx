@@ -13,8 +13,6 @@ import {
   ExternalLink,
   ShoppingBag,
   Store,
-  TrendingDown,
-  TrendingUp,
 } from "lucide-react"
 
 import { STATUS_LABEL, CHANNEL_LABEL } from "@/data/purchases/data"
@@ -82,6 +80,17 @@ function inr(n: number) {
   return `₹${n.toLocaleString("en-IN")}`
 }
 
+// FIX: "Quoted to customer" was using inr() — but that value
+// (quotedUnitPriceLKR) is the real LKR price quoted to the customer,
+// not an INR seller cost. Matches the "Rs. X,XXX" format used
+// everywhere else in the admin panel for a genuine LKR amount. Kept
+// distinct from inr() above, which stays correct for actualUnitPriceINR
+// — a real, separately-captured INR value for what was actually paid to
+// the Indian seller.
+function lkr(n: number) {
+  return `Rs. ${n.toLocaleString()}`
+}
+
 export default function PurchaseDetailPage() {
   const params = useParams<{ PurchaseId: string }>()
   const router = useRouter()
@@ -90,7 +99,15 @@ export default function PurchaseDetailPage() {
   const purchaseId = decodeURIComponent(params.PurchaseId)
   const line = getPurchaseLine(purchaseId)
 
-  const [actualPrice, setActualPrice] = useState(line?.quotedUnitPriceINR?.toString() ?? "")
+  // Pre-fills with quotedUnitPriceLKR — a deliberate product decision,
+  // not an oversight: staff want a starting number to edit rather than
+  // typing from scratch, even though it's technically a different
+  // currency (LKR quoted vs. INR actually paid — see
+  // PurchaseLine.quotedUnitPriceLKR's own doc comment). No real
+  // INR<->LKR conversion rate exists in this codebase to pre-fill a
+  // genuinely converted estimate instead, so this is the quoted number
+  // as-is, edited by hand to the real amount paid.
+  const [actualPrice, setActualPrice] = useState(line?.quotedUnitPriceLKR?.toString() ?? "")
   const [issueNote, setIssueNote] = useState(line?.issueNote ?? "")
   const [mode, setMode] = useState<"idle" | "confirming_purchase" | "confirming_issue">("idle")
   const [pendingMessage, setPendingMessage] = useState<{ title: string; text: string; threadId: string } | null>(null)
@@ -121,7 +138,19 @@ export default function PurchaseDetailPage() {
   const currentStatus = line.status
   const canAct = canActOnPurchaseLine(line)
   const trimmedPrice = actualPrice.trim()
-  const priceDrift = trimmedPrice === "" ? null : Number(trimmedPrice) - line.quotedUnitPriceINR
+  // FIX: this used to be `Number(trimmedPrice) - line.quotedUnitPriceINR`
+  // — subtracting a real INR amount (what the admin is typing in, the
+  // actual price paid to the seller) from a real LKR amount (the
+  // customer-facing quote), as if they were the same currency. Every
+  // "X more/less than quoted" banner this fed was therefore a
+  // meaningless number, not a genuine price comparison. Disabled rather
+  // than "fixed" — a real version of this needs an actual INR<->LKR
+  // conversion rate, which doesn't exist anywhere in this codebase (see
+  // lib/currency.ts) to convert one side before comparing. Kept as a
+  // named `null` (not deleted outright) so the JSX below, which already
+  // correctly no-ops when this is null, needs no further changes, and
+  // so reviving this later is a one-line change once a real rate exists.
+  const priceDrift = null as number | null
   const accent = TONE_ACCENT[STATUS_TONE[currentStatus]]
 
   return (
@@ -197,7 +226,19 @@ export default function PurchaseDetailPage() {
                 <Store size={15} className="text-ink/35" />
                 {line.sellerName}
                 <span className="text-ink/25">·</span>
-                <span className="text-ink/45">{line.sellerType === "feed" ? "Feed-integrated" : "Manual-mode"}</span>
+                {/* FIX: was `sellerType === "feed" ? "Feed-integrated" :
+                    "Manual-mode"` — but order_seller_type only has two
+                    real values ('store'/'individual'), and 'store' maps
+                    to "feed" here regardless of whether the seller is
+                    actually one of WishDrop's own onboarded affiliate
+                    feeds or just any real online store a customer's
+                    link happened to point at (e.g. Amazon). itemSource
+                    is already correctly derived from requestLink's
+                    presence (see its own doc comment above) and
+                    distinguishes exactly this case — a genuine
+                    catalogue listing vs a scraped link — so it's the
+                    accurate label to use here, not sellerType. */}
+                <span className="text-ink/45">{line.itemSource === "catalogue" ? "Feed-integrated" : "Scraped link"}</span>
               </span>
               {line.storeUrl ? (
                 <a
@@ -207,6 +248,21 @@ export default function PurchaseDetailPage() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-teal px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-deep"
                 >
                   Open seller page <ExternalLink size={13} />
+                </a>
+              ) : line.requestLink ? (
+                // FIX: this is the actual bug report — a Channel 2 item's
+                // real, successfully-scraped link genuinely exists in the
+                // database (order_items.request_link) but PurchaseLine
+                // never carried it through at all (see its own
+                // requestLink doc comment), so this branch never had
+                // anything to render before now.
+                <a
+                  href={line.requestLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-teal px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-deep"
+                >
+                  Open scraped link <ExternalLink size={13} />
                 </a>
               ) : (
                 <span className="text-xs text-ink/40">No store link — coordinate with seller directly</span>
@@ -222,34 +278,27 @@ export default function PurchaseDetailPage() {
             <div className="grid grid-cols-2 divide-x divide-ink/10 px-5 py-4">
               <div>
                 <p className="text-xs font-semibold text-ink/40">Quoted to customer</p>
-                <p className="mt-1 font-display text-lg text-ink">{inr(line.quotedUnitPriceINR)}</p>
+                <p className="mt-1 font-display text-lg text-ink">{lkr(line.quotedUnitPriceLKR)}</p>
                 <p className="text-xs text-ink/35">per unit</p>
               </div>
               <div className="pl-5">
                 <p className="text-xs font-semibold text-ink/40">Actually paid</p>
                 <p className="mt-1 font-display text-lg text-ink">
                   {currentStatus !== "needs_purchase" && line.actualUnitPriceINR != null
-                    ? inr(line.actualUnitPriceINR)
+                    ? lkr(line.actualUnitPriceINR)
                     : "—"}
                 </p>
                 <p className="text-xs text-ink/35">per unit</p>
               </div>
             </div>
 
-            {currentStatus !== "needs_purchase" &&
-              line.actualUnitPriceINR != null &&
-              line.actualUnitPriceINR !== line.quotedUnitPriceINR && (
-                <div className="mx-5 mb-4 flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
-                  {line.actualUnitPriceINR > line.quotedUnitPriceINR ? (
-                    <TrendingUp size={13} />
-                  ) : (
-                    <TrendingDown size={13} />
-                  )}
-                  {inr(Math.abs(line.actualUnitPriceINR - line.quotedUnitPriceINR))}{" "}
-                  {line.actualUnitPriceINR > line.quotedUnitPriceINR ? "more" : "less"} than quoted — not passed to
-                  the customer automatically.
-                </div>
-              )}
+            {/* FIX: this banner used to compare actualUnitPriceINR
+                directly against quotedUnitPriceINR (now
+                quotedUnitPriceLKR) as if they were the same currency —
+                see priceDrift's own comment above for why that
+                comparison was meaningless and has been disabled rather
+                than displayed. Removed here for the same reason rather
+                than left showing a number that doesn't mean anything. */}
           </div>
 
           {/* Outcome / history */}
@@ -319,13 +368,13 @@ export default function PurchaseDetailPage() {
                   <label className="text-xs font-semibold text-ink/50">Actual price paid (per unit)</label>
                   <div className="relative mt-1">
                     <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink/35">
-                      ₹
+                      Rs
                     </span>
                     <input
                       type="number"
                       value={actualPrice}
                       onChange={(e) => setActualPrice(e.target.value)}
-                      className="w-full rounded-lg border border-ink/15 bg-white py-2 pl-7 pr-3 text-sm text-ink outline-none focus:border-teal/50"
+                      className="w-full rounded-lg border border-ink/15 bg-white py-2 pl-8 pr-3 text-sm text-ink outline-none focus:border-teal/50"
                     />
                   </div>
                   {priceDrift !== null && priceDrift !== 0 && (

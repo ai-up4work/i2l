@@ -329,8 +329,8 @@ function PurchaseRow({ line }: { line: PurchaseLine }) {
   const router = useRouter()
   const href = `/admin/purchases/${line.id}`
   const problem = line.status === "unavailable" || Boolean(line.issueNote)
-  const price = `₹${line.quotedUnitPriceINR.toLocaleString("en-IN")}`
-
+  const price = `Rs. ${line.quotedUnitPriceLKR.toLocaleString()}`
+  
   return (
     // The row is clickable, the product title is a real <Link> so keyboard and
     // middle-click still work.

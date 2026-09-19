@@ -341,8 +341,26 @@ export interface PurchaseLine {
   sellerName: string
   sellerType: SellerType
   storeUrl?: string
+  /** The specific link a customer pasted (Channel 2, successfully
+   * scraped) — distinct from storeUrl, which is a catalogue listing's
+   * storefront (Channel 1) and is deliberately null for Channel 2 (see
+   * DashboardContext.tsx's cart-checkout insert and its own comment on
+   * why). This page used to only ever check storeUrl, so a Channel 2
+   * item's real, successfully-scraped link — which genuinely exists in
+   * the database — never showed up here at all. */
+  requestLink?: string
   quantity: number
-  quotedUnitPriceINR: number
+  /** FIX: was named quotedUnitPriceINR, which was wrong — it's built
+   * from item.unitPrice / order.totalValue (see AdminDataContext.tsx's
+   * purchaseLines builder), both of which are the final, post-markup
+   * customer-facing price in LKR (see lib/pricing.ts's
+   * getDisplayPriceLKR), not an INR seller cost. Every place that
+   * displayed this with the ₹ symbol was showing a real LKR number
+   * mislabeled as INR. Distinct from actualUnitPriceINR below, which
+   * genuinely IS INR — a separate value captured later, when the
+   * purchase actually happens, representing what was actually paid to
+   * the Indian seller. */
+  quotedUnitPriceLKR: number
   actualUnitPriceINR?: number
   purchaseReference?: string
   purchasedBy?: string
