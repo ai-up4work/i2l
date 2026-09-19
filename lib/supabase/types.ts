@@ -28,6 +28,10 @@ export interface Database {
           email: string
           phone: string | null
           phone_verified: boolean
+          pending_phone: string | null
+          phone_otp_code_hash: string | null
+          phone_otp_expires_at: string | null
+          phone_otp_attempts: number
           avatar_url: string | null
           chat_handle: string | null
           created_at: string
@@ -40,6 +44,10 @@ export interface Database {
           email: string
           phone?: string | null
           phone_verified?: boolean
+          pending_phone?: string | null
+          phone_otp_code_hash?: string | null
+          phone_otp_expires_at?: string | null
+          phone_otp_attempts?: number
           avatar_url?: string | null
           chat_handle?: string | null
           created_at?: string

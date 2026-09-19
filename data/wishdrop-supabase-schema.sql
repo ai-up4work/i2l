@@ -48,6 +48,13 @@ create table public.profiles (
   email text not null,
   phone text,
   phone_verified boolean not null default false,
+  -- WhatsApp OTP verification state — see
+  -- data/wishdrop-whatsapp-otp.sql for why this replaced Supabase
+  -- Auth's own (SMS-only) phone_change flow.
+  pending_phone text,
+  phone_otp_code_hash text,
+  phone_otp_expires_at timestamptz,
+  phone_otp_attempts integer not null default 0,
   avatar_url text,
   chat_handle text unique,
   created_at timestamptz not null default now(),
@@ -427,6 +434,10 @@ create table public.orders (
   currency text not null default 'LKR',
   total_value numeric(12,2) not null default 0,
   delayed boolean not null default false,
+  -- Manual staff-set hold, keeping a packed order back from courier
+  -- pickup on purpose (e.g. waiting on a sibling order from the same
+  -- customer/address) — see data/wishdrop-orders-export-hold.sql.
+  export_hold boolean not null default false,
   site_id uuid,                          -- FK added in Phase 3 (sites)
   request_id uuid references public.requests(id) on delete set null,   -- set when channel = 3
   chat_thread_id uuid references public.chat_threads(id) on delete set null,

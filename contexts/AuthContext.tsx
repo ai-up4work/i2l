@@ -43,7 +43,9 @@ interface AuthContextValue {
   /** Sends a password-reset email. No dedicated /forgot-password route
    *  exists yet — callers show an inline "check your email" state instead. */
   resetPassword: (email: string) => Promise<{ error: string | null }>
-  /** Sends an OTP to the given phone number via Supabase phone auth. */
+  /** Sends an OTP to the given phone number over WhatsApp (this app's own
+   *  Cloud API integration, not Supabase's phone auth — see
+   *  requestPhoneVerification's own implementation comment for why). */
   requestPhoneVerification: (phone: string) => Promise<{ error: string | null }>
   /** Verifies the OTP and flips phoneVerified to true on success. */
   verifyPhone: (phone: string, token: string) => Promise<{ error: string | null }>
@@ -177,32 +179,55 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null }
   }
 
+  // WhatsApp-delivered OTP, not Supabase Auth's own (SMS-only)
+  // phone_change flow — see app/api/account/whatsapp/send-code and
+  // verify-code's own header comments for exactly why: the installed
+  // @supabase/supabase-js's updateUser() has no `channel` option at all
+  // for phone changes, only signInWithOtp() does, and that's a
+  // different (sign-in) flow, not "verify and attach to my existing
+  // account." Function signatures kept identical to the old
+  // updateUser/verifyOtp-based versions so nothing calling these needs
+  // to change.
   const requestPhoneVerification = async (phone: string) => {
-    const { error } = await supabase.auth.updateUser({ phone })
-    return { error: error?.message ?? null }
+    try {
+      const res = await fetch('/api/account/whatsapp/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) return { error: body.error ?? 'Could not send a verification code. Please try again.' }
+      return { error: null }
+    } catch {
+      return { error: 'Could not send a verification code. Please try again.' }
+    }
   }
 
+  // `phone` is unused in the body now — verify-code already knows the
+  // pending number from the profiles row send-code wrote it to, and
+  // trusting a second copy from the client here would just be another
+  // thing that could disagree with it. Kept in the signature so every
+  // existing call site (ProfilePage's handleVerifyOtp) doesn't need to
+  // change.
   const verifyPhone = async (phone: string, token: string) => {
-    const { error } = await supabase.auth.verifyOtp({ phone, token, type: "phone_change" })
-    if (!error) {
+    try {
+      const res = await fetch('/api/account/whatsapp/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: token }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) return { error: body.error ?? 'Could not verify that code. Please try again.' }
+      // Refresh the session's own user object so phoneVerified (derived
+      // from auth.users.phone_confirmed_at — see toAuthUser above)
+      // reflects the service-role sync verify-code just performed,
+      // same as the old flow did after its own verifyOtp call.
       const { data } = await supabase.auth.getUser()
       applyUser(toAuthUser(data.user))
-      // Keep profiles.phone/phone_verified in sync — this is what the
-      // WhatsApp chat panel and anything else outside Supabase Auth
-      // itself (which only knows about auth.users.phone_confirmed_at)
-      // actually reads. Best-effort: if this write fails, auth-level
-      // verification still succeeded and phoneVerified above is still
-      // correct, so we don't surface this as an error to the customer —
-      // just log it so it doesn't disappear silently.
-      if (data.user) {
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({ phone, phone_verified: true })
-          .eq("id", data.user.id)
-        if (profileError) console.error("[verifyPhone] profiles sync failed", profileError)
-      }
+      return { error: null }
+    } catch {
+      return { error: 'Could not verify that code. Please try again.' }
     }
-    return { error: error?.message ?? null }
   }
 
   return (
