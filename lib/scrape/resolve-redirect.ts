@@ -30,20 +30,15 @@
  * any failure (timeout, network error, a site that blocks a bare GET)
  * — resolution is a best-effort improvement, never a hard requirement
  * for scraping to proceed, so a shortener having a bad day shouldn't
- * block a customer's request entirely. Every failure is logged, though
- * — silently falling back with no trace at all was the wrong call: it
- * meant "why didn't this scrape" had nothing to go on, since a
- * resolution failure ends up looking identical to "this never looked
- * like a shortlink in the first place."
+ * block a customer's request entirely.
  *
  * Uses a real GET (not HEAD) because several shortlink services don't
  * implement HEAD correctly (some 404 it, some ignore the redirect on
- * it). Reads (and discards) the body rather than trying to abort the
- * request early — aborting a fetch's AbortController right after the
- * response headers resolve, before ever touching the body, is a subtle
- * pattern that doesn't behave consistently across every fetch
- * implementation; the response for a redirect chain is typically small
- * regardless, so there's little real cost to just letting it finish.
+ * it) — the response body is aborted immediately via signal once
+ * headers arrive, so this doesn't actually download a full page for a
+ * chain that ends on a heavy product page; only the redirect hops
+ * themselves (which are typically near-empty responses) are paid for
+ * in full.
  */
 export async function resolveFinalUrl(url: string, timeoutMs = 8000): Promise<string> {
   const controller = new AbortController()
@@ -61,16 +56,13 @@ export async function resolveFinalUrl(url: string, timeoutMs = 8000): Promise<st
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       },
     })
-    // Drain the body rather than leaving it unread — some runtimes hold
-    // the underlying connection open until the body is consumed or the
-    // response is explicitly discarded.
-    await res.arrayBuffer().catch(() => undefined)
-    if (!res.url || res.url === url) {
-      console.error('[resolveFinalUrl] no redirect detected (or resolved to the same URL)', { url, status: res.status, finalUrl: res.url })
-    }
+    // Stop reading the body the moment we have the final URL/headers —
+    // fetch() has already followed every redirect hop by this point
+    // (that's what `redirect: 'follow'` did), so nothing past this is
+    // needed for resolution.
+    controller.abort()
     return res.url || url
-  } catch (err) {
-    console.error('[resolveFinalUrl] failed, using original URL', url, err)
+  } catch {
     return url
   } finally {
     clearTimeout(timeout)
@@ -99,10 +91,6 @@ const KNOWN_SHORTENERS = new Set([
   'amzn.in',
   'fkrt.it',
   'fkrt.cc',
-  // Flipkart's own deep-link/shortlink service — same category as
-  // amzn.in for Amazon: a real, first-party redirect domain that looks
-  // nothing like the actual product page it points to.
-  'dl.flipkart.com',
   'cutt.ly',
   'rebrand.ly',
   'is.gd',
@@ -111,23 +99,11 @@ const KNOWN_SHORTENERS = new Set([
   'lnkd.in',
 ])
 
-// Real e-commerce domains whose OWN canonical product URLs can be just
-// as short as an actual shortlink's — Amazon's "/dp/B08XYZ123" is 13
-// characters, shorter than the 14-char threshold below would otherwise
-// exclude. Excluded from the path-length heuristic entirely (a
-// perfectly normal amazon.in/dp/... link should never trigger a
-// resolution fetch); this is distinct from — and doesn't exempt — a
-// genuine shortlink domain like "amzn.in", which deceptively looks
-// similar but is Amazon's own separate URL-shortening service, not the
-// real store domain, and stays fully subject to both checks below.
-const SHORT_PATH_ECOMMERCE_HOSTS = ['amazon.in', 'amazon.com', 'amazon.co.uk']
-
 export function looksLikeShortlink(url: string): boolean {
   try {
     const parsed = new URL(url)
     const host = parsed.hostname.replace(/^www\./i, '').toLowerCase()
     if (KNOWN_SHORTENERS.has(host)) return true
-    if (SHORT_PATH_ECOMMERCE_HOSTS.includes(host)) return false
     // FIX: this used to also require the path to contain no "/" at
     // all — but a real shortlink can still have one, e.g. Amazon's own
     // "amzn.in/d/0dWEYzN0" shape. The actual signal is TOTAL path
