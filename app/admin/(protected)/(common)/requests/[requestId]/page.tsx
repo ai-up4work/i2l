@@ -3,10 +3,10 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ExternalLink, ImageOff, ImagePlus, Loader2, MessageSquare, RotateCw } from "lucide-react"
+import { ArrowLeft, ExternalLink, ImageOff, ImagePlus, Loader2, MessageSquare, RotateCw, X } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
-import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
+import { REQUEST_STATUS_LABEL, type RequestStatus, type RequestItemAsk } from "@/types/admin"
 import { panelClass } from "@/components/admin/seller/shared"
 import { useImageUpload } from "@/lib/upload/useImageUpload"
 import { SendMessageModal } from "@/components/admin/SendMessageModal"
@@ -43,6 +43,7 @@ export default function RequestDetailPage() {
     setQuote,
     setRequestScreenshot,
     setRequestVariant,
+    updateRequestItemDetails,
     confirmPayment,
     confirmRequest,
     declineRequest,
@@ -58,6 +59,14 @@ export default function RequestDetailPage() {
   // single string the way the old single-link page used.
   const [quoteInputs, setQuoteInputs] = useState<Record<string, string>>({})
   const [variantInputs, setVariantInputs] = useState<Record<string, string>>({})
+  const [variantDropdownSelections, setVariantDropdownSelections] = useState<Record<string, Record<string, string>>>({})
+  const [productDetailDrafts, setProductDetailDrafts] = useState<
+    Record<
+      string,
+      { title: string; imageUrl: string; sellerName: string; quantity: string; variantRows: { dimension: string; valuesText: string }[] }
+    >
+  >({})
+  const [editingProductDetails, setEditingProductDetails] = useState<Record<string, boolean>>({})
   const [retryResult, setRetryResult] = useState<{ success: boolean; message: string } | null>(null)
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer")
   const [paymentReference, setPaymentReference] = useState("")
@@ -173,10 +182,57 @@ export default function RequestDetailPage() {
   // (cleaned note + confirmed variant, if any) so every trigger below
   // builds it the same way. See formatItemLabel/cleanRequestItemNote's
   // own doc comments in customerMessageTemplates.ts.
+  //
+  // FIX #1: this used to always build the label from item.note,
+  // completely ignoring item.productTitle — so editing the "Product
+  // details" title for an item the admin had cleaned up never showed up
+  // in the actual quote/confirmed/declined messages sent to the
+  // customer, only in the admin's own view of the request. Same
+  // fallback order confirmRequestReal already uses for the real order's
+  // title (productTitle first, raw note as the fallback), so what the
+  // customer is told now matches what the order actually ends up named.
+  //
+  // FIX #2: variant was only ever pulled from item.confirmedVariant —
+  // the value AFTER clicking that section's own Save button — never
+  // from whatever the admin currently has picked out but hasn't
+  // explicitly saved yet. In practice the admin decides the variant
+  // (picks the dropdowns, or types the freeform box) and immediately
+  // triggers a message (Send quote, say) without a separate "confirm
+  // this first" step in between, since to them it's already decided —
+  // so the message went out without it despite the choice existing on
+  // screen. Now falls back to the live, not-yet-saved selection: the
+  // dropdown combination (only once every dimension has a pick — a
+  // half-chosen combination is genuinely undecided, not just unsaved)
+  // or the freeform draft text, in that order, before giving up and
+  // omitting the variant the way it correctly does when nothing at all
+  // has been picked.
+  const pendingVariantFor = (item: RequestItemAsk): string | undefined => {
+    if (item.confirmedVariant) return item.confirmedVariant
+    if (item.variantOptions?.length) {
+      const selections = variantDropdownSelections[item.id] ?? {}
+      const allPicked = item.variantOptions.every((d) => selections[d.dimension])
+      if (allPicked) return item.variantOptions.map((d) => `${d.dimension}: ${selections[d.dimension]}`).join(", ")
+      return undefined
+    }
+    return variantInputs[item.id]?.trim() || undefined
+  }
+
   const itemLabelFor = (itemId: string): string => {
     const item = request.items.find((i) => i.id === itemId)
     if (!item) return "your item"
-    return formatItemLabel(cleanRequestItemNote(item.note), item.confirmedVariant)
+    const baseLabel = item.productTitle?.trim() || cleanRequestItemNote(item.note)
+    const pendingVariant = pendingVariantFor(item)
+    // The moment a not-yet-explicitly-saved variant is actually used in
+    // a real outgoing message, persist it as the real confirmedVariant
+    // right then — otherwise the customer gets told a variant that the
+    // request's own record (and, later, the real order's title, via
+    // confirmRequestReal's existing.confirmed_variant) never actually
+    // reflects, since nothing forces the admin to also click that
+    // section's Save button before or after sending the message.
+    if (pendingVariant && pendingVariant !== item.confirmedVariant) {
+      setRequestVariant(request.id, item.id, pendingVariant)
+    }
+    return formatItemLabel(baseLabel, pendingVariant)
   }
 
   const handleSetQuote = (itemId: string) => {
@@ -184,7 +240,7 @@ export default function RequestDetailPage() {
     if (!Number.isFinite(amount) || amount <= 0) return
     const hadQuoteBefore = request.items.find((i) => i.id === itemId)?.quote !== undefined
     setQuote(request.id, itemId, amount)
-    setPendingMessage({ title: "Send quote to customer?", text: quoteMessage(itemLabelFor(itemId), amount, hadQuoteBefore) })
+    setPendingMessage({ title: "Send quote to customer?", text: quoteMessage(request.displayId, itemLabelFor(itemId), amount, hadQuoteBefore) })
   }
 
   const handleSaveVariant = (itemId: string) => {
@@ -192,6 +248,80 @@ export default function RequestDetailPage() {
     if (!variant) return
     setRequestVariant(request.id, itemId, variant)
   }
+
+  const handleSaveVariantFromDropdowns = (itemId: string, dimensions: { dimension: string; values: string[] }[]) => {
+    const selections = variantDropdownSelections[itemId] ?? {}
+    // Composes e.g. "Size: M, Color: Beige" — one segment per defined
+    // dimension, in the order the admin defined them. Every dimension
+    // must have a selection (enforced by the Save button's disabled
+    // state below) so a half-picked combination can never get saved as
+    // the customer's confirmed choice.
+    const joined = dimensions.map((d) => `${d.dimension}: ${selections[d.dimension] ?? ""}`).join(", ")
+    setRequestVariant(request.id, itemId, joined)
+  }
+
+  const openProductDetails = (item: (typeof request.items)[number]) => {
+    setProductDetailDrafts((prev) => ({
+      ...prev,
+      [item.id]: {
+        title: item.productTitle ?? "",
+        imageUrl: item.productImageUrl ?? "",
+        sellerName: item.sellerName ?? "",
+        quantity: String(item.quantity ?? 1),
+        variantRows: (item.variantOptions ?? []).map((v) => ({ dimension: v.dimension, valuesText: v.values.join(", ") })),
+      },
+    }))
+    setEditingProductDetails((prev) => ({ ...prev, [item.id]: true }))
+  }
+
+  const handleSaveProductDetails = (itemId: string) => {
+    const draft = productDetailDrafts[itemId]
+    if (!draft) return
+    const quantity = Number(draft.quantity)
+    // Blank dimension names/empty value lists are dropped rather than
+    // saved as noise — a half-filled-in "+ Add dimension" row the admin
+    // never finished typing shouldn't turn into a real, empty variant
+    // option shown to anyone.
+    const variantOptions = draft.variantRows
+      .map((row) => ({
+        dimension: row.dimension.trim(),
+        values: row.valuesText
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean),
+      }))
+      .filter((row) => row.dimension && row.values.length > 0)
+    updateRequestItemDetails(request.id, itemId, {
+      productTitle: draft.title.trim() || undefined,
+      productImageUrl: draft.imageUrl.trim() || undefined,
+      sellerName: draft.sellerName.trim() || undefined,
+      quantity: Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity) : undefined,
+      variantOptions,
+    })
+    setEditingProductDetails((prev) => ({ ...prev, [itemId]: false }))
+  }
+
+  const addVariantRow = (itemId: string) =>
+    setProductDetailDrafts((prev) => {
+      const draft = prev[itemId]
+      if (!draft) return prev
+      return { ...prev, [itemId]: { ...draft, variantRows: [...draft.variantRows, { dimension: "", valuesText: "" }] } }
+    })
+
+  const updateVariantRow = (itemId: string, index: number, field: "dimension" | "valuesText", value: string) =>
+    setProductDetailDrafts((prev) => {
+      const draft = prev[itemId]
+      if (!draft) return prev
+      const rows = draft.variantRows.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+      return { ...prev, [itemId]: { ...draft, variantRows: rows } }
+    })
+
+  const removeVariantRow = (itemId: string, index: number) =>
+    setProductDetailDrafts((prev) => {
+      const draft = prev[itemId]
+      if (!draft) return prev
+      return { ...prev, [itemId]: { ...draft, variantRows: draft.variantRows.filter((_, i) => i !== index) } }
+    })
 
   const handleScreenshotSelected = async (itemId: string, file: File) => {
     const url = await uploadScreenshot(file, "products")
@@ -238,13 +368,13 @@ export default function RequestDetailPage() {
     }
     setPendingMessage({
       title: "Send payment confirmation to customer?",
-      text: paymentConfirmedMessage(itemLabelFor(request.items[0].id), amount, paymentMethod),
+      text: paymentConfirmedMessage(request.displayId, itemLabelFor(request.items[0].id), amount, paymentMethod),
     })
   }
 
   const handleDecline = () => {
     declineRequest(request.id)
-    setPendingMessage({ title: "Let the customer know?", text: requestDeclinedMessage(itemLabelFor(request.items[0].id)) })
+    setPendingMessage({ title: "Let the customer know?", text: requestDeclinedMessage(request.displayId, itemLabelFor(request.items[0].id)) })
   }
 
   const handleRetryScrape = () => {
@@ -327,10 +457,12 @@ export default function RequestDetailPage() {
                   <p className="mt-1 text-sm leading-relaxed text-ink/80">{item.note}</p>
                 </div>
 
-                {item.needsVariantConfirmation && (
+                {(item.needsVariantConfirmation || !!item.variantOptions?.length) && (
                   <div className="rounded-lg border border-gold/30 bg-gold/5 px-3.5 py-3">
                     <p className="text-xs font-semibold text-ink/60">
-                      Size/color unclear from the link — confirm with the customer over chat, then record it here.
+                      {item.needsVariantConfirmation
+                        ? "Size/color unclear from the link — confirm with the customer over chat, then record it here."
+                        : "Pick the customer's confirmed choice from the options you defined above."}
                     </p>
                     {item.confirmedVariant ? (
                       <div className="mt-2 flex items-center justify-between gap-2">
@@ -343,6 +475,39 @@ export default function RequestDetailPage() {
                           className="text-xs font-semibold text-ink/50 hover:text-ink"
                         >
                           Edit
+                        </button>
+                      </div>
+                    ) : item.variantOptions?.length ? (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          {item.variantOptions.map((dim) => (
+                            <select
+                              key={dim.dimension}
+                              value={variantDropdownSelections[item.id]?.[dim.dimension] ?? ""}
+                              onChange={(e) =>
+                                setVariantDropdownSelections((prev) => ({
+                                  ...prev,
+                                  [item.id]: { ...prev[item.id], [dim.dimension]: e.target.value },
+                                }))
+                              }
+                              className="rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-sm text-ink outline-none focus:border-teal/50"
+                            >
+                              <option value="">{dim.dimension}...</option>
+                              {dim.values.map((v) => (
+                                <option key={v} value={v}>
+                                  {v}
+                                </option>
+                              ))}
+                            </select>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveVariantFromDropdowns(item.id, item.variantOptions!)}
+                          disabled={item.variantOptions.some((dim) => !variantDropdownSelections[item.id]?.[dim.dimension])}
+                          className="rounded-lg bg-teal-deep px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
+                        >
+                          Save
                         </button>
                       </div>
                     ) : (
@@ -365,14 +530,184 @@ export default function RequestDetailPage() {
                       </div>
                     )}
                     <p className="mt-1.5 text-[11px] text-ink/35">
-                      Once saved, this gets added to the item name — e.g. "{variantInputs[item.id]?.trim() || "Size M, Black"} -{" "}
+                      Once saved, this gets added to the item name — e.g. "
+                      {item.variantOptions?.length
+                        ? item.variantOptions.map((d) => `${d.dimension}: ${variantDropdownSelections[item.id]?.[d.dimension] || "..."}`).join(", ")
+                        : variantInputs[item.id]?.trim() || "Size M, Black"}{" "}
+                      -{" "}
                       {item.note.length > 30 ? `${item.note.slice(0, 30)}...` : item.note}" — instead of just going out unnamed.
                     </p>
                   </div>
                 )}
 
+                {/* Everything a Channel 1/2 item gets automatically from a
+                    real scrape or catalogue listing — a real title, photo,
+                    seller name, and quantity — a Channel 3 item has none of
+                    by default (see confirmRequestReal's own comments on
+                    exactly what that costs the resulting order). This is
+                    where the admin fills it in by hand for a link the
+                    scraper genuinely couldn't read, so the order that comes
+                    out the other end looks and behaves like any other. */}
+                <div className="rounded-lg border border-ink/10 bg-parchment/40 px-3.5 py-3">
+                  <p className="text-xs font-semibold text-ink/60">Product details</p>
+                  {editingProductDetails[item.id] ? (
+                    <div className="mt-2 space-y-2">
+                      <input
+                        type="text"
+                        value={productDetailDrafts[item.id]?.title ?? ""}
+                        onChange={(e) =>
+                          setProductDetailDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], title: e.target.value } as (typeof prev)[string],
+                          }))
+                        }
+                        placeholder="Product title"
+                        className="w-full rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-teal/50"
+                      />
+                      <input
+                        type="url"
+                        value={productDetailDrafts[item.id]?.imageUrl ?? ""}
+                        onChange={(e) =>
+                          setProductDetailDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], imageUrl: e.target.value } as (typeof prev)[string],
+                          }))
+                        }
+                        placeholder="Product photo URL"
+                        className="w-full rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-teal/50"
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={productDetailDrafts[item.id]?.sellerName ?? ""}
+                          onChange={(e) =>
+                            setProductDetailDrafts((prev) => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], sellerName: e.target.value } as (typeof prev)[string],
+                            }))
+                          }
+                          placeholder="Seller / store name"
+                          className="flex-1 rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-teal/50"
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={productDetailDrafts[item.id]?.quantity ?? "1"}
+                          onChange={(e) =>
+                            setProductDetailDrafts((prev) => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], quantity: e.target.value } as (typeof prev)[string],
+                            }))
+                          }
+                          placeholder="Qty"
+                          className="w-20 rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-teal/50"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5 rounded-lg border border-ink/10 bg-white/60 p-2.5">
+                        <p className="text-[11px] font-semibold text-ink/50">
+                          Variant options <span className="font-normal text-ink/35">(e.g. Size, Color — predefined choices)</span>
+                        </p>
+                        {(productDetailDrafts[item.id]?.variantRows ?? []).map((row, idx) => (
+                          <div key={idx} className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={row.dimension}
+                              onChange={(e) => updateVariantRow(item.id, idx, "dimension", e.target.value)}
+                              placeholder="Dimension (e.g. Size)"
+                              className="w-28 flex-none rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs text-ink outline-none focus:border-teal/50"
+                            />
+                            <input
+                              type="text"
+                              value={row.valuesText}
+                              onChange={(e) => updateVariantRow(item.id, idx, "valuesText", e.target.value)}
+                              placeholder="Values, comma-separated (e.g. S, M, L, XL)"
+                              className="flex-1 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs text-ink outline-none focus:border-teal/50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeVariantRow(item.id, idx)}
+                              aria-label="Remove this dimension"
+                              className="flex-none rounded-lg border border-ink/15 bg-white px-2 text-ink/40 hover:bg-rose-50 hover:text-rose-600"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => addVariantRow(item.id)}
+                          className="text-xs font-semibold text-teal-deep hover:underline"
+                        >
+                          + Add dimension
+                        </button>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveProductDetails(item.id)}
+                          className="rounded-lg bg-teal-deep px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-deep/90"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingProductDetails((prev) => ({ ...prev, [item.id]: false }))}
+                          className="rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-ink/35">
+                        Every field is optional — leave any blank to keep the customer's own note/link as the fallback.
+                        Confirming the request without filling these in still works exactly as before.
+                      </p>
+                    </div>
+                  ) : item.productTitle || item.productImageUrl || item.sellerName || item.variantOptions?.length ? (
+                    <div className="mt-2 flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        {item.productImageUrl && (
+                          <img
+                            src={item.productImageUrl}
+                            alt=""
+                            className="h-14 w-14 flex-none rounded-lg border border-ink/10 object-cover"
+                          />
+                        )}
+                        <div className="text-xs text-ink/60">
+                          {item.productTitle && <p className="font-medium text-ink/80">{item.productTitle}</p>}
+                          {item.sellerName && <p className="mt-0.5">{item.sellerName}</p>}
+                          <p className="mt-0.5">Qty {item.quantity ?? 1}</p>
+                          {item.variantOptions?.map((v) => (
+                            <p key={v.dimension} className="mt-0.5">
+                              {v.dimension}: {v.values.join(", ")}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openProductDetails(item)}
+                        className="flex-none text-xs font-semibold text-ink/50 hover:text-ink"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openProductDetails(item)}
+                      className="mt-1.5 text-xs font-semibold text-teal-deep hover:underline"
+                    >
+                      + Add title, photo, seller &amp; quantity
+                    </button>
+                  )}
+                </div>
+
                 <div>
-                  <p className="text-xs font-semibold text-ink/45">Product photo</p>
+                  <p className="text-xs font-semibold text-ink/45">
+                    Customer's screenshot <span className="font-normal text-ink/30">(separate from the product photo above)</span>
+                  </p>
                   {item.screenshotUrl ? (
                     <div className="mt-2 flex items-start gap-3">
                       <img

@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   SearchX,
+  Star,
   Users,
   Warehouse as WarehouseIcon,
   X,
@@ -20,17 +21,18 @@ import type { Site } from "@/types/admin"
 
 // Reference list of registered warehouse sites — the source list used
 // when assigning a Warehouse account to a site (see the site-select on
-// /admin/staff/[staffId]).
+// /admin/staff/[staffId]), and now also where the DEFAULT site (the one
+// new orders land on when nothing else determines a site — see
+// Site.isDefault's own doc comment) is set.
 //
-// KNOWN LIMITATION: AdminDataContext's `sites` array is a static const
-// (SITES in that file), not usePersistentState-backed — there's no
-// addSite/updateSite/deactivateSite mutation yet. Add/Edit/Deactivate
-// here operate on LOCAL component state only, seeded from context on
-// mount, so a real site's headcount/active-order numbers (both read
-// live from context) stay accurate, but a newly "added" site won't
-// survive a refresh and won't be selectable elsewhere in the app until
-// AdminDataContext grows real site CRUD. Flagging rather than faking a
-// deeper persistence story.
+// FIX (was): AdminDataContext's `sites` used to be a hardcoded const,
+// not read from the database at all, and this page's Add/Edit/
+// Deactivate all operated on local component state that reset on every
+// refresh — this page's own comment used to flag that directly. Both
+// are now real: `sites` is fetched from and written back to the actual
+// `sites` table (see lib/supabase/sites-admin.ts), so nothing here
+// needs a local mirror of the list anymore — site.active IS the real
+// deactivated/active state, not a locally-tracked overlay on top of it.
 //
 // RESTYLE (2026-09): brought in line with the header/toolbar/empty-state
 // language used on /admin/orders, /admin/export-bin and /demo/quote —
@@ -41,8 +43,6 @@ import type { Site } from "@/types/admin"
 // layout, which turned out to be the outlier, not the standard, once
 // compared against the other three pages.
 
-type EditableSite = Site & { deactivated: boolean }
-
 const inputClass =
   "rounded-lg border border-ink/10 bg-card px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
 const labelClass = "text-xs font-medium text-ink/50"
@@ -50,7 +50,8 @@ const LINK_BUTTON = "text-xs font-semibold text-teal-deep underline decoration-d
 
 export default function WarehouseSitesPage() {
   const router = useRouter()
-  const { role, currentUser, sites, staffDirectory, orders } = useAdminData()
+  const { role, sites, staffDirectory, orders, addSite, updateSiteInfo, toggleSiteActive, setDefaultSiteAction } =
+    useAdminData()
 
   useEffect(() => {
     // Effective `role`, super_admin let through unconditionally — same
@@ -58,11 +59,11 @@ export default function WarehouseSitesPage() {
     if (role !== "manager" && role !== "super_admin") router.replace("/admin/dashboard")
   }, [role, router])
 
-  const [localSites, setLocalSites] = useState<EditableSite[]>(() => sites.map((s) => ({ ...s, deactivated: false })))
   const [search, setSearch] = useState("")
-  const [modal, setModal] = useState<{ mode: "add" | "edit"; site?: EditableSite } | null>(null)
+  const [modal, setModal] = useState<{ mode: "add" | "edit"; site?: Site } | null>(null)
   const [form, setForm] = useState({ name: "", location: "" })
   const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const headcountOf = (siteId: string) =>
     staffDirectory.filter((s) => s.role === "warehouse" && s.siteId === siteId).length
@@ -74,11 +75,11 @@ export default function WarehouseSitesPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return localSites
-    return localSites.filter((s) => s.name.toLowerCase().includes(q) || s.location.toLowerCase().includes(q))
-  }, [localSites, search])
+    if (!q) return sites
+    return sites.filter((s) => s.name.toLowerCase().includes(q) || s.location.toLowerCase().includes(q))
+  }, [sites, search])
 
-  const activeSiteCount = localSites.filter((s) => !s.deactivated).length
+  const activeSiteCount = sites.filter((s) => s.active).length
   const totalHeadcount = staffDirectory.filter((s) => s.role === "warehouse").length
   const totalActiveOrders = orders.filter((o) => o.stage !== "Delivered").length
 
@@ -88,35 +89,55 @@ export default function WarehouseSitesPage() {
     setForm({ name: "", location: "" })
     setModal({ mode: "add" })
   }
-  const openEdit = (site: EditableSite) => {
+  const openEdit = (site: Site) => {
     setForm({ name: site.name, location: site.location })
     setModal({ mode: "edit", site })
   }
   const closeModal = () => setModal(null)
 
-  const submitModal = () => {
+  const submitModal = async () => {
     if (!form.name.trim() || !form.location.trim()) return
-    if (modal?.mode === "add") {
-      setLocalSites((prev) => [
-        ...prev,
-        { id: `site_${Date.now()}`, name: form.name.trim(), location: form.location.trim(), deactivated: false },
-      ])
-    } else if (modal?.mode === "edit" && modal.site) {
-      setLocalSites((prev) =>
-        prev.map((s) => (s.id === modal.site!.id ? { ...s, name: form.name.trim(), location: form.location.trim() } : s))
-      )
+    setActionError(null)
+    const res =
+      modal?.mode === "add"
+        ? await addSite(form.name.trim(), form.location.trim())
+        : modal?.mode === "edit" && modal.site
+          ? await updateSiteInfo(modal.site.id, { name: form.name.trim(), location: form.location.trim() })
+          : { ok: true }
+    if (!res.ok) {
+      setActionError(res.error ?? "Could not save this site. Please try again.")
+      return
     }
     closeModal()
   }
 
-  const toggleDeactivate = (site: EditableSite) => {
-    if (!site.deactivated && activeOrdersOf(site.id) > 0) {
+  const toggleDeactivate = async (site: Site) => {
+    if (!site.active && activeOrdersOf(site.id) > 0) {
       // Blocked outright, per spec: don't let an order silently lose its site.
       setConfirmDeactivateId(null)
       return
     }
-    setLocalSites((prev) => prev.map((s) => (s.id === site.id ? { ...s, deactivated: !s.deactivated } : s)))
+    // A default site being deactivated would leave every future order
+    // with nowhere to land (defaultSiteId falls back to sites[0], but
+    // that's a "don't crash" safety net, not a real substitute for an
+    // admin's actual choice) — block it the same deliberate way an
+    // active-orders block works, rather than silently picking a new
+    // default on the admin's behalf.
+    if (site.active && site.isDefault) {
+      setActionError("This is the default site — set a different one as default before deactivating it.")
+      setConfirmDeactivateId(null)
+      return
+    }
+    setActionError(null)
+    const res = await toggleSiteActive(site.id, !site.active)
+    if (!res.ok) setActionError(res.error ?? "Could not update this site. Please try again.")
     setConfirmDeactivateId(null)
+  }
+
+  const makeDefault = async (site: Site) => {
+    setActionError(null)
+    const res = await setDefaultSiteAction(site.id)
+    if (!res.ok) setActionError(res.error ?? "Could not set this as the default site. Please try again.")
   }
 
   return (
@@ -167,7 +188,7 @@ export default function WarehouseSitesPage() {
               />
             </div>
             <p className="hidden whitespace-nowrap text-xs text-ink/45 sm:block">
-              {filtered.length} of {localSites.length} shown
+              {filtered.length} of {sites.length} shown
               {hasFilter && (
                 <button type="button" onClick={clearFilters} className={`ml-2 ${LINK_BUTTON}`}>
                   Clear
@@ -185,21 +206,28 @@ export default function WarehouseSitesPage() {
           </button>
         </div>
 
+        {actionError && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-medium text-rose-700">
+            <AlertTriangle size={13} className="flex-none" />
+            {actionError}
+          </div>
+        )}
+
         {/* ── Site cards ── */}
         <div className="mt-4 space-y-3">
           {filtered.length === 0 ? (
-            <EmptyState hasAnyFilter={hasFilter} isEmptyOverall={localSites.length === 0} onClearFilters={clearFilters} />
+            <EmptyState hasAnyFilter={hasFilter} isEmptyOverall={sites.length === 0} onClearFilters={clearFilters} />
           ) : (
             filtered.map((site) => {
               const headcount = headcountOf(site.id)
               const activeOrders = activeOrdersOf(site.id)
-              const blockedDeactivate = activeOrders > 0
+              const blockedDeactivate = activeOrders > 0 || site.isDefault
 
               return (
                 <div
                   key={site.id}
                   className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card p-4 transition-colors hover:border-ink/20 ${
-                    site.deactivated ? "border-l-ink/10 opacity-60" : "border-l-teal-deep"
+                    !site.active ? "border-l-ink/10 opacity-60" : site.isDefault ? "border-l-gold" : "border-l-teal-deep"
                   }`}
                 >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -210,7 +238,12 @@ export default function WarehouseSitesPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-display text-sm font-semibold text-ink">{site.name}</p>
-                          {site.deactivated && (
+                          {site.isDefault && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2 py-0.5 text-[11px] font-semibold text-gold-deep">
+                              <Star size={10} className="fill-current" /> Default
+                            </span>
+                          )}
+                          {!site.active && (
                             <span className="rounded-full bg-ink/[0.05] px-2 py-0.5 text-[11px] font-semibold text-ink/40">
                               Deactivated
                             </span>
@@ -233,6 +266,21 @@ export default function WarehouseSitesPage() {
                       >
                         <Package size={11} /> {activeOrders} active orders
                       </span>
+                      {/* Super Admin only — see this page's default-site
+                          comment and the sidebar's own "only super_admin
+                          sees this group" precedent for why this action
+                          specifically is gated tighter than the rest of
+                          this page (view/add/edit/deactivate stay open
+                          to Manager too). */}
+                      {role === "super_admin" && site.active && !site.isDefault && (
+                        <button
+                          type="button"
+                          onClick={() => makeDefault(site)}
+                          className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold-deep outline-none transition-colors hover:bg-gold/15 focus-visible:ring-2 focus-visible:ring-gold/40"
+                        >
+                          Set as default
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openEdit(site)}
@@ -242,25 +290,31 @@ export default function WarehouseSitesPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setConfirmDeactivateId(confirmDeactivateId === site.id ? null : site.id)}
-                        aria-expanded={confirmDeactivateId === site.id}
+                        onClick={() =>
+                          site.active
+                            ? setConfirmDeactivateId(confirmDeactivateId === site.id ? null : site.id)
+                            : toggleDeactivate(site)
+                        }
+                        aria-expanded={site.active ? confirmDeactivateId === site.id : undefined}
                         className={`rounded-lg border px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 ${
-                          site.deactivated
+                          !site.active
                             ? "border-teal/30 bg-teal/5 text-teal-deep hover:bg-teal/10 focus-visible:ring-teal/40"
                             : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose/40"
                         }`}
                       >
-                        {site.deactivated ? "Reactivate" : "Deactivate"}
+                        {site.active ? "Deactivate" : "Reactivate"}
                       </button>
                     </div>
                   </div>
 
-                  {confirmDeactivateId === site.id && !site.deactivated && (
+                  {confirmDeactivateId === site.id && site.active && (
                     <div className="mt-3 rounded-xl border border-ink/10 bg-parchment/60 px-4 py-3 text-xs">
                       {blockedDeactivate ? (
                         <p className="flex items-center gap-1.5 font-medium text-rose-700">
-                          <AlertTriangle size={13} /> Can&rsquo;t deactivate — {activeOrders} active order
-                          {activeOrders === 1 ? "" : "s"} still routed here. Reassign them to another site first.
+                          <AlertTriangle size={13} />
+                          {site.isDefault
+                            ? "Can\u2019t deactivate \u2014 this is the default site. Set a different one as default first."
+                            : `Can\u2019t deactivate \u2014 ${activeOrders} active order${activeOrders === 1 ? "" : "s"} still routed here. Reassign them to another site first.`}
                         </p>
                       ) : (
                         <div className="flex items-center justify-between gap-3">

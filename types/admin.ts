@@ -41,6 +41,14 @@ export interface Site {
   id: string
   name: string
   location: string
+  headcount: number
+  active: boolean
+  /** The one site new orders are assigned to when nothing else
+   * determines a site — see AdminDataContext's defaultSiteId and
+   * lib/supabase/sites-admin.ts's setDefaultSite. At most one site has
+   * this true at a time (enforced by a partial unique index — see
+   * data/wishdrop-sites-default.sql). */
+  isDefault: boolean
 }
 
 export type SellerType = "feed" | "manual"
@@ -654,6 +662,36 @@ export interface RequestItemAsk {
    * silently baked into the customer-facing title with no real resolution
    * captured anywhere. */
   confirmedVariant?: string
+  /** Admin-entered product title — used as the order item's real title
+   * instead of truncating the customer's raw note, for a link the
+   * scraper couldn't read at all. Optional: falls back to the note the
+   * same way confirmRequestReal always has, so filling this in is a
+   * quality improvement, not a requirement to confirm the request. */
+  productTitle?: string
+  /** Admin-entered product photo URL — same purpose as productTitle,
+   * for the field that otherwise falls back to a generic placeholder
+   * image on every Channel 3 order (see FALLBACK_PRODUCT_IMAGE). */
+  productImageUrl?: string
+  /** Admin-entered seller/store name — otherwise every Channel 3 item
+   * shows literally "Unassigned seller" forever, since there's no
+   * catalogue listing or scrape result to pull a real one from. */
+  sellerName?: string
+  /** Admin-entered quantity — confirmRequestReal used to hardcode this
+   * to 1 regardless of what the customer actually asked to buy, since
+   * nothing upstream ever captured a real number for a Channel 3 ask.
+   * Defaults to 1, matching that same fallback, but is now a real,
+   * settable field rather than a permanent hardcode. */
+  quantity?: number
+  /** Admin-defined variant dimensions/values (e.g. Size: S/M/L/XL) — the
+   * same { dimension, values } shape a real scrape's AmazonVariantDimension
+   * uses (lib/scrape/extractors/amazon.ts), just hand-entered for a link
+   * the scraper couldn't read, and with plain string values rather than
+   * full option objects. Distinct from confirmedVariant: this is the
+   * SET of choices; confirmedVariant is still the one flat string
+   * recording which specific combination the customer actually agreed
+   * to over chat — see the request detail page's own comment on how
+   * the two work together in the confirm-variant UI. */
+  variantOptions?: { dimension: string; values: string[] }[]
 }
 
 /** Recorded once Manager/Sales & Purchase confirms the customer's payment
@@ -669,6 +707,13 @@ export interface RequestPayment {
 
 export interface Request {
   id: string
+  /** Real, sequence-backed customer-facing reference (e.g. "REQ-10023")
+   * — distinct from id (the raw uuid, used for routing/lookups). Lets a
+   * customer-facing message cite a request before it's confirmed into
+   * an order and gets its own "WD-#####" id — see quoteMessage/
+   * paymentConfirmedMessage in lib/chat/customerMessageTemplates.ts and
+   * data/wishdrop-request-display-id-sequence.sql. */
+  displayId: string
   customerName: string
   items: RequestItemAsk[]
   status: RequestStatus
@@ -719,6 +764,8 @@ export interface ChatThread {
  */
 export interface RequestLine {
   id: string
+  /** See Request.displayId's own doc comment. */
+  displayId: string
   customerName: string
   items: RequestItemAsk[]
   status: RequestStatus

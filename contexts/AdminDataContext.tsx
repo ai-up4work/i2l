@@ -295,10 +295,22 @@ function usePersistentState<T>(key: string, initial: T) {
 // landed). Run data/wishdrop-seed-staff-sites.sql against your Supabase
 // project once, then these IDs will resolve to real rows and every
 // staff-attributed write will actually persist.
-const SITES: Site[] = [
-  { id: "e166db30-47fe-466d-b5ee-2f600300c50f", name: "Colombo Hub", location: "Colombo, LK" },
-  { id: "925ea5ba-e910-4d7b-a351-13b06cda235f", name: "Kandy Hub", location: "Kandy, LK" },
-  { id: "ef990cda-4177-419d-967a-f9e966bf389e", name: "Galle Hub", location: "Galle, LK" },
+//
+// FIX: this used to be the ONLY source of sites data — `sites` in the
+// context value below was this const, directly, with no fetch at all,
+// despite a real `sites` table already existing and already being
+// seeded with these exact rows (see wishdrop-seed-staff-sites.sql).
+// Nothing here ever wrote back to the database either — the warehouse
+// sites admin page's Add/Edit/Deactivate all operated on local
+// component state that reset on every refresh (its own header comment
+// already flagged this). Now this is only the INITIAL value, shown
+// before loadRealSites' first fetch resolves (and as a fallback if that
+// fetch fails), not the permanent data source — see loadRealSites and
+// sites-admin.ts.
+const INITIAL_SITES: Site[] = [
+  { id: "e166db30-47fe-466d-b5ee-2f600300c50f", name: "Colombo Hub", location: "Colombo, LK", headcount: 0, active: true, isDefault: true },
+  { id: "925ea5ba-e910-4d7b-a351-13b06cda235f", name: "Kandy Hub", location: "Kandy, LK", headcount: 0, active: true, isDefault: false },
+  { id: "ef990cda-4177-419d-967a-f9e966bf389e", name: "Galle Hub", location: "Galle, LK", headcount: 0, active: true, isDefault: false },
 ]
 
 // manager and super_admin intentionally share one object rather than
@@ -421,6 +433,7 @@ import {
   type AdminPurchase,
   type DbOrderStage,
 } from "@/lib/supabase/orders-admin"
+import { fetchSites, createSite, updateSite, setSiteActive, setDefaultSite } from "@/lib/supabase/sites-admin"
 
 import { fetchQcIssuesForItems, markReplacementPurchased, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 
@@ -430,6 +443,7 @@ import {
   setRequestQuote as realSetRequestQuote,
   setRequestScreenshotReal,
   setRequestVariantReal,
+  updateRequestItemDetails as updateRequestItemDetailsReal,
   declineRequestReal,
   reassignRequestReal,
   confirmRequestReal,
@@ -958,6 +972,14 @@ function buildRequestItem(seed: RequestItemSeed): RequestItemAsk {
 function buildRequest(seed: RequestSeed): Request {
   return {
     id: seed.id,
+    // Mock seed data already uses a friendly "REQ-####" string as its
+    // id (see the INITIAL_REQUESTS seeds above, e.g. id: "REQ-2031") —
+    // unlike the real DB, where id is a uuid and displayId is a
+    // separate, real sequence-backed column (see
+    // data/wishdrop-request-display-id-sequence.sql). Reusing seed.id
+    // for both here is correct, not a shortcut: this mock data was
+    // already shaped like a display id from the start.
+    displayId: seed.id,
     customerName: seed.customerName,
     items: seed.items.map(buildRequestItem),
     status: seed.status,
@@ -1006,6 +1028,12 @@ interface AdminDataContextValue {
   currentUser: CurrentUser
   permissions: Permissions
   sites: Site[]
+  /** See Site.isDefault's own doc comment and defaultSiteId's. */
+  defaultSiteId: string | undefined
+  addSite: (name: string, location: string) => Promise<{ ok: boolean; error?: string }>
+  updateSiteInfo: (siteId: string, patch: { name?: string; location?: string }) => Promise<{ ok: boolean; error?: string }>
+  toggleSiteActive: (siteId: string, active: boolean) => Promise<{ ok: boolean; error?: string }>
+  setDefaultSiteAction: (siteId: string) => Promise<{ ok: boolean; error?: string }>
   staffDirectory: StaffMember[]
   staffLoading: boolean
   /**
@@ -1111,6 +1139,17 @@ interface AdminDataContextValue {
   setRequestScreenshot: (requestId: string, itemId: string, url: string) => void
   /** Records the confirmed variant (size/color/etc.) once the admin has confirmed it with the customer. Prepended onto the order's item name at confirm time. */
   setRequestVariant: (requestId: string, itemId: string, variant: string) => void
+  updateRequestItemDetails: (
+    requestId: string,
+    itemId: string,
+    patch: {
+      productTitle?: string
+      productImageUrl?: string
+      sellerName?: string
+      quantity?: number
+      variantOptions?: { dimension: string; values: string[] }[]
+    },
+  ) => void
   /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. */
   /** Records the customer's payment for this request's quote. Required before confirmRequest will do anything. Returns the REAL write's result — a caller MUST check .ok before treating this as done, since a silent real-write failure here used to leave a false "confirmed" state on screen that reverted moments later once the next refetch overwrote it with the (still-unconfirmed) truth, all while any "payment confirmed" message the caller sent had already gone out. */
   confirmPayment: (requestId: string, payment: { amount: number; method: string; reference?: string }) => Promise<{ ok: boolean; error?: string }>
@@ -1204,6 +1243,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // stay on usePersistentState below since they're still local mock data
   // (Channel 3 intake / support chat aren't wired to Supabase yet).
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
+  const [sites, setSites] = useState<Site[]>(INITIAL_SITES)
   const [purchases, setPurchases] = useState<Purchase[]>(INITIAL_PURCHASES)
   const [ordersLoading, setOrdersLoading] = useState(true)
   // Export bin hold/release races against the debounced real-time
@@ -1338,6 +1378,61 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     loadRealOrders()
   }, [loadRealOrders])
 
+  const loadRealSites = useCallback(async () => {
+    const realSites = await fetchSites()
+    // Empty is treated as "fetch hasn't landed or failed" rather than
+    // "there are genuinely zero sites" — a real WishDrop deployment
+    // always has at least one hub, so an empty result almost certainly
+    // means the query failed silently or the table isn't seeded yet;
+    // keeping whatever was already showing (the fallback constant, or
+    // the last successful fetch) is safer than flashing the whole app
+    // to "no sites" and breaking every site-select dropdown that reads
+    // this list.
+    if (realSites.length > 0) setSites(realSites)
+  }, [])
+
+  useEffect(() => {
+    loadRealSites()
+  }, [loadRealSites])
+
+  /** The one site a new order gets when nothing else determines a site
+   * — see Site.isDefault's own doc comment. Falls back to the first
+   * site at all (rather than undefined) so an order-creation path never
+   * ends up with a genuinely null site just because no site has been
+   * explicitly marked default yet (e.g. a fresh install before the
+   * migration's seed step runs) — an order attributed to SOME real
+   * site is always safer than one attributed to none, since a null
+   * site_id makes an order invisible to every warehouse-scoped queue,
+   * not just the "wrong" one. */
+  const defaultSiteId = sites.find((s) => s.isDefault)?.id ?? sites[0]?.id
+
+  const addSite = async (name: string, location: string): Promise<{ ok: boolean; error?: string }> => {
+    const res = await createSite(name, location)
+    if (res.ok && res.site) setSites((prev) => [...prev, res.site!])
+    return res
+  }
+
+  const updateSiteInfo = async (siteId: string, patch: { name?: string; location?: string }) => {
+    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, ...patch } : s)))
+    const res = await updateSite(siteId, patch)
+    if (!res.ok) console.error("[updateSiteInfo]", res.error)
+    return res
+  }
+
+  const toggleSiteActive = async (siteId: string, active: boolean) => {
+    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, active } : s)))
+    const res = await setSiteActive(siteId, active)
+    if (!res.ok) console.error("[toggleSiteActive]", res.error)
+    return res
+  }
+
+  const setDefaultSiteAction = async (siteId: string) => {
+    setSites((prev) => prev.map((s) => ({ ...s, isDefault: s.id === siteId })))
+    const res = await setDefaultSite(siteId)
+    if (!res.ok) console.error("[setDefaultSiteAction]", res.error)
+    return res
+  }
+
   // Requests/chat: also real now — see "REAL DATA ADAPTERS" comment
   // further up for why orders/purchases aren't usePersistentState; same
   // reasoning applies here. Unlike Order.id (which is the display_id,
@@ -1366,6 +1461,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     setRequests(
       realRequests.map((r) => ({
         id: r.id,
+        displayId: r.displayId,
         customerName: r.customerName,
         items: r.items,
         status: r.status,
@@ -2173,7 +2269,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       const order = orders.find((o) => o.id === p.orderId)
       const item = order?.items.find((i) => i.id === p.orderItemId)
       if (!order || !item) return []
-      const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
+      const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const orderAgeHours = hoursSince(order.placedAt)
 
       return [{
@@ -2310,7 +2406,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       )
       if (!order.packedAt && !allItemsPassed) return []
 
-      const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
+      const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const orderAgeHours = hoursSince(order.placedAt)
       const qcPassedAgeHours = orderPurchases.reduce<number | null>((earliestAgo, p) => {
         if (!p.qcResolvedAt) return earliestAgo
@@ -2394,7 +2490,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const exportBinLines = useMemo<ExportBinLine[]>(() => {
     return orders.flatMap((order) => {
       if (!order.packedAt || order.pickedUpAt) return []
-      const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
+      const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const packedAgeHours = hoursSince(order.packedAt)
 
       return [{
@@ -2460,7 +2556,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const inTransitLines = useMemo<InTransitLine[]>(() => {
     return orders.flatMap((order) => {
       if (!order.pickedUpAt || order.stage !== "Quality check") return []
-      const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
+      const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const pickedUpAgeHours = hoursSince(order.pickedUpAt)
       const etaHours = order.etaHours ?? IN_TRANSIT_DEFAULT_ETA_HOURS
       const etaRemainingHours = etaHours - pickedUpAgeHours
@@ -2516,7 +2612,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const shippedLines = useMemo<ShippedLine[]>(() => {
     return orders.flatMap((order) => {
       if (order.stage !== "Shipped") return []
-      const siteName = SITES.find((s) => s.id === order.siteId)?.name ?? order.siteId
+      const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const shippedAgeHours = hoursSince(order.stageEnteredAt)
       return [{
         id: order.id,
@@ -2599,6 +2695,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
       return {
         id: r.id,
+        displayId: r.displayId,
         customerName: r.customerName,
         items: r.items,
         status: r.status,
@@ -2705,6 +2802,36 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   }
 
   /**
+   * The admin's manual product-data entry for a request the scraper
+   * couldn't read at all — see updateRequestItemDetails in
+   * requests-admin.ts and RequestItemAsk's own doc comments for what
+   * this fills in and why it was missing. Same optimistic-then-real
+   * pattern as setRequestVariant above; every field is independently
+   * optional so a partial edit (just the image, say) doesn't require
+   * re-sending fields the admin didn't touch.
+   */
+  const updateRequestItemDetails = (
+    requestId: string,
+    itemId: string,
+    patch: {
+      productTitle?: string
+      productImageUrl?: string
+      sellerName?: string
+      quantity?: number
+      variantOptions?: { dimension: string; values: string[] }[]
+    },
+  ) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? { ...r, items: r.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)) }
+          : r
+      )
+    )
+    updateRequestItemDetailsReal(requestId, patch)
+  }
+
+  /**
    * Records that the customer's payment for a quoted request has come in
    * — a distinct step from confirmRequest below. Doesn't touch status or
    * create anything by itself; it only unblocks the "Confirm → creates
@@ -2782,7 +2909,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
     const newOrderId = `WD-${1000 + orders.length + 1}`
     const now = new Date().toISOString()
-    const siteId = SITES[0].id // no site signal on a Channel 3 request yet — defaults to the first hub
+    const siteId = defaultSiteId
+    if (!siteId) return { ok: false, error: 'No warehouse site is configured yet.' }
     const totalValue = request.items.reduce((sum, i) => sum + (i.quote ?? 0), 0)
     // Moved up from below the real write — needed on the optimistic
     // Order object's customerId too now, not just confirmRequestReal's
@@ -2840,7 +2968,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // worse than a brief wait for the real one. userId/firstItem were
     // already resolved above (needed there for the optimistic order's
     // customerId) — reused here rather than looked up twice.
-    const res = await confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue)
+    const res = await confirmRequestReal(requestId, userId, firstItem.note, firstItem.link, totalValue, siteId)
     if (res.ok) {
       loadRealOrders({ silent: true })
       return { ok: true, orderDisplayId: res.orderDisplayId }
@@ -2971,7 +3099,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     role,
     currentUser,
     permissions,
-    sites: SITES,
+    sites,
+    defaultSiteId,
+    addSite,
+    updateSiteInfo,
+    toggleSiteActive,
+    setDefaultSiteAction,
     staffDirectory,
     staffLoading,
     previewRole,
@@ -3040,6 +3173,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     setQuote,
     setRequestScreenshot,
     setRequestVariant,
+    updateRequestItemDetails,
     confirmPayment,
     confirmRequest,
     declineRequest,

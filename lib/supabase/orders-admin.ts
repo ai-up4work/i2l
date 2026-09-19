@@ -349,6 +349,7 @@ type OrderRow = {
     // inspected or not).
     qc_passed_at: string | null
     qc_note: string | null
+    product_image_url: string | null
     product_snapshots: { image_url: string | null } | null
   }[]
   addresses: { id: string; recipient_name: string; address_line1: string; address_line2: string | null; city: string; country: string } | null
@@ -407,8 +408,13 @@ function mapRowToAdminOrder(
       // but the actual .image field (used for every thumbnail — admin
       // order list, order detail header stack, etc.) skipped straight
       // past it to the hardcoded placeholder, since product_snapshots
-      // is never populated for Channel 3.
-      image: it.product_snapshots?.image_url ?? it.screenshot_url ?? FALLBACK_ITEM_IMAGE,
+      // is never populated for Channel 3. product_image_url (the
+      // admin's own manually-entered photo — see
+      // wishdrop-requests-manual-product-details.sql) now sits ahead of
+      // the customer's raw screenshot in this chain: a curated product
+      // photo the admin picked is a better "real image" for the order
+      // to show than whatever the customer happened to screenshot.
+      image: it.product_snapshots?.image_url ?? it.product_image_url ?? it.screenshot_url ?? FALLBACK_ITEM_IMAGE,
       sellerName: it.seller_name ?? undefined,
       sellerType: it.seller_type ?? undefined,
       storeUrl: it.store_url ?? undefined,
@@ -422,7 +428,7 @@ function mapRowToAdminOrder(
 const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_value, delayed, export_hold, site_id,
   request_id, chat_thread_id, carrier, tracking_number, estimated_delivery, delivered_confirmed_by,
   created_at, stage_entered_at,
-  order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, qc_passed_at, qc_note, product_snapshots ( image_url ) ),
+  order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, qc_passed_at, qc_note, product_image_url, product_snapshots ( image_url ) ),
   addresses ( id, recipient_name, address_line1, address_line2, city, country )`
 
 /**

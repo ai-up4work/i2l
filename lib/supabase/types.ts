@@ -493,6 +493,7 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          display_id: string
           link: string
           note: string | null
           item_name: string | null
@@ -510,10 +511,15 @@ export interface Database {
           payment_confirmed_by: string | null
           needs_variant_confirmation: boolean
           confirmed_variant: string | null
+          product_image_url: string | null
+          seller_name: string | null
+          quantity: number
+          variant_options: Json | null
         }
         Insert: {
           id?: string
           user_id: string
+          display_id?: string
           link: string
           note?: string | null
           item_name?: string | null
@@ -531,6 +537,10 @@ export interface Database {
           payment_confirmed_by?: string | null
           needs_variant_confirmation?: boolean
           confirmed_variant?: string | null
+          product_image_url?: string | null
+          seller_name?: string | null
+          quantity?: number
+          variant_options?: Json | null
         }
         Update: Partial<Database['public']['Tables']['requests']['Insert']>
         Relationships: []
@@ -654,6 +664,7 @@ export interface Database {
           // substage, silently marking every sibling item as passed too).
           qc_passed_at: string | null
           qc_note: string | null
+          product_image_url: string | null
         }
         Insert: {
           id?: string
@@ -670,6 +681,7 @@ export interface Database {
           screenshot_url?: string | null
           qc_passed_at?: string | null
           qc_note?: string | null
+          product_image_url?: string | null
         }
         Update: Partial<Database['public']['Tables']['order_items']['Insert']>
         Relationships: []
@@ -991,6 +1003,7 @@ export interface Database {
           location: string
           headcount: number
           active: boolean
+          is_default: boolean
         }
         Insert: {
           id?: string
@@ -998,6 +1011,7 @@ export interface Database {
           location: string
           headcount?: number
           active?: boolean
+          is_default?: boolean
         }
         Update: Partial<Database['public']['Tables']['sites']['Insert']>
         Relationships: []
@@ -1236,7 +1250,15 @@ export interface Database {
       }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      // Backs upsertScrapeHealth (lib/supabase/scrape-health-write.ts) —
+      // see data/wishdrop-scrape-health-increment-fn.sql for why this is
+      // a database-side function rather than a plain client upsert.
+      increment_scrape_health: {
+        Args: { p_domain: string; p_success: boolean }
+        Returns: undefined
+      }
+    }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>
   }

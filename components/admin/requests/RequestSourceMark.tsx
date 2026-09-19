@@ -11,6 +11,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 
 const PALETTE = [
   { bg: "bg-teal-deep/12", text: "text-teal-deep", ring: "ring-teal-deep/20" },
@@ -47,11 +48,13 @@ export function RequestSourceMark({
   if (screenshotUrl && !imgFailed) {
     return (
       <div className={`relative h-full w-full overflow-hidden rounded-xl bg-ink/5 ${className}`}>
-        <img
+        <Image
           src={screenshotUrl}
           alt="Customer-submitted reference"
           onError={() => setImgFailed(true)}
           className="h-full w-full object-cover"
+          width={100}
+          height={100}
         />
         {breached && (
           <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-rose-600 ring-2 ring-white" />

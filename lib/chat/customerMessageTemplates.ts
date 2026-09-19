@@ -52,15 +52,15 @@ export function cleanRequestItemNote(note: string): string {
     .trim()
 }
 
-export function quoteMessage(itemLabel: string, amount: number, isRevision: boolean): string {
+export function quoteMessage(requestDisplayId: string, itemLabel: string, amount: number, isRevision: boolean): string {
   return isRevision
-    ? `We've updated the price for "${itemLabel}" to Rs. ${amount.toLocaleString()}. Let us know here once you're happy with it and we'll get it confirmed.`
-    : `Here's the price for "${itemLabel}": Rs. ${amount.toLocaleString()}. Reply here to let us know you'd like to go ahead, or if you have any questions first.`
+    ? `We've updated the price for "${itemLabel}" (Request ${requestDisplayId}) to Rs. ${amount.toLocaleString()}. Let us know here once you're happy with it and we'll get it confirmed.`
+    : `Here's the price for "${itemLabel}" (Request ${requestDisplayId}): Rs. ${amount.toLocaleString()}. Reply here to let us know you'd like to go ahead, or if you have any questions first.`
 }
 
-export function paymentConfirmedMessage(itemLabel: string, amount: number, method?: string): string {
+export function paymentConfirmedMessage(requestDisplayId: string, itemLabel: string, amount: number, method?: string): string {
   const methodLabel = method ? ` (${method.replace('_', ' ')})` : ''
-  return `We've received your payment of Rs. ${amount.toLocaleString()}${methodLabel} for "${itemLabel}". Thank you! We'll get your order confirmed shortly.`
+  return `We've received your payment of Rs. ${amount.toLocaleString()}${methodLabel} for "${itemLabel}" (Request ${requestDisplayId}). Thank you! We'll get your order confirmed shortly.`
 }
 
 export function orderConfirmedMessage(orderDisplayId: string, itemLabel: string, total: number, itemCount: number): string {
@@ -68,8 +68,8 @@ export function orderConfirmedMessage(orderDisplayId: string, itemLabel: string,
   return `Your order ${orderDisplayId} is confirmed — ${itemsPart}, total Rs. ${total.toLocaleString()}. You can track it from your Orders page.`
 }
 
-export function requestDeclinedMessage(itemLabel: string): string {
-  return `We're sorry, but we're not able to fulfil your request for "${itemLabel}". Let us know here if you'd like to try a different item or have any questions.`
+export function requestDeclinedMessage(requestDisplayId: string, itemLabel: string): string {
+  return `We're sorry, but we're not able to fulfil your request for "${itemLabel}" (Request ${requestDisplayId}). Let us know here if you'd like to try a different item or have any questions.`
 }
 
 export function purchaseFailedMessage(orderDisplayId: string, itemLabel: string, reason: string): string {

@@ -153,7 +153,6 @@ function getGroups(role: Role): Group[] {
       items: [
         { label: "Reports", href: "/admin/reports", icon: BarChart3, roles: ["manager"] },
         { label: "Staff", href: "/admin/staff", icon: UserCog, roles: ["manager"] },
-        { label: "Warehouse Sites", href: "/admin/warehouses", icon: Building2, roles: ["manager"] },
       ],
     },
     {
@@ -172,6 +171,7 @@ function getGroups(role: Role): Group[] {
         { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"], locked: true },
         { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },
         { label: "All staff", href: "/admin/super-admin/staff", icon: Users, roles: ["super_admin"] },
+        { label: "Warehouse Sites", href: "/admin/warehouses", icon: Building2, roles: ["super_admin"] },
         {
           label: "Pricing engine",
           href: "/admin/super-admin/settings/pricing-engine",

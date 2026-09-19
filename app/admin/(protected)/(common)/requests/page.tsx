@@ -76,6 +76,7 @@ export default function RequestsPage() {
       (r) =>
         r.customerName.toLowerCase().includes(q) ||
         r.items.some((i) => i.sourceDomain.toLowerCase().includes(q)) ||
+        r.displayId.toLowerCase().includes(q) ||
         r.id.toLowerCase().includes(q),
     )
   }, [requestLines, search])
@@ -235,7 +236,7 @@ export default function RequestsPage() {
                           {r.customerName}
                         </Link>
                         <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink/55">
-                          <span>{r.id}</span>
+                          <span>{r.displayId}</span>
                           <span className="min-w-0 truncate">
                             <span className="font-mono">{primaryDomain}</span>
                             {r.items.length > 1 && <span className="text-ink/45"> +{r.items.length - 1} more</span>}

@@ -272,6 +272,31 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
  * which by definition can't repeat. A handful of attempts is more than
  * enough headroom even against a wide legacy range.
  */
+/**
+ * The one site a new order gets when nothing else determines a site —
+ * see Site.isDefault's own doc comment in types/admin.ts and
+ * AdminDataContext's defaultSiteId (the admin-side equivalent of this
+ * same lookup). Needed here too because Channel 1/2 checkout — unlike
+ * Channel 3's confirmRequestReal — creates the real `orders` row
+ * directly from this customer-facing context, not from an admin action
+ * that already has `sites` loaded. `sites` has no RLS restricting
+ * reads (it's non-sensitive hub metadata), so the regular authenticated
+ * client can query it directly rather than needing a server route.
+ * Returns null (rather than throwing) if nothing is marked default yet
+ * or the query fails — callers treat that the same as "no site" rather
+ * than blocking checkout entirely over it, since an order with no site
+ * is a worse outcome to force here than one that's merely un-scoped
+ * until ops sets a default.
+ */
+async function fetchDefaultSiteId(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase.from('sites').select('id').eq('is_default', true).maybeSingle()
+  if (error) {
+    console.error('[fetchDefaultSiteId]', error)
+    return null
+  }
+  return data?.id ?? null
+}
+
 async function createOrderWithRetry(
   supabase: SupabaseClient,
   fields: {
@@ -281,6 +306,7 @@ async function createOrderWithRetry(
     total_value: number
     recipient_address_id?: string | null
     chat_thread_id?: string | null
+    site_id?: string | null
   },
 ): Promise<string> {
   const MAX_ATTEMPTS = 5
@@ -504,11 +530,13 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           site: domain,
           price: null,
         })
+        const defaultSiteId = await fetchDefaultSiteId(supabase)
         const orderId = await createOrderWithRetry(supabase, {
           user_id: user.id,
           channel: 2,
           currency: 'LKR',
           total_value: finalUnitPriceLKR * draft.qty,
+          site_id: defaultSiteId,
         })
         const { error: itemError } = await supabase.from('order_items').insert({
           order_id: orderId,
@@ -709,6 +737,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
         const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
         const channel: 1 | 2 = lines.every((line) => line.source === 'catalogue') ? 1 : 2
+        const defaultSiteId = await fetchDefaultSiteId(supabase)
         const orderId = await createOrderWithRetry(supabase, {
           user_id: user.id,
           channel,
@@ -716,6 +745,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           total_value: total,
           recipient_address_id: addressId,
           chat_thread_id: threadId,
+          site_id: defaultSiteId,
         })
 
         const itemRows = await Promise.all(

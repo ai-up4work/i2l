@@ -87,6 +87,11 @@ export interface RealRequestItemAsk {
   quoteHistory: RealQuoteHistoryEntry[]
   needsVariantConfirmation?: boolean
   confirmedVariant?: string
+  productTitle?: string
+  productImageUrl?: string
+  sellerName?: string
+  quantity?: number
+  variantOptions?: { dimension: string; values: string[] }[]
 }
 
 /** Recorded once Manager/Sales & Purchase confirms the customer's payment
@@ -102,6 +107,7 @@ export interface RealRequestPayment {
 
 export interface RealRequest {
   id: string
+  displayId: string
   userId: string
   customerName: string
   items: RealRequestItemAsk[]
@@ -140,11 +146,21 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
   const { data, error } = await supabase
     .from('requests')
     .select(
-      'id, user_id, link, note, item_name, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by, needs_variant_confirmation, confirmed_variant',
+      'id, user_id, display_id, link, note, item_name, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by, needs_variant_confirmation, confirmed_variant, product_image_url, seller_name, quantity, variant_options',
     )
     .order('submitted_at', { ascending: false })
   if (error) {
-    console.error('[fetchAdminRequests]', error)
+    // PostgrestError doesn't stringify usefully through plain
+    // console.error (its message/details/hint/code aren't picked up by
+    // default object formatting, so this was logging as an unhelpful
+    // `{}` with no way to tell WHY the query failed — a missing column,
+    // a bad filter, an RLS denial, etc. all looked identical).
+    console.error('[fetchAdminRequests]', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    })
     return []
   }
   const rows = data ?? []
@@ -186,6 +202,7 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
 
   return rows.map((r) => ({
     id: r.id,
+    displayId: r.display_id,
     userId: r.user_id,
     customerName: nameByUserId.get(r.user_id) ?? 'Unknown customer',
     status: mapRealStatusToMockStatus(r.status as DbRequestStatus),
@@ -212,6 +229,29 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
         quoteHistory: historyByRequestId.get(r.id) ?? [],
         needsVariantConfirmation: r.needs_variant_confirmation ?? false,
         confirmedVariant: r.confirmed_variant ?? undefined,
+        // productTitle reuses the existing item_name column (set by the
+        // customer at submission — see DashboardContext.tsx's
+        // draft.name) rather than a new column: it was already "the
+        // real source going forward" for title per confirmRequestReal's
+        // own comment, just never admin-editable after the fact until
+        // updateRequestItemDetails below.
+        productTitle: r.item_name ?? undefined,
+        productImageUrl: r.product_image_url ?? undefined,
+        sellerName: r.seller_name ?? undefined,
+        quantity: r.quantity ?? 1,
+        // variant_options is jsonb — Json | null at the type level, not
+        // statically guaranteed to actually be the shape we expect —
+        // so this is a defensive runtime check, not just a cast, before
+        // trusting it as { dimension, values }[].
+        variantOptions: Array.isArray(r.variant_options)
+          ? (r.variant_options as unknown[]).filter(
+              (v): v is { dimension: string; values: string[] } =>
+                !!v &&
+                typeof v === 'object' &&
+                typeof (v as { dimension?: unknown }).dimension === 'string' &&
+                Array.isArray((v as { values?: unknown }).values),
+            )
+          : undefined,
       },
     ],
   }))
@@ -225,7 +265,7 @@ export async function fetchAdminChatThreads(): Promise<RealChatThread[]> {
     .select('id, user_id, request_id, last_activity, unread')
     .order('last_activity', { ascending: false })
   if (error) {
-    console.error('[fetchAdminChatThreads]', error)
+    console.error('[fetchAdminChatThreads]', { message: error.message, details: error.details, hint: error.hint, code: error.code })
     return []
   }
   const rows = threads ?? []
@@ -394,6 +434,47 @@ export async function setRequestVariantReal(requestId: string, variant: string):
 }
 
 /**
+ * Admin's manual product-data entry for a request the scraper couldn't
+ * read at all — title (item_name), a real product photo, the seller/
+ * store name, and quantity. None of this exists for a Channel 3 item by
+ * default (see this file's header on wishdrop-requests-manual-product-
+ * details.sql for exactly what that costs the resulting order), so this
+ * is what lets an admin fill it in by hand before confirming, the same
+ * way setRequestVariantReal lets them resolve a variant. Every field is
+ * independently optional to patch — built as a concrete typed variable
+ * rather than an inline `{ ...(x !== undefined ? {...} : {}) }` spread,
+ * which is what caused the exact TS "Update<T> collapses to never"
+ * issue documented on reassignOrderSite/setOrderShipping in
+ * orders-admin.ts; same fix applies here since this has the same shape.
+ */
+export async function updateRequestItemDetails(
+  requestId: string,
+  patch: {
+    productTitle?: string
+    productImageUrl?: string
+    sellerName?: string
+    quantity?: number
+    variantOptions?: { dimension: string; values: string[] }[]
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const payload: {
+    item_name?: string
+    product_image_url?: string
+    seller_name?: string
+    quantity?: number
+    variant_options?: { dimension: string; values: string[] }[]
+  } = {}
+  if (patch.productTitle !== undefined) payload.item_name = patch.productTitle
+  if (patch.productImageUrl !== undefined) payload.product_image_url = patch.productImageUrl
+  if (patch.sellerName !== undefined) payload.seller_name = patch.sellerName
+  if (patch.quantity !== undefined) payload.quantity = patch.quantity
+  if (patch.variantOptions !== undefined) payload.variant_options = patch.variantOptions
+  const { error } = await supabase.from('requests').update(payload).eq('id', requestId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+/**
  * Confirms a quoted request AND creates the real Channel 3 order it
  * becomes — the only place a channel=3 `orders` row is created. Mirrors
  * lib/supabase/orders-admin.ts's shape (display_id, stage='ordered')
@@ -425,6 +506,7 @@ export async function confirmRequestReal(
   customerNote: string,
   link: string,
   quote: number,
+  siteId: string,
 ): Promise<{ ok: boolean; error?: string; orderDisplayId?: string }> {
   const supabase = createClient()
 
@@ -440,7 +522,7 @@ export async function confirmRequestReal(
   // shows this real photo everywhere instead of the generic placeholder.
   const { data: existing, error: fetchError } = await supabase
     .from('requests')
-    .select('payment_confirmed_at, screenshot_url, chat_thread_id, item_name, confirmed_variant')
+    .select('payment_confirmed_at, screenshot_url, chat_thread_id, item_name, confirmed_variant, product_image_url, seller_name, quantity')
     .eq('id', requestId)
     .single()
   if (fetchError) return { ok: false, error: fetchError.message }
@@ -473,6 +555,15 @@ export async function confirmRequestReal(
         currency: 'LKR',
         total_value: quote,
         request_id: requestId,
+        // FIX: this insert never set site_id at all — every Channel 3
+        // order landed with a null site, which makes it invisible to
+        // every warehouse-scoped queue (a staff member only sees orders
+        // matching their own siteId; null never matches anything) —
+        // not just assigned to the "wrong" one. Passed in by the caller
+        // (AdminDataContext's confirmRequest) as the real default site,
+        // not hardcoded here, so this stays correct if the default ever
+        // changes without this file needing to know why.
+        site_id: siteId,
         // Carries the customer's chat thread onto the order itself, so
         // any later order-level action (purchase failed, QC flagged,
         // shipped, delivered) can message the same thread without
@@ -505,10 +596,23 @@ export async function confirmRequestReal(
   const { error: itemError } = await supabase.from('order_items').insert({
     order_id: orderId,
     title: cleanTitle.length > 60 ? `${cleanTitle.slice(0, 57)}...` : cleanTitle,
-    quantity: 1,
+    // FIX: quantity was hardcoded to 1 regardless of what the customer
+    // actually asked to buy — now uses whatever the admin set via
+    // updateRequestItemDetails (itself defaulted to 1 the same way, so
+    // a request nobody edited behaves exactly as before).
+    quantity: existing.quantity ?? 1,
     unit_price: quote,
     request_link: link,
     screenshot_url: existing.screenshot_url ?? null,
+    // FIX: these were never set at all, so every Channel 3 order item
+    // showed a generic placeholder image and literally "Unassigned
+    // seller" forever — now carries over whatever the admin filled in
+    // by hand for a link the scraper couldn't read (see
+    // updateRequestItemDetails and wishdrop-requests-manual-product-
+    // details.sql). Both stay null when the admin never filled them
+    // in, same fallback behavior as before.
+    product_image_url: existing.product_image_url ?? null,
+    seller_name: existing.seller_name ?? null,
     seller_type: 'individual',
   })
   if (itemError) return { ok: false, error: itemError.message }
