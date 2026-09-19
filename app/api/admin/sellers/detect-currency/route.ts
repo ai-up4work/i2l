@@ -19,6 +19,7 @@
 // relying on whatever the admin types in by hand.
 
 import { NextResponse } from 'next/server'
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
 import { fetchShopifyShopCurrency } from '@/lib/store-providers/shopify'
 import { fetchWooCommerceCurrency } from '@/lib/store-providers/woocommerce'
@@ -44,6 +45,9 @@ function stripTrailingSlash(url: string): string {
 }
 
 export async function POST(request: Request) {
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+
   let body: RequestBody
   try {
     body = await request.json()

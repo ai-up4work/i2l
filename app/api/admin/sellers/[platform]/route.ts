@@ -7,31 +7,22 @@
 //           only, per the platform's delete policy. Sales & Purchase
 //           gets deactivate (the PATCH above) but never this.
 //
-// Same caveat as app/api/admin/sellers/route.ts: authenticated-only, not
-// staff-role-gated yet. The Delete button itself is only rendered for a
-// Manager client-side (see SellerFormClient's permissions.canDelete
-// check) — add a real server-side staff_accounts role check here before
-// this admin panel is exposed outside your own team, same open item as
-// every other /api/admin/** route.
+// Gated via requireStaffRole — GET/PATCH allow SOURCING_ROLES (Super
+// Admin/Manager/Sales & Purchase), DELETE is further restricted to
+// DELETE_ROLES (Manager/Super Admin only), matching the client-side
+// permissions.canDelete check in SellerFormClient. See
+// lib/supabase/admin-auth.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { requireStaffRole, SOURCING_ROLES, DELETE_ROLES } from '@/lib/supabase/admin-auth'
 import type { Database } from '@/lib/supabase/types'
 
-async function requireAuthedUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user
-}
-
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
   const { platform } = await params
-  const admin = createServiceRoleClient()
   const { data, error } = await admin.from('sellers').select('*').eq('platform_slug', platform).maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -40,8 +31,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
   const { platform } = await params
   const body = await req.json()
@@ -74,7 +66,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }
 
-  const admin = createServiceRoleClient()
   const { data, error } = await admin
     .from('sellers')
     .update(patch)
@@ -87,12 +78,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(DELETE_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
   const { platform } = await params
-  const admin = createServiceRoleClient()
-
   const { data: seller, error: findError } = await admin
     .from('sellers')
     .select('id')

@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Plus, Search, SearchX, Crown, ShieldCheck, ShoppingBag, Trash2, UserCog, Users, Warehouse } from "lucide-react"
+import { ChevronRight, Search, SearchX, Crown, ShieldCheck, ShoppingBag, Trash2, UserCog, Users, Warehouse } from "lucide-react"
 
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
@@ -86,6 +86,7 @@ export default function AllStaffPage() {
 
   const countByRole = (r: Role) => staffDirectory.filter((s) => s.role === r).length
   const invitedCount = rows.filter((r) => r.displayStatus === "invited").length
+  const pendingApprovalCount = rows.filter((r) => r.status === "pending").length
   const hasActiveFilters = search.trim() !== "" || roleFilter !== "all" || siteFilter !== "all"
 
   // Also removes the underlying Supabase Auth user (see
@@ -117,17 +118,12 @@ export default function AllStaffPage() {
             <div>
               <h1 className="font-display text-3xl text-ink">All staff</h1>
               <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Every role, across every site — Manager and Super Admin included.
+                Every role, across every site — Manager and Super Admin included. New accounts come in through{" "}
+                <span className="font-semibold">/admin/register</span> and are approved from here, not created
+                directly.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => router.push("/admin/super-admin/staff/new")}
-            className="flex items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90"
-          >
-            <Plus size={15} /> Add staff
-          </button>
         </div>
 
         {/* ── Stat strip ── */}
@@ -231,9 +227,15 @@ export default function AllStaffPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
-                    {ROLE_ICON[s.role]} {ROLE_LABEL[s.role]}
-                  </span>
+                  {s.role ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
+                      {ROLE_ICON[s.role]} {ROLE_LABEL[s.role]}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-teal/10 px-2.5 py-1 text-xs font-semibold text-teal-deep">
+                      Requested: {s.requestedRole ? ROLE_LABEL[s.requestedRole] : "not specified"}
+                    </span>
+                  )}
                   {s.siteName && (
                     <span className="rounded-full bg-teal/10 px-2.5 py-1 text-xs font-semibold text-teal-deep">
                       {s.siteName}

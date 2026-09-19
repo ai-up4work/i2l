@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ShoppingBag, Warehouse } from "lucide-react"
+import { ArrowLeft, ShoppingBag, Warehouse, Copy, Check } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
@@ -33,6 +33,14 @@ export default function NewStaffPage() {
   const [siteId, setSiteId] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set once the account is created — a wrapped, one-time invite link
+  // always comes back now (see app/api/admin/staff route.ts). Previously
+  // this page discarded that link entirely and navigated straight back
+  // to the roster, so a Manager-created account had no way to actually
+  // be handed to the person — real sign-in existed, but nothing on this
+  // page surfaced it.
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   if (currentUser.role !== "manager") return null
 
@@ -53,7 +61,71 @@ export default function NewStaffPage() {
       setError(result.error ?? "Failed to create staff account.")
       return
     }
-    router.push("/admin/staff")
+    setCreatedInviteLink(result.inviteLink ?? null)
+  }
+
+  const handleCopyLink = async () => {
+    if (!createdInviteLink) return
+    try {
+      await navigator.clipboard.writeText(createdInviteLink)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API can be unavailable (non-HTTPS, some embedded
+      // browsers) — the link is still selectable/visible in the input
+      // below either way, so this isn't a dead end even if it fails.
+    }
+  }
+
+  // Success state — the account already exists at this point; this is
+  // purely "here's the link, go deliver it yourself."
+  if (createdInviteLink) {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-2xl px-6 pb-24 pt-10 lg:px-10">
+          <h1 className="font-display text-3xl text-ink">Staff account created</h1>
+          <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+            Copy this link and send it to {name.trim() || "them"} yourself — WhatsApp, email, SMS, whatever's
+            easiest. It's a one-time link that lets them set their own password and sign in.
+          </p>
+
+          <div className={`mt-8 flex flex-col gap-3 p-6 ${panelClass}`}>
+            <label className="text-xs font-semibold text-ink/50">Invite link</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={createdInviteLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className={`flex-1 ${inputClass} select-all`}
+              />
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex flex-none items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90"
+              >
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-ink/40">
+              This link only works once and expires after a while — if it goes unused too long, use "Resend
+              invite" from their staff page to get a fresh one.
+            </p>
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/staff")}
+                className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -70,7 +142,7 @@ export default function NewStaffPage() {
 
         <h1 className="mt-4 font-display text-3xl text-ink">Add staff</h1>
         <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-          Creates the account roster entry — see the note below about what this does and doesn't do yet.
+          Creates the roster entry and a one-time invite link for this person to set their own password.
         </p>
 
         <div className={`mt-8 flex flex-col gap-5 p-6 ${panelClass}`}>
@@ -143,9 +215,9 @@ export default function NewStaffPage() {
           )}
 
           <p className="rounded-lg bg-gold/10 px-3.5 py-2.5 text-xs leading-relaxed text-ink/60">
-            This creates the roster entry — the account becomes assignable and visible across the admin console
-            immediately. Real sign-in isn't wired up yet, so this person can't actually log in until that's built;
-            for now, treat this as adding them to the team roster, not sending them access.
+            No email is sent automatically — after creating the account, you'll get a one-time link to copy and
+            send to them yourself (WhatsApp, email, SMS — anywhere works, since the link is safe to paste anywhere).
+            They set their own password and sign in at <span className="font-semibold">/admin/login</span>.
           </p>
 
           {error && (

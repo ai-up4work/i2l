@@ -6,11 +6,10 @@
 // yet — this is the whole provisioning story for now: admin clicks
 // "Create seller login", gets a password to share, done.
 //
-// Same caveat as the other admin routes: authenticated-only, no staff-role
-// check yet.
+// Gated via requireStaffRole(SOURCING_ROLES) — see lib/supabase/admin-auth.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
 function generateTempPassword(): string {
   // Readable-ish, still high entropy: e.g. "wd-7f3k9d2q"
@@ -18,17 +17,13 @@ function generateTempPassword(): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
-  const supabase = await createClient()
-  const {
-    data: { user: requester },
-  } = await supabase.auth.getUser()
-  if (!requester) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
   const { platform } = await params
   const { email } = await req.json()
   if (!email) return NextResponse.json({ error: 'email is required' }, { status: 400 })
-
-  const admin = createServiceRoleClient()
 
   const { data: seller, error: sellerError } = await admin
     .from('sellers')

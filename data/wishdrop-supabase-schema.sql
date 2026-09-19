@@ -392,9 +392,15 @@ create index on public.chat_messages (thread_id, created_at);
 create type order_stage as enum ('ordered', 'quality_check', 'shipped', 'delivered', 'cancelled');
 create type order_seller_type as enum ('store', 'individual');
 
+-- Backs orders.display_id below — see data/wishdrop-order-display-id-sequence.sql
+-- for the full rationale (this is the fresh-database version of that same fix).
+create sequence public.order_display_id_seq start with 10000 increment by 1;
+
 create table public.orders (
   id uuid primary key default gen_random_uuid(),
-  display_id text unique not null,       -- customer-facing "WD-10499" style id
+  -- customer-facing "WD-10499" style id, assigned by the DB so callers
+  -- never need to generate or retry-on-collision one themselves.
+  display_id text unique not null default ('WD-' || lpad(nextval('public.order_display_id_seq')::text, 5, '0')),
   user_id uuid not null references auth.users(id) on delete cascade,
   channel smallint not null check (channel in (1,2,3)),
   stage order_stage not null default 'ordered',
@@ -640,7 +646,9 @@ create index on public.notifications (user_id, read);
 -- ============================================================================
 
 create type staff_role as enum ('manager', 'sales', 'warehouse', 'super_admin');
-create type staff_status as enum ('active', 'deactivated');
+-- 'pending' = self-registered via /admin/register, awaiting Manager/
+-- Super Admin approval — see data/wishdrop-staff-self-registration.sql.
+create type staff_status as enum ('active', 'deactivated', 'pending');
 
 create table public.sites (
   id uuid primary key default gen_random_uuid(),
@@ -657,10 +665,18 @@ create table public.staff_accounts (
   user_id uuid references auth.users(id) on delete set null,  -- link to Supabase auth for staff login
   name text not null,
   email text unique not null,
-  role staff_role not null,
+  -- Nullable: a self-registered ('pending') account hasn't been
+  -- assigned a role yet — see the check constraint below, which
+  -- requires a real role for every non-pending row.
+  role staff_role,
+  -- What a self-registered applicant said they're applying for. Purely
+  -- informational for whoever reviews the request — never the source
+  -- of the actual `role` granted.
+  requested_role staff_role,
   site_id uuid references public.sites(id) on delete set null,  -- only meaningful for role='warehouse'
   status staff_status not null default 'active',
-  last_login timestamptz
+  last_login timestamptz,
+  constraint staff_accounts_role_required_unless_pending check (status = 'pending' or role is not null)
 );
 alter table public.requests
   add constraint requests_staff_fk foreign key (assigned_staff_id) references public.staff_accounts(id) on delete set null;

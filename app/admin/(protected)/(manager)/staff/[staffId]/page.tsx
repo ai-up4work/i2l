@@ -16,6 +16,7 @@ import {
 
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
 import { panelClass } from "@/components/admin/seller/shared"
+import { PendingApprovalPanel } from "@/components/admin/PendingApprovalPanel"
 import type { Role } from "@/types/admin"
 import { STAFF_STATUS_LABEL, STAFF_STATUS_TONE, type StaffAccountStatus } from "@/lib/admin/mock"
 
@@ -77,7 +78,12 @@ export default function StaffDetailPage() {
     if (role !== "manager" && role !== "super_admin") router.replace("/admin/dashboard")
   }, [role, router])
 
-  const staff = staffDirectory.find((s) => s.id === params.staffId && s.role !== "manager")
+  const staff = staffDirectory.find(
+    (s) =>
+      s.id === params.staffId &&
+      s.role !== "manager" &&
+      (s.status !== "pending" || (s.requestedRole !== "manager" && s.requestedRole !== "super_admin")),
+  )
 
   // -- Edit-mode form state ------------------------------------------------
   const [name, setName] = useState(staff?.name ?? "")
@@ -109,6 +115,19 @@ export default function StaffDetailPage() {
           Back to Staff
         </button>
       </div>
+    )
+  }
+
+  if (staff.status === "pending") {
+    return (
+      <PendingApprovalPanel
+        staff={staff}
+        sites={sites}
+        allowedRoles={["sales", "warehouse"]}
+        onDone={() => router.push("/admin/staff")}
+        updateStaffAccount={updateStaffAccount}
+        deleteStaffAccount={deleteStaffAccount}
+      />
     )
   }
 

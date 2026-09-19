@@ -527,10 +527,16 @@ export interface StaffMember {
   id: string
   name: string
   email: string
-  role: Role
+  /** Null only for a 'pending' self-registered account awaiting
+   * approval — see the register/approve flow in AdminDataContext. */
+  role: Role | null
+  /** What a self-registered applicant said they're applying for —
+   * informational only; the actual `role` above always comes from an
+   * approver's explicit choice, never copied from this. */
+  requestedRole?: Role
   /** Only meaningful for Warehouse — mirrors CurrentUser.siteId */
   siteId?: string
-  status: "active" | "deactivated"
+  status: "active" | "deactivated" | "pending"
   /** ISO timestamp, or undefined if this account has never signed in */
   lastLogin?: string
 }

@@ -962,11 +962,6 @@ interface AdminDataContextValue {
     email: string
     role: Role
     siteId?: string
-    /** Defaults to true. Pass false to skip Supabase's auto-sent invite
-     * email entirely and get a copyable invite link back instead — see
-     * app/api/admin/staff route.ts's own doc comment for why (mainly:
-     * sidestepping Supabase's shared email rate limit). */
-    sendEmail?: boolean
   }) => Promise<{ ok: boolean; error?: string; inviteLink?: string | null }>
   updateStaffAccount: (
     staffId: string,
@@ -1300,7 +1295,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     id: string
     name: string
     email: string
-    role: string
+    role: string | null
+    requested_role?: string | null
     site_id: string | null
     status: string
     last_login: string | null
@@ -1308,9 +1304,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     id: row.id,
     name: row.name,
     email: row.email,
-    role: row.role as Role,
+    role: (row.role as Role) ?? null,
+    requestedRole: (row.requested_role as Role) ?? undefined,
     siteId: row.site_id ?? undefined,
-    status: row.status as "active" | "deactivated",
+    status: row.status as "active" | "deactivated" | "pending",
     lastLogin: row.last_login ?? undefined,
   })
 
@@ -1332,17 +1329,17 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     loadStaffDirectory()
   }, [loadStaffDirectory])
 
-  /** Creates the staff_accounts roster row. Manager-callable for
-   * sales/warehouse; the super_admin/manager-role case is only ever
-   * reachable from /admin/super-admin/staff/new in the UI — this function
-   * itself doesn't re-check role, matching the honest server-side gap
-   * noted in the API route. */
+  /** Direct-create via a generated invite link — no longer reachable from
+   * any UI page (the "Add staff" pages that called this were removed
+   * once self-registration + approval at /admin/register became the
+   * only onboarding path — see PendingApprovalPanel). Left in place
+   * since /api/admin/staff's POST endpoint still works and nothing else
+   * depends on removing it, but nothing in this app calls it anymore. */
   const createStaffAccount = async (input: {
     name: string
     email: string
     role: Role
     siteId?: string
-    sendEmail?: boolean
   }): Promise<{ ok: boolean; error?: string; inviteLink?: string | null }> => {
     try {
       const res = await fetch("/api/admin/staff", {

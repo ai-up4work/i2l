@@ -428,36 +428,35 @@ export async function confirmRequestReal(
     return { ok: false, error: 'Payment must be confirmed before this request can be confirmed.' }
   }
 
-  let displayId = ''
-  let orderId = ''
-  for (let attempt = 0; attempt < 5; attempt++) {
-    displayId = `WD-${Math.floor(10000 + Math.random() * 89999)}`
-    const { data, error } = await supabase
-      .from('orders')
-      .insert({
-        display_id: displayId,
-        user_id: userId,
-        channel: 3,
-        stage: 'ordered',
-        currency: 'LKR',
-        total_value: quote,
-        request_id: requestId,
-        // Carries the customer's chat thread onto the order itself, so
-        // any later order-level action (purchase failed, QC flagged,
-        // shipped, delivered) can message the same thread without
-        // re-deriving it through the request — see Order.chatThreadId's
-        // doc comment in types/admin.ts.
-        chat_thread_id: existing.chat_thread_id,
-      })
-      .select('id')
-      .single()
-    if (!error) {
-      orderId = data.id as string
-      break
-    }
-    if (error.code !== '23505') return { ok: false, error: error.message }
-  }
-  if (!orderId) return { ok: false, error: 'Could not generate a unique order number. Please try again.' }
+  // display_id is intentionally left out of this insert — orders.display_id
+  // has a real DEFAULT backed by a Postgres sequence (see
+  // data/wishdrop-order-display-id-sequence.sql), the same mechanism
+  // Channel 1/2 checkout relies on via createOrderWithRetry
+  // (contexts/DashboardContext.tsx). This used to be a client-side random
+  // 5-digit number with a retry-on-collision loop; the DB-side sequence
+  // makes that unnecessary (and removes the small but real chance of two
+  // concurrent confirmations racing each other on the same random number).
+  const { data, error } = await supabase
+    .from('orders')
+    .insert({
+      user_id: userId,
+      channel: 3,
+      stage: 'ordered',
+      currency: 'LKR',
+      total_value: quote,
+      request_id: requestId,
+      // Carries the customer's chat thread onto the order itself, so
+      // any later order-level action (purchase failed, QC flagged,
+      // shipped, delivered) can message the same thread without
+      // re-deriving it through the request — see Order.chatThreadId's
+      // doc comment in types/admin.ts.
+      chat_thread_id: existing.chat_thread_id,
+    })
+    .select('id, display_id')
+    .single()
+  if (error) return { ok: false, error: error.message }
+  const orderId = data.id as string
+  const displayId = data.display_id as string
 
   // Clean, customer-facing title — never the raw ops note, which can
   // carry an internal tag like "[Confirm size/color with customer]"

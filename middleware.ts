@@ -82,7 +82,7 @@ async function getStaffRole(userId: string, email: string | undefined): Promise<
     staff = fallback.data
   }
 
-  if (!staff || staff.status === 'deactivated') return null
+  if (!staff || staff.status !== 'active') return null
   return staff.role as Role
 }
 
@@ -98,7 +98,7 @@ function redirectTo(request: NextRequest, path: string, preserveReturnTo = false
 const SELLER_PROTECTED_PREFIXES = ['/seller', '/catalogue']
 const SELLER_PUBLIC_PATHS = ['/seller/login']
 
-const ADMIN_PUBLIC_PATHS = ['/admin/login', '/admin/set-password']
+const ADMIN_PUBLIC_PATHS = ['/admin/login', '/admin/register', '/admin/set-password', '/admin/invite']
 
 export async function middleware(request: NextRequest) {
   const { supabaseResponse, supabase, user } = await updateSession(request)

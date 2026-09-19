@@ -594,7 +594,15 @@ export interface Database {
         }
         Insert: {
           id?: string
-          display_id: string
+          // Optional now that orders.display_id has a real DB default
+          // (a Postgres sequence — see
+          // data/wishdrop-order-display-id-sequence.sql). Marking this
+          // required was accurate against the old schema (no default
+          // existed, so every insert had to supply one), but is now
+          // stale — both createOrderWithRetry (DashboardContext.tsx)
+          // and confirmRequestReal (requests-admin.ts) intentionally
+          // omit it and let the database assign it.
+          display_id?: string
           user_id: string
           channel: 1 | 2 | 3
           stage?: string
@@ -981,7 +989,14 @@ export interface Database {
           user_id: string | null
           name: string
           email: string
-          role: string
+          // Nullable — a self-registered ('pending') account has no
+          // role until a Manager/Super Admin approves it. See
+          // data/wishdrop-staff-self-registration.sql.
+          role: string | null
+          // What a self-registered applicant said they're applying
+          // for — informational only, never the source of the actual
+          // granted role.
+          requested_role: string | null
           site_id: string | null
           status: string
           last_login: string | null
@@ -997,7 +1012,8 @@ export interface Database {
           user_id?: string | null
           name: string
           email: string
-          role: string
+          role?: string | null
+          requested_role?: string | null
           site_id?: string | null
           status?: string
           last_login?: string | null

@@ -38,15 +38,12 @@ export default function NewStaffPage() {
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<Role>("sales")
   const [siteId, setSiteId] = useState("")
-  const [sendEmail, setSendEmail] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Set only when the create succeeded AND we got a link back to show
-  // (either because "Send invite email automatically" was unchecked, or
-  // the automatic email hit Supabase's rate limit and the route fell
-  // back to a copyable link on its own — see that route's own comment).
-  // Non-null is what keeps this page open on a "here's the link" panel
-  // instead of navigating straight back to the staff list.
+  // Set once the account is created — a wrapped, one-time invite link
+  // always comes back now (see app/api/admin/staff route.ts), so this
+  // is what keeps the page open on a "here's the link" panel instead of
+  // navigating straight back to the staff list.
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -63,18 +60,13 @@ export default function NewStaffPage() {
       email: email.trim(),
       role,
       siteId: role === "warehouse" ? siteId : undefined,
-      sendEmail,
     })
     setSaving(false)
     if (!result.ok) {
       setError(result.error ?? "Failed to create staff account.")
       return
     }
-    if (result.inviteLink) {
-      setCreatedInviteLink(result.inviteLink)
-      return
-    }
-    router.push("/admin/super-admin/staff")
+    setCreatedInviteLink(result.inviteLink ?? null)
   }
 
   const handleCopyLink = async () => {
@@ -100,9 +92,8 @@ export default function NewStaffPage() {
         <div className="mx-auto max-w-2xl px-6 pb-24 pt-10 lg:px-10">
           <h1 className="font-display text-3xl text-ink">Staff account created</h1>
           <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-            No invite email was sent{sendEmail ? " (Supabase's email rate limit was hit)" : ""} — copy this link and
-            send it to {name.trim() || "them"} yourself. It's a one-time link that lets them set their own password
-            and sign in.
+            Copy this link and send it to {name.trim() || "them"} yourself — WhatsApp, email, SMS, whatever's
+            easiest. It's a one-time link that lets them set their own password and sign in.
           </p>
 
           <div className={`mt-8 flex flex-col gap-3 p-6 ${panelClass}`}>
@@ -125,8 +116,8 @@ export default function NewStaffPage() {
               </button>
             </div>
             <p className="text-xs text-ink/40">
-              This link only works once and expires after a while, same as a normal Supabase invite — if it goes
-              unused too long, deactivate and re-add this person to get a fresh one.
+              This link only works once and expires after a while — if it goes unused too long, use "Resend
+              invite" from their staff page to get a fresh one.
             </p>
 
             <div className="mt-3 flex justify-end">
@@ -158,7 +149,7 @@ export default function NewStaffPage() {
 
         <h1 className="mt-4 font-display text-3xl text-ink">Add staff</h1>
         <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-          Creates the roster entry and sends a real invite email so this person can sign in themselves.
+          Creates the roster entry and a one-time invite link for this person to set their own password.
         </p>
 
         <div className={`mt-8 flex flex-col gap-5 p-6 ${panelClass}`}>
@@ -223,10 +214,12 @@ export default function NewStaffPage() {
           )}
 
           <p className="rounded-lg bg-gold/10 px-3.5 py-2.5 text-xs leading-relaxed text-ink/60">
-            This sends a real invite email — they'll get a link to set their own password and sign in at{" "}
-            <span className="font-semibold">/admin/login</span>. The roster entry and invite are created together;
-            if the invite fails to send (e.g. this email already has any Supabase account, customer or otherwise),
-            no roster entry is created either, so there's never a roster row with no way to actually sign in.
+            No email is sent automatically — after creating the account, you'll get a one-time link to copy and
+            send to them yourself (WhatsApp, email, SMS — anywhere works, since the link is safe to paste anywhere).
+            They set their own password and sign in at <span className="font-semibold">/admin/login</span>. The
+            roster entry and invite are created together; if the invite fails to generate (e.g. this email already
+            has any Supabase account, customer or otherwise), no roster entry is created either, so there's never a
+            roster row with no way to actually sign in.
           </p>
 
           {error && (
@@ -249,7 +242,7 @@ export default function NewStaffPage() {
               disabled={!canSave || saving}
               className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
             >
-              {saving ? "Sending invite…" : "Create account"}
+              {saving ? "Creating…" : "Create account"}
             </button>
           </div>
         </div>

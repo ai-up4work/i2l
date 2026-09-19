@@ -7,10 +7,9 @@
 // it's being set up in the admin wizard) doesn't 404 here the way it
 // correctly does on the public storefront route.
 //
-// SECURITY NOTE: same caveat as the rest of the admin API — no staff-role
-// check yet, just relies on this being under /api/admin. Add real staff
-// gating before this admin panel is exposed outside your own team.
+// Gated via requireStaffRole(SOURCING_ROLES) — see lib/supabase/admin-auth.ts.
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth';
 import { getSellerAndConfigForAdmin } from '@/lib/store-config-db';
 import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
@@ -25,6 +24,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ platform: string }> }
 ) {
+  const authCheck = await requireStaffRole(SOURCING_ROLES);
+  if (!authCheck.ok) return authCheck.response;
+
   try {
     const { platform } = await params;
 

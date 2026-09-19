@@ -13,7 +13,7 @@
 // When a real staff backend exists, this file goes away and its two
 // callers switch to real fields on StaffMember.
 
-export type StaffAccountStatus = "active" | "invited" | "deactivated"
+export type StaffAccountStatus = "active" | "invited" | "deactivated" | "pending"
 
 export interface StaffActivityEvent {
   id: string
@@ -71,10 +71,12 @@ export const STAFF_STATUS_LABEL: Record<StaffAccountStatus, string> = {
   active: "Active",
   invited: "Invite pending",
   deactivated: "Deactivated",
+  pending: "Requested access",
 }
 
 export const STAFF_STATUS_TONE: Record<StaffAccountStatus, string> = {
   active: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200",
   invited: "bg-gold/15 text-gold-deep ring-1 ring-inset ring-gold/30",
   deactivated: "bg-ink/[0.04] text-ink/40 ring-1 ring-inset ring-ink/10",
+  pending: "bg-teal/10 text-teal-deep ring-1 ring-inset ring-teal/25",
 }

@@ -3,19 +3,20 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Plus, Search, SearchX, ShieldCheck, ShoppingBag, Users, Warehouse } from "lucide-react"
+import { ChevronRight, Search, SearchX, ShieldCheck, ShoppingBag, Users, Warehouse } from "lucide-react"
 
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
 import type { Role } from "@/types/admin"
 import { STAFF_STATUS_LABEL, STAFF_STATUS_TONE, type StaffAccountStatus } from "@/lib/admin/mock"
 
 // Roster of all Sales & Purchase and Warehouse accounts, across every
-// site. Manager can add, edit, and delete accounts here — but only
+// site. Manager can approve/reject a pending request (see
+// PendingApprovalPanel), edit, and delete accounts here — but only
 // Sales & Purchase/Warehouse ones. Manager and Super Admin accounts
-// are Super Admin's domain exclusively (create, edit, and delete —
-// see app/admin/(protected)/super-admin/staff/**), enforced server-side
-// in app/api/admin/staff/**, not just by Manager rows being filtered
-// out of this list.
+// are Super Admin's domain exclusively, enforced server-side in
+// app/api/admin/staff/**, not just by Manager rows being filtered out
+// of this list. There's no "Add staff" action anywhere anymore —
+// onboarding is self-service (see /admin/register) plus approval.
 //
 // status/last-active now come straight from StaffMember (real
 // staff_accounts.status/last_login) — this used to layer mock data from
@@ -59,8 +60,20 @@ export default function StaffListPage() {
   // Manager AND Super Admin accounts are managed via Super Admin, not
   // this roster — same reasoning applies to both now that super_admin
   // is a real role (see the resolved routing question in
-  // whatsapp-integration-discussion-summary.md §6.6).
-  const roster = useMemo(() => staffDirectory.filter((s) => s.role !== "manager" && s.role !== "super_admin"), [staffDirectory])
+  // whatsapp-integration-discussion-summary.md §6.6). A pending
+  // (self-registered, role IS NULL) applicant is included here UNLESS
+  // they requested manager/super_admin access — those go to Super
+  // Admin's queue instead, same access boundary as an existing account
+  // of those roles.
+  const roster = useMemo(
+    () =>
+      staffDirectory.filter((s) =>
+        s.status === "pending"
+          ? s.requestedRole !== "manager" && s.requestedRole !== "super_admin"
+          : s.role !== "manager" && s.role !== "super_admin",
+      ),
+    [staffDirectory],
+  )
 
   const rows = useMemo(
     () =>
@@ -94,6 +107,7 @@ export default function StaffListPage() {
   const salesCount = roster.filter((s) => s.role === "sales").length
   const warehouseCount = roster.filter((s) => s.role === "warehouse").length
   const invitedCount = rows.filter((r) => r.displayStatus === "invited").length
+  const pendingApprovalCount = rows.filter((r) => r.status === "pending").length
   const hasActiveFilters = search.trim() !== "" || roleFilter !== "all" || siteFilter !== "all"
 
   if (role !== "manager" && role !== "super_admin") return null
@@ -110,25 +124,21 @@ export default function StaffListPage() {
             <div>
               <h1 className="font-display text-3xl text-ink">Staff</h1>
               <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Every Sales & Purchase and Warehouse account, across every site.
+                Every Sales & Purchase and Warehouse account, across every site. New accounts come in through{" "}
+                <span className="font-semibold">/admin/register</span> and are approved from here, not created
+                directly.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => router.push("/admin/staff/new")}
-            className="flex items-center gap-1.5 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90"
-          >
-            <Plus size={15} /> Add staff
-          </button>
         </div>
 
         {/* ── Stat strip ── */}
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-5">
           <StatCard label="Total staff" value={roster.length} />
           <StatCard label="Sales & Purchase" value={salesCount} />
           <StatCard label="Warehouse" value={warehouseCount} />
           <StatCard label="Pending invites" value={invitedCount} />
+          <StatCard label="Requested access" value={pendingApprovalCount} />
         </div>
 
         {/* ── Filters ── */}
@@ -217,9 +227,15 @@ export default function StaffListPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
-                    {ROLE_ICON[s.role as "sales" | "warehouse"]} {ROLE_LABEL[s.role as "sales" | "warehouse"]}
-                  </span>
+                  {s.role ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
+                      {ROLE_ICON[s.role as "sales" | "warehouse"]} {ROLE_LABEL[s.role as "sales" | "warehouse"]}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-teal/10 px-2.5 py-1 text-xs font-semibold text-teal-deep">
+                      Requested: {s.requestedRole ? (ROLE_LABEL as Record<string, string>)[s.requestedRole] ?? s.requestedRole : "not specified"}
+                    </span>
+                  )}
                   {s.siteName && (
                     <span className="rounded-full bg-teal/10 px-2.5 py-1 text-xs font-semibold text-teal-deep">
                       {s.siteName}

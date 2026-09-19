@@ -438,9 +438,15 @@ function CartPageContent() {
   const [whatsappCode, setWhatsappCode] = useState('+94')
   const [whatsapp, setWhatsapp] = useState('')
   const [country, setCountry] = useState('')
+  const [addressLine1, setAddressLine1] = useState('')
+  const [addressLine2, setAddressLine2] = useState('')
   const [city, setCity] = useState('')
   const [stateRegion, setStateRegion] = useState('')
   const [zipCode, setZipCode] = useState('')
+  // Id of the saved default address (Address Book) this form was prefilled
+  // from, if any — passed through to confirmCartOrder so it updates that
+  // same row instead of inserting a near-duplicate on every order.
+  const [existingAddressId, setExistingAddressId] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
   const [confirmsPreowned, setConfirmsPreowned] = useState(false)
@@ -468,7 +474,7 @@ function CartPageContent() {
     const supabase = createClient()
     supabase
       .from('addresses')
-      .select('recipient_name, phone, city, country, postal_code, is_default')
+      .select('id, recipient_name, phone, address_line1, address_line2, city, country, postal_code, is_default')
       .eq('user_id', user.id)
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: false })
@@ -476,7 +482,10 @@ function CartPageContent() {
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled || !data) return
+        setExistingAddressId(data.id)
         setFullName((prev) => prev || data.recipient_name || '')
+        setAddressLine1((prev) => prev || data.address_line1 || '')
+        setAddressLine2((prev) => prev || data.address_line2 || '')
         setCity((prev) => prev || data.city || '')
         setCountry((prev) => prev || data.country || '')
         setZipCode((prev) => prev || data.postal_code || '')
@@ -506,6 +515,7 @@ function CartPageContent() {
     email.trim() &&
     whatsapp.trim() &&
     country.trim() &&
+    addressLine1.trim() &&
     city.trim() &&
     termsAccepted &&
     confirmsRestrictions &&
@@ -599,7 +609,16 @@ function CartPageContent() {
       }
     })
 
-    const result = await dashboard.confirmCartOrder(lines)
+    const result = await dashboard.confirmCartOrder(lines, {
+      fullName: fullName.trim(),
+      phone: `${whatsappCode} ${whatsapp.trim()}`.trim(),
+      addressLine1: addressLine1.trim(),
+      addressLine2: addressLine2.trim() || undefined,
+      city: city.trim(),
+      postalCode: zipCode.trim() || undefined,
+      country: country.trim(),
+      existingAddressId,
+    })
     if (!result.ok) {
       setCheckoutError(result.error ?? 'Something went wrong placing your order. Please try again.')
       setConfirming(false)
@@ -763,6 +782,28 @@ function CartPageContent() {
                 className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-ink/30"
               />
             </div>
+          </div>
+
+          <div className="mt-4">
+            <FieldLabel required>Address line 1</FieldLabel>
+            <input
+              type="text"
+              value={addressLine1}
+              onChange={(e) => setAddressLine1(e.target.value)}
+              placeholder="Street address, P.O. box"
+              className={inputClass}
+            />
+          </div>
+
+          <div className="mt-4">
+            <FieldLabel>Address line 2</FieldLabel>
+            <input
+              type="text"
+              value={addressLine2}
+              onChange={(e) => setAddressLine2(e.target.value)}
+              placeholder="Apartment, suite, unit (optional)"
+              className={inputClass}
+            />
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">

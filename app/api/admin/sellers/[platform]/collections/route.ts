@@ -34,19 +34,11 @@
 // mirror of the store.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 import type { StoreProviderConfig } from '@/lib/store-config'
 import { fetchShopifyCollections } from '@/lib/store-providers/shopify'
 import { fetchWooCommerceCategories } from '@/lib/store-providers/woocommerce'
 import { fetchJsonApiCategories } from '@/lib/store-providers/jsonapi'
-
-async function requireAuthedUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user
-}
 
 interface SellerCollectionRow {
   id: string
@@ -100,11 +92,11 @@ async function fetchShopifyCollectionsWithCounts(
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
   const { platform } = await params
-  const admin = createServiceRoleClient()
 
   const { data: seller, error: sellerError } = await admin
     .from('sellers')

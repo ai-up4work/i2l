@@ -10,7 +10,7 @@
 // (see its own "real session" effect) rather than this page needing to
 // pass anything along explicitly.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ShieldCheck } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
@@ -21,6 +21,27 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Defensive fallback: an invite/recovery link should redirect to
+  // /admin/set-password, not here — but it lands here instead if
+  // /admin/set-password (or /admin/invite) isn't in this Supabase
+  // project's Auth > URL Configuration > Redirect URLs allow-list.
+  // Supabase doesn't error in that case; it silently falls back to
+  // whatever the project's default Site URL is configured as, with the
+  // one-time token still attached. Without this, that token just sits
+  // unused in the URL and the person sees an ordinary login form with
+  // no way to actually set a password. Forward it to the page that
+  // knows what to do with it rather than losing it — this is a safety
+  // net, not a substitute for fixing the Redirect URLs allow-list itself.
+  useEffect(() => {
+    const hasAuthRedirect =
+      window.location.hash.includes("access_token=") ||
+      window.location.hash.includes("error=") ||
+      new URLSearchParams(window.location.search).has("code")
+    if (hasAuthRedirect) {
+      router.replace(`/admin/set-password${window.location.search}${window.location.hash}`)
+    }
+  }, [router])
 
   const handleSubmit = async () => {
     if (!email.trim() || !password) return
@@ -99,6 +120,14 @@ export default function AdminLoginPage() {
             className="rounded-lg bg-teal-deep px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/10 disabled:text-ink/35"
           >
             {submitting ? "Signing in…" : "Sign in"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => router.push("/admin/register")}
+            className="text-xs font-semibold text-ink/50 hover:text-ink/80"
+          >
+            Need access? Request an account
           </button>
         </div>
       </div>

@@ -87,6 +87,31 @@ export type CartOrderLine = {
 
 export type ConfirmResult = { ok: boolean; error?: string }
 
+/**
+ * The shipping recipient entered on the cart/checkout page
+ * (app/account/cart/page.tsx). confirmCartOrder writes this into
+ * `addresses` and points the new order's recipient_address_id at it —
+ * previously this data was collected nowhere on checkout at all, so
+ * orders.recipient_address_id stayed permanently null (see
+ * "Known gaps" in WISHDROP_STATUS.md).
+ *
+ * `existingAddressId` — set when the checkout form was prefilled from
+ * the customer's saved default address (Address Book) and they didn't
+ * change it into a materially different address — lets confirmCartOrder
+ * update that same row instead of creating a near-duplicate one on every
+ * order. Leave it null/undefined for a fresh address.
+ */
+export type CheckoutRecipient = {
+  fullName: string
+  phone: string
+  addressLine1: string
+  addressLine2?: string
+  city: string
+  postalCode?: string
+  country: string
+  existingAddressId?: string | null
+}
+
 type DashboardContextValue = {
   draft: Draft
   setDraft: (draft: Draft) => void
@@ -132,7 +157,7 @@ type DashboardContextValue = {
    * the cart itself — the caller (cart page) does that only once this
    * resolves with ok: true, so a failed write never silently loses the
    * cart's contents. */
-  confirmCartOrder: (lines: CartOrderLine[]) => Promise<ConfirmResult>
+  confirmCartOrder: (lines: CartOrderLine[], recipient: CheckoutRecipient) => Promise<ConfirmResult>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -588,7 +613,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   // on this path — Channel 3 only happens via confirmRequest above,
   // before anything reaches the cart.
   const confirmCartOrder = useCallback(
-    async (lines: CartOrderLine[]): Promise<ConfirmResult> => {
+    async (lines: CartOrderLine[], recipient: CheckoutRecipient): Promise<ConfirmResult> => {
       if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
       if (!user) {
         setTimeout(() => {
@@ -596,9 +621,47 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         }, LOGIN_REDIRECT_DELAY_MS)
         return { ok: false, error: 'You need to be signed in to confirm an order.' }
       }
+      if (!recipient.addressLine1.trim() || !recipient.city.trim() || !recipient.country.trim()) {
+        return { ok: false, error: 'A shipping address is required to place an order.' }
+      }
 
       const supabase = createClient()
       try {
+        // Save the shipping address before the order itself, so
+        // orders.recipient_address_id is always set on a real address
+        // instead of staying null — see CheckoutRecipient's doc comment.
+        // Updates the existing default address in place when checkout was
+        // prefilled from one (keeps Address Book from silently gaining a
+        // near-duplicate row every time someone re-orders with the same
+        // details); inserts a fresh one otherwise, marked default since a
+        // customer placing their first order has no default to compete
+        // with yet.
+        const addressPayload = {
+          recipient_name: recipient.fullName,
+          phone: recipient.phone,
+          address_line1: recipient.addressLine1,
+          address_line2: recipient.addressLine2?.trim() || null,
+          city: recipient.city,
+          postal_code: recipient.postalCode?.trim() || null,
+          country: recipient.country,
+        }
+        let addressId = recipient.existingAddressId ?? null
+        if (addressId) {
+          const { error: addressError } = await supabase
+            .from('addresses')
+            .update(addressPayload)
+            .eq('id', addressId)
+          if (addressError) throw addressError
+        } else {
+          const { data: addressRow, error: addressError } = await supabase
+            .from('addresses')
+            .insert({ ...addressPayload, user_id: user.id, is_default: true })
+            .select('id')
+            .single()
+          if (addressError) throw addressError
+          addressId = addressRow.id as string
+        }
+
         const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
         const channel: 1 | 2 = lines.every((line) => line.source === 'catalogue') ? 1 : 2
         const orderId = await createOrderWithRetry(supabase, {
@@ -606,6 +669,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           channel,
           currency: 'LKR',
           total_value: total,
+          recipient_address_id: addressId,
         })
 
         const itemRows = await Promise.all(

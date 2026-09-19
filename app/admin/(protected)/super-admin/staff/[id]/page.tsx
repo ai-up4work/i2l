@@ -27,9 +27,12 @@ import {
 } from "lucide-react"
 
 import { useAdminData, formatAge } from "@/contexts/AdminDataContext"
+import { PendingApprovalPanel } from "@/components/admin/PendingApprovalPanel"
 import type { Role } from "@/types/admin"
 import { STAFF_STATUS_LABEL, STAFF_STATUS_TONE, type StaffAccountStatus } from "@/lib/admin/mock"
 import { ROLE_LABEL } from "@/components/admin/Rolepreviewmenu"
+
+const ALL_ROLES: readonly Role[] = ["manager", "sales", "warehouse", "super_admin"]
 
 const ROLE_ICON: Record<Role, React.ReactNode> = {
   manager: <UserCog size={13} />,
@@ -43,7 +46,7 @@ type ResendState = "idle" | "sending" | "done" | "error"
 export default function StaffDetailPage() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
-  const { role: effectiveRole, staffDirectory, sites } = useAdminData()
+  const { role: effectiveRole, staffDirectory, sites, updateStaffAccount, deleteStaffAccount } = useAdminData()
 
   const [resendState, setResendState] = useState<ResendState>("idle")
   const [resendError, setResendError] = useState<string | null>(null)
@@ -121,6 +124,21 @@ export default function StaffDetailPage() {
     )
   }
 
+  if (staff.status === "pending") {
+    return (
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <PendingApprovalPanel
+          staff={staff}
+          sites={sites}
+          allowedRoles={ALL_ROLES}
+          onDone={() => router.push("/admin/super-admin/staff")}
+          updateStaffAccount={updateStaffAccount}
+          deleteStaffAccount={deleteStaffAccount}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-2xl px-6 pb-20 pt-10 lg:px-10">
@@ -144,9 +162,12 @@ export default function StaffDetailPage() {
         </div>
 
         {/* ── Badges ── */}
+        {/* staff.role is guaranteed non-null here — the `status ===
+            "pending"` branch above (the only case role can be null)
+            already returned earlier. */}
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
-            {ROLE_ICON[staff.role]} {ROLE_LABEL[staff.role]}
+            {ROLE_ICON[staff.role as Role]} {ROLE_LABEL[staff.role as Role]}
           </span>
           {staff.siteName && (
             <span className="rounded-full bg-teal/10 px-2.5 py-1 text-xs font-semibold text-teal-deep">
@@ -209,8 +230,7 @@ export default function StaffDetailPage() {
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-ink/40">
-                  We also tried sending this by email — but the link above works even if that
-                  doesn't arrive.
+                  No email is sent automatically — copy this link and send it to them yourself.
                 </p>
               </div>
             )}

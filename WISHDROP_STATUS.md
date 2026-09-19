@@ -5,6 +5,12 @@ before: this isn't "done," it's an honest snapshot.
 
 ## What changed in this pass
 
+- **Fixed a real, currently-breaking bug: every in-platform checkout was failing.** `orders.display_id` is `text unique not null` with no default in `data/wishdrop-supabase-schema.sql`, but `createOrderWithRetry` (Channel 1/2 checkout, `DashboardContext.tsx`) inserts without supplying it — its own comment already claimed a DB-side sequence default existed ("`orders.display_id` has a real DEFAULT backed by a Postgres sequence, see `data/wishdrop-order-display-id-sequence.sql`"), but that migration file was never actually written, so the insert has been hitting a not-null constraint violation on every real order. Added the missing `data/wishdrop-order-display-id-sequence.sql` (idempotent — safe to run on an existing database) and updated the reference schema so a fresh setup gets the same sequence-backed `WD-#####` default. Also removed the client-side `Math.random()`-with-retry generator that `confirmRequestReal` (Channel 3) was still using — it now relies on the same DB default as Channel 1/2, closing the "order numbers are a client-side random-with-retry, not a DB sequence" gap for real.
+- **Added shipping address collection to checkout.** `app/account/cart/page.tsx` collected name/email/WhatsApp/country/city but never a street address, so `orders.recipient_address_id` stayed permanently null (a customer's actual delivery address was never captured anywhere). Added `addressLine1`/`addressLine2` fields to the checkout form, wired them into the existing prefill-from-saved-address effect, and `confirmCartOrder` now writes the entered address into `addresses` before creating the order — updating the customer's existing default address in place if checkout was prefilled from one, or inserting a fresh one (marked default) otherwise — and points the new order's `recipient_address_id` at it. `CheckoutRecipient` (new exported type in `DashboardContext.tsx`) documents the shape.
+- **Started, not finished: staff-role gating on `/api/admin/**`.** Several admin API routes' own header comments flagged that they only check "is someone logged in," not "is this staff, and what role" (`/api/admin/staff/*` already had a real check; `sellers`/`catalogues`/etc. didn't). Pulled the existing `requireStaffRole` pattern out of `app/api/admin/staff/route.ts` into a shared `lib/supabase/admin-auth.ts` (with `SOURCING_ROLES`/`DELETE_ROLES` matching the permission matrix) and wired it into `app/api/admin/sellers/route.ts` (GET/POST). **Not yet done:** `sellers/[platform]/route.ts` (GET/PATCH/DELETE — DELETE needs `DELETE_ROLES`, not the broader `SOURCING_ROLES`, per the Manager/Super-Admin-only delete policy), `sellers/[platform]/collections`, `create-login`, `live-count`, `sellers/detect-collections`, `detect-currency`, `detect-store`, `test-extractor`, and `catalogues/[catalogueId]/route.ts` — all still only "authenticated," not role-gated. The shared helper is in place; these just need to be switched over to it the same way `sellers/route.ts` was.
+
+## What changed in the previous pass
+
 - **Real-time admin data.** `AdminDataContext` — the single shared store every admin queue page reads from (orders, purchases, QC, pack-label, export-bin, in-transit, shipped, requests) — only ever fetched once, on mount. Ops had no way to know a new Channel 3 request came in, another staff member advanced an order's stage, or a QC issue got flagged without manually refreshing the page. Added real-time subscriptions on `orders`, `order_items`, `purchases`, `order_item_issues`, and `requests` — any change on any of them triggers a debounced refetch (~400ms after the last change in a burst, so a bulk action touching 10 rows doesn't fire 10 separate refetches). Reused/exported the retry-and-log `subscribeWithDiagnostics` helper that was previously chat-only (`lib/supabase/chat.ts`) since the pattern is identical. New `data/wishdrop-admin-realtime-enable.sql` — these tables need to be added to Supabase's `supabase_realtime` publication or every subscription connects successfully but silently receives nothing, same gotcha already documented for the chat tables.
 - Customer-facing pages deliberately left as one-time-fetch-on-mount, per the explicit decision that a manual refresh is an acceptable fallback there — only the admin/ops side needed this.
 
@@ -128,17 +134,17 @@ it — none of that got re-litigated here, only extended or bug-fixed.
 
 ## Known gaps, still open
 
-- No shipping address collection on checkout (`orders.recipient_address_id`
-  stays null — the form never asks for a street address).
 - A confirmed Channel-3 request (no price, needs a manual quote) has
   nowhere to show up yet — no "pending requests" page.
-- Order numbers are a client-side random-with-retry, not a DB sequence.
 - New marketplace logos reference `/logos/<slug>-squared.png` — those
   image files need to actually exist; this project has no `public/`
   folder in what's been shared with me to verify against.
 - Clearing storage via DevTools without reloading the page still can't be
   detected by any app code — a browser limitation, not a bug (real reloads
   already work correctly).
+- No staff-role gating yet on most of `/api/admin/**` (only `/api/admin/staff/*`
+  and, as of this pass, `sellers/route.ts` actually check the caller's staff
+  role — see "started, not finished" above for the exact list still open).
 
 ## Still fully mock — untouched
 

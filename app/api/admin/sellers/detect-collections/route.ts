@@ -11,10 +11,17 @@
 // onto this specific seller's collection handles, producing the
 // `collectionMap` that fetchShopifyProducts (same lib file) consults when
 // a shopper filters the storefront by category.
+//
+// Gated via requireStaffRole(SOURCING_ROLES) — this previously had no auth
+// check at all. See lib/supabase/admin-auth.ts.
 import { NextResponse } from 'next/server'
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 import { fetchShopifyCollections } from '@/lib/store-providers/shopify'
 
 export async function POST(req: Request) {
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+
   let baseUrl: unknown
   try {
     const body = await req.json()

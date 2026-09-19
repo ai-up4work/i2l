@@ -21,6 +21,7 @@ import type { ReactNode } from "react";
 import { AdminDataProvider } from "@/contexts/AdminDataContext";
 import { AdminSidebarProvider } from "@/contexts/AdminSidebarContext";
 import { GlobalSearch } from "@/components/admin/GlobalSearch";
+import { AdminSignOutButton } from "@/components/admin/AdminSignOutButton";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminContentShell } from "@/components/admin/admin-content-shell";
 
@@ -48,8 +49,9 @@ export default function AdminProtectedLayout({ children }: { children: ReactNode
         <div className="h-screen overflow-hidden bg-parchment">
           <AdminSidebar />
           <AdminContentShell>
-            <header className="flex flex-none items-center justify-end border-b border-indigo-100 bg-white/60 px-6 py-3">              
+            <header className="flex flex-none items-center justify-end gap-3 border-b border-indigo-100 bg-white/60 px-6 py-3">              
                 <GlobalSearch />
+                <AdminSignOutButton />
             </header>
             <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
           </AdminContentShell>

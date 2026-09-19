@@ -6,7 +6,16 @@
 //         shows — e.g. Manager's own roster view excludes Manager/Super
 //         Admin rows client-side)
 // POST -> create a new staff_accounts row AND a real, login-capable
-//         Supabase Auth account — see the invite flow below.
+//         Supabase Auth account. Always returns a wrapped invite link
+//         (see wrapInviteLink below) for the caller to copy and send
+//         themselves — no automatic email is sent. Supabase's own
+//         inviteUserByEmail used to be tried first, but its email
+//         points straight at the raw one-time link with no way for this
+//         codebase to wrap it, and that raw link is exactly what a
+//         WhatsApp/email/Slack link-preview crawler kills before the
+//         staff member's real first click (see /admin/invite's doc
+//         comment). generateLink + wrapping is reliable regardless of
+//         which channel the link travels through.
 //
 // POST is real and server-side now, not just a UI restriction:
 // Manager and Super Admin can both call it, but Manager is restricted
@@ -47,7 +56,7 @@ async function requireStaffRole(): Promise<
     staff = fallback.data
   }
 
-  if (!staff || staff.status === 'deactivated') {
+  if (!staff || staff.status !== 'active') {
     return { ok: false, response: NextResponse.json({ error: 'This account is not an active staff account.' }, { status: 403 }) }
   }
   return { ok: true, admin, role: staff.role as 'manager' | 'sales' | 'warehouse' | 'super_admin' }
@@ -59,6 +68,19 @@ const VALID_ROLES = ['manager', 'sales', 'warehouse', 'super_admin'] as const
 // Super Admin-only; Manager can still onboard the same Sales & Purchase/
 // Warehouse roles it always could.
 const MANAGER_CREATABLE_ROLES = ['sales', 'warehouse'] as const
+
+/**
+ * Wraps a real one-time Supabase auth link (generateLink's action_link)
+ * behind /admin/invite so it's never shared as a raw, crawler-followable
+ * URL — see that page's own doc comment for the full "why" (link-preview
+ * crawlers in WhatsApp/email/Slack burning the one-time token before the
+ * staff member's real click). Every place that hands a Supabase invite/
+ * recovery link to a human — this route and resend-invite — should wrap
+ * it through here rather than returning action_link directly.
+ */
+function wrapInviteLink(actionLink: string, origin: string): string {
+  return `${origin}/admin/invite?to=${encodeURIComponent(actionLink)}`
+}
 
 export async function GET() {
   const user = await requireAuthedUser()
@@ -82,17 +104,6 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { name, email, role, siteId } = body
-  // Explicit opt-out of the auto-sent email — skips inviteUserByEmail
-  // (and its shared rate limit, see below) entirely and uses
-  // generateLink instead, which creates the same real, login-capable
-  // auth user but never sends anything itself. The caller gets the raw
-  // invite URL back to copy/share by hand (WhatsApp, a DM, whatever) —
-  // useful any time Supabase's own testing-grade email sender either
-  // isn't configured with a real SMTP provider yet or has already hit
-  // its rate limit for the hour. Defaults to true (send it) since that
-  // was this route's only behavior before and is the right default once
-  // a real SMTP provider is configured.
-  const sendEmail = body.sendEmail !== false
 
   if (!name || !email || !role) {
     return NextResponse.json({ error: 'name, email, and role are required' }, { status: 400 })
@@ -112,80 +123,34 @@ export async function POST(req: NextRequest) {
   // client that sends a stale siteId value doesn't need special-casing.
   const resolvedSiteId = role === 'warehouse' ? siteId ?? null : null
 
-  // Real, login-capable account either way — the two Supabase admin
-  // calls below both create a real auth.users row and a genuine
-  // one-time invite link that lands on /admin/set-password (which
-  // establishes the session via the link's token — see that page's own
-  // comment). They differ only in whether Supabase's own testing-grade
-  // email sender actually delivers that link:
-  //   - inviteUserByEmail: creates the user AND emails the link itself.
-  //     No link is returned to us — the recipient has to check their
-  //     inbox. Subject to Supabase's shared rate limit (very low by
-  //     default; see the "email rate limit exceeded" handling below).
-  //   - generateLink({ type: 'invite' }): creates the same kind of user
-  //     and link, but never sends anything — the link comes back in the
-  //     response instead, for the caller to copy/share by hand. Doesn't
-  //     touch the email rate limit at all, since no email is sent.
-  //
-  // If EITHER fails (e.g. this email already has ANY Supabase Auth
-  // account — a customer account counts too, since auth.users is shared
-  // across the whole project, not just staff), the staff_accounts row
-  // is never created — a roster entry with no working login would just
-  // be a confusing half-state.
+  // Always generateLink, never inviteUserByEmail. This used to try
+  // Supabase's own auto-sent invite email first (falling back to
+  // generateLink only on rate-limit or when the caller opted out) — but
+  // Supabase's own email template points straight at the real one-time
+  // action_link with nothing in this codebase able to wrap it, and that
+  // raw link is exactly what dies before a staff member's first real
+  // click (see /admin/invite's doc comment: WhatsApp/email/Slack link-
+  // preview crawlers auto-fetch it and burn the one-time token). Always
+  // going through generateLink means we always get the link back and can
+  // always wrap it through /admin/invite, so the invite is reliable
+  // regardless of channel — copy it and send it however's convenient.
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin
   const redirectTo = `${siteUrl}/admin/set-password`
   const userMetadata = { full_name: name, is_staff: true }
 
-  let invitedUserId: string
-  let inviteLink: string | null = null
-
-  if (sendEmail) {
-    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo,
-      data: userMetadata,
-    })
-
-    if (inviteError && /rate limit/i.test(inviteError.message)) {
-      // Don't just fail — fall back to generateLink so a rate-limited
-      // attempt still produces a working, shareable invite instead of a
-      // dead end. The caller (the "Add staff" page) is what actually
-      // surfaces "here's a link to copy" vs "check their email" to the
-      // admin, based on whether inviteLink comes back non-null below.
-      const { data: generated, error: generateError } = await admin.auth.admin.generateLink({
-        type: 'invite',
-        email,
-        options: { redirectTo, data: userMetadata },
-      })
-      if (generateError) {
-        return NextResponse.json({ error: generateError.message }, { status: 500 })
-      }
-      invitedUserId = generated.user.id
-      inviteLink = generated.properties.action_link
-    } else if (inviteError) {
-      const message = /already been registered|already exists/i.test(inviteError.message)
-        ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
-        : inviteError.message
-      return NextResponse.json({ error: message }, { status: 409 })
-    } else {
-      invitedUserId = invited.user.id
-    }
-  } else {
-    // Explicit "just give me a link" path — see sendEmail's doc comment
-    // above.
-    const { data: generated, error: generateError } = await admin.auth.admin.generateLink({
-      type: 'invite',
-      email,
-      options: { redirectTo, data: userMetadata },
-    })
-    if (generateError) {
-      const message = /already been registered|already exists/i.test(generateError.message)
-        ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
-        : generateError.message
-      return NextResponse.json({ error: message }, { status: 409 })
-    }
-    invitedUserId = generated.user.id
-    inviteLink = generated.properties.action_link
+  const { data: generated, error: generateError } = await admin.auth.admin.generateLink({
+    type: 'invite',
+    email,
+    options: { redirectTo, data: userMetadata },
+  })
+  if (generateError) {
+    const message = /already been registered|already exists/i.test(generateError.message)
+      ? `"${email}" already has an account on this platform (possibly a customer account) — staff accounts need a distinct email address.`
+      : generateError.message
+    return NextResponse.json({ error: message }, { status: 409 })
   }
+  const invitedUserId = generated.user.id
+  const inviteLink = wrapInviteLink(generated.properties.action_link, siteUrl)
 
   const { data, error } = await admin
     .from('staff_accounts')

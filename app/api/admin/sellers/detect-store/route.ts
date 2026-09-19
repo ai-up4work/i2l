@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
 import { detectStoreProvider } from '@/lib/store-detection'
 
@@ -8,7 +9,13 @@ import { detectStoreProvider } from '@/lib/store-detection'
 // works out whether it's Shopify, WooCommerce, or neither, plus whatever
 // store name / currency it can read off the feed — see lib/store-detection
 // for how each platform is identified.
+//
+// Gated via requireStaffRole(SOURCING_ROLES) — this previously had no auth
+// check at all.
 export async function POST(request: Request) {
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+
   let body: { storeUrl?: string }
   try {
     body = await request.json()

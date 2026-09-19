@@ -44,7 +44,7 @@ async function requireStaffRole(): Promise<
     staff = fallback.data
   }
 
-  if (!staff || staff.status === 'deactivated') {
+  if (!staff || staff.status !== 'active') {
     return { ok: false, response: NextResponse.json({ error: 'This account is not an active staff account.' }, { status: 403 }) }
   }
   return { ok: true, admin, id: staff.id, role: staff.role as 'manager' | 'sales' | 'warehouse' | 'super_admin' }
@@ -87,9 +87,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ st
       // Manager can edit a Sales & Purchase/Warehouse account, but not
       // a Manager or Super Admin one — check the TARGET's actual
       // current role in the database, not anything the client claims.
+      // A pending (role IS NULL) self-registered account is also
+      // Manager-editable — that's exactly the "approve" action — as
+      // long as the role Manager assigns is sales/warehouse, checked
+      // just below.
       const { data: target } = await admin.from('staff_accounts').select('role').eq('id', staffId).maybeSingle()
       if (!target) return NextResponse.json({ error: 'Staff account not found' }, { status: 404 })
-      if (target.role !== 'sales' && target.role !== 'warehouse') {
+      if (target.role !== null && target.role !== 'sales' && target.role !== 'warehouse') {
         return NextResponse.json({ error: 'Manager can only edit Sales & Purchase or Warehouse accounts.' }, { status: 403 })
       }
       // Also blocks the promotion loophole this restriction would
@@ -154,7 +158,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     // a Manager or Super Admin one — checked against the TARGET's
     // actual current role in the database, so this can't be bypassed
     // by a client that simply calls DELETE directly on a Manager's id.
-    if (target.role !== 'sales' && target.role !== 'warehouse') {
+    // A pending (role IS NULL) self-registered account is also
+    // Manager-deletable — that's the "reject" action.
+    if (target.role !== null && target.role !== 'sales' && target.role !== 'warehouse') {
       return NextResponse.json({ error: 'Manager can only delete Sales & Purchase or Warehouse accounts.' }, { status: 403 })
     }
   }

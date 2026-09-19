@@ -46,6 +46,12 @@ export async function GET() {
   if (staff.status === 'deactivated') {
     return NextResponse.json({ error: 'This staff account has been deactivated.' }, { status: 403 })
   }
+  if (staff.status === 'pending') {
+    return NextResponse.json(
+      { error: 'Your account request is awaiting approval from a Manager or Super Admin.' },
+      { status: 403 },
+    )
+  }
 
   await admin.from('staff_accounts').update({ last_login: new Date().toISOString() }).eq('id', staff.id)
 

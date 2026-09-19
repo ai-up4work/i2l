@@ -8,9 +8,11 @@
 // regardless of whether they ever set a password, and lands them on
 // the same /admin/set-password page either way.
 //
-// Returns the raw link in the response (not just "email sent") so the
-// caller can hand it to the staff member directly if Supabase's mailer
-// is unreliable/rate-limited — see the invite flow's own comments.
+// Returns a wrapped link (see wrapInviteLink) rather than the raw
+// Supabase action_link — a raw one-time link dies the instant a
+// WhatsApp/email/Slack client auto-fetches it to build a link-preview
+// card, before the staff member's real first click ever happens. See
+// app/admin/invite/page.tsx's doc comment for the full explanation.
 //
 // NOTE: `params` is a Promise here (Next.js 15 App Router route-handler
 // convention) — it must be awaited before reading `.id`, or `id` comes
@@ -19,6 +21,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+
+function wrapInviteLink(actionLink: string, origin: string): string {
+  return `${origin}/admin/invite?to=${encodeURIComponent(actionLink)}`
+}
+
 
 async function requireStaffRole(): Promise<
   | { ok: true; admin: ReturnType<typeof createServiceRoleClient>; role: 'manager' | 'sales' | 'warehouse' | 'super_admin' }
@@ -39,7 +46,7 @@ async function requireStaffRole(): Promise<
     staff = fallback.data
   }
 
-  if (!staff || staff.status === 'deactivated') {
+  if (!staff || staff.status !== 'active') {
     return { ok: false, response: NextResponse.json({ error: 'This account is not an active staff account.' }, { status: 403 }) }
   }
   return { ok: true, admin, role: staff.role as 'manager' | 'sales' | 'warehouse' | 'super_admin' }
@@ -106,7 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sta
       return NextResponse.json({ error: linkError.message }, { status: 500 })
     }
 
-    return NextResponse.json({ link: linkData.properties.action_link })
+    return NextResponse.json({ link: wrapInviteLink(linkData.properties.action_link, siteUrl) })
   } catch (err) {
     console.error('[resend-invite] unhandled error', err)
     const message = err instanceof Error ? err.message : 'Unexpected server error.'

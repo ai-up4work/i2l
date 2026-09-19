@@ -4,23 +4,12 @@
 //         the public storefront which only sees status='active')
 // POST -> create a new seller
 //
-// SECURITY NOTE: this only checks that *some* Supabase user is logged in,
-// not that they're staff. There's no staff-role system wired up yet
-// (Phase 3 — sites/staff_accounts in wishdrop-supabase-schema.sql). Anyone
-// with a regular customer account could currently hit this route. Add a
-// real staff check (e.g. join against staff_accounts by user_id) before
-// this admin panel is exposed outside your own team.
+// Gated via requireStaffRole(SOURCING_ROLES) — Super Admin/Manager/Sales &
+// Purchase only, per the permission matrix (Warehouse has no functional
+// need for sourcing/catalogue data). See lib/supabase/admin-auth.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-
-async function requireAuthedUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user
-}
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
 // Mirrors SellerStatus from data/sellers/data.ts. Kept as a small local
 // constant (rather than importing the client-side type) since this is the
@@ -30,10 +19,10 @@ const VALID_STATUSES = ['active', 'pending_review', 'inactive'] as const
 type ValidStatus = (typeof VALID_STATUSES)[number]
 
 export async function GET() {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
-  const admin = createServiceRoleClient()
   const { data, error } = await admin.from('sellers').select('*').order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -41,8 +30,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const authCheck = await requireStaffRole(SOURCING_ROLES)
+  if (!authCheck.ok) return authCheck.response
+  const { admin } = authCheck
 
   const body = await req.json()
   const {
@@ -72,7 +62,6 @@ export async function POST(req: NextRequest) {
 
   const resolvedStatus: ValidStatus = VALID_STATUSES.includes(status) ? status : 'pending_review'
 
-  const admin = createServiceRoleClient()
   const { data, error } = await admin
     .from('sellers')
     .insert({
