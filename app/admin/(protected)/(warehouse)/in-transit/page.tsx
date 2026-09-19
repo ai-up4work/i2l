@@ -1,38 +1,24 @@
 // app/admin/in-transit/page.tsx
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import {
-  CheckCircle2,
-  Inbox,
-  MapPinned,
-  Search,
-  SearchX,
-  Truck,
-} from "lucide-react"
+import { CheckCircle2, Inbox, MapPinned, Search, SearchX, Truck, X } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
-import { DELIVERY_STATUS_LABEL, type DeliveryStatus, type InTransitLine } from "@/types/admin"
+import type { DeliveryStatus, InTransitLine } from "@/types/admin"
 import { SendMessageModal } from "@/components/admin/SendMessageModal"
 import { arrivedInSriLankaMessage } from "@/lib/chat/customerMessageTemplates"
 
-// In transit: orders handed off to a courier from the export bin,
-// crossing the border toward Sri Lanka. "Mark shipped" here is what
-// actually advances the pipeline stage from "Quality check" to
-// "Shipped" — and "Shipped" specifically means it has arrived at the
-// Sri Lanka warehouse, not merely that it's on a truck somewhere. Local
-// delivery (from the SL warehouse to the customer) is a separate,
-// later step handled on /admin/shipped — this page never marks
-// anything delivered.
+// In transit: orders handed to a courier from the export bin, crossing the
+// border toward Sri Lanka. "Mark shipped" is what moves an order to "Shipped",
+// and "Shipped" means it has arrived at the Sri Lanka warehouse, not just that
+// it is on a truck. Local delivery to the customer is a later step on
+// /admin/shipped; this page never marks anything delivered.
 //
-// ROW BEHAVIOR: a bare row click does NOT do anything — it used to
-// (fire the action on any click, no confirmation), which was too easy
-// to trigger by accident while just trying to glance at an order.
-// Marking shipped now requires an explicit "Mark shipped" button per
-// row, or selecting rows via the checkbox and using the bulk action
-// bar. The order number is its own separate link to the order detail
-// page, same as before.
+// Nothing happens on a bare row click. Use the per-row "Mark shipped" button,
+// or tick rows and use the selection bar. The order number is a separate link
+// to the order detail page.
 
 function formatAge(hours: number): string {
   if (hours < 1) return "<1h"
@@ -60,22 +46,34 @@ const STATUS_TABS: { key: "all" | DeliveryStatus; label: string }[] = [
   { key: "on_track", label: "On track" },
 ]
 
+// Shared by the header row and every row so the columns always line up.
+const GRID =
+  "sm:grid-cols-[1.75rem_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.9fr)_6rem_9.5rem_9.5rem]"
+
 export default function InTransitPage() {
-  const { visibleInTransitLines, canActOnInTransitLine, markShipped, sendChatMessage, sites, currentUser, permissions } = useAdminData()
+  const { visibleInTransitLines, canActOnInTransitLine, markShipped, sendChatMessage, sites, currentUser, permissions } =
+    useAdminData()
 
   const [query, setQuery] = useState("")
   const [courierFilter, setCourierFilter] = useState<string>("All couriers")
   const [statusTab, setStatusTab] = useState<"all" | DeliveryStatus>("all")
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [justShipped, setJustShipped] = useState<string[]>([])
-  // Queue rather than a single slot: "Mark shipped" can act on several
-  // orders at once (the bulk action bar), and reviewing/editing N
-  // messages one at a time through the same SendMessageModal is simpler
-  // than trying to show several modals at once. Single-row ship is just
-  // a queue of one. Each entry is popped (via send or skip) before the
-  // next one shows.
+  const [selected, setSelected] = useState<Set<string>>(new Set()) // line ids
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Queue rather than a single slot: "Mark shipped" can act on several orders
+  // at once, and reviewing N messages one at a time in the same modal is
+  // simpler than showing several. Each entry is removed (sent or skipped)
+  // before the next one shows. A single-row ship is a queue of one.
   const [messageQueue, setMessageQueue] = useState<{ threadId: string; text: string }[]>([])
   const currentMessage = messageQueue[0] ?? null
+
+  useEffect(() => () => clearTimeout(noticeTimer.current), [])
+
+  const showNotice = (text: string) => {
+    clearTimeout(noticeTimer.current)
+    setNotice(text)
+    noticeTimer.current = setTimeout(() => setNotice(null), 4000)
+  }
 
   const couriers = useMemo(() => {
     const set = new Set(visibleInTransitLines.map((l) => l.courier))
@@ -97,8 +95,11 @@ export default function InTransitPage() {
         if (!q) return true
         return l.orderNumber.toLowerCase().includes(q) || l.customerName.toLowerCase().includes(q)
       })
-      .sort((a, b) => a.etaRemainingHours - b.etaRemainingHours)
+      .sort((a, b) => a.etaRemainingHours - b.etaRemainingHours) // most overdue first
   }, [visibleInTransitLines, query, courierFilter, statusTab])
+
+  const actionable = useMemo(() => filtered.filter(canActOnInTransitLine), [filtered, canActOnInTransitLine])
+  const allVisibleSelected = actionable.length > 0 && actionable.every((l) => selected.has(l.id))
 
   const hasAnyFilter = query.trim() !== "" || courierFilter !== "All couriers" || statusTab !== "all"
   const clearFilters = () => {
@@ -107,59 +108,49 @@ export default function InTransitPage() {
     setStatusTab("all")
   }
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-  }
 
-  const toggleSelectAllVisible = () => {
+  const toggleSelectAllVisible = () =>
     setSelected((prev) => {
-      const actionable = filtered.filter(canActOnInTransitLine)
-      const allVisibleSelected = actionable.every((l) => prev.has(l.id))
       const next = new Set(prev)
       actionable.forEach((l) => (allVisibleSelected ? next.delete(l.id) : next.add(l.id)))
       return next
     })
-  }
 
-  const handleMarkShipped = () => {
-    if (selected.size === 0) return
-    const ids = Array.from(selected)
-    const lines = ids.map((id) => visibleInTransitLines.find((l) => l.orderId === id))
-    ids.forEach((orderId) => markShipped(orderId))
+  const queueMessages = (lines: InTransitLine[]) =>
     setMessageQueue((prev) => [
       ...prev,
-      ...lines.filter((l): l is InTransitLine => !!l?.chatThreadId).map((l) => ({ threadId: l.chatThreadId!, text: arrivedInSriLankaMessage(l.orderId) })),
+      ...lines
+        .filter((l) => !!l.chatThreadId)
+        .map((l) => ({ threadId: l.chatThreadId!, text: arrivedInSriLankaMessage(l.orderId) })),
     ])
-    setJustShipped(ids)
+
+  const handleMarkShipped = () => {
+    // `selected` holds line ids, so look the lines up first, then act on their orders.
+    const lines = visibleInTransitLines.filter((l) => selected.has(l.id) && canActOnInTransitLine(l))
+    if (lines.length === 0) return
+    lines.forEach((l) => markShipped(l.orderId))
+    queueMessages(lines)
+    showNotice(`${lines.length} order${lines.length === 1 ? "" : "s"} marked shipped.`)
     setSelected(new Set())
-    setTimeout(() => setJustShipped([]), 4000)
   }
 
-  // Single-row equivalent — fired by clicking the row itself, instead of
-  // navigating to the order page.
-  const handleSingleShip = (orderId: string) => {
-    const line = visibleInTransitLines.find((l) => l.orderId === orderId)
-    markShipped(orderId)
-    if (line?.chatThreadId) {
-      setMessageQueue((prev) => [...prev, { threadId: line.chatThreadId!, text: arrivedInSriLankaMessage(line.orderId) }])
-    }
-    setJustShipped([orderId])
+  const handleSingleShip = (line: InTransitLine) => {
+    markShipped(line.orderId)
+    queueMessages([line])
+    showNotice(`${line.orderNumber} marked shipped.`)
     setSelected((prev) => {
-      if (!prev.has(orderId)) return prev
+      if (!prev.has(line.id)) return prev
       const next = new Set(prev)
-      next.delete(orderId)
+      next.delete(line.id)
       return next
     })
-    setTimeout(() => setJustShipped([]), 4000)
   }
-
-  const actionableFiltered = filtered.filter(canActOnInTransitLine)
-  const allVisibleSelected = actionableFiltered.length > 0 && actionableFiltered.every((l) => selected.has(l.id))
-  const overdueCount = counts.overdue ?? 0
 
   const scopeLabel = permissions.ordersScopedToOwnSite
     ? sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
@@ -167,160 +158,195 @@ export default function InTransitPage() {
 
   return (
     <>
-    <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
-        {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-white text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
-              <Truck size={22} strokeWidth={1.75} />
+      <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+        <div className="mx-auto max-w-8xl px-6 pb-28 pt-10 lg:px-10">
+          {/* ── Header ── */}
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
+                <Truck size={22} strokeWidth={1.75} />
+              </div>
+              <div>
+                <h1 className="font-display text-3xl font-semibold leading-tight">In transit</h1>
+                <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
+                  Orders handed to a courier from {scopeLabel}, on the way to the Sri Lanka warehouse. Most overdue
+                  first.
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-display text-3xl font-semibold text-ink">In transit</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Orders handed off to a courier from {scopeLabel}, crossing the border. Use "Mark shipped" once an
-                order arrives at the Sri Lanka warehouse.
-              </p>
+
+            <dl className="flex divide-x divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-white">
+              <div className="px-5 py-3">
+                <dt className="text-xs font-medium text-ink/45">En route</dt>
+                <dd className="mt-0.5 font-display text-xl text-ink">{visibleInTransitLines.length}</dd>
+              </div>
+              <div className="px-5 py-3">
+                <dt className="text-xs font-medium text-ink/45">Due soon</dt>
+                <dd className={`mt-0.5 font-display text-xl ${(counts.due_soon ?? 0) > 0 ? "text-amber-700" : "text-ink"}`}>
+                  {counts.due_soon ?? 0}
+                </dd>
+              </div>
+              <div className="px-5 py-3">
+                <dt className="text-xs font-medium text-ink/45">Overdue</dt>
+                <dd className={`mt-0.5 font-display text-xl ${(counts.overdue ?? 0) > 0 ? "text-rose-700" : "text-ink"}`}>
+                  {counts.overdue ?? 0}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* ── Status message ── */}
+          <div aria-live="polite" className="mt-6 min-h-[2.75rem]">
+            {notice && (
+              <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-teal/25 bg-teal/[0.08] px-4 py-3 text-sm font-medium text-teal-deep">
+                <CheckCircle2 size={16} />
+                {notice}
+                <Link href="/admin/shipped" className="ml-auto text-xs font-semibold underline underline-offset-4">
+                  View shipped
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* ── Filters ── */}
+          <div className="mt-2 flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div role="tablist" aria-label="Filter by delivery status" className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-white p-1">
+                {STATUS_TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={statusTab === t.key}
+                    onClick={() => setStatusTab(t.key)}
+                    className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                      statusTab === t.key ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
+                    }`}
+                  >
+                    {t.label}
+                    <span className={statusTab === t.key ? "text-parchment/70" : "text-ink/35"}>{counts[t.key] ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-72">
+                <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search order or customer"
+                  aria-label="Search order or customer"
+                  className="w-full rounded-full border border-ink/10 bg-white py-2.5 pl-9 pr-4 text-sm placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span id="courier-filter-label" className="text-xs font-medium text-ink/50">
+                Courier
+              </span>
+              <div role="radiogroup" aria-labelledby="courier-filter-label" className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-white p-1">
+                {couriers.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    role="radio"
+                    aria-checked={courierFilter === c}
+                    onClick={() => setCourierFilter(c)}
+                    className={`rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                      courierFilter === c ? "bg-ink text-parchment" : "text-ink/55 hover:text-ink/80"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-white px-5 py-3 text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">En route</p>
-            <p className="mt-0.5 font-display text-xl text-ink">
-              {visibleInTransitLines.length}
-              {overdueCount > 0 && (
-                <span className="ml-2 text-sm font-normal text-rose-600">{overdueCount} overdue</span>
-              )}
-            </p>
-          </div>
-        </div>
-
-        {/* ── Confirmation banner ── */}
-        {justShipped.length > 0 && (
-          <div className="mt-6 flex items-center gap-2.5 rounded-2xl border border-teal/25 bg-teal/[0.08] px-4 py-3 text-sm font-medium text-teal-deep">
-            <CheckCircle2 size={16} />
-            {justShipped.length} order{justShipped.length === 1 ? "" : "s"} marked shipped.
-          </div>
-        )}
-
-        {/* ── Filters ── */}
-        <div className="mt-8 flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-white p-1">
-              {STATUS_TABS.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setStatusTab(t.key)}
-                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
-                    statusTab === t.key
-                      ? "bg-teal-deep text-parchment shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]"
-                      : "text-ink/55 hover:text-ink/80"
-                  }`}
-                >
-                  {t.label}
-                  <span className={statusTab === t.key ? "text-parchment/70" : "text-ink/35"}>{counts[t.key] ?? 0}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="relative w-full sm:w-72">
-              <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search order or customer"
-                className="w-full rounded-full border border-ink/10 bg-white py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-white p-1 sm:self-start">
-            {couriers.map((c) => (
+          <p className="mt-4 text-xs text-ink/45">
+            {hasAnyFilter
+              ? `${filtered.length} of ${visibleInTransitLines.length} orders shown`
+              : `${filtered.length} order${filtered.length === 1 ? "" : "s"}`}
+            {hasAnyFilter && (
               <button
-                key={c}
                 type="button"
-                onClick={() => setCourierFilter(c)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  courierFilter === c ? "bg-ink text-parchment" : "text-ink/55 hover:text-ink/80"
-                }`}
+                onClick={clearFilters}
+                className="ml-2 font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
               >
-                {c}
+                Clear filters
               </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Bulk action bar ── */}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-xs font-medium text-ink/50">
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={toggleSelectAllVisible}
-              disabled={actionableFiltered.length === 0}
-              className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
-            />
-            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-          </label>
-
-          <button
-            type="button"
-            onClick={handleMarkShipped}
-            disabled={selected.size === 0}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-teal-deep px-3.5 py-2 text-xs font-semibold text-parchment transition-colors hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/15"
-          >
-            <CheckCircle2 size={14} />
-            Mark shipped ({selected.size || 0})
-          </button>
-        </div>
-
-        {hasAnyFilter ? (
-          <p className="mt-3 text-xs font-medium text-ink/40">
-            {filtered.length} of {visibleInTransitLines.length} orders ·{" "}
-            <button type="button" onClick={clearFilters} className="font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal">
-              Clear filters
-            </button>
+            )}
           </p>
-        ) : (
-          <p className="mt-3 text-xs font-medium text-ink/40">
-            {filtered.length} order{filtered.length === 1 ? "" : "s"}
-          </p>
-        )}
 
-        {/* ── List ── */}
-        <div className="mt-3 overflow-hidden rounded-2xl border border-ink/10 bg-white">
-          <div className="sticky top-0 z-10 hidden grid-cols-[auto_1.1fr_1fr_0.9fr_0.8fr_0.9fr] gap-2 border-b border-ink/10 bg-parchment/60 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
-            <span />
-            <span>Order</span>
-            <span>Destination</span>
-            <span>Courier / tracking</span>
-            <span>In transit</span>
-            <span className="text-right">Delivery</span>
-          </div>
-
-          {filtered.length === 0 ? (
-            <EmptyState
-              hasAnyFilter={hasAnyFilter}
-              isEmptyOverall={visibleInTransitLines.length === 0}
-              onClearFilters={clearFilters}
-            />
-          ) : (
-            filtered.map((line) => (
-              <InTransitRow
-                key={line.id}
-                line={line}
-                canAct={canActOnInTransitLine(line)}
-                selected={selected.has(line.id)}
-                onToggleSelect={() => toggleSelect(line.id)}
-                onMarkShipped={() => handleSingleShip(line.orderId)}
+          {/* ── List ── */}
+          <div className="mt-3 overflow-hidden rounded-2xl border border-ink/10 bg-white">
+            <div
+              className={`sticky top-0 z-10 hidden items-center gap-3 border-b border-ink/10 bg-parchment/80 px-5 py-3 text-xs font-medium text-ink/50 backdrop-blur sm:grid ${GRID}`}
+            >
+              <input
+                type="checkbox"
+                aria-label="Select all visible orders"
+                checked={allVisibleSelected}
+                onChange={toggleSelectAllVisible}
+                disabled={actionable.length === 0}
+                className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
               />
-            ))
+              <span>Order</span>
+              <span>Destination</span>
+              <span>Courier and tracking</span>
+              <span>In transit</span>
+              <span>Delivery</span>
+              <span />
+            </div>
+
+            {filtered.length === 0 ? (
+              <EmptyState
+                hasAnyFilter={hasAnyFilter}
+                isEmptyOverall={visibleInTransitLines.length === 0}
+                onClearFilters={clearFilters}
+              />
+            ) : (
+              filtered.map((line) => (
+                <InTransitRow
+                  key={line.id}
+                  line={line}
+                  canAct={canActOnInTransitLine(line)}
+                  selected={selected.has(line.id)}
+                  onToggleSelect={() => toggleSelect(line.id)}
+                  onMarkShipped={() => handleSingleShip(line)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* ── Selection bar (sticks to the bottom while rows are ticked) ── */}
+          {selected.size > 0 && (
+            <div className="sticky bottom-6 z-20 mt-6 flex justify-center">
+              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-ink px-4 py-3 text-parchment shadow-[0_24px_48px_-20px_rgba(32,36,43,0.65)]">
+                <span className="text-sm font-medium">{selected.size} selected</span>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  aria-label="Clear selection"
+                  className="rounded-full p-1.5 text-parchment/60 outline-none transition-colors hover:bg-white/10 hover:text-parchment focus-visible:ring-2 focus-visible:ring-parchment/50"
+                >
+                  <X size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMarkShipped}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-parchment px-3.5 py-2 text-xs font-semibold text-ink outline-none transition-colors hover:bg-white focus-visible:ring-2 focus-visible:ring-parchment/50"
+                >
+                  <CheckCircle2 size={14} />
+                  Mark shipped
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
-    </div>
 
       <SendMessageModal
         open={currentMessage !== null}
@@ -357,85 +383,76 @@ function InTransitRow({
       ? `${formatAge(Math.abs(line.etaRemainingHours))} overdue`
       : `due in ${formatAge(line.etaRemainingHours)}`
 
+  const pill = (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_PILL[status]}`}>
+      <span className={`h-1.5 w-1.5 flex-none rounded-full ${STATUS_DOT[status]}`} aria-hidden />
+      {deliveryLabel}
+    </span>
+  )
+
+  const action = (
+    <button
+      type="button"
+      disabled={!canAct}
+      onClick={onMarkShipped}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep outline-none transition-colors hover:bg-teal/[0.12] focus-visible:ring-2 focus-visible:ring-teal/40 disabled:cursor-not-allowed disabled:opacity-30"
+    >
+      <CheckCircle2 size={13} />
+      Mark shipped
+    </button>
+  )
+
   return (
     <div
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 sm:grid-cols-[auto_1.1fr_1fr_0.9fr_0.8fr_0.9fr_auto] ${
-        selected ? "bg-teal/[0.05]" : ""
+      className={`grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] px-5 py-4 transition-colors last:border-b-0 sm:gap-y-0 sm:py-3.5 ${GRID} ${
+        selected ? "bg-teal/[0.06]" : "hover:bg-ink/[0.015]"
       }`}
     >
-      <span>
-        <input
-          type="checkbox"
-          checked={selected}
-          disabled={!canAct}
-          onChange={onToggleSelect}
-          className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
-        />
-      </span>
+      <input
+        type="checkbox"
+        aria-label={`Select ${line.orderNumber}`}
+        checked={selected}
+        disabled={!canAct}
+        onChange={onToggleSelect}
+        className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
+      />
 
-      <span className="min-w-0">
+      <div className="min-w-0">
         <Link
           href={`/admin/orders/${line.orderId}`}
-          className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
+          className="block truncate rounded text-sm font-semibold outline-none hover:text-teal-deep hover:underline focus-visible:ring-2 focus-visible:ring-teal/40"
         >
           {line.orderNumber}
         </Link>
-        <span className="block truncate text-xs text-ink/45">{line.customerName}</span>
-        {!canAct && <span className="block text-[11px] text-ink/35">View only — different site</span>}
+        <span className="block truncate text-xs text-ink/50">{line.customerName}</span>
+        {!canAct && <span className="block text-[11px] text-ink/40">View only, different site</span>}
+      </div>
+
+      {/* mobile: delivery status sits beside the order */}
+      <span className="sm:hidden">{pill}</span>
+
+      <span className="hidden min-w-0 items-center gap-1.5 text-sm text-ink/70 sm:flex">
+        <MapPinned size={13} className="flex-none text-ink/30" aria-hidden />
+        <span className="truncate">{line.destination}</span>
       </span>
 
-      <span className="hidden items-center gap-1.5 truncate text-sm text-ink/70 sm:flex">
-        <MapPinned size={13} className="flex-none text-ink/30" />
-        {line.destination}
+      <span className="hidden min-w-0 truncate sm:block">
+        <span className="text-sm font-medium text-ink/70">{line.courier}</span>
+        {line.trackingRef && <span className="ml-1.5 text-xs text-ink/40">{line.trackingRef}</span>}
       </span>
 
-      <span className="hidden truncate sm:block">
-        <span className="text-xs font-medium text-ink/60">{line.courier}</span>
-        {line.trackingRef && <span className="ml-1.5 text-xs text-ink/35">{line.trackingRef}</span>}
-      </span>
+      <span className="hidden text-sm tabular-nums text-ink/50 sm:block">{line.pickedUpAgeLabel}</span>
 
-      <span className="hidden text-sm text-ink/50 sm:block">{line.pickedUpAgeLabel}</span>
+      <span className="hidden sm:block">{pill}</span>
 
-      <span className="hidden justify-self-end sm:block">
-        <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_PILL[status]}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
-          {deliveryLabel}
-        </span>
-      </span>
+      <span className="hidden justify-self-end sm:block">{action}</span>
 
-      <span className="hidden justify-self-end sm:block">
-        <button
-          type="button"
-          disabled={!canAct}
-          onClick={onMarkShipped}
-          title={canAct ? "Mark shipped" : undefined}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <CheckCircle2 size={13} />
-          Mark shipped
-        </button>
+      {/* mobile-only details and action, aligned under the order */}
+      <span className="col-span-2 col-start-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/55 sm:hidden">
+        <span>{line.destination}</span>
+        <span>{line.courier}</span>
       </span>
-
-      {/* mobile summary */}
-      <span className="col-span-3 flex items-center justify-between gap-2 pl-7 sm:hidden">
-        <span className="text-xs text-ink/45">{line.destination} · {line.courier}</span>
-        <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_PILL[status]}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
-          {DELIVERY_STATUS_LABEL[status]}
-        </span>
-      </span>
-      {/* mobile: explicit action, same "no accidental tap" rule as desktop */}
-      <span className="col-span-3 pl-7 sm:hidden">
-        <button
-          type="button"
-          disabled={!canAct}
-          onClick={onMarkShipped}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <CheckCircle2 size={13} />
-          Mark shipped
-        </button>
-      </span>
+      <span className="col-span-2 col-start-2 sm:hidden">{action}</span>
     </div>
   )
 }
@@ -455,10 +472,16 @@ function EmptyState({
         <Inbox size={22} className="text-ink/25" />
         <div>
           <p className="text-sm font-semibold text-ink/70">Nothing in transit right now</p>
-          <p className="mt-1 max-w-xs text-xs text-ink/45">
-            Orders show up here once a courier picks them up from the export bin.
+          <p className="mt-1 max-w-xs text-xs text-ink/50">
+            Orders appear here once they are marked picked up in the Export bin.
           </p>
         </div>
+        <Link
+          href="/admin/export-bin"
+          className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+        >
+          Go to Export bin
+        </Link>
       </div>
     )
   }
@@ -468,13 +491,13 @@ function EmptyState({
       <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
         <SearchX size={22} className="text-ink/25" />
         <div>
-          <p className="text-sm font-semibold text-ink/70">Nothing matches this filter</p>
-          <p className="mt-1 text-xs text-ink/45">Try a different search term, courier, or status tab.</p>
+          <p className="text-sm font-semibold text-ink/70">No orders match these filters</p>
+          <p className="mt-1 text-xs text-ink/50">Try a different search, courier or status.</p>
         </div>
         <button
           type="button"
           onClick={onClearFilters}
-          className="mt-1 text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+          className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
         >
           Clear filters
         </button>

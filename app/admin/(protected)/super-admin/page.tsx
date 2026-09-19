@@ -1,77 +1,68 @@
 // app/admin/(protected)/super-admin/page.tsx
 //
-// The missing piece that caused an actual infinite redirect loop:
-// /admin/dashboard sends a super_admin to DASHBOARD_HREF['super_admin'],
-// which used to just point at /admin/manager-dashboard (reusing
-// Manager's page, since super_admin shares MANAGER_PERMISSIONS). But
-// manager-dashboard has its own guard — `if (role !== "manager")
-// router.replace("/admin/dashboard")` — which bounced a real
-// super_admin (role !== "manager") straight back to /admin/dashboard,
-// which redirected to manager-dashboard again, forever. This is the
-// real, dedicated landing page super_admin needed so that loop can't
-// happen: this page has no other role's guard to collide with.
+// Why this page exists: /admin/dashboard sends a super_admin to
+// DASHBOARD_HREF["super_admin"], which used to point at /admin/manager-dashboard
+// (super_admin shares MANAGER_PERMISSIONS). But manager-dashboard guards with
+// `if (role !== "manager") router.replace("/admin/dashboard")`, which bounced a
+// real super_admin straight back, and the two redirected each other forever.
+// This dedicated landing page has no other role's guard to collide with.
 //
-// Content-wise: an overview of the super-admin-only areas (see
-// components/admin/admin-sidebar.tsx's "Super Admin" nav group) plus a
-// couple of real summary stats already available from useAdminData()
-// (staffDirectory, sites) — not fake charts for data this app doesn't
-// track yet (revenue, WhatsApp cost, etc. — those live at
-// /admin/super-admin/analytics/*, still stubs themselves; see that
-// section's own pages).
+// Content: the super-admin-only areas (see the "Super Admin" nav group in
+// components/admin/admin-sidebar.tsx) plus the summary figures useAdminData()
+// really has (staffDirectory, sites). No charts for data this app doesn't
+// track yet; revenue, WhatsApp cost and the rest live under
+// /admin/super-admin/analytics/*, which are still stubs.
 "use client"
 
 import { useEffect, useMemo } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
-import {
-  LineChart,
-  History,
-  ShieldCheck,
-  Users,
-  SlidersHorizontal,
-  ChevronRight,
-  Building2,
-} from "lucide-react"
-import { useAdminData } from "@/contexts/AdminDataContext"
-import { StatCard } from "@/components/admin/dashboard/shared"
+import { useRouter } from "next/navigation"
+import { ChevronRight, History, LayoutDashboard, LineChart, ShieldCheck, SlidersHorizontal, Users } from "lucide-react"
 
-function AreaCard({
-  href,
-  icon: Icon,
-  title,
-  description,
-}: {
-  href: string
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
-  title: string
-  description: string
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-start gap-4 rounded-2xl border border-ink/10 bg-card p-5 transition-colors hover:border-teal/30 hover:bg-teal/[0.03]"
-    >
-      <span className="grid size-10 flex-none place-items-center rounded-full bg-teal/10 text-teal-deep">
-        <Icon size={18} strokeWidth={1.8} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold text-ink">{title}</p>
-        <p className="mt-0.5 text-sm text-ink/55">{description}</p>
-      </div>
-      <ChevronRight size={16} className="mt-2 flex-none text-ink/35" />
-    </Link>
-  )
-}
+import { useAdminData } from "@/contexts/AdminDataContext"
+
+type AreaIcon = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
+
+const AREAS: { href: string; icon: AreaIcon; title: string; description: string }[] = [
+  {
+    href: "/admin/super-admin/analytics",
+    icon: LineChart,
+    title: "Analytics",
+    description: "Revenue, ops, orders, WhatsApp cost, and seller performance.",
+  },
+  {
+    href: "/admin/super-admin/audit-log",
+    icon: History,
+    title: "Audit log",
+    description: "Every sensitive action taken across the console.",
+  },
+  {
+    href: "/admin/super-admin/roles",
+    icon: ShieldCheck,
+    title: "Roles",
+    description: "What each role can see and do.",
+  },
+  {
+    href: "/admin/super-admin/staff",
+    icon: Users,
+    title: "All staff",
+    description: "The full roster, every role included, not just Sales and Warehouse.",
+  },
+  {
+    href: "/admin/super-admin/settings/pricing-engine",
+    icon: SlidersHorizontal,
+    title: "Platform settings",
+    description: "Pricing engine, message templates, integrations, and the payment gateway.",
+  },
+]
 
 export default function SuperAdminDashboardPage() {
   const router = useRouter()
   const { role, currentUser, staffDirectory, staffLoading, sites } = useAdminData()
 
   useEffect(() => {
-    // Same pattern as the other three dashboards — reads the effective
-    // `role` (previewRole-aware), not currentUser.role, so "Preview as
-    // Super Admin" (only meaningful the other direction in practice,
-    // but kept consistent) and direct access both behave the same way.
+    // Reads the effective `role` (previewRole-aware), not currentUser.role, so
+    // previewing another role and direct access behave the same way.
     if (role !== "super_admin") router.replace("/admin/dashboard")
   }, [role, router])
 
@@ -80,58 +71,65 @@ export default function SuperAdminDashboardPage() {
 
   if (role !== "super_admin") return null
 
+  const stat = (n: number) => (staffLoading ? "\u2014" : n)
+
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1200px] px-6 pb-24 pt-10 lg:px-10">
-        <h1 className="font-display text-3xl text-ink">Good to see you, {currentUser.name.split(" ")[0]}</h1>
-        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-          Full oversight, platform-wide settings, and everything Manager sees.
-        </p>
+      <div className="mx-auto max-w-[1560px] px-6 pb-24 pt-10 lg:px-10">
+        {/* ── Header ── */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
+              <LayoutDashboard size={22} strokeWidth={1.75} />
+            </div>
+            <div>
+              <h1 className="font-display text-3xl font-semibold leading-tight">
+                Good to see you, {currentUser.name.split(" ")[0]}
+              </h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
+                Full oversight, platform-wide settings, and everything Manager sees.
+              </p>
+            </div>
+          </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <StatCard
-            icon={<Users size={15} />}
-            label="Active staff"
-            value={staffLoading ? "…" : activeStaffCount}
-            hint={staffLoading ? undefined : `${staffDirectory.length} total, incl. deactivated`}
-          />
-          <StatCard icon={<ShieldCheck size={15} />} label="Managers" value={staffLoading ? "…" : managerCount} />
-          <StatCard icon={<Building2 size={15} />} label="Warehouse sites" value={sites.length} />
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3" title="Active staff, out of everyone on the roster including deactivated accounts">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Active staff</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl text-ink">
+                {stat(activeStaffCount)}
+                {!staffLoading && <span className="ml-1.5 font-body text-xs text-ink/40">of {staffDirectory.length}</span>}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Managers</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{stat(managerCount)}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Warehouse sites</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{sites.length}</dd>
+            </div>
+          </dl>
         </div>
 
-        <h2 className="mt-10 text-xs font-semibold uppercase tracking-wide text-ink/35">Super Admin</h2>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <AreaCard
-            href="/admin/super-admin/analytics"
-            icon={LineChart}
-            title="Analytics"
-            description="Revenue, ops, orders, WhatsApp cost, and seller performance."
-          />
-          <AreaCard
-            href="/admin/super-admin/audit-log"
-            icon={History}
-            title="Audit log"
-            description="Every sensitive action taken across the console."
-          />
-          <AreaCard
-            href="/admin/super-admin/roles"
-            icon={ShieldCheck}
-            title="Roles"
-            description="What each role can see and do."
-          />
-          <AreaCard
-            href="/admin/super-admin/staff"
-            icon={Users}
-            title="All staff"
-            description="The full roster, every role included — not just Sales & Warehouse."
-          />
-          <AreaCard
-            href="/admin/super-admin/settings/pricing-engine"
-            icon={SlidersHorizontal}
-            title="Platform settings"
-            description="Pricing engine, message templates, integrations, and the payment gateway."
-          />
-        </div>
+        {/* ── Super Admin areas ── */}
+        <nav aria-label="Super Admin areas" className="mt-9 overflow-clip rounded-2xl border border-ink/10 bg-card">
+          {AREAS.map(({ href, icon: Icon, title, description }) => (
+            <Link
+              key={href}
+              href={href}
+              className="flex items-center gap-4 border-b border-ink/[0.06] px-5 py-4 outline-none transition-colors last:border-b-0 hover:bg-ink/[0.02] focus-visible:bg-teal/[0.06] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40"
+            >
+              <span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-teal/10 text-teal-deep">
+                <Icon size={18} strokeWidth={1.8} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">{title}</span>
+                <span className="mt-0.5 block text-xs text-ink/55">{description}</span>
+              </span>
+              <ChevronRight size={16} className="flex-none text-ink/25" aria-hidden />
+            </Link>
+          ))}
+        </nav>
       </div>
     </div>
   )

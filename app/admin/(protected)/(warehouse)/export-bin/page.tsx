@@ -1,33 +1,27 @@
 // app/admin/export-bin/page.tsx
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import {
-  Archive,
-  Inbox,
-  PackageCheck,
-  Printer,
-  Search,
-  SearchX,
-  Truck,
-} from "lucide-react"
+import { Archive, Inbox, PackageCheck, Printer, Search, SearchX, Truck, X } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import type { ExportBinLine } from "@/types/admin"
 
-// Export bin: everything that's been packed and labeled, staged for
-// courier pickup. An order lands here the instant Pack & label's "Mark
-// packed" sets Order.packedAt, and leaves the instant markPickedUp is
-// called below — which is also what makes it appear on /admin/in-transit.
+// Export bin: everything that's been packed and labeled, staged for courier
+// pickup. An order lands here when Pack & label sets Order.packedAt, and
+// leaves when markPickedUp is called — which also puts it on /admin/in-transit.
 //
-// ROW BEHAVIOR: a bare row click does NOT hand anything to a courier —
-// it used to (fire markPickedUp on any click, no confirmation), which
-// was too easy to trigger by accident while just trying to glance at an
-// order. Handing off now requires an explicit "Mark picked up" button
-// per row, or selecting rows via the checkbox and using the bulk action
-// bar. The order number is its own separate link to the order detail
-// page, same as before.
+// Nothing is handed to a courier by a bare row click. Use the per-row
+// "Mark picked up" button, or tick rows and use the selection bar. The courier
+// chosen in the toolbar applies to both.
+
+const COURIERS = ["Domex", "Pronto"] as const
+type Courier = (typeof COURIERS)[number]
+
+// Shared by the header and every row so the columns always line up.
+const GRID =
+  "sm:grid-cols-[1.75rem_minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_4.5rem_6.5rem_9.5rem]"
 
 function formatAge(hours: number): string {
   if (hours < 1) return "<1h"
@@ -37,83 +31,86 @@ function formatAge(hours: number): string {
   return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`
 }
 
-const COURIERS = ["Domex", "Pronto"] as const
+// Older orders are the ones a driver should take first, so age gets a colour.
+// (amber/rose are stock Tailwind colours — swap for your own tokens if needed.)
+function ageTone(hours: number) {
+  if (hours >= 48) return { dot: "bg-rose-500", text: "text-rose-700 font-semibold" }
+  if (hours >= 24) return { dot: "bg-amber-500", text: "text-amber-700 font-medium" }
+  return { dot: "bg-teal", text: "text-ink/50" }
+}
 
 export default function ExportBinPage() {
-  const { visibleExportBinLines, canActOnExportBinLine, markPickedUp, sites, currentUser, permissions } = useAdminData()
+  const { visibleExportBinLines, canActOnExportBinLine, markPickedUp, sites, currentUser, permissions } =
+    useAdminData()
 
   const [query, setQuery] = useState("")
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [bulkCourier, setBulkCourier] = useState<(typeof COURIERS)[number]>("Domex")
-  const [manifestPrinted, setManifestPrinted] = useState(false)
-  const [justPickedUp, setJustPickedUp] = useState<string[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set()) // line ids
+  const [courier, setCourier] = useState<Courier>("Domex")
+  const [notice, setNotice] = useState<{ kind: "pickup" | "manifest"; text: string } | null>(null)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => clearTimeout(noticeTimer.current), [])
+
+  const showNotice = (kind: "pickup" | "manifest", text: string, ms = 4000) => {
+    clearTimeout(noticeTimer.current)
+    setNotice({ kind, text })
+    noticeTimer.current = setTimeout(() => setNotice(null), ms)
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return [...visibleExportBinLines]
-      .filter((o) => {
-        if (!q) return true
-        return o.orderNumber.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q)
-      })
+      .filter((o) => !q || o.orderNumber.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q))
       .sort((a, b) => b.packedAgeHours - a.packedAgeHours)
   }, [visibleExportBinLines, query])
+
+  const actionable = useMemo(() => filtered.filter(canActOnExportBinLine), [filtered, canActOnExportBinLine])
+  const allVisibleSelected = actionable.length > 0 && actionable.every((o) => selected.has(o.id))
+
+  const totalWeight = visibleExportBinLines.reduce((sum, o) => sum + (o.weightKg ?? 0), 0)
+  const oldestHours = visibleExportBinLines.reduce((max, o) => Math.max(max, o.packedAgeHours), 0)
+  const selectedLines = visibleExportBinLines.filter((o) => selected.has(o.id))
+  const selectedWeight = selectedLines.reduce((sum, o) => sum + (o.weightKg ?? 0), 0)
 
   const hasAnyFilter = query.trim() !== ""
   const clearFilters = () => setQuery("")
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-  }
 
-  const toggleSelectAllVisible = () => {
+  const toggleSelectAllVisible = () =>
     setSelected((prev) => {
-      const actionable = filtered.filter(canActOnExportBinLine)
-      const allVisibleSelected = actionable.every((o) => prev.has(o.id))
       const next = new Set(prev)
       actionable.forEach((o) => (allVisibleSelected ? next.delete(o.id) : next.add(o.id)))
       return next
     })
-  }
 
-  const handlePickup = () => {
-    if (selected.size === 0) return
-    const ids = Array.from(selected)
-    ids.forEach((orderId) => markPickedUp(orderId, bulkCourier))
-    setJustPickedUp(ids)
+  const handleBulkPickup = () => {
+    if (selectedLines.length === 0) return
+    selectedLines.forEach((line) => markPickedUp(line.orderId, courier))
+    showNotice("pickup", `${selectedLines.length} order${selectedLines.length === 1 ? "" : "s"} picked up by ${courier}.`)
     setSelected(new Set())
-    setTimeout(() => setJustPickedUp([]), 4000)
   }
 
-  // Single-row equivalent of handlePickup — fired by clicking the row
-  // itself. Uses the same bulkCourier value the toolbar dropdown
-  // controls, so a row click and a bulk pickup always assign the same
-  // courier without asking twice. Also clears that row out of any
-  // in-progress selection, since it's no longer sitting in the bin.
-  const handleSinglePickup = (orderId: string) => {
-    markPickedUp(orderId, bulkCourier)
-    setJustPickedUp([orderId])
+  const handleSinglePickup = (line: ExportBinLine) => {
+    markPickedUp(line.orderId, courier)
+    showNotice("pickup", `${line.orderNumber} picked up by ${courier}.`)
     setSelected((prev) => {
-      if (!prev.has(orderId)) return prev
+      if (!prev.has(line.id)) return prev
       const next = new Set(prev)
-      next.delete(orderId)
+      next.delete(line.id)
       return next
     })
-    setTimeout(() => setJustPickedUp([]), 4000)
   }
 
   const handlePrintManifest = () => {
     if (selected.size === 0) return
-    setManifestPrinted(true)
-    setTimeout(() => setManifestPrinted(false), 2500)
+    showNotice("manifest", `Manifest sent to printer for ${selected.size} order${selected.size === 1 ? "" : "s"}.`, 2500)
   }
-
-  const totalWeight = filtered.reduce((sum, o) => sum + (o.weightKg ?? 0), 0)
-  const actionableFiltered = filtered.filter(canActOnExportBinLine)
-  const allVisibleSelected = actionableFiltered.length > 0 && actionableFiltered.every((o) => selected.has(o.id))
 
   const scopeLabel = permissions.ordersScopedToOwnSite
     ? sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
@@ -121,129 +118,127 @@ export default function ExportBinPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
+      <div className="mx-auto max-w-8xl px-6 pb-28 pt-10 lg:px-10">
         {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-white text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
               <Archive size={22} strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-display text-3xl font-semibold text-ink">Export bin</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Packed and labeled orders staged for courier pickup at {scopeLabel}. Click a row to hand it off to{" "}
-                <span className="font-medium text-ink/70">{bulkCourier}</span> — pick a different courier below first
-                if needed.
+              <h1 className="font-display text-3xl font-semibold leading-tight">Export bin</h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
+                Packed and labeled orders at {scopeLabel}, waiting for a courier. Oldest first.
               </p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-white px-5 py-3 text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">In bin</p>
-            <p className="mt-0.5 font-display text-xl text-ink">
-              {visibleExportBinLines.length}{" "}
-              <span className="text-sm font-normal text-ink/40">· {totalWeight.toFixed(1)} kg</span>
-            </p>
-          </div>
+          <dl className="flex divide-x divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-white">
+            <Stat label="Orders in bin" value={String(visibleExportBinLines.length)} />
+            <Stat label="Total weight" value={`${totalWeight.toFixed(1)} kg`} />
+            <Stat
+              label="Oldest waiting"
+              value={visibleExportBinLines.length ? formatAge(oldestHours) : "—"}
+              tone={oldestHours >= 48 ? "text-rose-700" : oldestHours >= 24 ? "text-amber-700" : undefined}
+            />
+          </dl>
         </div>
 
-        {/* ── Confirmation banners ── */}
-        {justPickedUp.length > 0 && (
-          <div className="mt-6 flex items-center gap-2.5 rounded-2xl border border-teal/25 bg-teal/[0.08] px-4 py-3 text-sm font-medium text-teal-deep">
-            <Truck size={16} />
-            {justPickedUp.length} order{justPickedUp.length === 1 ? "" : "s"} handed off to courier — now in transit.
-          </div>
-        )}
-        {manifestPrinted && (
-          <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-ink/10 bg-white px-4 py-3 text-sm font-medium text-ink/70">
-            <Printer size={16} />
-            Manifest sent to printer for {selected.size} order{selected.size === 1 ? "" : "s"}.
-          </div>
-        )}
-
-        {/* ── Filters ── */}
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full sm:w-72">
-            <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search order or customer"
-              className="w-full rounded-full border border-ink/10 bg-white py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
-            />
-          </div>
-          {hasAnyFilter && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+        {/* ── Status message ── */}
+        <div aria-live="polite" className="mt-6 min-h-[2.75rem]">
+          {notice && (
+            <div
+              className={`flex flex-wrap items-center gap-2.5 rounded-xl px-4 py-3 text-sm font-medium ${
+                notice.kind === "pickup"
+                  ? "border border-teal/25 bg-teal/[0.08] text-teal-deep"
+                  : "border border-ink/10 bg-white text-ink/70"
+              }`}
             >
-              Clear filters
-            </button>
+              {notice.kind === "pickup" ? <Truck size={16} /> : <Printer size={16} />}
+              {notice.text}
+              {notice.kind === "pickup" && (
+                <Link href="/admin/in-transit" className="ml-auto text-xs font-semibold underline underline-offset-4">
+                  View in transit
+                </Link>
+              )}
+            </div>
           )}
         </div>
 
-        {/* ── Bulk action bar — also sets the courier used by row clicks ── */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-xs font-medium text-ink/50">
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={toggleSelectAllVisible}
-              disabled={actionableFiltered.length === 0}
-              className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
-            />
-            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-          </label>
+        {/* ── Toolbar ── */}
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="relative w-full sm:w-72">
+              <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search order or customer"
+                aria-label="Search order or customer"
+                className="w-full rounded-full border border-ink/10 bg-white py-2.5 pl-9 pr-4 text-sm placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+              />
+            </div>
+            <p className="hidden whitespace-nowrap text-xs text-ink/45 sm:block">
+              {filtered.length} of {visibleExportBinLines.length} shown
+              {hasAnyFilter && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="ml-2 font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+                >
+                  Clear
+                </button>
+              )}
+            </p>
+          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrintManifest}
-              disabled={selected.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-ink/10 bg-white px-3.5 py-2 text-xs font-semibold text-ink/70 transition-colors hover:bg-ink/[0.03] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Printer size={14} />
-              Print manifest
-            </button>
-
-            <select
-              value={bulkCourier}
-              onChange={(e) => setBulkCourier(e.target.value as (typeof COURIERS)[number])}
-              title="Courier assigned to row clicks and bulk pickup"
-              className="rounded-xl border border-ink/10 bg-white px-2.5 py-2 text-xs font-medium text-ink/70 outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+          <div className="flex items-center gap-3">
+            <span id="courier-label" className="text-xs font-medium text-ink/50">
+              Courier
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby="courier-label"
+              className="inline-flex rounded-full border border-ink/10 bg-white p-1"
             >
               {COURIERS.map((c) => (
-                <option key={c} value={c}>{c}</option>
+                <button
+                  key={c}
+                  type="button"
+                  role="radio"
+                  aria-checked={courier === c}
+                  onClick={() => setCourier(c)}
+                  className={`rounded-full px-4 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                    courier === c ? "bg-teal-deep text-parchment" : "text-ink/60 hover:text-ink"
+                  }`}
+                >
+                  {c}
+                </button>
               ))}
-            </select>
-
-            <button
-              type="button"
-              onClick={handlePickup}
-              disabled={selected.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-teal-deep px-3.5 py-2 text-xs font-semibold text-parchment transition-colors hover:bg-teal-deep/90 disabled:cursor-not-allowed disabled:bg-ink/15"
-            >
-              <Truck size={14} />
-              Mark picked up ({selected.size || 0})
-            </button>
+            </div>
           </div>
         </div>
 
-        <p className="mt-3 text-xs font-medium text-ink/40">
-          {filtered.length} of {visibleExportBinLines.length} orders
-        </p>
-
         {/* ── List ── */}
-        <div className="mt-3 overflow-hidden rounded-2xl border border-ink/10 bg-white">
-          <div className="sticky top-0 z-10 hidden grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr] gap-2 border-b border-ink/10 bg-parchment/60 px-5 py-3 text-[11px] font-semibold tracking-wide text-ink/45 sm:grid">
-            <span />
+        <div className="mt-4 overflow-hidden rounded-2xl border border-ink/10 bg-white">
+          <div
+            className={`sticky top-0 z-10 hidden items-center gap-3 border-b border-ink/10 bg-parchment/80 px-5 py-3 text-xs font-medium text-ink/50 backdrop-blur sm:grid ${GRID}`}
+          >
+            <input
+              type="checkbox"
+              aria-label="Select all visible orders"
+              checked={allVisibleSelected}
+              onChange={toggleSelectAllVisible}
+              disabled={actionable.length === 0}
+              className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
+            />
             <span>Order</span>
             <span>Destination</span>
             <span>Label</span>
             <span>Weight</span>
-            <span className="text-right">Packed</span>
+            <span>Waiting</span>
+            <span />
           </div>
 
           {filtered.length === 0 ? (
@@ -259,14 +254,59 @@ export default function ExportBinPage() {
                 line={line}
                 canAct={canActOnExportBinLine(line)}
                 selected={selected.has(line.id)}
-                courier={bulkCourier}
+                courier={courier}
                 onToggleSelect={() => toggleSelect(line.id)}
-                onMarkPickedUp={() => handleSinglePickup(line.orderId)}
+                onMarkPickedUp={() => handleSinglePickup(line)}
               />
             ))
           )}
         </div>
+
+        {/* ── Selection bar (sticks to the bottom while rows are ticked) ── */}
+        {selected.size > 0 && (
+          <div className="sticky bottom-6 z-20 mt-6 flex justify-center">
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-ink px-4 py-3 text-parchment shadow-[0_24px_48px_-20px_rgba(32,36,43,0.65)]">
+              <span className="text-sm font-medium">
+                {selected.size} selected
+                <span className="ml-2 text-parchment/55">{selectedWeight.toFixed(1)} kg</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                aria-label="Clear selection"
+                className="rounded-full p-1.5 text-parchment/60 outline-none transition-colors hover:bg-white/10 hover:text-parchment focus-visible:ring-2 focus-visible:ring-parchment/50"
+              >
+                <X size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintManifest}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 px-3.5 py-2 text-xs font-semibold outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-parchment/50"
+              >
+                <Printer size={14} />
+                Print manifest
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkPickup}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-parchment px-3.5 py-2 text-xs font-semibold text-ink outline-none transition-colors hover:bg-white focus-visible:ring-2 focus-visible:ring-parchment/50"
+              >
+                <Truck size={14} />
+                Mark picked up by {courier}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="px-5 py-3">
+      <dt className="text-xs font-medium text-ink/45">{label}</dt>
+      <dd className={`mt-0.5 font-display text-xl ${tone ?? "text-ink"}`}>{value}</dd>
     </div>
   )
 }
@@ -286,77 +326,68 @@ function ExportBinRow({
   onToggleSelect: () => void
   onMarkPickedUp: () => void
 }) {
+  const tone = ageTone(line.packedAgeHours)
+
+  const pickupButton = (label: string) => (
+    <button
+      type="button"
+      disabled={!canAct}
+      onClick={onMarkPickedUp}
+      title={canAct ? `Mark picked up by ${courier}` : undefined}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep outline-none transition-colors hover:bg-teal/[0.12] focus-visible:ring-2 focus-visible:ring-teal/40 disabled:cursor-not-allowed disabled:opacity-30"
+    >
+      <Truck size={13} />
+      {label}
+    </button>
+  )
+
   return (
     <div
-      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 sm:grid-cols-[auto_1fr_1fr_0.9fr_0.9fr_0.8fr_auto] ${
-        selected ? "bg-teal/[0.05]" : ""
+      className={`grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] px-5 py-4 transition-colors last:border-b-0 sm:gap-y-0 sm:py-3.5 ${GRID} ${
+        selected ? "bg-teal/[0.06]" : "hover:bg-ink/[0.015]"
       }`}
     >
-      <span>
-        <input
-          type="checkbox"
-          checked={selected}
-          disabled={!canAct}
-          onChange={onToggleSelect}
-          className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
-        />
-      </span>
+      <input
+        type="checkbox"
+        aria-label={`Select ${line.orderNumber}`}
+        checked={selected}
+        disabled={!canAct}
+        onChange={onToggleSelect}
+        className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40 disabled:opacity-30"
+      />
 
-      <span className="min-w-0">
+      <div className="min-w-0">
         <Link
           href={`/admin/orders/${line.orderId}`}
-          className="block truncate text-sm font-semibold text-ink hover:text-teal-deep hover:underline"
+          className="block truncate text-sm font-semibold hover:text-teal-deep hover:underline"
         >
           {line.orderNumber}
         </Link>
-        <span className="block truncate text-xs text-ink/45">{line.customerName}</span>
-        {!canAct && <span className="block text-[11px] text-ink/35">View only — different site</span>}
-      </span>
+        <span className="block truncate text-xs text-ink/50">{line.customerName}</span>
+        {!canAct && <span className="block text-[11px] text-ink/40">View only, different site</span>}
+      </div>
 
-      <span className="hidden truncate text-sm text-ink/70 sm:block">{line.destination}</span>
+      <span className="col-start-2 truncate text-sm text-ink/70 sm:col-start-auto">{line.destination}</span>
 
-      <span className="hidden truncate sm:block">
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink/60 ring-1 ring-inset ring-ink/10">
-          <PackageCheck size={12} />
+      <span className="col-start-2 sm:col-start-auto">
+        <span className="inline-flex max-w-full items-center gap-1.5 truncate whitespace-nowrap rounded-md bg-ink/[0.04] px-2 py-1 text-xs font-medium text-ink/60 ring-1 ring-inset ring-ink/10">
+          <PackageCheck size={12} className="flex-none" />
           {line.labelRef ?? "No label"}
         </span>
       </span>
 
-      <span className="hidden text-sm text-ink/50 sm:block">
+      <span className="col-start-2 text-sm tabular-nums text-ink/60 sm:col-start-auto">
         {line.weightKg != null ? `${line.weightKg.toFixed(1)} kg` : "—"}
       </span>
 
-      <span className="hidden justify-self-end text-sm text-ink/50 sm:block">{line.packedAgeLabel} ago</span>
-
-      <span className="hidden justify-self-end sm:block">
-        <button
-          type="button"
-          disabled={!canAct}
-          onClick={onMarkPickedUp}
-          title={canAct ? `Mark picked up by ${courier}` : undefined}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <Truck size={13} />
-          Mark picked up
-        </button>
+      <span className={`col-start-2 inline-flex items-center gap-2 text-sm tabular-nums sm:col-start-auto ${tone.text}`}>
+        <span className={`h-2 w-2 flex-none rounded-full ${tone.dot}`} aria-hidden />
+        {line.packedAgeLabel}
       </span>
 
-      {/* mobile summary */}
-      <span className="col-span-3 flex items-center justify-between gap-2 pl-7 sm:hidden">
-        <span className="text-xs text-ink/45">{line.destination}</span>
-        <span className="text-xs text-ink/40">{line.packedAgeLabel} ago</span>
-      </span>
-      {/* mobile: explicit action, same "no accidental tap" rule as desktop */}
-      <span className="col-span-3 pl-7 sm:hidden">
-        <button
-          type="button"
-          disabled={!canAct}
-          onClick={onMarkPickedUp}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-teal/30 bg-teal/[0.06] px-3 py-1.5 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/[0.12] disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <Truck size={13} />
-          Mark picked up by {courier}
-        </button>
+      <span className="col-start-2 sm:col-start-auto sm:justify-self-end">
+        <span className="sm:hidden">{pickupButton(`Mark picked up by ${courier}`)}</span>
+        <span className="hidden sm:inline">{pickupButton("Mark picked up")}</span>
       </span>
     </div>
   )
@@ -377,10 +408,16 @@ function EmptyState({
         <Inbox size={22} className="text-ink/25" />
         <div>
           <p className="text-sm font-semibold text-ink/70">The export bin is empty</p>
-          <p className="mt-1 max-w-xs text-xs text-ink/45">
-            Orders show up here once they&apos;ve been packed and labeled on Pack &amp; label.
+          <p className="mt-1 max-w-xs text-xs text-ink/50">
+            Orders appear here once they&apos;re marked packed on Pack &amp; label.
           </p>
         </div>
+        <Link
+          href="/admin/pack-label"
+          className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+        >
+          Go to Pack &amp; label
+        </Link>
       </div>
     )
   }
@@ -390,15 +427,15 @@ function EmptyState({
       <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
         <SearchX size={22} className="text-ink/25" />
         <div>
-          <p className="text-sm font-semibold text-ink/70">Nothing matches this filter</p>
-          <p className="mt-1 text-xs text-ink/45">Try a different search term.</p>
+          <p className="text-sm font-semibold text-ink/70">No orders match this search</p>
+          <p className="mt-1 text-xs text-ink/50">Check the order number or customer name.</p>
         </div>
         <button
           type="button"
           onClick={onClearFilters}
-          className="mt-1 text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+          className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
         >
-          Clear filters
+          Clear search
         </button>
       </div>
     )

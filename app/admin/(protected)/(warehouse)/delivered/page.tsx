@@ -3,25 +3,24 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
-import { CheckCircle2, ChevronRight, PartyPopper, Search, SearchX, Smartphone, Warehouse as WarehouseIcon } from "lucide-react"
+import { ChevronRight, PartyPopper, Search, SearchX, Smartphone, Warehouse as WarehouseIcon } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 
-// Delivered — the terminal stage. An order lands here the instant
-// markDelivered is called from /admin/in-transit (or a Manager override),
-// or the customer self-confirms from their own account page — either
-// source writes the SAME real `orders.stage = 'delivered'` +
-// `delivered_confirmed_by`, which is why that field is worth showing
-// here explicitly: it's the one place this admin panel and the
-// customer-facing "confirm delivery" flow can disagree about who
-// actually closed out an order, so making it visible is the whole point
-// of this page, not just a nice-to-have column.
+// Delivered: the last stage. An order lands here when markDelivered is called
+// from /admin/shipped (or a Manager override), or when the customer confirms
+// delivery from their own account page. Both write the same
+// `orders.stage = 'delivered'` and `delivered_confirmed_by`, which is why the
+// "Confirmed by" column is worth showing: it is the one place this admin panel
+// and the customer-facing flow can disagree about who closed out an order.
 //
-// Read-only by design — there's nothing to action from here (no queue,
-// no next stage). It exists so Delivered isn't just a number that
-// disappears from every other queue page with no page of its own to land
-// on, and so Reports/the warehouse & manager dashboards have somewhere
-// real to link their "delivered" figures to.
+// Read-only by design. There is nothing to action from here; the page exists so
+// Delivered has somewhere real to land, and so Reports and the dashboards have
+// somewhere to link their "delivered" figures to.
+
+// Shared by the header row and every row so the columns always line up.
+const GRID =
+  "sm:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_1.5rem]"
 
 export default function DeliveredPage() {
   const { visibleOrders, sites, currentUser, permissions } = useAdminData()
@@ -31,8 +30,12 @@ export default function DeliveredPage() {
     () =>
       visibleOrders
         .filter((o) => o.stage === "Delivered")
-        .sort((a, b) => new Date(b.deliveredAt ?? b.stageEnteredAt).getTime() - new Date(a.deliveredAt ?? a.stageEnteredAt).getTime()),
-    [visibleOrders]
+        .sort(
+          (a, b) =>
+            new Date(b.deliveredAt ?? b.stageEnteredAt).getTime() -
+            new Date(a.deliveredAt ?? a.stageEnteredAt).getTime(),
+        ),
+    [visibleOrders],
   )
 
   const filtered = useMemo(() => {
@@ -43,6 +46,7 @@ export default function DeliveredPage() {
 
   const warehouseConfirmedCount = delivered.filter((o) => o.deliveredConfirmedBy === "warehouse").length
   const customerConfirmedCount = delivered.filter((o) => o.deliveredConfirmedBy === "customer").length
+  const hasSearch = query.trim() !== ""
 
   const scopeLabel = permissions.ordersScopedToOwnSite
     ? sites.find((s) => s.id === currentUser.siteId)?.name ?? "your site"
@@ -52,56 +56,70 @@ export default function DeliveredPage() {
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
         {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-white text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
               <PartyPopper size={22} strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-display text-3xl font-semibold text-ink">Delivered</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
-                Confirmed delivered at {scopeLabel} — the end of the pipeline. Read-only; there's nothing left to action here.
+              <h1 className="font-display text-3xl font-semibold leading-tight">Delivered</h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
+                Orders confirmed delivered at {scopeLabel}, newest first. This is the end of the pipeline, so there is
+                nothing to action here.
               </p>
             </div>
           </div>
-        </div>
 
-        {/* ── Stat strip ── */}
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-ink/10 bg-card px-4 py-3.5">
-            <p className="flex items-center gap-1.5 text-xs font-medium text-ink/50">
-              <CheckCircle2 size={14} /> Total delivered
-            </p>
-            <p className="mt-1 font-display text-2xl text-ink">{delivered.length}</p>
-          </div>
-          <div className="rounded-2xl border border-ink/10 bg-card px-4 py-3.5">
-            <p className="flex items-center gap-1.5 text-xs font-medium text-ink/50">
-              <WarehouseIcon size={14} /> Warehouse-confirmed
-            </p>
-            <p className="mt-1 font-display text-2xl text-ink">{warehouseConfirmedCount}</p>
-          </div>
-          <div className="rounded-2xl border border-ink/10 bg-card px-4 py-3.5">
-            <p className="flex items-center gap-1.5 text-xs font-medium text-ink/50">
-              <Smartphone size={14} /> Customer-confirmed
-            </p>
-            <p className="mt-1 font-display text-2xl text-ink">{customerConfirmedCount}</p>
-          </div>
+          <dl className="flex divide-x divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3">
+              <dt className="text-xs font-medium text-ink/45">Total delivered</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{delivered.length}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="text-xs font-medium text-ink/45">Warehouse confirmed</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{warehouseConfirmedCount}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="text-xs font-medium text-ink/45">Customer confirmed</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{customerConfirmedCount}</dd>
+            </div>
+          </dl>
         </div>
 
         {/* ── Search ── */}
-        <div className="relative mt-6 max-w-md">
-          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/35" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search order or customer…"
-            className="w-full rounded-xl border border-ink/15 bg-card py-2.5 pl-9 pr-3 text-sm text-ink outline-none placeholder:text-ink/35 focus:border-teal"
-          />
+        <div className="mt-9 flex flex-wrap items-center gap-4">
+          <div className="relative w-full sm:w-72">
+            <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search order or customer"
+              aria-label="Search order or customer"
+              className="w-full rounded-full border border-ink/10 bg-card py-2.5 pl-9 pr-4 text-sm placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+            />
+          </div>
+          <p className="text-xs text-ink/45">
+            {hasSearch
+              ? `${filtered.length} of ${delivered.length} orders shown`
+              : `${filtered.length} order${filtered.length === 1 ? "" : "s"}`}
+            {hasSearch && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="ml-2 font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+              >
+                Clear search
+              </button>
+            )}
+          </p>
         </div>
 
         {/* ── List ── */}
-        <div className="mt-6 overflow-hidden rounded-2xl border border-ink/10 bg-card">
-          <div className="hidden grid-cols-[1.3fr_0.9fr_0.8fr_0.9fr_auto] gap-3 border-b border-ink/10 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-ink/35 sm:grid">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-ink/10 bg-card">
+          <div
+            className={`sticky top-0 z-10 hidden items-center gap-3 border-b border-ink/10 bg-parchment/80 px-5 py-3 text-xs font-medium text-ink/50 backdrop-blur sm:grid ${GRID}`}
+          >
             <span>Order</span>
             <span>Value</span>
             <span>Delivered</span>
@@ -116,15 +134,24 @@ export default function DeliveredPage() {
                   <PartyPopper size={22} className="text-ink/25" />
                   <div>
                     <p className="text-sm font-semibold text-ink/70">Nothing delivered yet</p>
-                    <p className="mt-1 max-w-xs text-xs text-ink/45">
-                      Orders show up here once marked delivered from In transit, or self-confirmed by the customer.
+                    <p className="mt-1 max-w-xs text-xs text-ink/50">
+                      Orders appear here once they are marked delivered in Shipped, or confirmed by the customer.
                     </p>
                   </div>
+                  <Link
+                    href="/admin/shipped"
+                    className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+                  >
+                    Go to Shipped
+                  </Link>
                 </>
               ) : (
                 <>
                   <SearchX size={22} className="text-ink/25" />
-                  <p className="text-sm font-semibold text-ink/70">No matches</p>
+                  <div>
+                    <p className="text-sm font-semibold text-ink/70">No orders match this search</p>
+                    <p className="mt-1 text-xs text-ink/50">Check the order number or customer name.</p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setQuery("")}
@@ -137,51 +164,64 @@ export default function DeliveredPage() {
             </div>
           ) : (
             filtered.map((order) => {
-              const deliveredAgo = order.deliveredAt ? formatAge(hoursSince(order.deliveredAt)) : "—"
+              const deliveredAgo = order.deliveredAt ? `${formatAge(hoursSince(order.deliveredAt))} ago` : "—"
+              const confirmedBy = order.deliveredConfirmedBy
+
+              const confirmedPill = confirmedBy ? (
+                <span
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    confirmedBy === "warehouse"
+                      ? "bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25"
+                      : "bg-indigo/10 text-indigo ring-1 ring-inset ring-indigo/25"
+                  }`}
+                >
+                  {confirmedBy === "warehouse" ? (
+                    <WarehouseIcon size={12} aria-hidden />
+                  ) : (
+                    <Smartphone size={12} aria-hidden />
+                  )}
+                  {confirmedBy === "warehouse" ? "Warehouse" : "Customer"}
+                </span>
+              ) : null
+
               return (
                 <Link
                   key={order.id}
                   href={`/admin/orders/${order.id}`}
-                  className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-teal/[0.04] sm:grid-cols-[1.3fr_0.9fr_0.8fr_0.9fr_auto]"
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] px-5 py-4 outline-none transition-colors last:border-b-0 hover:bg-ink/[0.02] focus-visible:bg-teal/[0.06] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40 sm:gap-y-0 sm:py-3.5 ${GRID}`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-ink">{order.id}</span>
-                    <span className="block truncate text-xs text-ink/45">{order.customerName}</span>
+                    <span className="block truncate text-sm font-semibold">{order.id}</span>
+                    <span className="block truncate text-xs text-ink/50">{order.customerName}</span>
                   </span>
 
-                  <span className="hidden text-sm text-ink/70 sm:block">
-                    {order.totalValue.toLocaleString("en-LK", { style: "currency", currency: "LKR", maximumFractionDigits: 0 })}
+                  {/* mobile: who confirmed it sits beside the order */}
+                  <span className="sm:hidden">{confirmedPill}</span>
+
+                  <span className="hidden text-sm tabular-nums text-ink/70 sm:block">
+                    {order.totalValue.toLocaleString("en-LK", {
+                      style: "currency",
+                      currency: "LKR",
+                      maximumFractionDigits: 0,
+                    })}
                   </span>
 
-                  <span className="hidden text-sm text-ink/50 sm:block">{deliveredAgo} ago</span>
+                  <span className="hidden text-sm tabular-nums text-ink/50 sm:block">{deliveredAgo}</span>
 
-                  <span className="hidden sm:block">
-                    {order.deliveredConfirmedBy ? (
-                      <span
-                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          order.deliveredConfirmedBy === "warehouse"
-                            ? "bg-teal/12 text-teal-deep ring-1 ring-inset ring-teal/25"
-                            : "bg-indigo/10 text-indigo ring-1 ring-inset ring-indigo/25"
-                        }`}
-                      >
-                        {order.deliveredConfirmedBy === "warehouse" ? <WarehouseIcon size={12} /> : <Smartphone size={12} />}
-                        {order.deliveredConfirmedBy === "warehouse" ? "Warehouse" : "Customer"}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-ink/35">—</span>
-                    )}
-                  </span>
+                  <span className="hidden sm:block">{confirmedPill ?? <span className="text-xs text-ink/35">—</span>}</span>
 
-                  <ChevronRight size={16} className="hidden flex-none text-ink/25 sm:block" />
+                  <ChevronRight size={16} className="hidden flex-none text-ink/25 sm:block" aria-hidden />
 
-                  {/* mobile summary */}
-                  <span className="col-span-2 flex items-center justify-between gap-2 pl-0 sm:hidden">
-                    <span className="text-xs text-ink/45">{deliveredAgo} ago</span>
-                    {order.deliveredConfirmedBy && (
-                      <span className="text-xs text-ink/40">
-                        {order.deliveredConfirmedBy === "warehouse" ? "Warehouse-confirmed" : "Customer-confirmed"}
-                      </span>
-                    )}
+                  {/* mobile-only details */}
+                  <span className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink/55 sm:hidden">
+                    <span>
+                      {order.totalValue.toLocaleString("en-LK", {
+                        style: "currency",
+                        currency: "LKR",
+                        maximumFractionDigits: 0,
+                      })}
+                    </span>
+                    <span>Delivered {deliveredAgo}</span>
                   </span>
                 </Link>
               )

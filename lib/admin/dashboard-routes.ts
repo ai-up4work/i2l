@@ -28,5 +28,5 @@ export const DASHBOARD_HREF: Record<Role, string> = {
   // `role !== "manager" && role !== "super_admin"`, so super_admin
   // passes through cleanly. Don't point this back at manager-dashboard
   // without that fix still in place, or the loop comes back.
-  super_admin: '/admin/manager-dashboard',
+  super_admin: '/admin/super-admin',
 }

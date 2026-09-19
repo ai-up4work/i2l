@@ -4,10 +4,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  Activity,
   Archive,
   ClipboardCheck,
-  Clock,
   Flag,
   PackageCheck,
   ShoppingBag,
@@ -21,7 +19,6 @@ import { panelClass } from "@/components/admin/seller/shared"
 import {
   AttentionList,
   QueueCard,
-  StatCard,
   isOverThreshold,
   type AttentionItem,
 } from "@/components/admin/dashboard/shared"
@@ -33,6 +30,14 @@ import {
 // yet flagged, using the same bulkFlagDelayed the Orders page's "Flag
 // for review" button calls. A direct visit by a non-Manager role
 // bounces back through the role-based redirector at /admin/dashboard.
+//
+// RESTYLE (2026-09): header brought onto the same pattern as
+// /admin/orders, /admin/export-bin, /demo/quote, (manager)/warehouses
+// and (manager)/reports — solid teal-deep icon, font-semibold title,
+// and every top-line number (including what used to be a standalone
+// "In flight" box floated on the right) folded into one inline dl,
+// instead of a bordered-icon header plus a separate StatCard grid
+// underneath it.
 
 export default function ManagerDashboardPage() {
   const router = useRouter()
@@ -170,23 +175,49 @@ export default function ManagerDashboardPage() {
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-24 pt-10 lg:px-10">
         {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
               <Store size={22} strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-display text-3xl text-ink">Good to see you, {currentUser.name.split(" ")[0]}</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+              <h1 className="font-display text-3xl font-semibold leading-tight">
+                Good to see you, {currentUser.name.split(" ")[0]}
+              </h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
                 Full pipeline and warehouse overview across every site.
               </p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-card px-5 py-3 text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">In flight</p>
-            <p className="mt-0.5 font-display text-xl text-ink">Rs. {inFlightValue.toLocaleString("en-US")}</p>
-          </div>
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Visible orders</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{visibleOrders.length}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Delayed</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${delayedCount > 0 ? "text-rose-700" : "text-ink"}`}>
+                {delayedCount}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Over SLA</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${breachCount > 0 ? "text-rose-700" : "text-ink"}`}>
+                {breachCount}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Manual quotes</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{manualQuoteCount}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">In flight</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">
+                Rs. {inFlightValue.toLocaleString("en-US")}
+              </dd>
+            </div>
+          </dl>
         </div>
 
         {/* ── Confirmation banner ── */}
@@ -197,25 +228,17 @@ export default function ManagerDashboardPage() {
           </div>
         )}
 
-        {/* ── Order stat strip ── */}
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon={<ShoppingBag size={15} />} label="Visible orders" value={visibleOrders.length} />
-          <StatCard icon={<Activity size={15} />} label="Delayed" value={delayedCount} tone={delayedCount > 0 ? "warning" : "default"} />
-          <StatCard icon={<Clock size={15} />} label="Over SLA" value={breachCount} tone={breachCount > 0 ? "warning" : "default"} />
-          <StatCard icon={<Flag size={15} />} label="Manual quotes in flight" value={manualQuoteCount} />
-        </div>
-
         {/* ── Bulk action — the one widget that actually does something
              rather than just reporting a number. ── */}
         {unflaggedBreaches.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-gold/[0.06] px-5 py-3.5">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-gold/[0.06] px-5 py-3.5">
             <p className="text-sm text-gold-deep">
               <span className="font-semibold">{unflaggedBreaches.length}</span> order{unflaggedBreaches.length === 1 ? " is" : "s are"} over its stage SLA and not yet flagged.
             </p>
             <button
               type="button"
               onClick={handleFlagBreaches}
-              className="rounded-xl bg-gold-deep px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              className="rounded-xl bg-gold-deep px-4 py-2 text-sm font-semibold text-white outline-none transition-colors hover:opacity-90 focus-visible:ring-2 focus-visible:ring-gold/40"
             >
               Flag {unflaggedBreaches.length} for review
             </button>
@@ -223,7 +246,7 @@ export default function ManagerDashboardPage() {
         )}
 
         {/* ── Purchasing snapshot ── */}
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <QueueCard
             icon={<ShoppingBag size={20} strokeWidth={1.75} />}
             label="Needs purchase"

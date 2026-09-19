@@ -17,20 +17,24 @@
 // plainly instead of inventing a number. Those breakdowns live at their
 // own still-locked sidebar entries (see admin-sidebar.tsx) until they're
 // real.
+//
+// RESTYLE (2026-09): header brought onto the same pattern as
+// /admin/orders, /admin/export-bin, /demo/quote, (manager)/warehouses,
+// (manager)/reports and both dashboards — solid teal-deep icon,
+// font-semibold title, and the six top-line SummaryCards folded into
+// one inline dl instead of a bordered-icon header plus a separate card
+// grid underneath it. Also swapped the site table's hardcoded
+// text-red-600 for the rose tokens the rest of the app uses for danger
+// states (this table was the last spot still hardcoding raw Tailwind
+// red instead of the shared tone).
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   BarChart3,
-  Boxes,
-  Clock,
-  DollarSign,
   Link2,
   MessageCircleQuestion,
-  PackageCheck,
-  ShoppingBag,
-  Truck,
   Users,
 } from "lucide-react"
 
@@ -59,8 +63,18 @@ const CHANNEL_DESCRIPTION: Record<Channel, string> = {
   3: "No usable link or price up front — a Sales & Purchase teammate manually quoted and confirmed this one.",
 }
 
+// Same 85% threshold the original top-line cards used for QC/SLA tone —
+// kept as a two-tier good/bad split (this page doesn't carry the
+// three-tier warn band Reports' per-site pills use).
+const GOOD_THRESHOLD = 85
+
 function fmtLKR(n: number): string {
   return `Rs ${Math.round(n).toLocaleString("en-LK")}`
+}
+
+function metricTextTone(value: number | null): string {
+  if (value === null) return "text-ink"
+  return value < GOOD_THRESHOLD ? "text-rose-700" : "text-emerald-700"
 }
 
 /** Small horizontal proportion bar — used for the channel/value
@@ -147,28 +161,71 @@ export default function AnalyticsPage() {
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1400px] px-6 pb-24 pt-10 lg:px-10">
         {/* ── Header ── */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
               <BarChart3 size={22} strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-display text-3xl text-ink">Analytics</h1>
-              <p className="mt-1.5 max-w-lg text-sm leading-relaxed text-ink/60">
+              <h1 className="font-display text-3xl font-semibold leading-tight">Analytics</h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
                 Every site at once — order volume, value, timing, and quality, all in one place. Every number below
                 comes straight from your real orders and quality checks.
               </p>
             </div>
           </div>
 
-          <div className="flex gap-1 rounded-full border border-ink/10 bg-card p-1">
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Order value</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{fmtLKR(totalValue)}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Avg order value</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{fmtLKR(avgOrderValue)}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Avg fulfillment</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">
+                {formatHours(ageTrend.avgFulfillmentHoursOverall)}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">QC pass rate</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${metricTextTone(qcTrend.overallPassRate)}`}>
+                {formatPercent(qcTrend.overallPassRate)}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Shipping SLA hit</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${metricTextTone(slaTrend.overallHitRate)}`}>
+                {formatPercent(slaTrend.overallHitRate)}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Delayed now</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${delayedNow > 0 ? "text-rose-700" : "text-ink"}`}>
+                {delayedNow}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        {/* ── Toolbar ── */}
+        <div className="mt-9 flex items-center justify-between">
+          <p className="text-xs text-ink/45">
+            {DATE_RANGE_LABEL[range]} · {ordersInRange.length} order{ordersInRange.length === 1 ? "" : "s"}
+          </p>
+          <div role="radiogroup" aria-label="Date range" className="flex gap-1 rounded-full border border-ink/10 bg-card p-1">
             {(["7d", "30d", "90d", "all"] as DateRangeOption[]).map((r) => (
               <button
                 key={r}
                 type="button"
+                role="radio"
+                aria-checked={range === r}
                 onClick={() => setRange(r)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  range === r ? "bg-teal-deep text-parchment shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]" : "text-ink/55 hover:text-ink/80"
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                  range === r ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
                 }`}
               >
                 {DATE_RANGE_LABEL[r]}
@@ -177,43 +234,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* ── Top-line numbers ── */}
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <SummaryCard
-            icon={<DollarSign size={14} />}
-            label="Order value"
-            value={fmtLKR(totalValue)}
-            hint={`${DATE_RANGE_LABEL[range].toLowerCase()}, ${ordersInRange.length} order${ordersInRange.length === 1 ? "" : "s"}`}
-          />
-          <SummaryCard icon={<ShoppingBag size={14} />} label="Avg order value" value={fmtLKR(avgOrderValue)} />
-          <SummaryCard
-            icon={<Clock size={14} />}
-            label="Avg fulfillment"
-            value={formatHours(ageTrend.avgFulfillmentHoursOverall)}
-            hint={`${ageTrend.deliveredCountOverall} delivered`}
-          />
-          <SummaryCard
-            icon={<PackageCheck size={14} />}
-            label="QC pass rate"
-            value={formatPercent(qcTrend.overallPassRate)}
-            hint={`${qcTrend.totalPassed + qcTrend.totalFlagged} resolved`}
-            tone={qcTrend.overallPassRate !== null && qcTrend.overallPassRate < 85 ? "warning" : "positive"}
-          />
-          <SummaryCard
-            icon={<Truck size={14} />}
-            label="Shipping SLA hit"
-            value={formatPercent(slaTrend.overallHitRate)}
-            tone={slaTrend.overallHitRate !== null && slaTrend.overallHitRate < 85 ? "warning" : "positive"}
-          />
-          <SummaryCard
-            icon={<Boxes size={14} />}
-            label="Delayed right now"
-            value={String(delayedNow)}
-            tone={delayedNow > 0 ? "warning" : "default"}
-          />
-        </div>
-
-        <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* ── How customers are ordering — the one breakdown Reports doesn't have ── */}
           <div className="rounded-2xl border border-ink/10 bg-card p-5 lg:col-span-1">
             <div className="flex items-center gap-2">
@@ -288,7 +309,7 @@ export default function AnalyticsPage() {
                   <tr key={s.siteId} className="hover:bg-ink/[0.02]">
                     <td className="px-5 py-3 font-semibold text-ink">{s.siteName}</td>
                     <td className="px-5 py-3 text-ink/70">{s.openOrderCount}</td>
-                    <td className={`px-5 py-3 ${s.delayedCount > 0 ? "font-semibold text-red-600" : "text-ink/70"}`}>{s.delayedCount}</td>
+                    <td className={`px-5 py-3 ${s.delayedCount > 0 ? "font-semibold text-rose-700" : "text-ink/70"}`}>{s.delayedCount}</td>
                     <td className="px-5 py-3 text-ink/70">{formatHours(s.avgFulfillmentHours)}</td>
                     <td className="px-5 py-3 text-ink/70">{formatPercent(s.qcPassRate)}</td>
                     <td className="px-5 py-3 text-ink/70">{formatPercent(s.shippingSlaHitRate)}</td>

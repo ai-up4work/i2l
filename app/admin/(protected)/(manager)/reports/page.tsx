@@ -6,15 +6,11 @@ import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   BarChart3,
-  CheckCircle2,
   ChevronRight,
-  Clock,
-  PackageCheck,
-  Truck,
 } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
-import { SummaryCard, TrendBarChart } from "@/components/admin/reports/shared"
+import { TrendBarChart } from "@/components/admin/reports/shared"
 import {
   DATE_RANGE_LABEL,
   computeOrderAgeTrend,
@@ -29,12 +25,19 @@ import {
 // Historical/analytical reporting across all sites — distinct from
 // manager-dashboard's real-time operational rollup. Manager only.
 //
-// RESTYLE (2026-09): card language matching /admin/orders and
-// /admin/requests — left-edge accent per row, pill metrics instead of a
-// six-column table that hid on mobile. Sites sort "needs attention
-// first" by default; a banner surfaces above the fold when the
-// all-sites view has a real problem; the summary strip colors the
-// QC/SLA cards using the same thresholds as the per-site pills.
+// RESTYLE (2026-09): header brought onto the same pattern as
+// /admin/orders, /admin/export-bin, /demo/quote and
+// (manager)/warehouses — solid teal-deep icon, font-semibold title, and
+// stats as an inline dl next to the header rather than a standalone
+// bordered-icon + summary-card-grid layout, which turned out to be this
+// page's own one-off, not the shared standard. The by-site sort toggle
+// and "needs attention" banner keep the card language matching
+// /admin/orders and /admin/requests — left-edge accent per row, pill
+// metrics instead of a six-column table that hid on mobile. Sites sort
+// "needs attention first" by default; a banner surfaces above the fold
+// when the all-sites view has a real problem; the header dl and the
+// per-site pills color from the same thresholds so "green at the top"
+// and "green per row" never disagree about what counts as healthy.
 //
 // NULL-SAFETY NOTE: qcPassRate, shippingSlaHitRate, avgFulfillmentHours
 // (SiteSummary) and overallPassRate/overallHitRate (the trend results)
@@ -48,9 +51,9 @@ const DATE_RANGE_OPTIONS: DateRangeOption[] = ["7d", "30d", "90d", "all"]
 
 type SiteSort = "attention" | "name"
 
-// Thresholds shared between the top summary strip's tone and the
-// per-site pill colors, so "green at the top" and "green per row" never
-// disagree about what counts as healthy.
+// Thresholds shared between the header dl's tone and the per-site pill
+// colors, so "green at the top" and "green per row" never disagree
+// about what counts as healthy.
 const QC_GOOD_THRESHOLD = 95
 const QC_WARN_THRESHOLD = 85
 const SLA_GOOD_THRESHOLD = 90
@@ -66,11 +69,14 @@ function pillTone(value: number | null, goodAbove: number, warnAbove: number): s
   return "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200"
 }
 
-function summaryTone(value: number | null, goodAbove: number, warnAbove: number): "positive" | "default" | "warning" {
-  if (value === null) return "default"
-  if (value >= goodAbove) return "positive"
-  if (value >= warnAbove) return "default"
-  return "warning"
+// Same thresholds, expressed as plain text color for the header dl's
+// dd values — the dl elsewhere in the app (Orders' "Delayed" stat, for
+// instance) colors the number itself rather than wrapping it in a pill.
+function metricTextTone(value: number | null, goodAbove: number, warnAbove: number): string {
+  if (value === null) return "text-ink"
+  if (value >= goodAbove) return "text-emerald-700"
+  if (value >= warnAbove) return "text-gold-deep"
+  return "text-rose-700"
 }
 
 export default function ReportsPage() {
@@ -128,17 +134,62 @@ export default function ReportsPage() {
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
         {/* ── Header ── */}
-        <div className="flex items-start gap-4">
-          <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
-            <BarChart3 size={22} strokeWidth={1.75} />
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
+              <BarChart3 size={22} strokeWidth={1.75} />
+            </div>
+            <div>
+              <h1 className="font-display text-3xl font-semibold leading-tight">Reports</h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
+                Order age, QC pass rate, and shipping SLA trends across every site — for spotting a
+                drift before it shows up as a customer complaint, not for today&rsquo;s live queue.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display text-3xl text-ink">Reports</h1>
-            <p className="mt-1.5 max-w-lg text-sm leading-relaxed text-ink/60">
-              Order age, QC pass rate, and shipping SLA trends across every site — for spotting a
-              drift before it shows up as a customer complaint, not for today&rsquo;s live queue.
-            </p>
-          </div>
+
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Avg fulfillment</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">
+                {formatHours(ageTrend.avgFulfillmentHoursOverall)}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Open orders</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{ageTrend.openOrderCount}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">QC pass rate</dt>
+              <dd
+                className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${metricTextTone(
+                  qcTrend.overallPassRate,
+                  QC_GOOD_THRESHOLD,
+                  QC_WARN_THRESHOLD
+                )}`}
+              >
+                {formatPercent(qcTrend.overallPassRate)}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Shipping SLA</dt>
+              <dd
+                className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${metricTextTone(
+                  slaTrend.overallHitRate,
+                  SLA_GOOD_THRESHOLD,
+                  SLA_WARN_THRESHOLD
+                )}`}
+              >
+                {formatPercent(slaTrend.overallHitRate)}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Delayed now</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${delayedCount > 0 ? "text-rose-700" : "text-ink"}`}>
+                {delayedCount}
+              </dd>
+            </div>
+          </dl>
         </div>
 
         {/* ── Attention banner — only when the all-sites view actually has a problem ── */}
@@ -161,18 +212,18 @@ export default function ReportsPage() {
           </button>
         )}
 
-        {/* ── Filters ── */}
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
+        {/* ── Toolbar ── */}
+        <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div role="radiogroup" aria-label="Date range" className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
             {DATE_RANGE_OPTIONS.map((r) => (
               <button
                 key={r}
                 type="button"
+                role="radio"
+                aria-checked={range === r}
                 onClick={() => setRange(r)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
-                  range === r
-                    ? "bg-teal-deep text-parchment shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]"
-                    : "text-ink/55 hover:text-ink/80"
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                  range === r ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
                 }`}
               >
                 {DATE_RANGE_LABEL[r]}
@@ -183,49 +234,14 @@ export default function ReportsPage() {
           <select
             value={siteFilter}
             onChange={(e) => setSiteFilter(e.target.value)}
-            className="rounded-lg border border-ink/10 bg-card px-3 py-2 text-sm text-ink outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+            aria-label="Site"
+            className="rounded-lg border border-ink/10 bg-card px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
           >
             <option value="all">All sites</option>
             {sites.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-        </div>
-
-        {/* ── Summary strip ── */}
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <SummaryCard
-            icon={<Clock size={14} />}
-            label="Avg fulfillment"
-            value={formatHours(ageTrend.avgFulfillmentHoursOverall)}
-            hint={`${ageTrend.deliveredCountOverall} delivered`}
-          />
-          <SummaryCard
-            icon={<PackageCheck size={14} />}
-            label="Open orders"
-            value={String(ageTrend.openOrderCount)}
-            hint={ageTrend.avgOpenAgeHours !== null ? `avg age ${formatHours(ageTrend.avgOpenAgeHours)}` : undefined}
-          />
-          <SummaryCard
-            icon={<CheckCircle2 size={14} />}
-            label="QC pass rate"
-            value={formatPercent(qcTrend.overallPassRate)}
-            hint={`${qcTrend.totalPassed + qcTrend.totalFlagged} resolved`}
-            tone={summaryTone(qcTrend.overallPassRate, QC_GOOD_THRESHOLD, QC_WARN_THRESHOLD)}
-          />
-          <SummaryCard
-            icon={<Truck size={14} />}
-            label="Shipping SLA hit rate"
-            value={formatPercent(slaTrend.overallHitRate)}
-            hint={`${slaTrend.totalHit + slaTrend.totalMiss} delivered`}
-            tone={summaryTone(slaTrend.overallHitRate, SLA_GOOD_THRESHOLD, SLA_WARN_THRESHOLD)}
-          />
-          <SummaryCard
-            icon={<AlertTriangle size={14} />}
-            label="Delayed now"
-            value={String(delayedCount)}
-            tone={delayedCount > 0 ? "warning" : "default"}
-          />
         </div>
 
         {/* ── Trend charts ── */}
@@ -274,7 +290,7 @@ export default function ReportsPage() {
         {/* ── Per-site breakdown ── */}
         <div className="mt-6 flex items-center justify-between">
           <h2 className="font-display text-lg text-ink">By site</h2>
-          <div className="flex gap-1 rounded-full border border-ink/10 bg-card p-1">
+          <div role="radiogroup" aria-label="Sort sites" className="flex gap-1 rounded-full border border-ink/10 bg-card p-1">
             {(
               [
                 { key: "attention", label: "Needs attention" },
@@ -284,9 +300,11 @@ export default function ReportsPage() {
               <button
                 key={opt.key}
                 type="button"
+                role="radio"
+                aria-checked={siteSort === opt.key}
                 onClick={() => setSiteSort(opt.key)}
-                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
-                  siteSort === opt.key ? "bg-ink text-white" : "text-ink/50 hover:text-ink/80"
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                  siteSort === opt.key ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
                 }`}
               >
                 {opt.label}

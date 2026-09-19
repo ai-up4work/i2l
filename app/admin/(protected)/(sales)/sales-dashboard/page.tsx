@@ -3,14 +3,14 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Flag, Inbox, MessageSquare, ShoppingBag } from "lucide-react"
+import { Inbox, MessageSquare, ShoppingBag } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { CHANNEL_LABEL, type Channel } from "@/types/admin"
 import { isDomainFlagged, daysAgo as domainDaysAgo } from "@/data/scrape-health/data"
 import { fetchDomainHealth } from "@/lib/supabase/scrape-health-admin"
 import { panelClass } from "@/components/admin/seller/shared"
-import { AttentionList, LinkCard, QueueCard, StatCard, type AttentionItem } from "@/components/admin/dashboard/shared"
+import { AttentionList, LinkCard, type AttentionItem } from "@/components/admin/dashboard/shared"
 
 // Sales dashboard — commercial and read-only. Sales can't mutate order
 // stage or act on purchases (see canMutateOrderStage in
@@ -21,6 +21,13 @@ import { AttentionList, LinkCard, QueueCard, StatCard, type AttentionItem } from
 // Customer chat, where their actual work happens. A direct visit by a
 // non-Sales role bounces back through the role-based redirector at
 // /admin/dashboard.
+//
+// RESTYLE (2026-09): header brought onto the same pattern as
+// /admin/orders, /admin/export-bin, /demo/quote, (manager)/warehouses,
+// (manager)/reports and (manager)/manager-dashboard — solid teal-deep
+// icon, font-semibold title, and the four top-line numbers folded into
+// one inline dl instead of a bordered-icon header plus a separate
+// StatCard grid underneath it.
 
 export default function SalesDashboardPage() {
   const router = useRouter()
@@ -117,30 +124,45 @@ export default function SalesDashboardPage() {
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-24 pt-10 lg:px-10">
         {/* ── Header ── */}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
               <MessageSquare size={22} strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-display text-3xl text-ink">Good to see you, {currentUser.name.split(" ")[0]}</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+              <h1 className="font-display text-3xl font-semibold leading-tight">
+                Good to see you, {currentUser.name.split(" ")[0]}
+              </h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
                 Manual quotes, requests, and anything that needs a customer follow-up.
               </p>
             </div>
           </div>
-        </div>
 
-        {/* ── Stat strip ── */}
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon={<Flag size={15} />} label="Manual quotes in flight" value={manualQuoteInFlight} />
-          <StatCard icon={<ShoppingBag size={15} />} label="Channel 3 orders" value={channel3Total} />
-          <StatCard icon={<ShoppingBag size={15} />} label="Needs purchase" value={needsPurchase} hint="View only — ops action" />
-          <StatCard icon={<Flag size={15} />} label="Unavailable" value={unavailable} tone={unavailable > 0 ? "warning" : "default"} />
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Manual quotes</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{manualQuoteInFlight}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Channel 3 orders</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{channel3Total}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Needs purchase</dt>
+              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{needsPurchase}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Unavailable</dt>
+              <dd className={`mt-0.5 whitespace-nowrap font-display text-xl tabular-nums ${unavailable > 0 ? "text-rose-700" : "text-ink"}`}>
+                {unavailable}
+              </dd>
+            </div>
+          </dl>
         </div>
 
         {/* ── Quick links ── */}
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-9 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <LinkCard
             icon={<Inbox size={20} strokeWidth={1.75} />}
             label="Requests"

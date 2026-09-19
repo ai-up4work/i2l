@@ -2,14 +2,23 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Flag, Inbox, MapPinned, Package, Search, SearchX } from "lucide-react"
+import { ChevronRight, Flag, Inbox, MapPinned, Package, Search, SearchX, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import type { Channel, Order, OrderStage } from "@/types/admin"
 import { STAGE_ORDER, STAGE_AGE_THRESHOLD_HOURS, CHANNEL_LABEL } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
+
+// Orders: every order across all three channels, independent of the warehouse
+// queue. Each order is a card. Only problem orders (delayed, or over their
+// stage's time limit) get a red edge, so the eye goes straight to them.
+//
+// Clicking a card (or the order number) opens the order. The override strip
+// under a card is for staff who can change the stage, reassign the site or flag
+// the order as delayed.
 
 type SortMode = "recent" | "stuck"
 
@@ -39,105 +48,51 @@ const STAGE_TONE: Record<OrderStage, StatusTone | "ink"> = {
   "Delivered": "teal",
 }
 
-function orderAccent(order: Order, breach: boolean): string {
-  if (order.delayed || breach) return "border-l-rose-500"
-  switch (order.stage) {
-    case "Ordered":
-      return "border-l-ink/15"
-    case "Quality check":
-      return "border-l-gold-deep"
-    case "Shipped":
-    case "Delivered":
-      return "border-l-teal-deep"
-    default:
-      return "border-l-ink/15"
-  }
-}
-
-function pillClass(tone: StatusTone | "ink") {
-  return tone === "ink" ? INK_PILL : TONE_PILL[tone]
-}
-function dotClass(tone: StatusTone | "ink") {
-  return tone === "ink" ? INK_DOT : TONE_DOT[tone]
-}
+const SORT_OPTIONS: { key: SortMode; label: string }[] = [
+  { key: "recent", label: "Newest first" },
+  { key: "stuck", label: "Oldest in stage" },
+]
 
 function Pill({ tone, children }: { tone: StatusTone | "ink"; children: React.ReactNode }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${pillClass(tone)}`}>
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass(tone)}`} />
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
+        tone === "ink" ? INK_PILL : TONE_PILL[tone]
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone === "ink" ? INK_DOT : TONE_DOT[tone]}`} aria-hidden />
       {children}
     </span>
   )
 }
 
-function DelayedPill() {
-  return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
-      <span className="h-1.5 w-1.5 rounded-full bg-rose-600" />
-      Delayed
-    </span>
-  )
-}
-
-function QcIssuePill() {
-  return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
-      <Flag size={11} className="shrink-0" />
-      QC issue
-    </span>
-  )
-}
-
-function StatCard({
-  label,
-  value,
-  hint,
-  tone = "default",
-}: {
-  label: string
-  value: string | number
-  hint?: string
-  tone?: "default" | "warning"
-}) {
-  return (
-    <div className={`rounded-2xl border p-5 ${tone === "warning" ? "border-rose-100 bg-rose-50/40" : "border-ink/10 bg-card"}`}>
-      <p className="text-xs font-medium text-ink/45">{label}</p>
-      <p className={`mt-1 font-display text-2xl ${tone === "warning" ? "text-rose-700" : "text-ink"}`}>{value}</p>
-      {hint && <p className="mt-1 text-xs text-ink/40">{hint}</p>}
-    </div>
-  )
-}
-
 function AgeReadout({ label, hours, threshold }: { label: string; hours: number; threshold: number }) {
-  const breach = threshold !== Infinity && hours > threshold
-  const pct = threshold === Infinity ? 0 : Math.min(100, (hours / threshold) * 100)
+  const hasLimit = threshold !== Infinity
+  const breach = hasLimit && hours > threshold
+  const pct = hasLimit ? Math.min(100, (hours / threshold) * 100) : 0
   const barColor = breach ? "bg-rose-600" : pct > 70 ? "bg-gold-deep" : "bg-teal-deep"
 
   return (
-    <div className="flex items-center gap-1.5" title={breach ? `${formatAge(hours)} — over the ${formatAge(threshold)} threshold` : undefined}>
-      <span className="text-[11px] uppercase tracking-wide text-ink/35">{label}</span>
-      {threshold !== Infinity && (
-        <div className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-ink/[0.06]">
+    <div
+      className="flex items-center gap-1.5"
+      title={breach ? `${formatAge(hours)}, over the ${formatAge(threshold)} limit` : undefined}
+    >
+      <span className="text-xs text-ink/40">{label}</span>
+      {hasLimit && (
+        <div className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-ink/[0.06]" aria-hidden>
           <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
         </div>
       )}
-      <span className={`whitespace-nowrap text-xs tabular-nums ${breach ? "font-semibold text-rose-600" : "text-ink/60"}`}>
+      <span className={`whitespace-nowrap text-xs tabular-nums ${breach ? "font-semibold text-rose-700" : "text-ink/60"}`}>
         {formatAge(hours)}
       </span>
     </div>
   )
 }
 
-// Every distinct channel actually represented on this order, in Channel
-// order (1, 2, 3) regardless of item order. Reads each item's own
-// `channel` first (real per-item signal — see OrderItem.channel's doc
-// comment in types/admin.ts) and only falls back to the order-level
-// `channel` when an item doesn't carry its own — e.g. a mixed cart
-// checkout bundling a catalogue item and a pasted-link item into one
-// order used to always collapse to a single badge here, because the old
-// version of this helper read a `channel` field OrderItem never actually
-// had. Most orders still only ever have one distinct channel, since that's
-// the common case — this only visibly differs for a genuinely mixed order.
+// Every distinct channel on this order, in channel order (1, 2, 3). Reads each
+// item's own `channel` first and falls back to the order-level channel, so a
+// mixed cart (catalogue item plus pasted link) shows both badges.
 function orderChannels(o: Order): Channel[] {
   const set = new Set<Channel>(o.items.map((i) => i.channel ?? o.channel))
   return ([1, 2, 3] as Channel[]).filter((c) => set.has(c))
@@ -145,23 +100,16 @@ function orderChannels(o: Order): Channel[] {
 
 const inputClass =
   "rounded-lg border border-ink/10 bg-card px-2.5 py-1.5 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+const labelClass = "text-xs font-medium text-ink/50"
 
 export default function OrdersPage() {
   const router = useRouter()
-  const {
-    visibleOrders,
-    sites,
-    permissions,
-    updateOrderStage,
-    reassignSite,
-    toggleDelayed,
-    bulkFlagDelayed,
-    purchases,
-  } = useAdminData()
+  const { visibleOrders, sites, permissions, updateOrderStage, reassignSite, toggleDelayed, bulkFlagDelayed, purchases } =
+    useAdminData()
 
   const qcFlaggedOrderIds = useMemo(
     () => new Set(purchases.filter((p) => p.qcStatus === "flagged").map((p) => p.orderId)),
-    [purchases]
+    [purchases],
   )
 
   const [search, setSearch] = useState("")
@@ -215,19 +163,19 @@ export default function OrdersPage() {
   }
 
   const filtered = useMemo(() => {
+    // Both dates are local and inclusive: "to" runs to the end of that day.
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null
+    const q = search.trim().toLowerCase()
+
     const rows = visibleOrders.filter((o) => {
-      if (search.trim()) {
-        const q = search.trim().toLowerCase()
-        if (!o.id.toLowerCase().includes(q) && !o.customerName.toLowerCase().includes(q)) {
-          return false
-        }
-      }
+      if (q && !o.id.toLowerCase().includes(q) && !o.customerName.toLowerCase().includes(q)) return false
       if (channelFilter !== "all" && o.channel !== channelFilter) return false
       if (stageFilter !== "all" && o.stage !== stageFilter) return false
       if (siteFilter !== "all" && o.siteId !== siteFilter) return false
       if (delayedOnly && !o.delayed) return false
-      if (dateFrom && new Date(o.placedAt) < new Date(dateFrom)) return false
-      if (dateTo && new Date(o.placedAt) > new Date(dateTo)) return false
+      if (from && new Date(o.placedAt) < from) return false
+      if (to && new Date(o.placedAt) > to) return false
       return true
     })
 
@@ -242,66 +190,65 @@ export default function OrdersPage() {
   const manualQuoteCount = visibleOrders.filter((o) => o.isManualQuote && o.stage !== "Delivered").length
   const breachCount = visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-  }
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mx-auto max-w-[1560px] px-6 pb-28 pt-10 lg:px-10">
+        {/* ── Header ── */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl border border-ink/10 bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)]">
+            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
               <Package size={22} strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-display text-3xl text-ink">Orders</h1>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink/60">
+              <h1 className="font-display text-3xl font-semibold leading-tight">Orders</h1>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
                 Every order across all three channels, independent of the warehouse queue.
               </p>
             </div>
           </div>
 
-          {permissions.canBulkFlag && (
-            <button
-              type="button"
-              onClick={() => {
-                bulkFlagDelayed(Array.from(selected))
-                setSelected(new Set())
-              }}
-              disabled={selected.size === 0}
-              className="rounded-xl bg-teal-deep px-4 py-2 text-sm font-semibold text-white hover:bg-teal disabled:opacity-40"
-            >
-              Flag {selected.size || ""} for review
-            </button>
-          )}
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Orders</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{visibleOrders.length}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Delayed</dt>
+              <dd className={`mt-0.5 font-display text-xl ${delayedCount > 0 ? "text-rose-700" : "text-ink"}`}>{delayedCount}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Over time limit</dt>
+              <dd className={`mt-0.5 font-display text-xl ${breachCount > 0 ? "text-rose-700" : "text-ink"}`}>{breachCount}</dd>
+            </div>
+            <div className="px-5 py-3" title="Channel 3, not yet delivered">
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Open manual quotes</dt>
+              <dd className="mt-0.5 font-display text-xl text-ink">{manualQuoteCount}</dd>
+            </div>
+          </dl>
         </div>
 
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Visible orders" value={visibleOrders.length} />
-          <StatCard label="Delayed" value={delayedCount} tone={delayedCount > 0 ? "warning" : "default"} />
-          <StatCard label="Over SLA threshold" value={breachCount} tone={breachCount > 0 ? "warning" : "default"} />
-          <StatCard label="Manual quotes in flight" value={manualQuoteCount} hint="Channel 3, not yet delivered" />
-        </div>
-
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
-            {(["recent", "stuck"] as SortMode[]).map((mode) => (
+        {/* ── Sort + search ── */}
+        <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div role="radiogroup" aria-label="Sort orders" className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
+            {SORT_OPTIONS.map((opt) => (
               <button
-                key={mode}
+                key={opt.key}
                 type="button"
-                onClick={() => setSortMode(mode)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
-                  sortMode === mode
-                    ? "bg-teal-deep text-parchment shadow-[0_6px_18px_-8px_rgba(14,140,156,0.5)]"
-                    : "text-ink/55 hover:text-ink/80"
+                role="radio"
+                aria-checked={sortMode === opt.key}
+                onClick={() => setSortMode(opt.key)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                  sortMode === opt.key ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
                 }`}
               >
-                {mode === "recent" ? "Newest first" : "Oldest in stage"}
+                {opt.label}
               </button>
             ))}
           </div>
@@ -313,29 +260,35 @@ export default function OrdersPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search order or customer"
-              className="w-full rounded-full border border-ink/10 bg-card py-2.5 pl-9 pr-4 text-sm text-ink placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+              aria-label="Search order or customer"
+              className="w-full rounded-full border border-ink/10 bg-card py-2.5 pl-9 pr-4 text-sm placeholder:text-ink/35 outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
             />
           </div>
         </div>
 
+        {/* ── Filters ── */}
         <div className="mt-3 flex flex-wrap items-end gap-3 rounded-2xl border border-ink/10 bg-card p-4">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-ink/45">Channel</label>
+            <label htmlFor="orders-channel" className={labelClass}>Channel</label>
             <select
+              id="orders-channel"
               value={channelFilter}
               onChange={(e) => setChannelFilter(e.target.value === "all" ? "all" : (Number(e.target.value) as Channel))}
               className={inputClass}
             >
               <option value="all">All channels</option>
-              <option value={1}>1 · {CHANNEL_LABEL[1]}</option>
-              <option value={2}>2 · {CHANNEL_LABEL[2]}</option>
-              <option value={3}>3 · {CHANNEL_LABEL[3]}</option>
+              {([1, 2, 3] as Channel[]).map((c) => (
+                <option key={c} value={c}>
+                  Channel {c}: {CHANNEL_LABEL[c]}
+                </option>
+              ))}
             </select>
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-ink/45">Stage</label>
+            <label htmlFor="orders-stage" className={labelClass}>Stage</label>
             <select
+              id="orders-stage"
               value={stageFilter}
               onChange={(e) => setStageFilter(e.target.value as "all" | OrderStage)}
               className={inputClass}
@@ -349,8 +302,8 @@ export default function OrdersPage() {
 
           {!permissions.ordersScopedToOwnSite && (
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-ink/45">Site</label>
-              <select value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)} className={inputClass}>
+              <label htmlFor="orders-site" className={labelClass}>Site</label>
+              <select id="orders-site" value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)} className={inputClass}>
                 <option value="all">All sites</option>
                 {sites.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -360,12 +313,12 @@ export default function OrdersPage() {
           )}
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-ink/45">Placed from</label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} />
+            <label htmlFor="orders-from" className={labelClass}>Placed from</label>
+            <input id="orders-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-ink/45">Placed to</label>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} />
+            <label htmlFor="orders-to" className={labelClass}>Placed to</label>
+            <input id="orders-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} />
           </div>
 
           <label className="flex items-center gap-2 pb-1.5 text-sm text-ink/70">
@@ -389,10 +342,11 @@ export default function OrdersPage() {
           )}
         </div>
 
-        <p className="mt-4 text-xs font-medium text-ink/40">
-          {filtered.length} of {visibleOrders.length} orders
+        <p className="mt-4 text-xs text-ink/45">
+          {filtered.length} of {visibleOrders.length} orders shown
         </p>
 
+        {/* ── Order cards ── */}
         <div className="mt-3 space-y-3">
           {filtered.length === 0 ? (
             <EmptyState
@@ -405,7 +359,7 @@ export default function OrdersPage() {
               const stageHours = hoursSince(o.stageEnteredAt)
               const orderAgeHours = hoursSince(o.placedAt)
               const breach = isOverThreshold(o.stage, stageHours)
-              const accent = orderAccent(o, breach)
+              const problem = o.delayed || breach
               const blockedReason = blockedReasons[o.id]
               const siteMenuOpen = openSiteMenuFor === o.id
               const itemCount = o.items.reduce((sum, i) => sum + i.quantity, 0)
@@ -414,24 +368,19 @@ export default function OrdersPage() {
               return (
                 <div
                   key={o.id}
-                  className={`overflow-hidden rounded-2xl border pt-2 border-ink/10 border-l-4 bg-card transition-colors hover:border-ink/20 ${accent}`}
+                  className="relative overflow-hidden rounded-2xl border border-ink/10 bg-card transition-colors hover:border-ink/20"
                 >
+                  {problem && <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-rose-500" />}
+
                   <div
-                    role="button"
-                    tabIndex={0}
                     onClick={() => router.push(`/admin/orders/${o.id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") router.push(`/admin/orders/${o.id}`)
-                    }}
-                    className="flex cursor-pointer flex-col gap-4 p-4 outline-none focus-visible:bg-teal/[0.06] sm:flex-row sm:items-center"
+                    className="flex cursor-pointer flex-col gap-4 p-4 sm:flex-row sm:items-center"
                   >
                     {permissions.canBulkFlag && (
-                      <span
-                        className="flex-none self-start sm:self-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <span className="flex-none self-start sm:self-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
+                          aria-label={`Select ${o.id}`}
                           checked={selected.has(o.id)}
                           onChange={() => toggleSelect(o.id)}
                           className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
@@ -439,20 +388,32 @@ export default function OrdersPage() {
                       </span>
                     )}
 
-                        <div className="h-20 w-full flex-none sm:w-32">
-                          <AnimatedItemCardStack items={o.items} className="h-full" />
-                        </div>
+                    <div className="h-20 w-full flex-none sm:w-32">
+                      <AnimatedItemCardStack items={o.items} className="h-full" />
+                    </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-display text-sm font-semibold text-ink">{o.id}</span>
-                            {qcFlaggedOrderIds.has(o.id) && <QcIssuePill />}
-                            {o.delayed && <DelayedPill />}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`/admin/orders/${o.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded font-display text-sm font-semibold outline-none hover:text-teal-deep hover:underline focus-visible:ring-2 focus-visible:ring-teal/40"
+                            >
+                              {o.id}
+                            </Link>
+                            {qcFlaggedOrderIds.has(o.id) && (
+                              <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
+                                <Flag size={11} className="shrink-0" aria-hidden />
+                                QC issue
+                              </span>
+                            )}
+                            {o.delayed && <Pill tone="rose">Delayed</Pill>}
                           </div>
-                          <p className="mt-0.5 truncate text-xs text-ink/55">
-                            {o.customerName} <span className="text-ink/25">·</span> {siteName(o.siteId)}
+                          <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink/55">
+                            <span className="truncate">{o.customerName}</span>
+                            <span className="truncate">{siteName(o.siteId)}</span>
                           </p>
                         </div>
                         <Pill tone={STAGE_TONE[o.stage]}>{o.stage}</Pill>
@@ -461,10 +422,10 @@ export default function OrdersPage() {
                       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                         {channels.map((ch) => (
                           <Pill key={ch} tone={CHANNEL_TONE[ch]}>
-                            Ch. {ch} · {CHANNEL_LABEL[ch]}
+                            Ch. {ch}: {CHANNEL_LABEL[ch]}
                           </Pill>
                         ))}
-                        <span className="text-xs text-ink/45">
+                        <span className="text-xs text-ink/50">
                           {itemCount} item{itemCount === 1 ? "" : "s"}
                         </span>
                         <AgeReadout label="Placed" hours={orderAgeHours} threshold={Infinity} />
@@ -473,18 +434,18 @@ export default function OrdersPage() {
                     </div>
 
                     <div className="flex flex-none items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-center sm:gap-1.5">
-                      <span className="font-display text-base text-ink">Rs. {o.totalValue.toLocaleString("en-US")}</span>
-                      <ChevronRight size={16} className="hidden text-ink/25 sm:block" />
+                      <span className="font-display text-base tabular-nums text-ink">Rs. {o.totalValue.toLocaleString("en-US")}</span>
+                      <ChevronRight size={16} className="hidden text-ink/25 sm:block" aria-hidden />
                     </div>
                   </div>
 
                   {permissions.canOverrideOrderStage && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex flex-wrap items-center gap-2 border-t border-ink/[0.06] bg-parchment/40 px-4 py-2"
-                    >
-                      <span className="text-[11px] font-medium uppercase tracking-wide text-ink/35">Override</span>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-ink/[0.06] bg-parchment/40 px-4 py-2">
+                      <label htmlFor={`stage-${o.id}`} className="text-xs font-medium text-ink/45">
+                        Override stage
+                      </label>
                       <select
+                        id={`stage-${o.id}`}
                         value={o.stage}
                         onChange={(e) => handleStageChange(o.id, e.target.value as OrderStage)}
                         className="rounded-lg border border-ink/10 bg-card px-2 py-1 text-xs text-ink outline-none focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
@@ -499,9 +460,11 @@ export default function OrdersPage() {
                           <button
                             type="button"
                             title={`Reassign site (currently ${siteName(o.siteId)})`}
+                            aria-label={`Reassign site, currently ${siteName(o.siteId)}`}
+                            aria-expanded={siteMenuOpen}
                             onClick={() => setOpenSiteMenuFor(siteMenuOpen ? null : o.id)}
-                            className={`grid h-[26px] w-[26px] place-items-center rounded-lg border text-ink/55 transition-colors hover:bg-ink/[0.04] hover:text-ink ${
-                              siteMenuOpen ? "border-teal/50 bg-teal/[0.08] text-teal-deep" : "border-ink/10"
+                            className={`grid h-[26px] w-[26px] place-items-center rounded-lg border outline-none transition-colors hover:bg-ink/[0.04] hover:text-ink focus-visible:ring-2 focus-visible:ring-teal/40 ${
+                              siteMenuOpen ? "border-teal/50 bg-teal/[0.08] text-teal-deep" : "border-ink/10 text-ink/55"
                             }`}
                           >
                             <MapPinned size={13} />
@@ -533,7 +496,9 @@ export default function OrdersPage() {
                           type="button"
                           onClick={() => toggleDelayed(o.id)}
                           title={o.delayed ? "Clear delayed flag" : "Flag as delayed"}
-                          className={`grid h-[26px] w-[26px] place-items-center rounded-lg border transition-colors ${
+                          aria-label={o.delayed ? "Clear delayed flag" : "Flag as delayed"}
+                          aria-pressed={o.delayed}
+                          className={`grid h-[26px] w-[26px] place-items-center rounded-lg border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
                             o.delayed
                               ? "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
                               : "border-ink/10 text-ink/45 hover:bg-ink/[0.04] hover:text-ink"
@@ -544,7 +509,9 @@ export default function OrdersPage() {
                       )}
 
                       {blockedReason && (
-                        <p className="w-full text-[11px] leading-snug text-rose-600 sm:w-auto">{blockedReason}</p>
+                        <p role="alert" className="w-full text-xs leading-snug text-rose-700 sm:w-auto">
+                          {blockedReason}
+                        </p>
                       )}
                     </div>
                   )}
@@ -553,6 +520,34 @@ export default function OrdersPage() {
             })
           )}
         </div>
+
+        {/* ── Selection bar (sticks to the bottom while orders are ticked) ── */}
+        {permissions.canBulkFlag && selected.size > 0 && (
+          <div className="sticky bottom-6 z-20 mt-6 flex justify-center">
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-ink px-4 py-3 text-parchment shadow-[0_24px_48px_-20px_rgba(32,36,43,0.65)]">
+              <span className="text-sm font-medium">{selected.size} selected</span>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                aria-label="Clear selection"
+                className="rounded-full p-1.5 text-parchment/60 outline-none transition-colors hover:bg-white/10 hover:text-parchment focus-visible:ring-2 focus-visible:ring-parchment/50"
+              >
+                <X size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  bulkFlagDelayed(Array.from(selected))
+                  setSelected(new Set())
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-parchment px-3.5 py-2 text-xs font-semibold text-ink outline-none transition-colors hover:bg-white focus-visible:ring-2 focus-visible:ring-parchment/50"
+              >
+                <Flag size={14} />
+                Flag for review
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -569,11 +564,11 @@ function EmptyState({
 }) {
   if (isEmptyOverall) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-card px-4 py-16 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-card px-4 py-16 text-center">
         <Inbox size={22} className="text-ink/25" />
         <div>
           <p className="text-sm font-semibold text-ink/70">No orders assigned to you yet</p>
-          <p className="mt-1 max-w-xs text-xs text-ink/45">Check back once orders are routed to your site.</p>
+          <p className="mt-1 max-w-xs text-xs text-ink/50">Check back once orders are routed to your site.</p>
         </div>
       </div>
     )
@@ -581,16 +576,16 @@ function EmptyState({
 
   if (hasAnyFilter) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-card px-4 py-16 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-card px-4 py-16 text-center">
         <SearchX size={22} className="text-ink/25" />
         <div>
-          <p className="text-sm font-semibold text-ink/70">Nothing matches this filter</p>
-          <p className="mt-1 text-xs text-ink/45">Try a different search term or filter combination.</p>
+          <p className="text-sm font-semibold text-ink/70">No orders match these filters</p>
+          <p className="mt-1 text-xs text-ink/50">Try a different search or loosen the filters.</p>
         </div>
         <button
           type="button"
           onClick={onClearFilters}
-          className="mt-1 text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+          className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
         >
           Clear filters
         </button>
