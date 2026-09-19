@@ -99,6 +99,10 @@ const KNOWN_SHORTENERS = new Set([
   'amzn.in',
   'fkrt.it',
   'fkrt.cc',
+  // Flipkart's own deep-link/shortlink service — same category as
+  // amzn.in for Amazon: a real, first-party redirect domain that looks
+  // nothing like the actual product page it points to.
+  'dl.flipkart.com',
   'cutt.ly',
   'rebrand.ly',
   'is.gd',
