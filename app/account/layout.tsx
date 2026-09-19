@@ -135,12 +135,24 @@ function AccountShell({ children }: { children: React.ReactNode }) {
     void logout()
   }
 
+  // FIX: the chat widget shouldn't float on top of the account's own
+  // in-app messages screen — that page IS the messaging surface, so a
+  // floating chat bubble/panel on top of it is redundant and visually
+  // conflicts with it. Matched by path prefix (rather than `view ===
+  // 'messages'`) so it also covers any nested routes under
+  // /account/messages (e.g. /account/messages/[threadId]).
+  const isMessagesRoute = pathname?.startsWith('/account/messages') ?? false
+
   // Chat widget is hidden here whenever something else is already
   // covering the screen — the full-viewport ItemInfoModal, the mobile
   // sidebar drawer, the shop bottom sheet, or the add-request overlay —
-  // so it never floats on top of (or behind, unpredictably) another
-  // full-screen surface. It reappears once whatever's open closes.
-  const chatWidgetHidden = overlayActive || sidebarOpen || shopSheetOpen || addRequestOpen
+  // or whenever we're on the account messages route itself (see
+  // isMessagesRoute above) — so it never floats on top of (or behind,
+  // unpredictably) another full-screen surface, and never duplicates
+  // the in-app messaging UI. It reappears once whatever's open closes
+  // or the user navigates away from /account/messages.
+  const chatWidgetHidden =
+    overlayActive || sidebarOpen || shopSheetOpen || addRequestOpen || isMessagesRoute
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
@@ -237,7 +249,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
             (96px) clears MobileBottomNav's 72px height on mobile with
             room to spare, so the bubble sits above the nav bar rather
             than behind or overlapping it. Hidden while anything else
-            full-screen is already open (see chatWidgetHidden above). */}
+            full-screen is already open, or on /account/messages (see
+            chatWidgetHidden above). */}
         <ChatButton hidden={chatWidgetHidden} positionClassName="bottom-24 right-6 lg:bottom-8" />
         <ChatPanel hidden={chatWidgetHidden} positionClassName="bottom-24 right-6 lg:bottom-8" />
 
