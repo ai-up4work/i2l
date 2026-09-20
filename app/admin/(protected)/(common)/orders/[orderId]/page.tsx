@@ -705,6 +705,7 @@ export default function OrderDetailPage() {
                       disabled={sendingMessage}
                       className={`${FIELD} w-full resize-none`}
                     />
+                    {/* <div className="text-center text-xs text-ink/40">Ctrl or ⌘ + Enter to send</div> */}
                     <div className="flex items-center justify-between gap-2">
                       <label
                         className={`flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 ${
@@ -725,7 +726,6 @@ export default function OrderDetailPage() {
                         {uploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
                         {uploadingAttachment ? "Uploading…" : "Attach image"}
                       </label>
-                      <span className="text-xs text-ink/40">Ctrl or ⌘ + Enter to send</span>
                       <button
                         type="button"
                         onClick={handleSendOrderMessage}
