@@ -11,6 +11,7 @@ import {
   fetchRecentThreadMessages,
   fetchOlderThreadMessages,
   fetchOrderMessages,
+  fetchRequestMessages,
   inferAttachmentKind,
   markThreadRead,
   parseReplyBody,
@@ -372,48 +373,60 @@ function AdminChatPageInner() {
     }
   }, [messages, orderDisplayById, requestDisplayById])
 
-  // Filters the open thread down to messages tagged to ONE order —
-  // reuses fetchOrderMessages (already existed for the order detail
-  // page's own mini chat panel, just never wired into the main inbox).
-  // null = no filter (the normal paginated fetchRecentThreadMessages
-  // view). Resets whenever a different thread is opened.
-  const [messageOrderFilter, setMessageOrderFilter] = useState<string | null>(null)
+  // Filters the open thread down to messages tagged to ONE order OR ONE
+  // request — reuses fetchOrderMessages/fetchRequestMessages (already
+  // existed for the order/request detail pages' own mini chat panels,
+  // just never wired into the main inbox). null = no filter (the
+  // normal paginated fetchRecentThreadMessages view). A single
+  // {type, id} slot rather than two independent order/request filters
+  // — the two are mutually exclusive by construction (picking one
+  // clears the other) rather than needing separate state to enforce
+  // that. Resets whenever a different thread is opened.
+  const [messageFilter, setMessageFilter] = useState<{ type: 'order' | 'request'; id: string } | null>(null)
   useEffect(() => {
-    setMessageOrderFilter(null)
+    setMessageFilter(null)
   }, [selectedId])
 
   // Deliberately NOT derived from `messages` directly — once a filter is
-  // applied, `messages` only holds that one order's messages, which
-  // would collapse the filter dropdown down to just the option
-  // currently selected. This only ever grows (per open thread), fed by
-  // every unfiltered load (recent/older), so every order the thread has
-  // touched stays selectable regardless of which filter is active.
+  // applied, `messages` only holds that one order's/request's messages,
+  // which would collapse the filter chips down to just the option
+  // currently selected. These only ever grow (per open thread), fed by
+  // every unfiltered load (recent/older), so every order/request the
+  // thread has touched stays selectable regardless of which filter is
+  // active.
   const [orderIdsInOpenThread, setOrderIdsInOpenThread] = useState<string[]>([])
+  const [requestIdsInOpenThread, setRequestIdsInOpenThread] = useState<string[]>([])
   useEffect(() => {
     setOrderIdsInOpenThread([])
+    setRequestIdsInOpenThread([])
   }, [selectedId])
   useEffect(() => {
-    if (messageOrderFilter) return // this load was itself filtered — not the full picture
-    const found = messages.map((m) => m.order_id).filter((id): id is string => Boolean(id))
-    if (found.length === 0) return
-    setOrderIdsInOpenThread((prev) => Array.from(new Set([...prev, ...found])))
-  }, [messages, messageOrderFilter])
+    if (messageFilter) return // this load was itself filtered — not the full picture
+    const foundOrders = messages.map((m) => m.order_id).filter((id): id is string => id != null)
+    const foundRequests = messages.map((m) => m.request_id).filter((id): id is string => id != null)
+    if (foundOrders.length > 0) setOrderIdsInOpenThread((prev) => Array.from(new Set([...prev, ...foundOrders])))
+    if (foundRequests.length > 0) setRequestIdsInOpenThread((prev) => Array.from(new Set([...prev, ...foundRequests])))
+  }, [messages, messageFilter])
 
-  const applyMessageOrderFilter = useCallback(
-    async (orderId: string | null) => {
+  const applyMessageFilter = useCallback(
+    async (filter: { type: 'order' | 'request'; id: string } | null) => {
       if (!selectedId) return
-      setMessageOrderFilter(orderId)
+      setMessageFilter(filter)
       setMessagesLoading(true)
       try {
-        if (orderId) {
-          const rows = await fetchOrderMessages(supabaseRef.current, selectedId, orderId)
+        if (filter?.type === 'order') {
+          const rows = await fetchOrderMessages(supabaseRef.current, selectedId, filter.id)
           setMessages(rows)
           setHasMoreMessages(false) // fetchOrderMessages returns every matching message, not a page
+        } else if (filter?.type === 'request') {
+          const rows = await fetchRequestMessages(supabaseRef.current, selectedId, filter.id)
+          setMessages(rows)
+          setHasMoreMessages(false) // same — fetchRequestMessages isn't paginated either
         } else {
           await loadThreadMessages(selectedId)
         }
       } catch (err) {
-        console.error('[admin chat] failed to filter by order', err)
+        console.error('[admin chat] failed to filter messages', err)
       } finally {
         setMessagesLoading(false)
       }
@@ -777,28 +790,44 @@ function AdminChatPageInner() {
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
-            {orderIdsInOpenThread.length > 0 && (
+            {(orderIdsInOpenThread.length > 0 || requestIdsInOpenThread.length > 0) && (
               <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-ink/10 bg-parchment px-4 py-2">
-                <span className="font-body text-[11px] font-medium text-ink/40">Filter by order:</span>
+                <span className="font-body text-[11px] font-medium text-ink/40">Filter:</span>
                 <button
                   type="button"
-                  onClick={() => applyMessageOrderFilter(null)}
+                  onClick={() => applyMessageFilter(null)}
                   className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                    messageOrderFilter === null ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/50 hover:bg-ink/5'
+                    messageFilter === null ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/50 hover:bg-ink/5'
                   }`}
                 >
                   All messages
                 </button>
                 {orderIdsInOpenThread.map((orderId) => (
                   <button
-                    key={orderId}
+                    key={`order-${orderId}`}
                     type="button"
-                    onClick={() => applyMessageOrderFilter(orderId)}
+                    onClick={() => applyMessageFilter({ type: 'order', id: orderId })}
                     className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                      messageOrderFilter === orderId ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/50 hover:bg-ink/5'
+                      messageFilter?.type === 'order' && messageFilter.id === orderId
+                        ? 'bg-teal-deep/15 text-teal-deep'
+                        : 'text-ink/50 hover:bg-ink/5'
                     }`}
                   >
                     {orderDisplayById.get(orderId) ?? orderId}
+                  </button>
+                ))}
+                {requestIdsInOpenThread.map((requestId) => (
+                  <button
+                    key={`request-${requestId}`}
+                    type="button"
+                    onClick={() => applyMessageFilter({ type: 'request', id: requestId })}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      messageFilter?.type === 'request' && messageFilter.id === requestId
+                        ? 'bg-gold/20 text-gold-deep'
+                        : 'text-ink/50 hover:bg-ink/5'
+                    }`}
+                  >
+                    {requestDisplayById.get(requestId) ?? requestId}
                   </button>
                 ))}
               </div>

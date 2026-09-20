@@ -56,7 +56,7 @@ function StatusPill({ status }: { status: RequestStatus }) {
 
 export default function RequestsPage() {
   const router = useRouter()
-  const { role, requestLines } = useAdminData()
+  const { role, requestLines, markRequestReplied } = useAdminData()
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open")
 
@@ -262,10 +262,21 @@ export default function RequestsPage() {
                       {r.hasUnrepliedMessage && (
                         <span
                           title="The customer's last message about this request hasn't been replied to yet"
-                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 py-1 pl-2.5 pr-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
                         >
                           <MessageCircle size={11} className="shrink-0 animate-pulse" aria-hidden />
                           Awaiting reply
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              markRequestReplied(r.id)
+                            }}
+                            title="Mark as replied — dismisses this without sending a message"
+                            className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-gold-deep/70 hover:bg-gold-deep/10 hover:text-gold-deep"
+                          >
+                            Dismiss
+                          </button>
                         </span>
                       )}
                       <span className="text-xs tabular-nums text-ink/50">{r.ageLabel}</span>

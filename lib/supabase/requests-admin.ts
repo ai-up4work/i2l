@@ -438,6 +438,15 @@ export async function setRequestVariantReal(requestId: string, variant: string):
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
+/** Manual "I've handled this, no in-app reply needed" dismiss — same
+ * escape hatch as clearOrderUnrepliedFlag in orders-admin.ts, for when
+ * an admin resolves something outside the chat panel entirely. */
+export async function clearRequestUnrepliedFlag(requestId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase.from('requests').update({ has_unreplied_message: false }).eq('id', requestId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
 /**
  * Admin's manual product-data entry for a request the scraper couldn't
  * read at all — title (item_name), a real product photo, the seller/

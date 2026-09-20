@@ -43,6 +43,18 @@ export type ChatMessage = {
   createdAtIso: string
   attachment: ChatAttachment | null
   replyTo: ReplyPreview | null
+  /** Raw order/request uuid this message was tagged to (chat_messages
+   * .order_id / .request_id) — null for a general message. Same field
+   * admin's /admin/chat already shows a badge for on every message; a
+   * customer with more than one order in flight has exactly the same
+   * "which one is this about" problem reading their own chat back, so
+   * this needs the same treatment here. Resolved to a human-readable
+   * label (order display id / request display id) by
+   * ChatPanel/account-messages via orderLabelById/requestLabelById
+   * below — kept as raw ids here since ChatMessage itself has no
+   * reason to know how to resolve either. */
+  orderId: string | null
+  requestId: string | null
 }
 
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94755354830' // fallback for dev
@@ -71,6 +83,8 @@ function rowToMessage(row: ChatMessageRow): ChatMessage {
     createdAtIso: row.created_at,
     attachment: row.attachment_url ? { url: row.attachment_url, kind: inferAttachmentKind(row.attachment_url) } : null,
     replyTo: quoted ? { id: '', sender: row.sender === 'customer' ? 'ops' : 'customer', text: quoted } : null,
+    orderId: row.order_id,
+    requestId: row.request_id,
   }
 }
 
@@ -148,6 +162,9 @@ interface ChatContextValue {
    * order" picker, which deliberately shows everything, not just live
    * ones. */
   allOrders: Order[]
+  /** request_id -> display id ("REQ-10005"), for the per-message tag
+   * pill — see the resolution effect's own comment above. */
+  requestDisplayById: Map<string, string>
   /** null = not yet decided this session (only possible while
    * orderChoicePending is true — see below); 'general' = explicitly no
    * order attached; an object = a specific order is pinned. */
@@ -217,6 +234,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id])
 
   const orderChoicePending = activeOrder === null && liveOrders.length > 1
+
+  // Resolves a message's request_id (a uuid) to its human display id
+  // ("REQ-10005") for the per-message tag pill — mirrors what
+  // orderDisplayById does on the admin side (/admin/chat), just here
+  // instead of there. There's no customer-facing useRequests() hook to
+  // piggyback on the way order tags reuse allOrders below, so this
+  // resolves lazily off whatever request ids actually show up in the
+  // loaded messages, same "only fetch what's missing" pattern the admin
+  // inbox uses. RLS-wise this relies on the customer's own "select my
+  // own requests" policy — the same one that already lets them see
+  // their own request rows anywhere else in the account area.
+  const [requestDisplayById, setRequestDisplayById] = useState<Map<string, string>>(new Map())
+  useEffect(() => {
+    const missing = Array.from(
+      new Set(messages.map((m) => m.requestId).filter((id): id is string => id != null && !requestDisplayById.has(id))),
+    )
+    if (missing.length === 0) return
+    supabaseRef.current
+      .from('requests')
+      .select('id, display_id')
+      .in('id', missing)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return
+        setRequestDisplayById((prev) => {
+          const next = new Map(prev)
+          for (const r of data) next.set(r.id, r.display_id)
+          return next
+        })
+      })
+  }, [messages, requestDisplayById])
 
   // Resolve (or create) this customer's general support thread and load
   // its history once we know who's logged in.
@@ -395,6 +442,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     loadingMoreMessages,
     loadOlderMessages,
     allOrders: orders,
+    requestDisplayById,
     activeOrder,
     orderChoicePending,
     pendingOrderChoices: liveOrders,

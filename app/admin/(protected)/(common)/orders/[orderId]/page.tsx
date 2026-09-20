@@ -218,6 +218,7 @@ export default function OrderDetailPage() {
     sendChatMessage,
     fetchMessagesForOrder,
     resolveOrderId,
+    markOrderReplied,
   } = useAdminData()
 
   const order = getOrder(orderId)
@@ -438,19 +439,33 @@ export default function OrderDetailPage() {
             >
               <MessageSquare size={14} />
               Open chat
-              {order.hasUnrepliedMessage ? (
-                <span className="flex items-center gap-1 rounded-full bg-gold/20 px-1.5 py-0.5 text-xs font-semibold text-gold-deep">
-                  <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-gold-deep" />
-                  Awaiting reply
+              {orderMessages.length > 0 && (
+                <span
+                  className={`rounded-full px-1.5 text-xs font-semibold tabular-nums ${
+                    order.hasUnrepliedMessage ? "bg-gold/20 text-gold-deep" : "bg-teal-deep/10 text-teal-deep"
+                  }`}
+                >
+                  {orderMessages.length}
                 </span>
-              ) : (
-                orderMessages.length > 0 && (
-                  <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
-                    {orderMessages.length}
-                  </span>
-                )
               )}
             </button>
+            {/* Sibling, not nested in the button above — it needs its
+                own clickable "Dismiss", and a button can't contain
+                another button. */}
+            {order.hasUnrepliedMessage && (
+              <span className="flex items-center gap-1 rounded-full bg-gold/20 py-1 pl-2 pr-1 text-xs font-semibold text-gold-deep">
+                <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-gold-deep" />
+                Awaiting reply
+                <button
+                  type="button"
+                  onClick={() => markOrderReplied(order.id)}
+                  title="Mark as replied — dismisses this without sending a message"
+                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-gold-deep/70 hover:bg-gold-deep/10 hover:text-gold-deep"
+                >
+                  Dismiss
+                </button>
+              </span>
+            )}
             {permissions.canDelete && (
             <button
               type="button"

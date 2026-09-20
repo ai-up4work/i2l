@@ -36,7 +36,6 @@ import DealCoupon, { dealToCoupon, type Deal } from '@/components/shared/DealCou
 // the one wired to ChatContext.
 import ChatButton from '@/components/shared/ChatButton'
 import ChatPanel from '@/components/shared/ChatPanel'
-import { ChatProvider } from '@/contexts/ChatContext'
 // DashboardProvider/useDashboard + ItemInfoModal — the SAME flow
 // /account's "Buy for me" form and AccountShell use (see
 // contexts/DashboardContext.tsx and app/account/layout.tsx). Pasting a
@@ -598,27 +597,28 @@ function HomeItemModal() {
 // the top, which are wired to ChatContext.
 //
 // This page renders its own <Header /> and <Footer /> rather than relying
-// on app/(public)/layout.tsx, meaning it sits OUTSIDE that layout's tree
-// — so the ChatProvider added there never reaches this page. Wrapping
-// this page's own content in <ChatProvider> here makes it self-sufficient
-// regardless of that. If this file actually does live inside the
-// (public) route group after all, this nested provider is harmless (the
-// nearest one wins) but redundant — worth then removing the outer one in
-// app/(public)/layout.tsx to avoid two independent chat states existing
-// across your public pages.
+// on app/(public)/layout.tsx, meaning it sits OUTSIDE that layout's tree.
+// It used to also wrap its own <ChatProvider> here on the theory that
+// (public)/layout.tsx's provider therefore never reaches it — but
+// app/layout.tsx (the actual Next.js root layout, which wraps every page
+// in the app with no exceptions, route groups included) has its own
+// ChatProvider too, and that one DOES reach this page regardless of
+// which route group it does or doesn't sit inside. The nested copy here
+// was invisible-but-real waste, same issue (public)/layout.tsx and
+// account/layout.tsx both had for the same reason — see their own
+// comments. ChatButton/ChatPanel below just need SOME ChatProvider
+// ancestor, which the root now guarantees.
 //
-// DashboardProvider is now ALSO mounted here, for the same structural
-// reason as ChatProvider above: this page sits outside app/account/**,
-// so the DashboardProvider that AccountLayout normally supplies never
-// reaches it. FinalCTA and HomeItemModal both call useDashboard(), so
-// this page needs its own instance — same pattern as ChatProvider, and
-// harmless/redundant (nearest provider wins) if this page is ever moved
-// under a layout that already supplies one.
+// DashboardProvider is still mounted here, for a genuinely different
+// reason: unlike ChatProvider, DashboardProvider has no root-level
+// instance — only app/account/layout.tsx supplies one, scoped
+// deliberately to account routes, and this page sits outside app/account/**
+// too. FinalCTA and HomeItemModal both call useDashboard(), so this page
+// still needs its own instance.
 export default function Home() {
   return (
     <DashboardProvider>
-      <ChatProvider>
-        <main className="bg-parchment">
+      <main className="bg-parchment">
           <style>{`
             @keyframes float-slow {
               0%, 100% { transform: translateY(0); }
@@ -660,7 +660,6 @@ export default function Home() {
           <ChatPanel />
           <HomeItemModal />
         </main>
-      </ChatProvider>
     </DashboardProvider>
   )
 }

@@ -645,6 +645,19 @@ export async function setOrderDelayed(orderId: string, delayed: boolean): Promis
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
+/** Manual "I've handled this, no in-app reply needed" dismiss — for when
+ * an admin resolves something over a phone call or WhatsApp instead of
+ * through the chat panel. sendChatMessage (lib/supabase/chat.ts) is the
+ * normal way this flag clears (a real tagged reply going out); this is
+ * the escape hatch for when that never happens. Deliberately one-way
+ * here — there's no "mark unreplied" action; the flag only ever gets
+ * set back to true by a genuine new customer message. */
+export async function clearOrderUnrepliedFlag(orderId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = createClient()
+  const { error } = await supabase.from('orders').update({ has_unreplied_message: false }).eq('id', orderId)
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
 /** Export bin "Hold"/"Release" — see orders.export_hold's own column
  * comment in the schema for why this stays a plain reversible boolean
  * (same shape as setOrderDelayed above) rather than a one-way timestamp

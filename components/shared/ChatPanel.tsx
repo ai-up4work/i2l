@@ -44,7 +44,7 @@ export default function ChatPanel({
   positionClassName?: string
   hidden?: boolean
 }) {
-  const { isOpen, closeChat, messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages, orderChoicePending } =
+  const { isOpen, closeChat, messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages, orderChoicePending, allOrders, requestDisplayById } =
     useChat()
   const { login } = useAuth()
   const [draft, setDraft] = useState('')
@@ -281,6 +281,14 @@ export default function ChatPanel({
               {group.ids.map((id) => {
                 const m = byId[id]
                 const isCustomer = m.sender === 'customer'
+                // Same problem the admin inbox already solves per-message
+                // (see /admin/chat): with more than one order in flight, a
+                // flat message list reading "your order is confirmed" /
+                // "here's the tracking" with nothing to anchor them to a
+                // specific order is genuinely ambiguous from the customer's
+                // side too, not just the admin's.
+                const orderTag = m.orderId ? allOrders.find((o) => o.dbId === m.orderId)?.id : null
+                const requestTag = m.requestId ? requestDisplayById.get(m.requestId) : null
                 return (
                   <div key={m.id} className={`group flex ${isCustomer ? 'justify-end' : 'justify-start'} py-0.5`}>
                     {!isCustomer && (
@@ -293,11 +301,21 @@ export default function ChatPanel({
                         <Reply size={12} />
                       </button>
                     )}
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-3.5 py-2 font-body text-sm ${
-                        isCustomer ? 'bg-teal-deep text-parchment' : 'bg-card text-ink border border-ink/10'
-                      }`}
-                    >
+                    <div className={`max-w-[80%] ${isCustomer ? 'items-end' : 'items-start'} flex flex-col`}>
+                      {(orderTag || requestTag) && (
+                        <span
+                          className={`mb-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            isCustomer ? 'self-end' : 'self-start'
+                          } ${orderTag ? 'bg-teal/15 text-teal-deep' : 'bg-gold/20 text-gold-deep'}`}
+                        >
+                          {orderTag ?? requestTag}
+                        </span>
+                      )}
+                      <div
+                        className={`rounded-2xl px-3.5 py-2 font-body text-sm ${
+                          isCustomer ? 'bg-teal-deep text-parchment' : 'bg-card text-ink border border-ink/10'
+                        }`}
+                      >
                       {m.replyTo && (
                         <div
                           className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-xs ${
@@ -320,6 +338,7 @@ export default function ChatPanel({
                       <p className={`mt-1 text-right text-[10px] ${isCustomer ? 'text-parchment/70' : 'text-ink/40'}`}>
                         {formatTime(m.createdAt)}
                       </p>
+                      </div>
                     </div>
                     {isCustomer && (
                       <button

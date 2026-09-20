@@ -372,12 +372,8 @@ export function AdminSidebar() {
   // sitting on an unanswered customer message, or vice versa.
   const attentionFlags = useMemo(() => {
     const flags: Record<string, boolean> = {}
-    flags["/admin/orders"] = visibleOrders.some(
-      (o) => (o as typeof o & { hasUnrepliedMessage?: boolean }).hasUnrepliedMessage,
-    )
-    flags["/admin/requests"] = requestLines.some(
-      (r) => (r as typeof r & { hasUnrepliedMessage?: boolean }).hasUnrepliedMessage,
-    )
+    flags["/admin/orders"] = visibleOrders.some((o) => o.hasUnrepliedMessage)
+    flags["/admin/requests"] = requestLines.some((r) => r.hasUnrepliedMessage)
     // Customer chat's own unread signal already exists (chatThreads
     // .unread, feeding the rose count above) and is a superset of this
     // — every unreplied order/request message is also a thread-level

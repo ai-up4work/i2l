@@ -1,4 +1,4 @@
-// components/shared/ChatOrderContextBar.tsx
+// components/shared/ChatordercontextBar.tsx
 'use client'
 
 // Shared by ChatPanel.tsx (floating widget) and /account/messages —
@@ -183,12 +183,24 @@ export default function ChatOrderContextBar({ className = 'mx-3 mt-2.5' }: { cla
                   setActiveOrder({ dbId: o.dbId, displayId: o.id })
                   setPickerOpen(false)
                 }}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left font-body text-xs font-semibold transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-body text-xs font-semibold transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-40 ${
                   selected ? 'text-teal-deep' : 'text-ink/60'
                 }`}
               >
-                <span>{o.id}</span>
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[o.status]}`}>
+                {/* Inline thumbnail instead of the hover-card preview
+                    used elsewhere in this bar — that popup is anchored
+                    to the bar's own root so it can safely escape THIS
+                    scrollable dropdown, but a floating card can't
+                    itself escape the outer chat panel's overflow-hidden
+                    boundary (see ChatPanel.tsx), and this dropdown
+                    already eats most of the panel's width. Simplest fix
+                    that doesn't fight the panel's own bounds: show the
+                    product right in the row instead of on hover. */}
+                <span className="relative h-6 w-6 flex-none overflow-hidden rounded border border-ink/10 bg-white">
+                  <Image src={o.items?.[0]?.image || PLACEHOLDER_IMAGE} alt="" fill sizes="24px" className="object-cover" />
+                </span>
+                <span className="flex-1 truncate">{o.id}</span>
+                <span className={`flex-none rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[o.status]}`}>
                   {o.status}
                 </span>
               </button>

@@ -58,7 +58,7 @@ function groupByDate(messages: ChatMessage[]) {
  * the quoted snippet is shown inline instead, which is what it actually is.
  */
 export default function AccountMessagesPage() {
-  const { messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages, orderChoicePending } = useChat()
+  const { messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages, orderChoicePending, allOrders, requestDisplayById } = useChat()
   const { login } = useAuth()
 
   const [draft, setDraft] = useState('')
@@ -241,6 +241,10 @@ export default function AccountMessagesPage() {
                   </div>
                   {group.messages.map((m) => {
                     const isMine = m.sender === 'customer'
+                    // Same per-message context problem/fix as ChatPanel.tsx —
+                    // see its own comment for why this matters here too.
+                    const orderTag = m.orderId ? allOrders.find((o) => o.dbId === m.orderId)?.id : null
+                    const requestTag = m.requestId ? requestDisplayById.get(m.requestId) : null
                     return (
                       <div key={m.id} className={`group my-0.5 flex items-center gap-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
                         {isMine && (
@@ -254,8 +258,18 @@ export default function AccountMessagesPage() {
                           </button>
                         )}
 
+                        <div className={`flex max-w-[80%] flex-col sm:max-w-[60%] ${isMine ? 'items-end' : 'items-start'}`}>
+                        {(orderTag || requestTag) && (
+                          <span
+                            className={`mb-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              orderTag ? 'bg-teal/15 text-teal-deep' : 'bg-gold/20 text-gold-deep'
+                            }`}
+                          >
+                            {orderTag ?? requestTag}
+                          </span>
+                        )}
                         <div
-                          className={`max-w-[80%] rounded-2xl px-3.5 py-2 font-body text-sm sm:max-w-[60%] ${
+                          className={`w-full rounded-2xl px-3.5 py-2 font-body text-sm ${
                             isMine ? 'bg-teal-deep text-parchment' : 'bg-card text-ink border border-ink/10'
                           }`}
                         >
@@ -292,6 +306,7 @@ export default function AccountMessagesPage() {
                             </span>
                             {isMine && <CheckCheck size={13} className="text-parchment/70" />}
                           </div>
+                        </div>
                         </div>
 
                         {!isMine && (

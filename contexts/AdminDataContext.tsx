@@ -417,6 +417,7 @@ import {
   setOrderStage as realSetOrderStage,
   setOrderDelayed as realSetOrderDelayed,
   setOrderExportHold as realSetOrderExportHold,
+  clearOrderUnrepliedFlag as realClearOrderUnrepliedFlag,
   reassignOrderSite as realReassignOrderSite,
   addInternalNote as realAddInternalNote,
   setWarehouseSubstage as realSetWarehouseSubstage,
@@ -443,6 +444,7 @@ import {
   setRequestQuote as realSetRequestQuote,
   setRequestScreenshotReal,
   setRequestVariantReal,
+  clearRequestUnrepliedFlag,
   updateRequestItemDetails as updateRequestItemDetailsReal,
   declineRequestReal,
   reassignRequestReal,
@@ -1077,6 +1079,9 @@ interface AdminDataContextValue {
   canAdvanceStage: (orderId: string) => { allowed: boolean; reason?: string }
   reassignSite: (orderId: string, siteId: string) => void
   toggleDelayed: (orderId: string) => void
+  /** Manual "mark as replied" dismiss — see its own doc comment above
+   * where it's implemented. */
+  markOrderReplied: (orderId: string) => void
   /** Explicit version of toggleDelayed — sets rather than flips, for callers (like closing out a QC issue) that need to conditionally clear it rather than blindly toggle. */
   setOrderDelayedExplicit: (orderId: string, delayed: boolean) => void
   bulkFlagDelayed: (orderIds: string[]) => void
@@ -1143,6 +1148,7 @@ interface AdminDataContextValue {
   setRequestScreenshot: (requestId: string, itemId: string, url: string) => void
   /** Records the confirmed variant (size/color/etc.) once the admin has confirmed it with the customer. Prepended onto the order's item name at confirm time. */
   setRequestVariant: (requestId: string, itemId: string, variant: string) => void
+  markRequestReplied: (requestId: string) => void
   updateRequestItemDetails: (
     requestId: string,
     itemId: string,
@@ -1498,7 +1504,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         submittedAt: r.submittedAt,
         assignedStaffId: r.assignedStaffId,
         chatThreadId: r.chatThreadId,
-        hasUnrepliedMessage: chatThreads.find((t) => t.id === r.chatThreadId)?.unread ?? false,
+        hasUnrepliedMessage: r.hasUnrepliedMessage,
         // FIX: this was missing, so the debounced real-time refetch (any
         // change on `requests`, including confirmPayment's own write)
         // would silently overwrite a just-confirmed payment with an
@@ -1975,6 +1981,20 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       const realId = resolveRealId(id)
       if (realId) realSetOrderDelayed(realId, true)
     })
+  }
+
+  // Manual "mark as replied" — clears has_unreplied_message without
+  // requiring an actual chat message to have gone out. See
+  // clearOrderUnrepliedFlag's own doc comment in orders-admin.ts for
+  // why this exists: sendChatMessage clearing it automatically only
+  // covers replies sent IN the app — a phone call or a WhatsApp reply
+  // outside it would otherwise leave the badge stuck forever with no
+  // way to dismiss it. One-way by design: only a genuine new customer
+  // message sets it back to true.
+  const markOrderReplied = (orderId: string) => {
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, hasUnrepliedMessage: false } : o)))
+    const realId = resolveRealId(orderId)
+    if (realId) realClearOrderUnrepliedFlag(realId)
   }
 
   // -- Export bin: hold/release ---------------------------------------
@@ -2748,7 +2768,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         assignedStaffId: r.assignedStaffId,
         assignedStaffName: staffName,
         chatThreadId: r.chatThreadId,
-        hasUnrepliedMessage: chatThreads.find((t) => t.id === r.chatThreadId)?.unread ?? false,
+        hasUnrepliedMessage: r.hasUnrepliedMessage,
         ageHours,
         ageLabel: formatAge(ageHours),
         slaBreached: isOpen && ageHours > REQUEST_SLA_HOURS,
@@ -2758,7 +2778,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         payment: r.payment,
       }
     })
-  }, [requests, orders, staffDirectory, chatThreads])
+  }, [requests, orders, staffDirectory])
 
   const getRequestLine = (id: string) => requestLines.find((l) => l.id === id)
 
@@ -2845,6 +2865,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       )
     )
     setRequestVariantReal(requestId, variant)
+  }
+
+  // Same manual dismiss as markOrderReplied above, for requests.
+  const markRequestReplied = (requestId: string) => {
+    setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, hasUnrepliedMessage: false } : r)))
+    clearRequestUnrepliedFlag(requestId)
   }
 
   /**
@@ -3212,6 +3238,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     canAdvanceStage,
     reassignSite,
     toggleDelayed,
+    markOrderReplied,
     setOrderDelayedExplicit,
     bulkFlagDelayed,
     toggleExportHold,
@@ -3261,6 +3288,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     setQuote,
     setRequestScreenshot,
     setRequestVariant,
+    markRequestReplied,
     updateRequestItemDetails,
     confirmPayment,
     confirmRequest,

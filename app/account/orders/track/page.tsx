@@ -10,6 +10,7 @@ import {
   Copy,
   ExternalLink,
   MapPin,
+  MessageCircle,
   Package,
   PackageCheck,
   PackageSearch,
@@ -17,6 +18,7 @@ import {
   ShieldCheck,
   Truck,
 } from 'lucide-react'
+import { useChat } from '@/contexts/ChatContext'
 import {
   useOrders,
   itemMeta,
@@ -418,6 +420,7 @@ function NoOrdersEmptyState({ onBrowse }: { onBrowse: () => void }) {
 function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order; initialTab?: DetailTab }) {
   const [activeTab, setActiveTab] = useState<DetailTab>(initialTab)
   const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
+  const { setActiveOrder, openChat } = useChat()
   const currentIndex = shippingStepIndex(order.status)
   const isCancelled = order.status === 'Cancelled'
   const recipient = getOrderRecipient(order)
@@ -474,6 +477,26 @@ function OrderTrackingDetail({ order, initialTab = 'Tracking' }: { order: Order;
           </div>
         )}
       </div>
+
+      {/* Contextual entry point into chat, pre-tagged to this order —
+          same idea as the request preview flow, just for an order the
+          customer is already looking at. Opens the floating ChatPanel
+          with activeOrder pre-pinned, so the very next message they
+          send carries this order's id without them having to pick it
+          from the ambiguity prompt or the "change order" dropdown. */}
+      {!isCancelled && order.dbId && (
+        <button
+          type="button"
+          onClick={() => {
+            setActiveOrder({ dbId: order.dbId!, displayId: order.id })
+            openChat()
+          }}
+          className="mt-4 inline-flex items-center gap-2 rounded-full border border-ink/15 bg-card px-4 py-2 text-sm font-semibold text-ink/70 transition-colors hover:border-teal-deep hover:text-teal-deep"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Message us about this order
+        </button>
+      )}
 
       {isCancelled ? (
         <div className="mt-6 rounded-2xl border border-ink/10 bg-ink/5 p-4 text-sm text-ink/70">

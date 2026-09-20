@@ -104,7 +104,7 @@ const labelClass = "text-xs font-medium text-ink/50"
 
 export default function OrdersPage() {
   const router = useRouter()
-  const { visibleOrders, sites, permissions, updateOrderStage, reassignSite, toggleDelayed, bulkFlagDelayed, purchases } =
+  const { visibleOrders, sites, permissions, updateOrderStage, reassignSite, toggleDelayed, bulkFlagDelayed, purchases, markOrderReplied } =
     useAdminData()
 
   const qcFlaggedOrderIds = useMemo(
@@ -413,10 +413,21 @@ export default function OrdersPage() {
                             {o.hasUnrepliedMessage && (
                               <span
                                 title="The customer's last message about this order hasn't been replied to yet"
-                                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
+                                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 py-1 pl-2.5 pr-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
                               >
                                 <MessageCircle size={11} className="shrink-0 animate-pulse" aria-hidden />
                                 Awaiting reply
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    markOrderReplied(o.id)
+                                  }}
+                                  title="Mark as replied — dismisses this without sending a message"
+                                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-gold-deep/70 hover:bg-gold-deep/10 hover:text-gold-deep"
+                                >
+                                  Dismiss
+                                </button>
                               </span>
                             )}
                           </div>

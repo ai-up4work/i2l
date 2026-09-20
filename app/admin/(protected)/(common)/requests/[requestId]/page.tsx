@@ -180,6 +180,7 @@ export default function RequestDetailPage() {
     sendChatMessage,
     fetchMessagesForRequest,
     dataLoading,
+    markRequestReplied,
   } = useAdminData()
 
   // ---- embedded request-chat panel state ----
@@ -656,19 +657,32 @@ export default function RequestDetailPage() {
               >
                 <MessageSquare size={14} />
                 Chat
-                {request.hasUnrepliedMessage ? (
-                  <span className="flex items-center gap-1 rounded-full bg-gold/20 px-1.5 py-0.5 text-xs font-semibold text-gold-deep">
-                    <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-gold-deep" />
-                    Awaiting reply
+                {requestMessages.length > 0 && (
+                  <span
+                    className={`rounded-full px-1.5 text-xs font-semibold tabular-nums ${
+                      request.hasUnrepliedMessage ? "bg-gold/20 text-gold-deep" : "bg-teal-deep/10 text-teal-deep"
+                    }`}
+                  >
+                    {requestMessages.length}
                   </span>
-                ) : (
-                  requestMessages.length > 0 && (
-                    <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
-                      {requestMessages.length}
-                    </span>
-                  )
                 )}
               </button>
+            )}
+            {/* Sibling, not nested in the button above — see the same
+                note on the order detail page's chat button. */}
+            {request.hasUnrepliedMessage && (
+              <span className="flex items-center gap-1 rounded-full bg-gold/20 py-1 pl-2 pr-1 text-xs font-semibold text-gold-deep">
+                <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-gold-deep" />
+                Awaiting reply
+                <button
+                  type="button"
+                  onClick={() => markRequestReplied(request.id)}
+                  title="Mark as replied — dismisses this without sending a message"
+                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-gold-deep/70 hover:bg-gold-deep/10 hover:text-gold-deep"
+                >
+                  Dismiss
+                </button>
+              </span>
             )}
             {request.linkedOrderId && (
               <button

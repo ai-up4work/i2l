@@ -15,7 +15,6 @@ import Header, { HEADER_BAR_HEIGHT_MOBILE, HEADER_BAR_HEIGHT_DESKTOP } from '@/c
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
 import ChatButton from '@/components/shared/ChatButton'
 import ChatPanel from '@/components/shared/ChatPanel'
-import { ChatProvider } from '@/contexts/ChatContext'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { AdminDataProvider } from '@/contexts/AdminDataContext'
@@ -295,13 +294,16 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
-    // ChatProvider wraps the whole shell (same reasoning as PublicLayout):
-    // ChatButton and ChatPanel are siblings inside AccountShell that both
-    // call useChat(), so they need a shared provider ancestor above them.
-    <ChatProvider>
-      <DashboardProvider>
-        <AccountShell>{children}</AccountShell>
-      </DashboardProvider>
-    </ChatProvider>
+    // ChatProvider now lives once, in app/layout.tsx (the root) — see
+    // (public)/layout.tsx's own comment on why this used to be wrapped
+    // here too (a customer's active-order chat pin and even which
+    // thread was loaded could silently diverge between "the public
+    // site's chat" and "the account area's chat" as two separate live
+    // instances of the same conversation). AccountShell's own
+    // ChatButton/ChatPanel just need SOME ChatProvider ancestor, which
+    // the root now guarantees.
+    <DashboardProvider>
+      <AccountShell>{children}</AccountShell>
+    </DashboardProvider>
   )
 }

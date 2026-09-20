@@ -5,7 +5,6 @@ import Header from '@/components/shared/Header'
 import Footer from '@/components/landing/Footer'
 import ChatButton from '@/components/shared/ChatButton'
 import ChatPanel from '@/components/shared/ChatPanel'
-import { ChatProvider } from '@/contexts/ChatContext'
 
 // Header is `fixed`, so it doesn't reserve space in normal document flow —
 // anything rendered below it would otherwise sit underneath it. Rather than
@@ -40,25 +39,27 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   const headerOffset = useHeaderOffset()
 
   return (
-    // ChatProvider has to wrap both ChatButton and ChatPanel — they're
-    // siblings below that both call useChat(), and React Context only
-    // works if they share a common provider ancestor. Without this wrap,
-    // ChatButton throws the moment it tries to render.
-    //
-    // Click-outside-to-close lives inside ChatPanel itself (with
-    // ChatButton tagged `data-chat-bubble`), so nothing extra is needed here.
-    <ChatProvider>
-      <div className="bg-parchment">
-        <Header />
+    // ChatProvider now lives once, in app/layout.tsx (the root) — it
+    // also needs to be an ancestor of OrdersProvider's ChatContext
+    // dependency, and having every top-level layout (public/account)
+    // wrap its own COPY meant a customer's activeOrder pin (see
+    // ChatContext.tsx) and even which thread/messages were loaded could
+    // silently diverge between "the public site's chat" and "the
+    // account area's chat" — two separate live instances of the same
+    // customer's conversation, each independently fetching/subscribing.
+    // ChatButton/ChatPanel below still just need SOME ChatProvider
+    // ancestor, which the root now guarantees regardless of which
+    // top-level layout renders them.
+    <div className="bg-parchment">
+      <Header />
 
-        {/* paddingTop is measured live from the actual <header> element above,
-            so this stays correct regardless of Header's internal height. */}
-        <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
+      {/* paddingTop is measured live from the actual <header> element above,
+          so this stays correct regardless of Header's internal height. */}
+      <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
 
-        <Footer />
-        <ChatButton />
-        <ChatPanel />
-      </div>
-    </ChatProvider>
+      <Footer />
+      <ChatButton />
+      <ChatPanel />
+    </div>
   )
 }

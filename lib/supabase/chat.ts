@@ -387,10 +387,28 @@ export async function sendChatMessage(
   // actually tagged — an untagged message doesn't touch either flag.
   const isUnreplied = params.sender === 'customer'
   if (params.requestId) {
-    await supabase.from('requests').update({ has_unreplied_message: isUnreplied }).eq('id', params.requestId)
+    const { error: requestFlagError } = await supabase
+      .from('requests')
+      .update({ has_unreplied_message: isUnreplied })
+      .eq('id', params.requestId)
+    // Deliberately not thrown — the message itself already sent
+    // successfully above, and failing the whole send over a secondary
+    // flag would be worse than a stale badge. But silent was worse
+    // still: this write needs orders/requests to have an UPDATE RLS
+    // policy permissive enough for whichever session is calling
+    // sendChatMessage (customer, or staff via sendAdminChatMessage) —
+    // if that policy is missing or too narrow, this fails every time
+    // and "Awaiting reply" simply never appears anywhere, with nothing
+    // in the UI to explain why. Loud in the console is the least this
+    // deserves until it's actually been exercised against real RLS.
+    if (requestFlagError) console.error('[sendChatMessage] failed to update requests.has_unreplied_message', requestFlagError)
   }
   if (params.orderId) {
-    await supabase.from('orders').update({ has_unreplied_message: isUnreplied }).eq('id', params.orderId)
+    const { error: orderFlagError } = await supabase
+      .from('orders')
+      .update({ has_unreplied_message: isUnreplied })
+      .eq('id', params.orderId)
+    if (orderFlagError) console.error('[sendChatMessage] failed to update orders.has_unreplied_message', orderFlagError)
   }
 
   return data
