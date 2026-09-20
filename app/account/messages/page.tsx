@@ -316,7 +316,7 @@ export default function AccountMessagesPage() {
               root, and `sticky bottom-0` keeps it pinned once messages
               overflow and the section starts scrolling. `shrink-0` so it
               is never squeezed by the flex-1 message list. */}
-          <div className="sticky bottom-0 z-10 -mx-8 shrink-0 bg-parchment px-8 pb-3">
+          <div className="sticky bottom-0 z-10 -mx-8 shrink-0 bg-parchment px-8 pb-1">
             {pendingFiles.length > 0 && (
               <div className="flex gap-2 overflow-x-auto border-t border-ink/10 pt-3">
                 {pendingFiles.map((f, i) => (
