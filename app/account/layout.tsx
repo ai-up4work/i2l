@@ -185,15 +185,24 @@ function AccountShell({ children }: { children: React.ReactNode }) {
             nav-h` var, and is zeroed at `lg:` — MobileBottomNav itself
             unmounts/hides on desktop, so the reserved gap under the
             content column was previously left dangling there with
-            nothing to fill it. */}
+            nothing to fill it.
+
+            FIX (messages composer): this section is now a flex column
+            (`flex flex-col`) so a page can use `flex-1` on its root to
+            fill whatever height is left under the banner. That is what
+            lets /account/messages pin its composer to the bottom even
+            when there are 0 or 1 messages. The section is still the
+            one and only scroll container (`overflow-y-auto`). */}
         <section
-          className="content-scroll min-w-0 lg:mt-1 flex-1 overflow-y-auto pb-[72px] lg:pb-0"
+          className="content-scroll flex min-w-0 flex-1 flex-col overflow-y-auto pb-[72px] lg:mt-1 lg:pb-0"
         >
           {/* WelcomeBanner is only ever rendered while the modal is
               closed — no fixed/pushed positioning needed anymore, since
-              it and ItemInfoModal are never on screen at the same time. */}
+              it and ItemInfoModal are never on screen at the same time.
+              `shrink-0` keeps it at its natural height now that the
+              section is a flex column. */}
           {!overlayActive && (
-            <div ref={bannerRef} className={bannerOpen ? 'relative mb-4' : 'relative mt-8 lg:mt-0'}>
+            <div ref={bannerRef} className={bannerOpen ? 'relative mb-4 shrink-0' : 'relative mt-8 shrink-0 lg:mt-0'}>
               <WelcomeBanner
                 open={bannerOpen}
                 onDismiss={() => setBannerDismissed(true)}

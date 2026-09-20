@@ -43,6 +43,13 @@ function groupByDate(messages: ChatMessage[]) {
  * this inherited (sticky footer, no owned scroll container — `section`
  * from app/account/layout.tsx is the real scroller).
  *
+ * LAYOUT: app/account/layout.tsx makes that `section` a flex column, so
+ * this page's root uses `flex-1` to fill all the height left under the
+ * banner. The message list also uses `flex-1`, which soaks up the spare
+ * space and pushes the composer to the bottom — even with 0 or 1
+ * messages. Once messages overflow, the composer's `sticky bottom-0`
+ * keeps it pinned while the section scrolls.
+ *
  * Real data now: messages come from Supabase (chat_threads/chat_messages)
  * via ChatContext, not localStorage. Reply quoting is preserved as a
  * text convention (see lib/supabase/chat.ts's buildReplyBody) rather than
@@ -146,7 +153,9 @@ export default function AccountMessagesPage() {
   }
 
   return (
-    <div className="flex w-full flex-col bg-parchment px-8">
+    // `flex-1` (not `min-h-full`) — the parent section is a flex column,
+    // so this stretches to fill the space under the banner.
+    <div className="flex w-full flex-1 flex-col bg-parchment px-8">
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-ink/10 bg-parchment pb-4 pt-6">
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-teal-deep text-parchment">
@@ -172,7 +181,7 @@ export default function AccountMessagesPage() {
       </div>
 
       {isLocked ? (
-        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <MessageCircle size={32} className="text-ink/20" strokeWidth={1.4} />
           <p className="font-body text-sm text-ink/50">
             Sign in to chat with us — or continue the conversation on WhatsApp instead.
@@ -195,7 +204,10 @@ export default function AccountMessagesPage() {
         </div>
       ) : (
         <>
-          <div ref={messagesContainerRef} className="space-y-1 py-4">
+          {/* flex-1 = takes every spare pixel between the header and the
+              composer, which is what pins the composer to the bottom.
+              It's also a flex column so the empty state can fill it. */}
+          <div ref={messagesContainerRef} className="flex flex-1 flex-col space-y-1 py-4">
             {hasMoreMessages && messages.length > 0 && (
               <div className="flex justify-center pb-3">
                 {loadingMoreMessages ? (
@@ -212,7 +224,7 @@ export default function AccountMessagesPage() {
               </div>
             )}
             {messages.length === 0 ? (
-              <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
                 <MessageCircle size={28} className="text-ink/20" strokeWidth={1.4} />
                 <p className="font-body text-sm text-ink/50">
                   Send us a message, or paste a product link — we'll take it from there.
@@ -300,7 +312,11 @@ export default function AccountMessagesPage() {
             <div ref={bottomSentinelRef} />
           </div>
 
-          <div className="sticky bottom-0 z-10 -mx-8 bg-parchment px-8 pb-3">
+          {/* Composer: sits at the bottom of the (now full-height) page
+              root, and `sticky bottom-0` keeps it pinned once messages
+              overflow and the section starts scrolling. `shrink-0` so it
+              is never squeezed by the flex-1 message list. */}
+          <div className="sticky bottom-0 z-10 -mx-8 shrink-0 bg-parchment px-8 pb-3">
             {pendingFiles.length > 0 && (
               <div className="flex gap-2 overflow-x-auto border-t border-ink/10 pt-3">
                 {pendingFiles.map((f, i) => (
