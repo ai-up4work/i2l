@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, ChevronRight, Inbox, Ruler, Search, SearchX } from "lucide-react"
+import { AlertTriangle, ChevronRight, Inbox, MessageCircle, Ruler, Search, SearchX } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { REQUEST_SLA_HOURS, REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
@@ -257,6 +257,15 @@ export default function RequestsPage() {
                         <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30">
                           <Ruler size={11} aria-hidden />
                           Confirm variant
+                        </span>
+                      )}
+                      {r.hasUnrepliedMessage && (
+                        <span
+                          title="The customer's last message about this request hasn't been replied to yet"
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
+                        >
+                          <MessageCircle size={11} className="shrink-0 animate-pulse" aria-hidden />
+                          Awaiting reply
                         </span>
                       )}
                       <span className="text-xs tabular-nums text-ink/50">{r.ageLabel}</span>

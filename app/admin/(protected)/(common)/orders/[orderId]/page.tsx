@@ -429,13 +429,26 @@ export default function OrderDetailPage() {
                 in types/admin.ts — but if an old order somehow lacks
                 one, the drawer itself explains that inline rather than
                 hiding the button entirely). */}
-            <button type="button" onClick={() => setChatOpen(true)} className={BTN_OUTLINE}>
+            <button
+              type="button"
+              onClick={() => setChatOpen(true)}
+              className={`relative ${BTN_OUTLINE} ${
+                order.hasUnrepliedMessage ? "border-gold/50 bg-gold/10 text-gold-deep hover:bg-gold/15" : ""
+              }`}
+            >
               <MessageSquare size={14} />
               Open chat
-              {orderMessages.length > 0 && (
-                <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
-                  {orderMessages.length}
+              {order.hasUnrepliedMessage ? (
+                <span className="flex items-center gap-1 rounded-full bg-gold/20 px-1.5 py-0.5 text-xs font-semibold text-gold-deep">
+                  <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-gold-deep" />
+                  Awaiting reply
                 </span>
+              ) : (
+                orderMessages.length > 0 && (
+                  <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
+                    {orderMessages.length}
+                  </span>
+                )
               )}
             </button>
             {permissions.canDelete && (

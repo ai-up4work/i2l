@@ -332,18 +332,11 @@ function AdminChatPageInner() {
   // "last" about. Only fetches ids not already resolved.
   useEffect(() => {
     const missingOrderIds = Array.from(
-      new Set(
-        messages
-          .map((m) => m.order_id)
-          .filter((id): id is string => Boolean(id))
-          .filter((id) => !orderDisplayById.has(id)),
-      ),
+      new Set(messages.map((m) => m.order_id).filter((id): id is string => id != null && !orderDisplayById.has(id))),
     )
     const missingRequestIds = Array.from(
       new Set(
-        messages
-          .map((m) => m.request_id)
-          .filter((id): id is string => Boolean(id) && !requestDisplayById.has(id as string)),
+        messages.map((m) => m.request_id).filter((id): id is string => id != null && !requestDisplayById.has(id)),
       ),
     )
     if (missingOrderIds.length === 0 && missingRequestIds.length === 0) return

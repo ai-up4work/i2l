@@ -363,6 +363,28 @@ export function AdminSidebar() {
     visibleShippedLines,
   ])
 
+  // Separate from badgeCounts above on purpose: those are backlog SIZES
+  // (rose, numeric — "how much is in this queue"), this is a "does
+  // anything here need a reply" flag (gold, a dot, not a number) — see
+  // Order.hasUnrepliedMessage / RequestLine.hasUnrepliedMessage and
+  // data/wishdrop-orders-requests-unreplied-flag.sql. The two are
+  // independent: an order can have zero backlog concerns and still be
+  // sitting on an unanswered customer message, or vice versa.
+  const attentionFlags = useMemo(() => {
+    const flags: Record<string, boolean> = {}
+    flags["/admin/orders"] = visibleOrders.some(
+      (o) => (o as typeof o & { hasUnrepliedMessage?: boolean }).hasUnrepliedMessage,
+    )
+    flags["/admin/requests"] = requestLines.some(
+      (r) => (r as typeof r & { hasUnrepliedMessage?: boolean }).hasUnrepliedMessage,
+    )
+    // Customer chat's own unread signal already exists (chatThreads
+    // .unread, feeding the rose count above) and is a superset of this
+    // — every unreplied order/request message is also a thread-level
+    // unread, so no separate dot is needed there.
+    return flags
+  }, [visibleOrders, requestLines])
+
   const isActive = (href: string) =>
     href === "/admin" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
 
@@ -405,6 +427,7 @@ export function AdminSidebar() {
               active={isActive(item.href)}
               collapsed={collapsed}
               count={badgeCounts[item.href]}
+              attention={attentionFlags[item.href]}
             />
           ))}
         </div>
@@ -422,6 +445,7 @@ export function AdminSidebar() {
                   active={isActive(item.href)}
                   collapsed={collapsed}
                   count={badgeCounts[item.href]}
+                  attention={attentionFlags[item.href]}
                 />
               ))}
             </div>
@@ -469,11 +493,19 @@ function SidebarLink({
   active,
   collapsed,
   count,
+  attention,
 }: {
   item: NavItem
   active: boolean
   collapsed: boolean
   count?: number
+  /** A gold pulsing dot, separate from the numeric `count` pill/dot
+   * above (which is rose and means "backlog size") — this means
+   * "something in this list is waiting on a reply" specifically. See
+   * badgeCounts' sibling `attentionFlags` below. The two can be true at
+   * once, so they're rendered at different corners/positions rather
+   * than sharing one. */
+  attention?: boolean
 }) {
   const Icon = item.icon
   const hasSignal = !!count && count > 0
@@ -545,6 +577,9 @@ function SidebarLink({
           {collapsed && !item.country && hasSignal && (
             <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
           )}
+          {collapsed && attention && (
+            <span className="absolute -left-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-gold-deep ring-2 ring-card" />
+          )}
         </span>
         {!collapsed && <span className="truncate flex-1">{item.label}</span>}
         {/* Expanded: the literal flag(s), rendered as real images via
@@ -556,6 +591,14 @@ function SidebarLink({
           <span className="flex-none">
             <CountryFlagIcon country={item.country} className="h-2.5 w-4 rounded-[1px] object-cover shadow-sm" />
           </span>
+        )}
+        {/* Expanded: a small pulsing dot before the count pill — same
+            "needs a reply" signal as the collapsed corner dot above. */}
+        {!collapsed && attention && (
+          <span
+            title="Something here is waiting on a reply"
+            className="ml-auto h-2 w-2 flex-none animate-pulse rounded-full bg-gold-deep"
+          />
         )}
         {/* Expanded: a count pill, right-aligned. Capped at "99+" so a
             very large backlog doesn't blow out the row width. */}

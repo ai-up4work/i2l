@@ -526,6 +526,9 @@ export interface Database {
           seller_name: string | null
           quantity: number
           variant_options: Json | null
+          // Kept current by sendChatMessage() in lib/supabase/chat.ts —
+          // see data/wishdrop-orders-requests-unreplied-flag.sql.
+          has_unreplied_message: boolean
         }
         Insert: {
           id?: string
@@ -552,6 +555,7 @@ export interface Database {
           seller_name?: string | null
           quantity?: number
           variant_options?: Json | null
+          has_unreplied_message?: boolean
         }
         Update: Partial<Database['public']['Tables']['requests']['Insert']>
         Relationships: []
@@ -623,6 +627,9 @@ export interface Database {
           delivered_confirmed_by: 'warehouse' | 'customer' | null
           created_at: string
           stage_entered_at: string
+          // Kept current by sendChatMessage() in lib/supabase/chat.ts —
+          // see data/wishdrop-orders-requests-unreplied-flag.sql.
+          has_unreplied_message: boolean
         }
         Insert: {
           id?: string
@@ -652,6 +659,7 @@ export interface Database {
           delivered_confirmed_by?: 'warehouse' | 'customer' | null
           created_at?: string
           stage_entered_at?: string
+          has_unreplied_message?: boolean
         }
         Update: Partial<Database['public']['Tables']['orders']['Insert']>
         Relationships: []

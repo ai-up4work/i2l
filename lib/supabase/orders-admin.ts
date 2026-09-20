@@ -298,6 +298,11 @@ export interface AdminOrder {
   stageEnteredAt: string
   requestId: string | null
   chatThreadId: string | null
+  /** True when the last message tagged to THIS order was from the
+   * customer with no ops reply after it — see
+   * data/wishdrop-orders-requests-unreplied-flag.sql. Powers the
+   * attention indicator on the orders queue and this order's own page. */
+  hasUnrepliedMessage: boolean
   recipient?: { id: string; name: string; addressLine1: string; addressLine2?: string; city: string; country: string }
   items: AdminOrderItem[]
 }
@@ -331,6 +336,7 @@ type OrderRow = {
   delivered_confirmed_by: 'warehouse' | 'customer' | null
   created_at: string
   stage_entered_at: string
+  has_unreplied_message: boolean
   order_items: {
     id: string
     title: string
@@ -386,6 +392,7 @@ function mapRowToAdminOrder(
     stageEnteredAt: row.stage_entered_at,
     requestId: row.request_id,
     chatThreadId: row.chat_thread_id,
+    hasUnrepliedMessage: row.has_unreplied_message,
     recipient: row.addresses
       ? {
           id: row.addresses.id,
@@ -427,7 +434,7 @@ function mapRowToAdminOrder(
 
 const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_value, delayed, export_hold, site_id,
   request_id, chat_thread_id, carrier, tracking_number, estimated_delivery, delivered_confirmed_by,
-  created_at, stage_entered_at,
+  created_at, stage_entered_at, has_unreplied_message,
   order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, qc_passed_at, qc_note, product_image_url, product_snapshots ( image_url ) ),
   addresses ( id, recipient_name, address_line1, address_line2, city, country )`
 

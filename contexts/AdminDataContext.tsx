@@ -595,6 +595,7 @@ function mapToOrder(
     })),
     linkedRequestId: undefined,
     chatThreadId: o.chatThreadId ?? undefined,
+    hasUnrepliedMessage: o.hasUnrepliedMessage,
     destination: o.recipient ? `${o.recipient.city}, ${o.recipient.country}` : undefined,
     recipientAddressId: o.recipient?.id,
     recipientAddressLine: o.recipient
@@ -988,6 +989,7 @@ function buildRequest(seed: RequestSeed): Request {
     submittedAt: isoHoursAgo(seed.submittedHoursAgo),
     assignedStaffId: seed.assignedStaffId,
     chatThreadId: seed.chatThreadId,
+    hasUnrepliedMessage: false,
   }
 }
 
@@ -1496,6 +1498,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         submittedAt: r.submittedAt,
         assignedStaffId: r.assignedStaffId,
         chatThreadId: r.chatThreadId,
+        hasUnrepliedMessage: chatThreads.find((t) => t.id === r.chatThreadId)?.unread ?? false,
         // FIX: this was missing, so the debounced real-time refetch (any
         // change on `requests`, including confirmPayment's own write)
         // would silently overwrite a just-confirmed payment with an
@@ -2745,6 +2748,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         assignedStaffId: r.assignedStaffId,
         assignedStaffName: staffName,
         chatThreadId: r.chatThreadId,
+        hasUnrepliedMessage: chatThreads.find((t) => t.id === r.chatThreadId)?.unread ?? false,
         ageHours,
         ageLabel: formatAge(ageHours),
         slaBreached: isOpen && ageHours > REQUEST_SLA_HOURS,
@@ -2754,7 +2758,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         payment: r.payment,
       }
     })
-  }, [requests, orders, staffDirectory])
+  }, [requests, orders, staffDirectory, chatThreads])
 
   const getRequestLine = (id: string) => requestLines.find((l) => l.id === id)
 

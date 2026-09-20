@@ -171,6 +171,11 @@ export interface Order {
    * QCLine.chatThreadId) rather than each re-deriving it from
    * linkedRequestId. */
   chatThreadId?: string
+  /** True when the last message tagged to THIS order was from the
+   * customer with no ops reply after it — see
+   * data/wishdrop-orders-requests-unreplied-flag.sql. Powers the
+   * attention indicator on the orders queue and this order's own page. */
+  hasUnrepliedMessage?: boolean
   /** Customer-facing delivery city/area — shown on the Pack & label queue */
   destination?: string
   /** Real address row id (addresses.id) this order ships to — the exact
@@ -740,6 +745,10 @@ export interface Request {
   assignedStaffId?: string
   /** 1:1 with a ChatThread — this is how a request and its conversation stay linked */
   chatThreadId: string
+  /** True when the last message tagged to THIS request was from the
+   * customer with no ops reply after it — see
+   * data/wishdrop-orders-requests-unreplied-flag.sql. */
+  hasUnrepliedMessage: boolean
   /** Present once payment has been confirmed for this request's quote */
   payment?: RequestPayment
 }
@@ -791,6 +800,7 @@ export interface RequestLine {
   assignedStaffId?: string
   assignedStaffName: string
   chatThreadId: string
+  hasUnrepliedMessage: boolean
   ageHours: number
   ageLabel: string
   /** True only while still sent_for_review/quoted and past REQUEST_SLA_HOURS — confirmed/declined requests never breach */

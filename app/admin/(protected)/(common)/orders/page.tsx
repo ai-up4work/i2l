@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Flag, Inbox, MapPinned, Package, Search, SearchX, X } from "lucide-react"
+import { ChevronRight, Flag, Inbox, MapPinned, MessageCircle, Package, Search, SearchX, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import type { Channel, Order, OrderStage } from "@/types/admin"
@@ -410,6 +410,15 @@ export default function OrdersPage() {
                               </span>
                             )}
                             {o.delayed && <Pill tone="rose">Delayed</Pill>}
+                            {o.hasUnrepliedMessage && (
+                              <span
+                                title="The customer's last message about this order hasn't been replied to yet"
+                                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
+                              >
+                                <MessageCircle size={11} className="shrink-0 animate-pulse" aria-hidden />
+                                Awaiting reply
+                              </span>
+                            )}
                           </div>
                           <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink/55">
                             <span className="truncate">{o.customerName}</span>

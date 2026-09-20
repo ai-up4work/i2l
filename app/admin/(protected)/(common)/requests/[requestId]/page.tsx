@@ -647,13 +647,26 @@ export default function RequestDetailPage() {
 
           <div className="flex items-center gap-2">
             {request.chatThreadId && (
-              <button type="button" onClick={() => setChatOpen(true)} className={BTN_OUTLINE}>
+              <button
+                type="button"
+                onClick={() => setChatOpen(true)}
+                className={`relative ${BTN_OUTLINE} ${
+                  request.hasUnrepliedMessage ? "border-gold/50 bg-gold/10 text-gold-deep hover:bg-gold/15" : ""
+                }`}
+              >
                 <MessageSquare size={14} />
                 Chat
-                {requestMessages.length > 0 && (
-                  <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
-                    {requestMessages.length}
+                {request.hasUnrepliedMessage ? (
+                  <span className="flex items-center gap-1 rounded-full bg-gold/20 px-1.5 py-0.5 text-xs font-semibold text-gold-deep">
+                    <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-gold-deep" />
+                    Awaiting reply
                   </span>
+                ) : (
+                  requestMessages.length > 0 && (
+                    <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
+                      {requestMessages.length}
+                    </span>
+                  )
                 )}
               </button>
             )}

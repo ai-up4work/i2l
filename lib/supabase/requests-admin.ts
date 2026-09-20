@@ -115,6 +115,10 @@ export interface RealRequest {
   submittedAt: string
   assignedStaffId?: string
   chatThreadId: string
+  /** True when the last message tagged to THIS request was from the
+   * customer with no ops reply after it — see
+   * data/wishdrop-orders-requests-unreplied-flag.sql. */
+  hasUnrepliedMessage: boolean
   payment?: RealRequestPayment
 }
 
@@ -146,7 +150,7 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
   const { data, error } = await supabase
     .from('requests')
     .select(
-      'id, user_id, display_id, link, note, item_name, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by, needs_variant_confirmation, confirmed_variant, product_image_url, seller_name, quantity, variant_options',
+      'id, user_id, display_id, link, note, item_name, screenshot_url, source_domain, status, quote, chat_thread_id, assigned_staff_id, submitted_at, payment_amount, payment_method, payment_reference, payment_confirmed_at, payment_confirmed_by, needs_variant_confirmation, confirmed_variant, product_image_url, seller_name, quantity, variant_options, has_unreplied_message',
     )
     .order('submitted_at', { ascending: false })
   if (error) {
@@ -209,6 +213,7 @@ export async function fetchAdminRequests(): Promise<RealRequest[]> {
     submittedAt: r.submitted_at,
     assignedStaffId: r.assigned_staff_id ?? undefined,
     chatThreadId: r.chat_thread_id,
+    hasUnrepliedMessage: r.has_unreplied_message,
     payment: r.payment_confirmed_at
       ? {
           amount: r.payment_amount ?? 0,

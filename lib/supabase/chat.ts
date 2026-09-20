@@ -377,6 +377,22 @@ export async function sendChatMessage(
   if (params.orderId !== undefined) threadUpdate.last_order_id = params.orderId
   await supabase.from('chat_threads').update(threadUpdate).eq('id', params.threadId)
 
+  // Per-record "needs a reply" flag — see
+  // data/wishdrop-orders-requests-unreplied-flag.sql. True the moment a
+  // CUSTOMER message tagged to this order/request lands, false the
+  // moment an OPS message tagged to it goes out — same on/off pattern
+  // as chat_threads.unread above, just scoped to one order/request
+  // instead of the whole thread, since a thread can carry many of each
+  // over a customer's lifetime. Only touches the record this message
+  // actually tagged — an untagged message doesn't touch either flag.
+  const isUnreplied = params.sender === 'customer'
+  if (params.requestId) {
+    await supabase.from('requests').update({ has_unreplied_message: isUnreplied }).eq('id', params.requestId)
+  }
+  if (params.orderId) {
+    await supabase.from('orders').update({ has_unreplied_message: isUnreplied }).eq('id', params.orderId)
+  }
+
   return data
 }
 
