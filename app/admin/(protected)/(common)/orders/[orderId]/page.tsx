@@ -517,17 +517,17 @@ export default function OrderDetailPage() {
           {/* Sidebar */}
           <aside className="flex flex-col gap-6">
             <SectionCard title="Customer chat">
-              {order.linkedRequestId ? (
+              {order.chatThreadId ? (
                 <Link
-                  href={`/admin/chat?requestId=${order.linkedRequestId}`}
+                  href={`/admin/chat?thread=${order.chatThreadId}`}
                   className={`flex items-center gap-3 rounded-xl bg-teal/10 px-4 py-3 text-sm font-medium text-teal-deep transition-colors hover:bg-teal/15 ${FOCUS}`}
                 >
                   <MessageSquare size={16} className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">Open thread for {order.linkedRequestId}</span>
+                  <span className="min-w-0 flex-1 truncate">Open chat with {order.customerName}</span>
                   <ChevronRight size={16} className="shrink-0 text-teal-deep/50" />
                 </Link>
               ) : (
-                <p className="text-sm text-ink/45">This order has no linked request, so there's no chat thread.</p>
+                <p className="text-sm text-ink/45">No chat thread linked to this order.</p>
               )}
             </SectionCard>
 
