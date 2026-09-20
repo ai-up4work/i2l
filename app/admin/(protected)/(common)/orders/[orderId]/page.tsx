@@ -439,70 +439,215 @@ export default function OrderDetailPage() {
           </div>
         </div>
 
+        {/*
+          LAYOUT: one 3-column grid, laid out in two rows.
+            Row 1: Pipeline (2 cols) + Customer chat (1 col). Both are direct
+                   grid items in the SAME row, so the grid itself keeps them
+                   exactly the same height.
+            Row 2: Items + Stage history (2 cols, stacked) + Internal notes (1 col).
+          On screens below `lg` everything simply stacks in this order.
+        */}
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Main column */}
-          <div className="flex flex-col gap-6 lg:col-span-2">
-            <SectionCard title="Pipeline">
-              <StageTracker current={order.stage} history={order.stageHistory} />
+          {/* Row 1, left: Pipeline */}
+          <SectionCard title="Pipeline" className="lg:col-span-2">
+            <StageTracker current={order.stage} history={order.stageHistory} />
 
-              {canOverride ? (
-                <div className="mt-6 rounded-xl bg-ink/[0.03] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="max-w-md text-sm text-ink/55">
-                      Manager override. Orders normally advance on their own through Quality check, Pack &amp; label
-                      and In transit.
-                    </p>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={handleRollback} disabled={stageIdx <= 0} className={BTN_OUTLINE}>
-                        Roll back
-                      </button>
+            {canOverride ? (
+              <div className="mt-6 rounded-xl bg-ink/[0.03] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="max-w-md text-sm text-ink/55">
+                    Manager override. Orders normally advance on their own through Quality check, Pack &amp; label
+                    and In transit.
+                  </p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleRollback} disabled={stageIdx <= 0} className={BTN_OUTLINE}>
+                      Roll back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAdvance}
+                      disabled={stageIdx >= STAGE_ORDER.length - 1 || !advanceCheck.allowed}
+                      title={!advanceCheck.allowed ? advanceCheck.reason : undefined}
+                      className={BTN_PRIMARY}
+                    >
+                      Advance to next stage
+                    </button>
+                  </div>
+                </div>
+                {(blockedReason || stageError) && (
+                  <p role="alert" className="mt-3 flex items-start gap-1.5 text-sm text-rose-700">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    {stageError ?? blockedReason}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-6 rounded-xl bg-ink/[0.03] p-4 text-sm text-ink/50">
+                This order moves forward automatically as it clears Purchases, Quality check, Pack &amp; label and
+                In transit. Only a manager can change its stage directly.
+              </p>
+            )}
+
+            {permissions.canReassignSite && (
+              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <label htmlFor="reassign-site" className="text-sm font-medium text-ink/70">
+                  Fulfilling site
+                </label>
+                <select
+                  id="reassign-site"
+                  value={order.siteId}
+                  onChange={(e) => reassignSite(order.id, e.target.value)}
+                  className={FIELD}
+                >
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-ink/45">Changing the site restarts QC if the order is mid-QC.</span>
+              </div>
+            )}
+          </SectionCard>
+
+          {/* Row 1, right: Customer chat.
+              The wrapper is what sits in the grid row. From `lg` up the chat
+              card is absolutely positioned to fill it (`inset-0`), so its own
+              content can never make the row taller than the Pipeline card —
+              the message list scrolls inside instead. `lg:min-h-[24rem]` is a
+              floor so the chat stays usable when Pipeline is short (both cards
+              stretch to it together, so they still match). Below `lg` it's a
+              normal stacked card with a capped, scrollable list. */}
+          <div className="relative lg:col-span-1 lg:min-h-[24rem]">
+            <section className="flex flex-col rounded-2xl border border-ink/10 bg-card p-5 lg:absolute lg:inset-0">
+              <div className="flex flex-none items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
+                  <MessageSquare size={16} className="text-teal-deep" />
+                  Customer chat
+                </h2>
+                {order.chatThreadId && (
+                  <Link
+                    href={`/admin/chat?thread=${order.chatThreadId}`}
+                    className={`flex items-center gap-1 rounded text-xs font-semibold text-teal-deep hover:underline ${FOCUS}`}
+                  >
+                    Full thread <ChevronRight size={12} />
+                  </Link>
+                )}
+              </div>
+
+              {!order.chatThreadId ? (
+                <p className="mt-3 text-sm text-ink/45">No chat thread linked to this order.</p>
+              ) : (
+                <>
+                  <p className="mt-1 flex-none text-xs text-ink/50">
+                    Only messages tagged to this order — the full thread may carry more history than shown here.
+                  </p>
+
+                  <div
+                    ref={messageListRef}
+                    className="mt-4 max-h-[22rem] min-h-[6rem] space-y-2 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1"
+                  >
+                    {loadingMessages ? (
+                      <p className="text-sm text-ink/40">Loading messages…</p>
+                    ) : orderMessages.length === 0 ? (
+                      <p className="text-sm text-ink/45">No messages about this order yet.</p>
+                    ) : (
+                      orderMessages.map((m) => (
+                        <div
+                          key={m.id}
+                          className={`rounded-xl border-l-2 p-3 text-sm shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
+                            m.sender === "customer"
+                              ? "border-l-ink/20 bg-parchment/50"
+                              : "border-l-teal-deep bg-teal/[0.05]"
+                          }`}
+                        >
+                          {m.text && <p className="whitespace-pre-wrap break-words text-ink/80">{m.text}</p>}
+                          {m.attachment_url && (
+                            <a
+                              href={m.attachment_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
+                            >
+                              View attachment <ExternalLink size={11} />
+                            </a>
+                          )}
+                          <p className="mt-1.5 text-xs text-ink/40">
+                            {m.sender_name}, {new Date(m.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="mt-auto flex-none space-y-2 pt-4">
+                    <label htmlFor="order-message-draft" className="sr-only">
+                      Send a message about this order
+                    </label>
+                    {messageAttachmentUrl && (
+                      <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment/40 p-2">
+                        <img src={messageAttachmentUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
+                        <span className="flex-1 text-xs text-ink/50">Image attached</span>
+                        <button
+                          type="button"
+                          onClick={() => setMessageAttachmentUrl(null)}
+                          aria-label="Remove attachment"
+                          className="rounded p-1 text-ink/40 hover:bg-ink/[0.06] hover:text-ink"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )}
+                    <textarea
+                      id="order-message-draft"
+                      value={messageDraft}
+                      onChange={(e) => setMessageDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSendOrderMessage()
+                      }}
+                      rows={2}
+                      placeholder="Message the customer about this order…"
+                      disabled={sendingMessage}
+                      className={`${FIELD} w-full resize-none`}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        className={`flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 ${
+                          uploadingAttachment ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          disabled={uploadingAttachment}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ""
+                            if (file) handleAttachMessageImage(file)
+                          }}
+                          className="hidden"
+                        />
+                        {uploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                        {uploadingAttachment ? "Uploading…" : "Attach image"}
+                      </label>
                       <button
                         type="button"
-                        onClick={handleAdvance}
-                        disabled={stageIdx >= STAGE_ORDER.length - 1 || !advanceCheck.allowed}
-                        title={!advanceCheck.allowed ? advanceCheck.reason : undefined}
+                        onClick={handleSendOrderMessage}
+                        disabled={(!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage}
                         className={BTN_PRIMARY}
                       >
-                        Advance to next stage
+                        <Send size={13} />
+                        Send
                       </button>
                     </div>
                   </div>
-                  {(blockedReason || stageError) && (
-                    <p role="alert" className="mt-3 flex items-start gap-1.5 text-sm text-rose-700">
-                      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                      {stageError ?? blockedReason}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="mt-6 rounded-xl bg-ink/[0.03] p-4 text-sm text-ink/50">
-                  This order moves forward automatically as it clears Purchases, Quality check, Pack &amp; label and
-                  In transit. Only a manager can change its stage directly.
-                </p>
+                </>
               )}
+            </section>
+          </div>
 
-              {permissions.canReassignSite && (
-                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <label htmlFor="reassign-site" className="text-sm font-medium text-ink/70">
-                    Fulfilling site
-                  </label>
-                  <select
-                    id="reassign-site"
-                    value={order.siteId}
-                    onChange={(e) => reassignSite(order.id, e.target.value)}
-                    className={FIELD}
-                  >
-                    {sites.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-xs text-ink/45">Changing the site restarts QC if the order is mid-QC.</span>
-                </div>
-              )}
-            </SectionCard>
-
+          {/* Row 2, left: Items + Stage history */}
+          <div className="flex flex-col gap-6 lg:col-span-2">
             <SectionCard title="Items" count={order.items.length}>
               <ul className="divide-y divide-ink/[0.07]">
                 {order.items.map((item) => {
@@ -615,132 +760,9 @@ export default function OrderDetailPage() {
             </SectionCard>
           </div>
 
-          {/* Sidebar */}
-          <aside className="flex flex-col gap-6">
-            <section className="flex flex-1 flex-col rounded-2xl border border-ink/10 bg-card p-5">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-                  <MessageSquare size={16} className="text-teal-deep" />
-                  Customer chat
-                </h2>
-                {order.chatThreadId && (
-                  <Link
-                    href={`/admin/chat?thread=${order.chatThreadId}`}
-                    className={`flex items-center gap-1 rounded text-xs font-semibold text-teal-deep hover:underline ${FOCUS}`}
-                  >
-                    Full thread <ChevronRight size={12} />
-                  </Link>
-                )}
-              </div>
-
-              {!order.chatThreadId ? (
-                <p className="mt-3 text-sm text-ink/45">No chat thread linked to this order.</p>
-              ) : (
-                <>
-                  <p className="mt-1 text-xs text-ink/50">
-                    Only messages tagged to this order — the full thread may carry more history than shown here.
-                  </p>
-
-                  <div ref={messageListRef} className="mt-4 max-h-[22rem] min-h-[6rem] space-y-2 overflow-y-auto">
-                    {loadingMessages ? (
-                      <p className="text-sm text-ink/40">Loading messages…</p>
-                    ) : orderMessages.length === 0 ? (
-                      <p className="text-sm text-ink/45">No messages about this order yet.</p>
-                    ) : (
-                      orderMessages.map((m) => (
-                        <div
-                          key={m.id}
-                          className={`rounded-xl border-l-2 p-3 text-sm shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
-                            m.sender === "customer"
-                              ? "border-l-ink/20 bg-parchment/50"
-                              : "border-l-teal-deep bg-teal/[0.05]"
-                          }`}
-                        >
-                          {m.text && <p className="whitespace-pre-wrap break-words text-ink/80">{m.text}</p>}
-                          {m.attachment_url && (
-                            <a
-                              href={m.attachment_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
-                            >
-                              View attachment <ExternalLink size={11} />
-                            </a>
-                          )}
-                          <p className="mt-1.5 text-xs text-ink/40">
-                            {m.sender_name}, {new Date(m.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="mt-auto space-y-2 pt-4">
-                    <label htmlFor="order-message-draft" className="sr-only">
-                      Send a message about this order
-                    </label>
-                    {messageAttachmentUrl && (
-                      <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment/40 p-2">
-                        <img src={messageAttachmentUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
-                        <span className="flex-1 text-xs text-ink/50">Image attached</span>
-                        <button
-                          type="button"
-                          onClick={() => setMessageAttachmentUrl(null)}
-                          aria-label="Remove attachment"
-                          className="rounded p-1 text-ink/40 hover:bg-ink/[0.06] hover:text-ink"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    )}
-                    <textarea
-                      id="order-message-draft"
-                      value={messageDraft}
-                      onChange={(e) => setMessageDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSendOrderMessage()
-                      }}
-                      rows={2}
-                      placeholder="Message the customer about this order…"
-                      disabled={sendingMessage}
-                      className={`${FIELD} w-full resize-none`}
-                    />
-                    {/* <div className="text-center text-xs text-ink/40">Ctrl or ⌘ + Enter to send</div> */}
-                    <div className="flex items-center justify-between gap-2">
-                      <label
-                        className={`flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 ${
-                          uploadingAttachment ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-                        }`}
-                      >
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp,image/gif"
-                          disabled={uploadingAttachment}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            e.target.value = ""
-                            if (file) handleAttachMessageImage(file)
-                          }}
-                          className="hidden"
-                        />
-                        {uploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
-                        {uploadingAttachment ? "Uploading…" : "Attach image"}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleSendOrderMessage}
-                        disabled={(!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage}
-                        className={BTN_PRIMARY}
-                      >
-                        <Send size={13} />
-                        Send
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
-
+          {/* Row 2, right: Internal notes (stretches to match the Items +
+              Stage history column beside it) */}
+          <aside className="flex flex-col lg:col-span-1">
             <section className="flex flex-1 flex-col rounded-2xl border border-gold/30 bg-gold/[0.07] p-5">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
                 <PencilLine size={16} className="text-gold-deep" />
