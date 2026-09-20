@@ -17,8 +17,16 @@ export default function ProductRequestOverlay() {
     beginRequestForUrl,
   } = useDashboard()
 
-  if (!modalOpen) return null
-
+  // FIX: this used to be `if (!modalOpen) return null`, unmounting
+  // ItemInfoModal the instant modalOpen went false — before its own
+  // internal close transition (mounted/entered state, see that file)
+  // ever got a chance to play. Same bug independently found and fixed
+  // in app/account/layout.tsx's AccountShell and app/page.tsx's
+  // HomeItemModal (see either's identical comment) — this is the third
+  // of three separate copies of the same modal-mounting logic across
+  // the app, so the fix had to be applied a third time here too. Stays
+  // mounted at all times now, managing its own presence via the `open`
+  // prop internally.
   return (
     <ItemInfoModal
       open={modalOpen}

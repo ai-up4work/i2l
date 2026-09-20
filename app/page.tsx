@@ -569,8 +569,16 @@ function HomeItemModal() {
     selectVariant,
   } = useDashboard()
 
-  if (!modalOpen) return null
-
+  // FIX: this used to be `if (!modalOpen) return null`, which unmounted
+  // ItemInfoModal from the tree the INSTANT modalOpen went false —
+  // before its own internal close transition (mounted/entered state,
+  // see that file) ever got a chance to play. That same bug was already
+  // found and fixed in app/account/layout.tsx's AccountShell (see its
+  // own identical comment) but never ported over here — this page has
+  // its own separate copy of the same modal-mounting logic, so the fix
+  // had to be applied twice. The modal now stays mounted at all times
+  // and manages its own presence via the `open` prop internally,
+  // unmounting itself only after its exit animation finishes.
   return (
     <ItemInfoModal
       open={modalOpen}
