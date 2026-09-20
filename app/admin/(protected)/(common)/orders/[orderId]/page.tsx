@@ -159,6 +159,45 @@ function StageTracker({
   )
 }
 
+// Shows a chat attachment inline. Click opens the full-size image in a new
+// tab. If the file isn't a displayable image, falls back to a plain link.
+// Same component as the request detail page's own drawer uses.
+function MessageAttachment({
+  url,
+  className = "",
+  onLoad,
+}: {
+  url: string
+  className?: string
+  onLoad?: () => void
+}) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`inline-flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline ${className}`}
+      >
+        Open attachment <ExternalLink size={11} />
+      </a>
+    )
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className={`block w-fit max-w-full ${className}`}>
+      <img
+        src={url}
+        alt="Attachment"
+        loading="lazy"
+        onLoad={onLoad}
+        onError={() => setFailed(true)}
+        className="block max-h-64 w-auto max-w-full rounded-xl object-cover"
+      />
+    </a>
+  )
+}
+
 /* ---------- page ---------- */
 
 export default function OrderDetailPage() {
@@ -198,6 +237,10 @@ export default function OrderDetailPage() {
   const [messageAttachmentUrl, setMessageAttachmentUrl] = useState<string | null>(null)
   const [sendingMessage, setSendingMessage] = useState(false)
   const messageListRef = useRef<HTMLDivElement>(null)
+  // Same drawer pattern as the request detail page's "Chat" button — a
+  // slide-over instead of the old always-visible inline card, which
+  // freed up the Pipeline card to use the full row width (see below).
+  const [chatOpen, setChatOpen] = useState(false)
   const { uploading: uploadingAttachment, upload: uploadMessageAttachment } = useImageUpload()
 
   useEffect(() => {
@@ -235,10 +278,11 @@ export default function OrderDetailPage() {
     return unsubscribe
   }, [order?.id, order?.chatThreadId, resolveOrderId])
 
-  // Keep the panel scrolled to the newest message.
+  // Keep the panel scrolled to the newest message (also on open, since the
+  // drawer's list only mounts while it's open).
   useEffect(() => {
     messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight })
-  }, [orderMessages])
+  }, [orderMessages, chatOpen])
 
   const handleAttachMessageImage = async (file: File) => {
     // 'products' is the closest existing bucket — no dedicated chat-
@@ -377,7 +421,24 @@ export default function OrderDetailPage() {
             <span className="truncate font-medium text-ink">{order.id}</span>
           </nav>
 
-          {permissions.canDelete && (
+          <div className="flex items-center gap-2">
+            {/* Always clickable — "no need to link with the thread" per
+                the person's own instruction: this doesn't gate on
+                order.chatThreadId existing (every order gets one at
+                creation now anyway — see the comment on Order.chatThreadId
+                in types/admin.ts — but if an old order somehow lacks
+                one, the drawer itself explains that inline rather than
+                hiding the button entirely). */}
+            <button type="button" onClick={() => setChatOpen(true)} className={BTN_OUTLINE}>
+              <MessageSquare size={14} />
+              Open chat
+              {orderMessages.length > 0 && (
+                <span className="rounded-full bg-teal-deep/10 px-1.5 text-xs font-semibold tabular-nums text-teal-deep">
+                  {orderMessages.length}
+                </span>
+              )}
+            </button>
+            {permissions.canDelete && (
             <button
               type="button"
               onClick={handleDelete}
@@ -392,6 +453,7 @@ export default function OrderDetailPage() {
               {confirmingDelete ? "Click again to delete permanently" : "Delete order"}
             </button>
           )}
+          </div>
         </div>
       </div>
 
@@ -441,15 +503,17 @@ export default function OrderDetailPage() {
 
         {/*
           LAYOUT: one 3-column grid, laid out in two rows.
-            Row 1: Pipeline (2 cols) + Customer chat (1 col). Both are direct
-                   grid items in the SAME row, so the grid itself keeps them
-                   exactly the same height.
+            Row 1: Pipeline, now full width — it used to share this row
+                   with the Customer chat card, which moved into the
+                   header's "Open chat" slide-over (matches the request
+                   detail page's own chat drawer) instead of sitting
+                   inline here.
             Row 2: Items + Stage history (2 cols, stacked) + Internal notes (1 col).
           On screens below `lg` everything simply stacks in this order.
         */}
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Row 1, left: Pipeline */}
-          <SectionCard title="Pipeline" className="lg:col-span-2">
+          {/* Row 1: Pipeline */}
+          <SectionCard title="Pipeline" className="lg:col-span-3">
             <StageTracker current={order.stage} history={order.stageHistory} />
 
             {canOverride ? (
@@ -509,142 +573,6 @@ export default function OrderDetailPage() {
               </div>
             )}
           </SectionCard>
-
-          {/* Row 1, right: Customer chat.
-              The wrapper is what sits in the grid row. From `lg` up the chat
-              card is absolutely positioned to fill it (`inset-0`), so its own
-              content can never make the row taller than the Pipeline card —
-              the message list scrolls inside instead. `lg:min-h-[24rem]` is a
-              floor so the chat stays usable when Pipeline is short (both cards
-              stretch to it together, so they still match). Below `lg` it's a
-              normal stacked card with a capped, scrollable list. */}
-          <div className="relative lg:col-span-1 lg:min-h-[24rem]">
-            <section className="flex flex-col rounded-2xl border border-ink/10 bg-card p-5 lg:absolute lg:inset-0">
-              <div className="flex flex-none items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-                  <MessageSquare size={16} className="text-teal-deep" />
-                  Customer chat
-                </h2>
-                {order.chatThreadId && (
-                  <Link
-                    href={`/admin/chat?thread=${order.chatThreadId}`}
-                    className={`flex items-center gap-1 rounded text-xs font-semibold text-teal-deep hover:underline ${FOCUS}`}
-                  >
-                    Full thread <ChevronRight size={12} />
-                  </Link>
-                )}
-              </div>
-
-              {!order.chatThreadId ? (
-                <p className="mt-3 text-sm text-ink/45">No chat thread linked to this order.</p>
-              ) : (
-                <>
-                  <p className="mt-1 flex-none text-xs text-ink/50">
-                    Only messages tagged to this order — the full thread may carry more history than shown here.
-                  </p>
-
-                  <div
-                    ref={messageListRef}
-                    className="mt-4 max-h-[22rem] min-h-[6rem] space-y-2 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1"
-                  >
-                    {loadingMessages ? (
-                      <p className="text-sm text-ink/40">Loading messages…</p>
-                    ) : orderMessages.length === 0 ? (
-                      <p className="text-sm text-ink/45">No messages about this order yet.</p>
-                    ) : (
-                      orderMessages.map((m) => (
-                        <div
-                          key={m.id}
-                          className={`rounded-xl border-l-2 p-3 text-sm shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
-                            m.sender === "customer"
-                              ? "border-l-ink/20 bg-parchment/50"
-                              : "border-l-teal-deep bg-teal/[0.05]"
-                          }`}
-                        >
-                          {m.text && <p className="whitespace-pre-wrap break-words text-ink/80">{m.text}</p>}
-                          {m.attachment_url && (
-                            <a
-                              href={m.attachment_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
-                            >
-                              View attachment <ExternalLink size={11} />
-                            </a>
-                          )}
-                          <p className="mt-1.5 text-xs text-ink/40">
-                            {m.sender_name}, {new Date(m.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="mt-auto flex-none space-y-2 pt-4">
-                    <label htmlFor="order-message-draft" className="sr-only">
-                      Send a message about this order
-                    </label>
-                    {messageAttachmentUrl && (
-                      <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment/40 p-2">
-                        <img src={messageAttachmentUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
-                        <span className="flex-1 text-xs text-ink/50">Image attached</span>
-                        <button
-                          type="button"
-                          onClick={() => setMessageAttachmentUrl(null)}
-                          aria-label="Remove attachment"
-                          className="rounded p-1 text-ink/40 hover:bg-ink/[0.06] hover:text-ink"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    )}
-                    <textarea
-                      id="order-message-draft"
-                      value={messageDraft}
-                      onChange={(e) => setMessageDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSendOrderMessage()
-                      }}
-                      rows={2}
-                      placeholder="Message the customer about this order…"
-                      disabled={sendingMessage}
-                      className={`${FIELD} w-full resize-none`}
-                    />
-                    <div className="flex items-center justify-between gap-2">
-                      <label
-                        className={`flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 ${
-                          uploadingAttachment ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-                        }`}
-                      >
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp,image/gif"
-                          disabled={uploadingAttachment}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            e.target.value = ""
-                            if (file) handleAttachMessageImage(file)
-                          }}
-                          className="hidden"
-                        />
-                        {uploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
-                        {uploadingAttachment ? "Uploading…" : "Attach image"}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleSendOrderMessage}
-                        disabled={(!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage}
-                        className={BTN_PRIMARY}
-                      >
-                        <Send size={13} />
-                        Send
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
-          </div>
 
           {/* Row 2, left: Items + Stage history */}
           <div className="flex flex-col gap-6 lg:col-span-2">
@@ -815,7 +743,157 @@ export default function OrderDetailPage() {
           </aside>
         </div>
       </div>
+
+      {/* Chat drawer: slides over the page from the right — same pattern
+          as the request detail page's own drawer. Always openable (not
+          gated on order.chatThreadId — every order gets a thread at
+          creation now regardless of channel, see the comment on
+          Order.chatThreadId in types/admin.ts, but an old pre-fix order
+          without one still gets a working button; the drawer explains
+          that case inline instead). */}
+      {chatOpen && (
+        <div
+          className="fixed inset-0 z-40 flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Chat with ${order.customerName}`}
+        >
+          <div className="absolute inset-0 bg-ink/30" onClick={() => setChatOpen(false)} aria-hidden />
+
+          <div className="relative flex h-full w-full max-w-xl flex-col bg-card shadow-2xl">
+            <header className="flex items-start justify-between gap-3 border-b border-ink/[0.07] px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="truncate font-display text-lg font-semibold text-ink">{order.customerName}</h2>
+                <p className="mt-0.5 text-xs text-ink/50">
+                  {order.id} — only messages tagged to this order, not the customer's full chat history.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                aria-label="Close chat"
+                className={`flex-none rounded-lg p-1.5 text-ink/50 hover:bg-ink/[0.06] hover:text-ink ${FOCUS}`}
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            {!order.chatThreadId ? (
+              <div className="flex flex-1 items-center justify-center px-5 text-center">
+                <p className="text-sm text-ink/45">
+                  No chat thread linked to this order yet — this can happen on orders placed before every order
+                  started getting one automatically at checkout.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div
+                  ref={messageListRef}
+                  className="flex-1 space-y-3 overflow-y-auto overscroll-contain bg-parchment/40 px-5 py-4"
+                >
+                  {loadingMessages ? (
+                    <p className="text-sm text-ink/40">Loading messages…</p>
+                  ) : orderMessages.length === 0 ? (
+                    <p className="text-sm text-ink/45">No messages about this order yet.</p>
+                  ) : (
+                    orderMessages.map((m) => {
+                      const fromCustomer = m.sender === "customer"
+                      return (
+                        <div key={m.id} className={`flex ${fromCustomer ? "justify-start" : "justify-end"}`}>
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ring-1 ring-inset ${
+                              fromCustomer
+                                ? "rounded-tl-sm bg-card ring-ink/10"
+                                : "rounded-tr-sm bg-teal/10 ring-teal/20"
+                            }`}
+                          >
+                            {m.text && <p className="whitespace-pre-wrap break-words text-ink/85">{m.text}</p>}
+                            {m.attachment_url && (
+                              <MessageAttachment
+                                url={m.attachment_url}
+                                className={m.text ? "mt-2" : ""}
+                                onLoad={() =>
+                                  messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight })
+                                }
+                              />
+                            )}
+                            <p className="mt-1 text-[11px] text-ink/40">
+                              {m.sender_name}, {new Date(m.created_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+                <div className="space-y-2 border-t border-ink/[0.07] bg-card p-4">
+                  <label htmlFor="order-drawer-message-draft" className="sr-only">
+                    Send a message about this order
+                  </label>
+                  {messageAttachmentUrl && (
+                    <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment/40 p-2">
+                      <img src={messageAttachmentUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
+                      <span className="flex-1 text-xs text-ink/50">Image attached</span>
+                      <button
+                        type="button"
+                        onClick={() => setMessageAttachmentUrl(null)}
+                        aria-label="Remove attachment"
+                        className="rounded p-1 text-ink/40 hover:bg-ink/[0.06] hover:text-ink"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  )}
+                  <textarea
+                    id="order-drawer-message-draft"
+                    value={messageDraft}
+                    onChange={(e) => setMessageDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSendOrderMessage()
+                    }}
+                    rows={3}
+                    placeholder="Message the customer about this order…"
+                    disabled={sendingMessage}
+                    className={`${FIELD} w-full resize-none`}
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 ${
+                        uploadingAttachment ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        disabled={uploadingAttachment}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          e.target.value = ""
+                          if (file) handleAttachMessageImage(file)
+                        }}
+                        className="hidden"
+                      />
+                      {uploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                      {uploadingAttachment ? "Uploading…" : "Attach image"}
+                    </label>
+                    <span className="hidden flex-1 text-right text-xs text-ink/40 sm:block">Ctrl or ⌘ + Enter to send</span>
+                    <button
+                      type="button"
+                      onClick={handleSendOrderMessage}
+                      disabled={(!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage}
+                      className={`whitespace-nowrap ${BTN_PRIMARY}`}
+                    >
+                      <Send size={13} />
+                      Send
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-
