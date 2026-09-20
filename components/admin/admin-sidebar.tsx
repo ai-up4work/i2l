@@ -110,6 +110,13 @@ function canSeeNavItem(item: NavItem, role: Role): boolean {
   return role === "super_admin" || item.roles.includes(role)
 }
 
+// Stages where an order is finished, so there's nothing left to deliver
+// and it shouldn't count toward the Orders badge. Typed as Set<string>
+// so this compiles whether or not "Completed" is one of your stage
+// values. If "completed" is tracked as a separate field instead of a
+// stage, add that check next to FINISHED_STAGES in badgeCounts below.
+const FINISHED_STAGES = new Set<string>(["Delivered", "Completed"])
+
 function getTopItems(role: Role): NavItem[] {
   const items: NavItem[] = [
     { label: "Dashboard", href: DASHBOARD_HREF[role], icon: LayoutDashboard, roles: ["manager", "sales", "warehouse"] },
@@ -312,11 +319,12 @@ export function AdminSidebar() {
   const badgeCounts = useMemo(() => {
     const counts: Record<string, number> = {}
 
-    // Only counts as "needs attention" while it's still in flight — a
-    // delayed order that has since reached Delivered doesn't need
-    // anyone to act on it anymore, so it shouldn't keep inflating this
-    // badge just because `delayed` was never explicitly cleared on it.
-    counts["/admin/orders"] = visibleOrders.filter((o) => o.delayed && o.stage !== "Delivered").length
+    // Orders that are still in progress — i.e. NOT yet Delivered or
+    // Completed (see FINISHED_STAGES). Once an order reaches either of
+    // those there's nothing left to deliver, so it drops out of the
+    // badge. Reads from visibleOrders, so it follows the same role/site
+    // scoping as every other queue here.
+    counts["/admin/orders"] = visibleOrders.filter((o) => !FINISHED_STAGES.has(o.stage)).length
 
     counts["/admin/requests"] = requestLines.filter(
       (r) => r.slaBreached || r.status === "sent_for_review"
@@ -549,11 +557,11 @@ function SidebarLink({
             <CountryFlagIcon country={item.country} className="h-2.5 w-4 rounded-[1px] object-cover shadow-sm" />
           </span>
         )}
-        {/* Expanded: a count pill, right-aligned. Capped at "9+" so a
-            three-digit backlog doesn't blow out the row width. */}
+        {/* Expanded: a count pill, right-aligned. Capped at "99+" so a
+            very large backlog doesn't blow out the row width. */}
         {!collapsed && hasSignal && (
           <span className="ml-auto flex-none rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
-            {count! > 9 ? "9+" : count}
+            {count! > 99 ? "99+" : count}
           </span>
         )}
       </Link>
@@ -565,7 +573,7 @@ function SidebarLink({
         >
           {item.label}
           {item.country ? ` · ${COUNTRY_TITLE[item.country]}` : ""}
-          {hasSignal ? ` · ${count! > 9 ? "9+" : count}` : ""}
+          {hasSignal ? ` · ${count! > 99 ? "99+" : count}` : ""}
         </span>
       )}
     </div>
