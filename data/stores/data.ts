@@ -165,6 +165,33 @@ export const affiliatedStores: AffiliatedStore[] = [
     sampleProductLabel: "Hanes Men's EcoSmart Fleece Hoodie",
   },
   {
+    // A real storefront, not a pure link-out aggregator — corrected
+    // after seeing an actual product page's rendered markup (own price,
+    // own size selector, own PIN-code delivery check, a "Wishlink
+    // Assured" badge). Its own "About" copy still calls it a
+    // "creator-curated shopping feed" and Wishlink's own job postings
+    // mention brand partners like Amazon/Flipkart/Myntra/Nykaa/Ajio —
+    // but for the products it fulfills directly (ZUMMER, Miss Chase,
+    // Janasya seen on the one page inspected so far), checkout happens
+    // ON Seleqt, not via handoff. Extractor: lib/scrape/extractors/
+    // seleqt.ts — the page is client-rendered (a plain fetch() gets an
+    // empty shell, confirmed against this exact sampleProductUrl), so
+    // it's wired into parsers.ts's RENDER_FALLBACK_HOSTS to force
+    // Playwright rendering from the start, not just as the conditional
+    // variant-only fallback most extractors use it for.
+    platform: 'seleqt',
+    name: 'Seleqt by Wishlink',
+    logo: '/logos/seleqt-squared.png',
+    url: 'https://seleqt.wishlink.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: 'Creator-curated fashion picks from Amazon, Flipkart, Myntra, Nykaa, Ajio and more, all in one feed.',
+    categories: ['Fashion', 'Beauty'],
+    storeType: 'marketplace',
+    sampleProductUrl: 'https://seleqt.wishlink.com/product/1080452',
+    sampleProductLabel: 'Cotton Floral Embroidered Dress',
+  },
+  {
     platform: 'myntra',
     name: 'Myntra',
     logo: '/logos/myntra-squared.png',

@@ -99,6 +99,7 @@ import { consumeFirstCryMeta } from './extractors/firstcry'
 import { SITE_ID as NYKAA_SITE_ID, parseNykaa } from './extractors/nykaa'
 import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq } from './extractors/tataCliq'
 import { SITE_ID as ALIEXPRESS_SITE_ID, parseAliExpress } from './extractors/aliexpress'
+import { parseSeleqt } from './extractors/seleqt'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -189,6 +190,7 @@ export type SiteId =
   | 'tataCliq'
   | 'Aliexpress'
   | 'westside'
+  | 'seleqt'
   | 'shopify'
   | 'woocommerce'
   | 'generic'
@@ -308,6 +310,12 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['tatacliq', 'tatacliq'],
   ['aliexpress', ALIEXPRESS_SITE_ID],
   ['westside', 'westside'], // CHANGED: added — must be matched by hostname before the /products/ path-shape fallback below claims it as 'shopify'.
+  // seleqt.wishlink.com's product URLs are /product/{id} — the exact
+  // shape WOOCOMMERCE_PRODUCT_PATH_RE matches below. Must be listed
+  // here, ahead of that fallback, or every Seleqt link silently gets
+  // detected (and parsed) as a WooCommerce store instead — same
+  // ordering reason as the westside comment above.
+  ['seleqt', 'seleqt'],
 ]
 
 const SHOPIFY_PRODUCT_PATH_RE = /\/products\/([^/?#]+)/i
@@ -774,7 +782,7 @@ async function primeCookies(
 // skipped entirely for Ajio whenever PARSE_API_KEY is set — see
 // scrapeProduct()'s routing near the bottom of this file, which checks
 // ajioParseBotConfigured() before ever reaching fetchDirectWithRetries.
-const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID])
+const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID, 'seleqt'])
 
 // Optional per-site selector to wait for before grabbing page.content(),
 // so the render tier doesn't snapshot the page before the bit we
@@ -784,6 +792,34 @@ const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
   ajio: 'h1.prod-name, div.prod-sp',
   [FIRSTCRY_SITE_ID]: 'span.h1-name, span.prod-price',
   [HOPSCOTCH_SITE_ID]: 'h1, [class*="price"]',
+  // FIX: 'h1' alone wasn't enough — a real QA run got title/images/
+  // sizes correctly but "No price found", even though the exact same
+  // price selector worked in an earlier run against the same product.
+  // Everything ELSE hydrating correctly while price specifically didn't
+  // points at a timing race, not a broken selector: price most likely
+  // comes from a separate, slightly-delayed call (common for live/
+  // dynamic pricing, so a cached page doesn't show a stale discount),
+  // arriving after h1/images/sizes rather than alongside them.
+  // waitForSelector('a, b') is OR, not AND — it resolves the instant
+  // EITHER matches, so listing h1 alongside the price selector
+  // wouldn't have helped; h1 was already winning that race.
+  //
+  // FIX 2: waiting for the container element's own first fix wasn't
+  // enough EITHER — a container can mount empty and fill in a moment
+  // later (React renders the wrapper div, then the price span inside
+  // it once the pricing call resolves), and plain waitForSelector only
+  // confirms the ELEMENT exists, not that it has real content yet.
+  // Playwright's own `:has-text()` extension closes that gap — it only
+  // matches once the container's text actually contains "₹", which is
+  // the real thing this needs to wait for, not a proxy for it. Two
+  // currency symbols (not just ₹) since a page geo-served in a
+  // different currency shouldn't need its own bespoke fix later.
+  //
+  // Same safety net as every other RENDER_WAIT_SELECTOR entry either
+  // way: fetchRendered doesn't hard-fail if this never appears (8s
+  // timeout, then proceeds anyway) — so this can only help, never
+  // regress a page that genuinely has no price.
+  seleqt: 'div.mt-4.flex.items-baseline.gap-2:has-text("₹"), div.mt-4.flex.items-baseline.gap-2:has-text("$")',
 }
 
 // Per-site check for whether a successful (200 OK, not blocked, not
@@ -801,6 +837,15 @@ const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolea
   [AJIO_SITE_ID]: (html) => html.includes('class="prod-sp"') || html.includes('class="prod-name"'),
   [FIRSTCRY_SITE_ID]: (html) => html.includes('class="h1-name"') && html.includes('prod-price'),
   [HOPSCOTCH_SITE_ID]: hasHydratedHopscotchMarkup,
+  // Explicit and FALSE by design — omitting a site here defaults to
+  // "static fetch is sufficient" (see the `!contentCheck` check below)
+  // and would skip the render tier entirely, which is the opposite of
+  // what RENDER_FALLBACK_HOSTS above is trying to force for Seleqt. The
+  // confirmed static response has no trace of the price span this
+  // checks for, so this is never actually true today — kept as a real
+  // function (not a hardcoded `() => false`) so a future pass CAN
+  // detect a genuinely-hydrated response if Seleqt ever changes to SSR.
+  seleqt: (html) => html.includes('text-lg font-bold'),
 }
 
 // ---------- Per-site last-resort fallback registry ----------
@@ -1810,7 +1855,7 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   tataCliq: parseTataCliq,
   [ALIEXPRESS_SITE_ID]: parseAliExpress,
   westside: parseGeneric,
-  
+  seleqt: parseSeleqt,
 }
 
 const SKIP_STRUCTURED_FALLBACK = new Set<SiteId>(

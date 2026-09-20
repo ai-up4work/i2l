@@ -65,6 +65,7 @@ export const DOMAIN_CURRENCY: Record<string, string> = {
   'ebay.in': 'INR',
   'ebay.ca': 'CAD',
   'ebay.com.au': 'AUD',
+  'wishlink.com': 'INR',
 }
 
 export function domainCurrency(url: string): string | null {
