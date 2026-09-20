@@ -194,7 +194,7 @@ export default function ChatPanel({
   return (
     <div
       ref={panelRef}
-      className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[32rem] w-[22rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
+      className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[40rem] w-[27rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
       role="dialog"
       aria-modal="true"
       aria-label="Chat with WishDrop support"
@@ -301,7 +301,18 @@ export default function ChatPanel({
                         <Reply size={12} />
                       </button>
                     )}
-                    <div className={`max-w-[80%] ${isCustomer ? 'items-end' : 'items-start'} flex flex-col`}>
+                    {/*
+                      min-w-0 is required here: this is a flex item inside
+                      the `group flex` row above. Flex items default to
+                      min-width: auto, which lets their content refuse to
+                      shrink below its intrinsic width — that can win out
+                      over max-w-[80%] and break-words below when the
+                      message text is one long unbroken token (e.g. a
+                      pasted URL), letting the bubble grow past its cap
+                      and get silently clipped by the scroll container's
+                      overflow-x-hidden instead of wrapping.
+                    */}
+                    <div className={`max-w-[80%] min-w-0 ${isCustomer ? 'items-end' : 'items-start'} flex flex-col`}>
                       {(orderTag || requestTag) && (
                         <span
                           className={`mb-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -318,7 +329,7 @@ export default function ChatPanel({
                       >
                       {m.replyTo && (
                         <div
-                          className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-xs ${
+                          className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-xs break-words ${
                             isCustomer ? 'border-parchment/50 bg-black/10 text-parchment/80' : 'border-teal-deep bg-ink/5 text-ink/60'
                           }`}
                         >
@@ -334,7 +345,14 @@ export default function ChatPanel({
                           />
                         </div>
                       )}
-                      {m.text && <p className="whitespace-pre-wrap">{m.text}</p>}
+                      {/*
+                        break-words (overflow-wrap: break-word) lets long
+                        unbroken strings like pasted product URLs wrap
+                        inside the bubble instead of forcing it wider than
+                        max-w-[80%] and bleeding off the left edge under
+                        the message list's overflow-x-hidden.
+                      */}
+                      {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
                       <p className={`mt-1 text-right text-[10px] ${isCustomer ? 'text-parchment/70' : 'text-ink/40'}`}>
                         {formatTime(m.createdAt)}
                       </p>
