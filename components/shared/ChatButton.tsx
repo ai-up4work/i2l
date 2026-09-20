@@ -40,8 +40,13 @@ export default function ChatButton({
         }
       `}</style>
 
+      {/* `data-chat-bubble` is how ChatPanel's click-outside listener
+          recognises this button as "not outside". Without it, pressing
+          the bubble while the panel is open would close the panel on
+          pointerdown and then toggleChat would re-open it on click. */}
       <button
         type="button"
+        data-chat-bubble
         aria-label={isOpen ? 'Close chat' : 'Chat with support'}
         onClick={toggleChat}
         className={`group fixed z-40 flex h-14 items-center gap-2.5 rounded-full bg-teal-deep pl-4 pr-4 text-parchment shadow-lift transition-all duration-300 ease-out hover:bg-indigo-deep hover:pl-5 hover:pr-6 ${positionClassName} ${

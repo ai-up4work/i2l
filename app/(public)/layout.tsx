@@ -44,6 +44,9 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
     // siblings below that both call useChat(), and React Context only
     // works if they share a common provider ancestor. Without this wrap,
     // ChatButton throws the moment it tries to render.
+    //
+    // Click-outside-to-close lives inside ChatPanel itself (with
+    // ChatButton tagged `data-chat-bubble`), so nothing extra is needed here.
     <ChatProvider>
       <div className="bg-parchment">
         <Header />

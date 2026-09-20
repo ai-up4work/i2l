@@ -50,6 +50,7 @@ export default function ChatPanel({
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [fileError, setFileError] = useState<string | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Distinguishes "a message was prepended (older history loaded)" from
@@ -123,6 +124,33 @@ export default function ChatPanel({
     }
   }, [isOpen])
 
+  // Close the panel when the user clicks/taps anywhere outside it.
+  //
+  // Two things count as "inside" and are ignored:
+  //  1. the panel itself (panelRef), and
+  //  2. the floating chat bubble (ChatButton marks itself with
+  //     `data-chat-bubble`). Without this, pressing the bubble while the
+  //     panel is open would close it here on pointerdown and then
+  //     ChatButton's own toggleChat would re-open it on click.
+  //
+  // `pointerdown` covers mouse, touch and pen in one listener. This must
+  // stay above the `if (!isOpen || hidden) return null` early return
+  // below, since hooks can't be called after a conditional return.
+  useEffect(() => {
+    if (!isOpen || hidden) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null
+      if (!target) return
+      if (panelRef.current?.contains(target)) return
+      if (target.closest('[data-chat-bubble]')) return
+      closeChat()
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [isOpen, hidden, closeChat])
+
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el || !hasMoreMessages || loadingMoreMessages) return
@@ -164,6 +192,7 @@ export default function ChatPanel({
 
   return (
     <div
+      ref={panelRef}
       className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[32rem] w-[22rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
       role="dialog"
       aria-modal="true"
