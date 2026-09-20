@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Plus, Minus, X } from 'lucide-react'
+import { Plus, Minus, X, LogOut } from 'lucide-react'
 import BrandMark from '../shared/BrandMark'
 import { sidebarGroups } from './sidebar-data'
 
@@ -243,7 +243,10 @@ export default function Sidebar({
             onClick={onSignOut}
             className="mt-4 w-full py-3 text-left font-body text-[15px] font-bold text-ink transition-colors hover:text-rose-500"
           >
-            Sign Out
+            <span className="flex items-center gap-2">
+              <LogOut size={16} strokeWidth={1.8} />
+              Sign Out
+            </span>
           </button>
         </nav>
 

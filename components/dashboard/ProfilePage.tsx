@@ -512,7 +512,7 @@ export default function AccountProfilePage() {
             <SettingsRow label="Notifications" icon={Bell} />
           </div>
 
-          <button
+          {/* <button
             type="button"
             onClick={() => logout()}
             className="mt-6 flex w-full items-center gap-2.5 py-2 text-sm font-semibold text-red-600 transition-colors hover:text-red-700 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
@@ -520,7 +520,7 @@ export default function AccountProfilePage() {
           >
             <LogOut size={16} strokeWidth={1.8} />
             Sign out
-          </button>
+          </button> */}
         </div>
 
         {/* ---- Account security (formerly the standalone "Manage My

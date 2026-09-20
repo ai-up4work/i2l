@@ -565,7 +565,7 @@ export default function AccountProfilePage() {
           <h2 className="font-display text-xl text-ink">Account security</h2>
           <p className="mt-1 text-sm text-ink/55">Your login, WhatsApp number, and account security.</p>
 
-          <div className="mt-6 lg:grid lg:grid-cols-2 lg:gap-x-16">
+          <div className="mt-12 lg:grid lg:grid-cols-2 lg:gap-x-16">
             {/* Email dropped from here — it's already shown, unmasked, in
                 the Contact info section above. Repeating it a second
                 time in a different (masked) format read as two sources of
@@ -696,7 +696,7 @@ export default function AccountProfilePage() {
           </div>
         </div>
 
-         <button
+         {/* <button
           type="button"
           onClick={() => logout()}
           className="mt-6 flex w-full items-center gap-2.5 py-2 text-sm font-semibold text-red-600 transition-colors hover:text-red-700 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
@@ -704,7 +704,7 @@ export default function AccountProfilePage() {
         >
           <LogOut size={16} strokeWidth={1.8} />
           Sign out
-        </button>
+        </button> */}
       </div>
     </div>
   )
