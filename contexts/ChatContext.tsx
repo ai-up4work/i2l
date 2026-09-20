@@ -3,6 +3,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrders, isLiveOrder, type Order } from '@/contexts/Ordercontexts'
 import { createClient } from '@/lib/supabase/client'
 import {
   type ChatMessageRow,
@@ -104,6 +105,12 @@ type SendOptions = {
   files?: File[]
 }
 
+/** What a message gets tagged with. A specific order (dbId = the real
+ * `orders.id` uuid — see Ordercontexts.tsx's own comment on why `Order.id`
+ * itself isn't that value), or 'general' meaning the customer explicitly
+ * isn't attaching one. */
+export type OrderChatTag = { dbId: string; displayId: string } | 'general'
+
 interface ChatContextValue {
   isOpen: boolean
   openChat: () => void
@@ -131,6 +138,32 @@ interface ChatContextValue {
    * to wire directly to a "scrolled to top" handler without your own
    * guard. */
   loadOlderMessages: () => Promise<void>
+
+  // ---- Order context tagging ----
+  // See ChatOrderContextBar.tsx for the UI this backs, and
+  // lib/supabase/chat.ts's sendChatMessage for how `activeOrder`
+  // ultimately becomes chat_messages.order_id.
+
+  /** Every order this customer has (live and completed) — for the "change
+   * order" picker, which deliberately shows everything, not just live
+   * ones. */
+  allOrders: Order[]
+  /** null = not yet decided this session (only possible while
+   * orderChoicePending is true — see below); 'general' = explicitly no
+   * order attached; an object = a specific order is pinned. */
+  activeOrder: OrderChatTag | null
+  /** True exactly when the customer has more than one live (open) order
+   * and hasn't picked one yet this session — the UI should show the
+   * "which order is this about?" prompt (choices below) instead of the
+   * normal pill, and sendMessage refuses to send until this resolves
+   * (mirrors how you can't miss tagging on the admin side, where the
+   * order/request page always knows which record it's on). */
+  orderChoicePending: boolean
+  /** The live orders to choose from while orderChoicePending is true. */
+  pendingOrderChoices: Order[]
+  /** Pins a specific order, or pass 'general' to explicitly detach —
+   * available any time, not just while orderChoicePending. */
+  setActiveOrder: (tag: OrderChatTag) => void
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null)
@@ -138,6 +171,7 @@ const ChatContext = createContext<ChatContextValue | null>(null)
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
   const handle = user ? user.chatHandle ?? deriveHandle(user.name) : null
+  const { orders } = useOrders()
 
   const [isOpen, setIsOpen] = useState(false)
   const [threadId, setThreadId] = useState<string | null>(null)
@@ -148,7 +182,41 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [hasMoreMessages, setHasMoreMessages] = useState(false)
   const [loadingMoreMessages, setLoadingMoreMessages] = useState(false)
 
+  // null = undecided (fresh this session — only reachable state while
+  // there's more than one live order, see the effect below).
+  const [activeOrder, setActiveOrder] = useState<OrderChatTag | null>(null)
+
   const supabaseRef = useRef(createClient())
+
+  const liveOrders = useMemo(() => orders.filter((o) => o.dbId && isLiveOrder(o)), [orders])
+
+  // Default/prompt logic — runs whenever the order list resolves (login,
+  // or the customer's orders finish loading) and only while nothing's
+  // been decided yet this session:
+  //   - exactly one live order -> auto-pin it, no prompt
+  //   - zero live orders -> nothing sensible to default to -> general
+  //   - more than one live order -> leave undecided; orderChoicePending
+  //     (below) surfaces the "which order?" prompt instead of guessing
+  useEffect(() => {
+    setActiveOrder((prev) => {
+      if (prev !== null) return prev // already decided (or already pending) this session
+      if (liveOrders.length === 1) {
+        const only = liveOrders[0]
+        return { dbId: only.dbId!, displayId: only.id }
+      }
+      if (liveOrders.length === 0) return 'general'
+      return null // multiple live orders — stays undecided, prompts below
+    })
+  }, [liveOrders])
+
+  // A fresh login (different user) should re-run the default/prompt
+  // logic against THEIR orders, not inherit whatever the previous
+  // session on this device had pinned or explicitly set to general.
+  useEffect(() => {
+    setActiveOrder(null)
+  }, [user?.id])
+
+  const orderChoicePending = activeOrder === null && liveOrders.length > 1
 
   // Resolve (or create) this customer's general support thread and load
   // its history once we know who's logged in.
@@ -226,12 +294,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const files = options?.files ?? []
       if (!trimmed && files.length === 0) return
       if (!threadId || !user) return
+      if (orderChoicePending) {
+        setSendError('Which order is this about? Pick one (or General) above before sending.')
+        return
+      }
 
       setSending(true)
       setSendError(null)
       try {
         const senderName = user.name
         const firstText = options?.replyTo ? buildReplyBody(options.replyTo.text, trimmed) : trimmed
+        // Only passed when a specific order is pinned — 'general'/null
+        // both mean "omit the key", not "explicitly null", so an
+        // untagged message never overwrites the admin inbox's rollup of
+        // this thread's last known order context. See sendChatMessage's
+        // own comment in lib/supabase/chat.ts for why that distinction
+        // matters.
+        const orderId = activeOrder && activeOrder !== 'general' ? activeOrder.dbId : undefined
 
         if (files.length === 0) {
           const row = await sendChatMessage(supabaseRef.current, {
@@ -239,6 +318,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             sender: 'customer',
             senderName,
             text: firstText,
+            ...(orderId ? { orderId } : {}),
           })
           // FIX: was an unconditional append — the realtime subscription
           // above already dedupes against "our own optimistic inserts"
@@ -265,6 +345,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               senderName,
               text: i === 0 ? firstText : '',
               attachmentUrl: url,
+              ...(orderId ? { orderId } : {}),
             })
             // Same race, same fix — see the single-message branch above.
             setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
@@ -276,7 +357,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setSending(false)
       }
     },
-    [threadId, user],
+    [threadId, user, orderChoicePending, activeOrder],
   )
 
   const markRead = useCallback(() => {
@@ -313,6 +394,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     hasMoreMessages,
     loadingMoreMessages,
     loadOlderMessages,
+    allOrders: orders,
+    activeOrder,
+    orderChoicePending,
+    pendingOrderChoices: liveOrders,
+    setActiveOrder,
   }
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>

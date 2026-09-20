@@ -32,7 +32,6 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import {
-  OrdersProvider,
   useOrders,
   orderTotal,
   itemMeta,
@@ -81,15 +80,10 @@ const STATUS_ACCENT: Record<string, string> = {
 }
 const DEFAULT_STATUS_ACCENT = 'border-l-ink/15'
 
+// OrdersProvider now lives in app/layout.tsx (promoted so ChatContext's
+// order-tagging feature can also read it) — this just reads it directly,
+// same instance, no second wrap/fetch.
 export default function OrdersHubPage() {
-  return (
-    <OrdersProvider>
-      <OrdersPageContent />
-    </OrdersProvider>
-  )
-}
-
-function OrdersPageContent() {
   const { orders, loading } = useOrders()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All')

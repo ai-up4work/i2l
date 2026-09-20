@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useDashboard } from '@/contexts/DashboardContext'
-import { OrdersProvider, useOrders } from '@/contexts/Ordercontexts'
+import { useOrders } from '@/contexts/Ordercontexts'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
 import { useLoyalty, effectiveCouponStatus, type Coupon } from '@/contexts/Loyaltycontext'
@@ -1128,10 +1128,8 @@ function CartPageContent() {
   )
 }
 
+// OrdersProvider now lives in app/layout.tsx — CartPageContent reads it
+// directly, same instance, no second wrap/fetch.
 export default function CartPage() {
-  return (
-    <OrdersProvider>
-      <CartPageContent />
-    </OrdersProvider>
-  )
+  return <CartPageContent />
 }

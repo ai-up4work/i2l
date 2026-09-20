@@ -356,8 +356,25 @@ export async function sendChatMessage(
   // conditional spread — see setOrderExportHold/reassignOrderSite's own
   // comment on this in orders-admin.ts for why the inline form collapses
   // Supabase's generic Update<T> field types to `never`.
-  const threadUpdate: { last_activity: string; unread?: boolean } = { last_activity: new Date().toISOString() }
+  //
+  // last_request_id/last_order_id: rollup of "what did this thread most
+  // recently touch" — see wishdrop-chat-threads-context-rollup.sql for
+  // why the admin inbox needs this at the thread level even though the
+  // real per-message tags already exist. Only overwritten when THIS
+  // message carries a tag, so an untagged general follow-up doesn't
+  // erase the thread's last known context — the inbox pill should keep
+  // showing "Order WD-1044" until a genuinely different tagged message
+  // (or a different order/request) comes in, not disappear the moment
+  // someone says "thanks!" with no tag attached.
+  const threadUpdate: {
+    last_activity: string
+    unread?: boolean
+    last_request_id?: string | null
+    last_order_id?: string | null
+  } = { last_activity: new Date().toISOString() }
   if (params.sender === 'customer') threadUpdate.unread = true
+  if (params.requestId !== undefined) threadUpdate.last_request_id = params.requestId
+  if (params.orderId !== undefined) threadUpdate.last_order_id = params.orderId
   await supabase.from('chat_threads').update(threadUpdate).eq('id', params.threadId)
 
   return data

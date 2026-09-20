@@ -92,6 +92,17 @@ export type TimelineEvent = {
 
 export type Order = {
   id: string
+  /**
+   * The real `orders.id` uuid (Postgres primary key), as opposed to `id`
+   * above which is actually `orders.display_id` (e.g. "WD-1044") kept
+   * under the name every existing consumer (OrdersHubPage, track/page,
+   * etc.) already expects. Anything that needs to write a real FK —
+   * chat_messages.order_id, in particular — needs THIS value, not the
+   * display id, which the DB has no column matching. Undefined only for
+   * the mock/storybook `initialOrders` escape hatch, which never round-
+   * trips through the DB.
+   */
+  dbId?: string
   date: string
   status: OrderStatus
   items: OrderItem[]
@@ -843,9 +854,20 @@ function formatOrderDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
 }
 
+// "Live" = still something to talk to support about; "completed" = a
+// closed chapter (delivered or cancelled). Used to decide the default
+// order to pin a new chat message to (see ChatContext.tsx) — not used
+// anywhere order-status logic already lived before this.
+export const LIVE_ORDER_STATUSES: OrderStatus[] = ['Processing', 'Quality Check', 'Shipped']
+
+export function isLiveOrder(order: Order): boolean {
+  return LIVE_ORDER_STATUSES.includes(order.status)
+}
+
 function rowToOrder(row: OrderRow): Order {
   return {
     id: row.display_id,
+    dbId: row.id,
     date: formatOrderDate(row.created_at),
     status: mapStageToOrderStatus(row.stage),
     currency: row.currency === 'INR' ? 'INR' : 'LKR',

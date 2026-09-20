@@ -26,6 +26,13 @@ type ThreadRow = {
   user_id: string
   request_id: string | null
   order_id: string | null
+  /** Rollup of the most recent TAGGED message in this thread — see
+   * wishdrop-chat-threads-context-rollup.sql. Unlike request_id/order_id
+   * above (set only at thread-creation time, and effectively always
+   * null since threads are reused per-customer rather than created per
+   * request/order), these stay current as the conversation goes on. */
+  last_request_id: string | null
+  last_order_id: string | null
   last_activity: string
   unread: boolean
   profiles: { full_name: string; email: string; chat_handle: string | null; avatar_url: string | null } | null
@@ -88,11 +95,13 @@ function groupByDate(messages: ChatMessageRow[]) {
   return groups
 }
 
-function threadLabel(t: ThreadRow) {
-  if (t.request_id) return 'Request thread'
-  if (t.order_id) return 'Order thread'
-  return null
-}
+// threadLabel (Request thread / Order thread, derived from
+// chat_threads.request_id/order_id) is gone — those columns are only
+// ever set at thread-CREATION time, and since a customer's thread is
+// reused for their whole lifetime rather than created per request/
+// order, they're effectively always null now. The order pill rendered
+// in the thread list below reads last_order_id (the live rollup)
+// instead — see wishdrop-chat-threads-context-rollup.sql.
 
 function Avatar({
   name,
@@ -140,12 +149,17 @@ function AdminChatPageInner() {
 
   const [threads, setThreads] = useState<ThreadListItem[]>([])
   const [threadsLoading, setThreadsLoading] = useState(true)
+  // Maps an order's real uuid (chat_threads.last_order_id) to its
+  // human-readable display_id ("WD-1044") — chat_threads only ever
+  // stores the uuid FK, never the display string, so this is what the
+  // thread-list pill and the order search filter both read from.
+  const [orderDisplayById, setOrderDisplayById] = useState<Map<string, string>>(new Map())
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get(THREAD_QUERY_PARAM))
   const [messages, setMessages] = useState<ChatMessageRow[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
 
   const [search, setSearch] = useState('')
-  const [tab, setTab] = useState<'all' | 'unread'>('all')
+  const [tab, setTab] = useState<'all' | 'unread' | 'order'>('all')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [listCollapsed, setListCollapsed] = useState(false)
 
@@ -181,7 +195,7 @@ function AdminChatPageInner() {
       await Promise.all([
         supabase
           .from('chat_threads')
-          .select('id, user_id, request_id, order_id, last_activity, unread')
+          .select('id, user_id, request_id, order_id, last_request_id, last_order_id, last_activity, unread')
           .order('last_activity', { ascending: false }),
         supabase
           .from('chat_messages')
@@ -225,6 +239,30 @@ function AdminChatPageInner() {
       if (!latestByThread.has(m.thread_id)) latestByThread.set(m.thread_id, m)
     }
     if (messagesError) console.error('[admin chat] failed to load message previews', messagesError)
+
+    // Resolve last_order_id (a uuid) -> its human display_id ("WD-1044")
+    // for the thread-list pill and the search filter. One small IN
+    // query, not a join on every thread row.
+    const orderIds = Array.from(
+      new Set(
+        ((threadRows ?? []) as Array<Pick<ThreadRow, 'last_order_id'>>)
+          .map((t) => t.last_order_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    )
+    if (orderIds.length > 0) {
+      const { data: orderRows, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, display_id')
+        .in('id', orderIds)
+      if (ordersError) {
+        console.error('[admin chat] failed to resolve order display ids', ordersError)
+      } else {
+        setOrderDisplayById(new Map((orderRows ?? []).map((o) => [o.id as string, o.display_id as string])))
+      }
+    } else {
+      setOrderDisplayById(new Map())
+    }
 
     setThreads(
       (threadRows ?? []).map((t) => ({
@@ -305,6 +343,23 @@ function AdminChatPageInner() {
         { event: 'INSERT', schema: 'public', table: 'chat_messages' },
         (payload) => {
           const row = payload.new as ChatMessageRow
+          // Keep the rollup live too — mirrors what sendChatMessage just
+          // wrote to chat_threads.last_order_id/last_request_id server-
+          // side, so the pill/filter don't go stale until someone hits
+          // refresh. Only overwrite when THIS message actually carries a
+          // tag, same "don't erase on an untagged follow-up" rule
+          // sendChatMessage itself follows.
+          if (row.order_id) {
+            supabase
+              .from('orders')
+              .select('id, display_id')
+              .eq('id', row.order_id)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (!data) return
+                setOrderDisplayById((prev) => (prev.has(data.id) ? prev : new Map(prev).set(data.id, data.display_id)))
+              })
+          }
           setThreads((prev) =>
             prev
               .map((t) =>
@@ -313,6 +368,8 @@ function AdminChatPageInner() {
                       ...t,
                       lastMessage: row,
                       last_activity: row.created_at,
+                      last_order_id: row.order_id ?? t.last_order_id,
+                      last_request_id: row.request_id ?? t.last_request_id,
                       unread: row.sender === 'customer' && t.id !== selectedId ? true : t.unread,
                     }
                   : t,
@@ -346,11 +403,13 @@ function AdminChatPageInner() {
     const q = search.trim().toLowerCase()
     return threads
       .filter((t) => {
+        if (!q) return true
         const name = t.profiles?.full_name ?? t.profiles?.email ?? ''
-        return !q || name.toLowerCase().includes(q)
+        const orderDisplayId = t.last_order_id ? orderDisplayById.get(t.last_order_id) ?? '' : ''
+        return name.toLowerCase().includes(q) || orderDisplayId.toLowerCase().includes(q)
       })
-      .filter((t) => (tab === 'unread' ? t.unread : true))
-  }, [threads, search, tab])
+      .filter((t) => (tab === 'unread' ? t.unread : tab === 'order' ? Boolean(t.last_order_id) : true))
+  }, [threads, search, tab, orderDisplayById])
 
   const totalUnread = useMemo(() => threads.filter((t) => t.unread).length, [threads])
 
@@ -476,7 +535,7 @@ function AdminChatPageInner() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search chats"
+                placeholder="Search chats or order ID"
                 className="w-36 bg-transparent text-sm text-ink placeholder:text-ink/50 focus:outline-none"
               />
             </div>
@@ -497,6 +556,16 @@ function AdminChatPageInner() {
               }`}
             >
               Unread {totalUnread > 0 ? totalUnread : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('order')}
+              title="Threads whose most recent tagged message was about an order"
+              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
+                tab === 'order' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
+              }`}
+            >
+              Has order
             </button>
             <button
               type="button"
@@ -540,7 +609,7 @@ function AdminChatPageInner() {
                 t.profiles?.email ||
                 (t.profiles?.chat_handle ? `@${t.profiles.chat_handle.replace(/^@/, '')}` : 'Customer')
               const preview = t.lastMessage ? parseReplyBody(t.lastMessage.text ?? '').text || (t.lastMessage.attachment_url ? '📷 Attachment' : '') : ''
-              const label = threadLabel(t)
+              const orderDisplayId = t.last_order_id ? orderDisplayById.get(t.last_order_id) : null
               return (
                 <button
                   key={t.id}
@@ -569,6 +638,14 @@ function AdminChatPageInner() {
                             {displayHandle(t.profiles)}
                           </span>
                         )}
+                        {orderDisplayId && (
+                          <span
+                            title="Most recent tagged message in this thread was about this order"
+                            className="flex-none rounded-full bg-teal/12 px-1.5 py-[1px] text-[10px] font-semibold text-teal-deep"
+                          >
+                            {orderDisplayId}
+                          </span>
+                        )}
                       </div>
                       {t.lastMessage && (
                         <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>
@@ -578,7 +655,6 @@ function AdminChatPageInner() {
                     </div>
                     <div className="flex items-center justify-between gap-1.5">
                       <p className="truncate text-[11.5px] text-ink/50">
-                        {label ? `${label} — ` : ''}
                         {t.lastMessage?.sender === 'ops' ? 'You: ' : ''}
                         {preview}
                       </p>

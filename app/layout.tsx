@@ -8,6 +8,7 @@ import { NotificationProvider } from "@/contexts/Notificationcontext";
 import { LoyaltyProvider } from "@/contexts/Loyaltycontext";
 import { ChatProvider } from "@/contexts/ChatContext";
 import { RecentlyViewedProvider } from "@/contexts/RecentlyViewedContext";
+import { OrdersProvider } from "@/contexts/Ordercontexts";
 
 const fraunces = Fraunces({
   variable: "--font-serif-display",
@@ -55,11 +56,24 @@ export default function RootLayout({
           <CartProvider>
             <WishlistProvider>
               <LoyaltyProvider >
-                <ChatProvider>
-                    <RecentlyViewedProvider>
-                      <NotificationProvider>{children}</NotificationProvider>
-                    </RecentlyViewedProvider>
-                </ChatProvider>
+                {/* Promoted here (was previously wrapped separately by
+                    each of OrdersHubPage/track/cart/account-home) so
+                    ChatProvider — mounted globally for the floating
+                    ChatPanel — can read the customer's own order list
+                    via useOrders() to default/offer an order to tag a
+                    message to. Per-page OrdersProvider wraps were
+                    removed; each of those now calls useOrders()
+                    directly against this one, matching the exact
+                    migration app/account/page.tsx's own comment already
+                    called for ("remove this wrapper and just call
+                    useOrders() directly") to avoid double-fetching. */}
+                <OrdersProvider>
+                  <ChatProvider>
+                      <RecentlyViewedProvider>
+                        <NotificationProvider>{children}</NotificationProvider>
+                      </RecentlyViewedProvider>
+                  </ChatProvider>
+                </OrdersProvider>
               </LoyaltyProvider>
             </WishlistProvider>
           </CartProvider>

@@ -475,6 +475,15 @@ export interface Database {
           user_id: string
           request_id: string | null
           order_id: string | null
+          // Rollup of the most recent TAGGED message in this thread —
+          // added by data/wishdrop-chat-threads-context-rollup.sql.
+          // Kept current by sendChatMessage() in lib/supabase/chat.ts.
+          // Distinct from request_id/order_id above, which are only
+          // ever set at thread-CREATION time and are effectively always
+          // null now that a customer's thread is reused for their whole
+          // lifetime rather than created per request/order.
+          last_request_id: string | null
+          last_order_id: string | null
           last_activity: string
           unread: boolean
         }
@@ -483,6 +492,8 @@ export interface Database {
           user_id: string
           request_id?: string | null
           order_id?: string | null
+          last_request_id?: string | null
+          last_order_id?: string | null
           last_activity?: string
           unread?: boolean
         }

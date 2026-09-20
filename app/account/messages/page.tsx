@@ -7,6 +7,7 @@ import { FaWhatsapp } from 'react-icons/fa'
 import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
+import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -57,7 +58,7 @@ function groupByDate(messages: ChatMessage[]) {
  * the quoted snippet is shown inline instead, which is what it actually is.
  */
 export default function AccountMessagesPage() {
-  const { messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages } = useChat()
+  const { messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages, orderChoicePending } = useChat()
   const { login } = useAuth()
 
   const [draft, setDraft] = useState('')
@@ -317,6 +318,7 @@ export default function AccountMessagesPage() {
               overflow and the section starts scrolling. `shrink-0` so it
               is never squeezed by the flex-1 message list. */}
           <div className="sticky bottom-0 z-10 -mx-8 shrink-0 bg-parchment px-8 pb-1">
+            <ChatOrderContextBar className="mt-2.5" />
             {pendingFiles.length > 0 && (
               <div className="flex gap-2 overflow-x-auto border-t border-ink/10 pt-3">
                 {pendingFiles.map((f, i) => (
@@ -385,7 +387,7 @@ export default function AccountMessagesPage() {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={sending || (!draft.trim() && pendingFiles.length === 0)}
+                disabled={sending || orderChoicePending || (!draft.trim() && pendingFiles.length === 0)}
                 aria-label="Send message"
                 className="grid h-10 w-10 flex-none place-items-center rounded-full bg-teal-deep text-parchment transition-colors hover:bg-indigo-deep disabled:cursor-not-allowed disabled:opacity-40"
               >

@@ -8,7 +8,7 @@ import { useDashboard } from '@/contexts/DashboardContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLoyalty, effectiveCouponStatus } from '@/contexts/Loyaltycontext'
 import { useWishlist } from '@/contexts/Wishlistcontext'
-import { OrdersProvider, useOrders } from '@/contexts/Ordercontexts'
+import { useOrders } from '@/contexts/Ordercontexts'
 import { createClient } from '@/lib/supabase/client'
 import type { MyOrdersCardLatestOrder } from '@/components/dashboard/MyOrdersCard'
 
@@ -128,16 +128,10 @@ function AccountHomePageInner() {
 export default function AccountHomePage() {
   return (
     <Suspense fallback={null}>
-      {/* OrdersProvider added here — this page previously did its own
-          one-off `orders.select('stage')` query instead of using the
-          shared orders context, so wrapping here is new. If a layout
-          above this route (e.g. app/account/layout.tsx) ALREADY wraps
-          with <OrdersProvider>, remove this wrapper and just call
-          useOrders() directly in AccountHomePageInner — double-wrapping
-          would spin up a second, redundant fetch of the same data. */}
-      <OrdersProvider>
-        <AccountHomePageInner />
-      </OrdersProvider>
+      {/* OrdersProvider now lives in app/layout.tsx — AccountHomePageInner
+          calls useOrders() directly against that instance, no wrapper
+          (and no second fetch) needed here anymore. */}
+      <AccountHomePageInner />
     </Suspense>
   )
 }

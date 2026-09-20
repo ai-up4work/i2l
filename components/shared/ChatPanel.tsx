@@ -7,6 +7,7 @@ import { FaWhatsapp } from 'react-icons/fa'
 import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
+import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -43,7 +44,7 @@ export default function ChatPanel({
   positionClassName?: string
   hidden?: boolean
 }) {
-  const { isOpen, closeChat, messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages } =
+  const { isOpen, closeChat, messages, sending, sendError, sendMessage, markRead, isLocked, handle, getWhatsAppLink, hasMoreMessages, loadingMoreMessages, loadOlderMessages, orderChoicePending } =
     useChat()
   const { login } = useAuth()
   const [draft, setDraft] = useState('')
@@ -358,6 +359,7 @@ export default function ChatPanel({
         </div>
       ) : (
         <div className="border-t border-ink/10 bg-parchment">
+          <ChatOrderContextBar />
           {pendingFiles.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto px-3 pt-2.5">
               {pendingFiles.map((f, i) => (
@@ -415,7 +417,7 @@ export default function ChatPanel({
             <button
               type="button"
               onClick={handleSend}
-              disabled={sending || (!draft.trim() && pendingFiles.length === 0)}
+              disabled={sending || orderChoicePending || (!draft.trim() && pendingFiles.length === 0)}
               aria-label="Send message"
               className="grid h-10 w-10 flex-none place-items-center rounded-full bg-teal-deep text-parchment transition-colors hover:bg-indigo-deep disabled:cursor-not-allowed disabled:opacity-40"
             >

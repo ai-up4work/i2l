@@ -18,7 +18,6 @@ import {
   Truck,
 } from 'lucide-react'
 import {
-  OrdersProvider,
   useOrders,
   itemMeta,
   orderTotal,
@@ -175,13 +174,13 @@ function statusHeadline(status: Order['status']) {
   }
 }
 
+// OrdersProvider now lives in app/layout.tsx — TrackOrderContent reads it
+// directly, same instance, no second wrap/fetch.
 export default function TrackOrderPage() {
   return (
-    <OrdersProvider>
-      <Suspense fallback={<TrackOrderSkeleton />}>
-        <TrackOrderContent />
-      </Suspense>
-    </OrdersProvider>
+    <Suspense fallback={<TrackOrderSkeleton />}>
+      <TrackOrderContent />
+    </Suspense>
   )
 }
 
