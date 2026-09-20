@@ -10,6 +10,7 @@ import {
   buildReplyBody,
   fetchRecentThreadMessages,
   fetchOlderThreadMessages,
+  fetchOrderMessages,
   inferAttachmentKind,
   markThreadRead,
   parseReplyBody,
@@ -154,6 +155,11 @@ function AdminChatPageInner() {
   // stores the uuid FK, never the display string, so this is what the
   // thread-list pill and the order search filter both read from.
   const [orderDisplayById, setOrderDisplayById] = useState<Map<string, string>>(new Map())
+  // Same idea, for requests — needed for the per-message request badge
+  // (chat_messages.request_id) the same way orderDisplayById backs the
+  // per-message order badge. requests.display_id is its own human id
+  // (e.g. "REQ-10005"), same pattern as orders.display_id.
+  const [requestDisplayById, setRequestDisplayById] = useState<Map<string, string>>(new Map())
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get(THREAD_QUERY_PARAM))
   const [messages, setMessages] = useState<ChatMessageRow[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -318,12 +324,111 @@ function AdminChatPageInner() {
     }
   }, [selectedId, hasMoreMessages, loadingMoreMessages, messages])
 
+  // Resolves order_id/request_id -> their human display ids (WD-1044 /
+  // REQ-10005) for whatever's actually in the currently loaded message
+  // list — not just the thread-level last_order_id/last_request_id
+  // rollup, since an OLDER message in a long-running thread can be
+  // tagged to a different order/request than whatever the thread was
+  // "last" about. Only fetches ids not already resolved.
+  useEffect(() => {
+    const missingOrderIds = Array.from(
+      new Set(messages.map((m) => m.order_id).filter((id): id is string => Boolean(id) && !orderDisplayById.has(id))),
+    )
+    const missingRequestIds = Array.from(
+      new Set(
+        messages.map((m) => m.request_id).filter((id): id is string => Boolean(id) && !requestDisplayById.has(id)),
+      ),
+    )
+    if (missingOrderIds.length === 0 && missingRequestIds.length === 0) return
+
+    const supabase = supabaseRef.current
+    if (missingOrderIds.length > 0) {
+      supabase
+        .from('orders')
+        .select('id, display_id')
+        .in('id', missingOrderIds)
+        .then(({ data }) => {
+          if (!data || data.length === 0) return
+          setOrderDisplayById((prev) => {
+            const next = new Map(prev)
+            for (const o of data) next.set(o.id, o.display_id)
+            return next
+          })
+        })
+    }
+    if (missingRequestIds.length > 0) {
+      supabase
+        .from('requests')
+        .select('id, display_id')
+        .in('id', missingRequestIds)
+        .then(({ data }) => {
+          if (!data || data.length === 0) return
+          setRequestDisplayById((prev) => {
+            const next = new Map(prev)
+            for (const r of data) next.set(r.id, r.display_id)
+            return next
+          })
+        })
+    }
+  }, [messages, orderDisplayById, requestDisplayById])
+
+  // Filters the open thread down to messages tagged to ONE order —
+  // reuses fetchOrderMessages (already existed for the order detail
+  // page's own mini chat panel, just never wired into the main inbox).
+  // null = no filter (the normal paginated fetchRecentThreadMessages
+  // view). Resets whenever a different thread is opened.
+  const [messageOrderFilter, setMessageOrderFilter] = useState<string | null>(null)
+  useEffect(() => {
+    setMessageOrderFilter(null)
+  }, [selectedId])
+
+  // Deliberately NOT derived from `messages` directly — once a filter is
+  // applied, `messages` only holds that one order's messages, which
+  // would collapse the filter dropdown down to just the option
+  // currently selected. This only ever grows (per open thread), fed by
+  // every unfiltered load (recent/older), so every order the thread has
+  // touched stays selectable regardless of which filter is active.
+  const [orderIdsInOpenThread, setOrderIdsInOpenThread] = useState<string[]>([])
+  useEffect(() => {
+    setOrderIdsInOpenThread([])
+  }, [selectedId])
+  useEffect(() => {
+    if (messageOrderFilter) return // this load was itself filtered — not the full picture
+    const found = messages.map((m) => m.order_id).filter((id): id is string => Boolean(id))
+    if (found.length === 0) return
+    setOrderIdsInOpenThread((prev) => Array.from(new Set([...prev, ...found])))
+  }, [messages, messageOrderFilter])
+
+  const applyMessageOrderFilter = useCallback(
+    async (orderId: string | null) => {
+      if (!selectedId) return
+      setMessageOrderFilter(orderId)
+      setMessagesLoading(true)
+      try {
+        if (orderId) {
+          const rows = await fetchOrderMessages(supabaseRef.current, selectedId, orderId)
+          setMessages(rows)
+          setHasMoreMessages(false) // fetchOrderMessages returns every matching message, not a page
+        } else {
+          await loadThreadMessages(selectedId)
+        }
+      } catch (err) {
+        console.error('[admin chat] failed to filter by order', err)
+      } finally {
+        setMessagesLoading(false)
+      }
+    },
+    [selectedId, loadThreadMessages],
+  )
+
   useEffect(() => {
     if (!selectedId) return
     loadThreadMessages(selectedId)
     markThreadRead(supabaseRef.current, selectedId).catch(() => {})
     setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, unread: false } : t)))
   }, [selectedId, loadThreadMessages])
+
+
 
   useEffect(() => {
     if (!selectedId) return
@@ -672,6 +777,32 @@ function AdminChatPageInner() {
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
+            {orderIdsInOpenThread.length > 0 && (
+              <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-ink/10 bg-parchment px-4 py-2">
+                <span className="font-body text-[11px] font-medium text-ink/40">Filter by order:</span>
+                <button
+                  type="button"
+                  onClick={() => applyMessageOrderFilter(null)}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                    messageOrderFilter === null ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/50 hover:bg-ink/5'
+                  }`}
+                >
+                  All messages
+                </button>
+                {orderIdsInOpenThread.map((orderId) => (
+                  <button
+                    key={orderId}
+                    type="button"
+                    onClick={() => applyMessageOrderFilter(orderId)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      messageOrderFilter === orderId ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/50 hover:bg-ink/5'
+                    }`}
+                  >
+                    {orderDisplayById.get(orderId) ?? orderId}
+                  </button>
+                ))}
+              </div>
+            )}
             <div
               ref={scrollRef}
               onScroll={(e) => {
@@ -719,6 +850,8 @@ function AdminChatPageInner() {
                       const isOps = m.sender === 'ops'
                       const { quoted, text } = parseReplyBody(m.text ?? '')
                       const attachmentKind = m.attachment_url ? inferAttachmentKind(m.attachment_url) : null
+                      const orderTag = m.order_id ? orderDisplayById.get(m.order_id) : null
+                      const requestTag = m.request_id ? requestDisplayById.get(m.request_id) : null
                       return (
                         <div key={m.id} className={`group my-0.5 flex items-center gap-1.5 ${isOps ? 'justify-end' : 'justify-start'}`}>
                           {isOps && (
@@ -733,8 +866,24 @@ function AdminChatPageInner() {
                           )}
 
                           <div className={`flex max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
-                          <span className="mb-0.5 px-1 text-[11px] font-medium text-ink/45">
+                          <span className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-ink/45">
                             {isOps ? (m.sender_name || 'Staff') : displayHandle(selectedThread.profiles)}
+                            {orderTag && (
+                              <span
+                                title="This message was tagged to this order"
+                                className="rounded-full bg-teal/12 px-1.5 py-[1px] text-[9.5px] font-semibold text-teal-deep"
+                              >
+                                {orderTag}
+                              </span>
+                            )}
+                            {requestTag && (
+                              <span
+                                title="This message was tagged to this request"
+                                className="rounded-full bg-gold/15 px-1.5 py-[1px] text-[9.5px] font-semibold text-gold-deep"
+                              >
+                                {requestTag}
+                              </span>
+                            )}
                           </span>
                           <div
                             className={`w-full rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
