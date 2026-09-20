@@ -25,7 +25,7 @@
 // place that translation happens.
 
 import { createClient } from '@/lib/supabase/client'
-import { sendChatMessage as realSendChatMessage, markThreadRead as realMarkThreadRead } from '@/lib/supabase/chat'
+import { sendChatMessage as realSendChatMessage, markThreadRead as realMarkThreadRead, fetchOrderMessages as realFetchOrderMessages, fetchRequestMessages as realFetchRequestMessages } from '@/lib/supabase/chat'
 import type { RequestStatus, ChatSender as MockChatSender } from '@/types/admin'
 
 /**
@@ -627,16 +627,38 @@ export async function confirmRequestReal(
  * CHAT — reuses lib/supabase/chat.ts's real functions directly
  * ============================================================ */
 
+/**
+ * Messages tagged to a specific request — backs the small chat panel on
+ * the request detail page. See fetchRequestMessages in
+ * lib/supabase/chat.ts for the actual query.
+ */
+export async function fetchRequestMessagesReal(threadId: string, requestId: string) {
+  const supabase = createClient()
+  return realFetchRequestMessages(supabase, threadId, requestId)
+}
+
+/**
+ * Messages tagged to a specific order — backs the small chat panel on
+ * the order detail page. See fetchOrderMessages in lib/supabase/chat.ts
+ * for the actual query and why this only ever sees messages sent after
+ * chat_messages.order_id existed.
+ */
+export async function fetchOrderMessagesReal(threadId: string, orderId: string) {
+  const supabase = createClient()
+  return realFetchOrderMessages(supabase, threadId, orderId)
+}
+
 export async function sendAdminChatMessage(
   threadId: string,
   staffName: string,
   body: string,
   requestId?: string,
   attachmentUrl?: string | null,
+  orderId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   try {
-    await realSendChatMessage(supabase, { threadId, sender: 'ops', senderName: staffName, text: body, requestId, attachmentUrl })
+    await realSendChatMessage(supabase, { threadId, sender: 'ops', senderName: staffName, text: body, requestId, attachmentUrl, orderId })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: extractErrorMessage(err, 'Failed to send message.') }

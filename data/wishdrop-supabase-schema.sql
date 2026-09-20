@@ -354,6 +354,9 @@ create table public.chat_threads (
 create table public.requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
+  -- Real, sequence-backed customer-facing reference — see
+  -- data/wishdrop-request-display-id-sequence.sql.
+  display_id text unique not null,
   link text not null,
   note text,
   screenshot_url text,
@@ -362,7 +365,10 @@ create table public.requests (
   quote numeric(12,2),
   chat_thread_id uuid not null references public.chat_threads(id) on delete cascade,
   assigned_staff_id uuid,                -- FK added in Phase 3 (staff_accounts)
-  submitted_at timestamptz not null default now()
+  submitted_at timestamptz not null default now(),
+  -- Admin-defined variant dimensions/values — see
+  -- data/wishdrop-requests-variant-options.sql.
+  variant_options jsonb
 );
 alter table public.chat_threads
   add constraint chat_threads_request_fk foreign key (request_id) references public.requests(id) on delete set null;
@@ -385,10 +391,13 @@ create table public.chat_messages (
   text text,
   attachment_url text,
   request_id uuid references public.requests(id) on delete set null,
+  -- See data/wishdrop-chat-messages-order-id.sql.
+  order_id uuid references public.orders(id) on delete set null,
   sent_via_whatsapp boolean not null default false,   -- manual wa.me deep-link click, never auto-synced
   created_at timestamptz not null default now()
 );
 create index on public.chat_messages (thread_id, created_at);
+create index on public.chat_messages (order_id, created_at);
 
 -- ---------------------------------------------------------------------------
 -- 11. Orders
@@ -470,7 +479,11 @@ create table public.order_items (
   seller_type order_seller_type,
   store_url text,
   request_link text,                     -- channel 3 only
-  screenshot_url text                    -- channel 3 only
+  screenshot_url text,                   -- channel 3 only
+  -- Admin-entered product photo, for a channel 3 item with no
+  -- product_snapshots row to pull an image from — see
+  -- data/wishdrop-requests-manual-product-details.sql.
+  product_image_url text
 );
 create index on public.order_items (order_id);
 
@@ -686,8 +699,12 @@ create table public.sites (
   name text not null,
   location text not null,
   headcount integer not null default 0,
-  active boolean not null default true
+  active boolean not null default true,
+  -- The one site new orders are assigned to when nothing else
+  -- determines a site — see data/wishdrop-sites-default.sql.
+  is_default boolean not null default false
 );
+create unique index sites_one_default on public.sites (is_default) where is_default;
 alter table public.orders
   add constraint orders_site_fk foreign key (site_id) references public.sites(id) on delete set null;
 
@@ -745,8 +762,20 @@ create table public.scrape_health (
   fail_count integer not null default 0,
   success_count integer not null default 0,
   last_failure timestamptz,
-  linked_seller_id uuid references public.sellers(id) on delete set null
+  linked_seller_id uuid references public.sellers(id) on delete set null,
+  -- See data/wishdrop-scrape-health-decision-columns.sql.
+  decision text not null default 'not_started',
+  ops_note text,
+  -- A real example of what this domain's product data looks like —
+  -- see data/wishdrop-scrape-health-success-sample.sql.
+  last_success_title text,
+  last_success_image_url text,
+  last_success_price text,
+  last_success_at timestamptz
 );
+-- The atomic fail_count/success_count increment function this table's
+-- write side depends on lives in its own file — see
+-- data/wishdrop-scrape-health-increment-fn.sql.
 
 create table public.seller_extraction_history (
   id uuid primary key default gen_random_uuid(),
@@ -851,3 +880,17 @@ create policy "own notifications" on public.notifications for all using (auth.ui
 -- policy here — access them only through server-side routes using the
 -- Supabase service role key, gated by your own staff-role checks (Manager /
 -- Sales & Purchase / Warehouse / Super Admin), matching wishdrop-admin-route-specs.md.
+
+-- Real "follow a store" backend — see data/wishdrop-store-follows.sql.
+create table public.store_follows (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  platform_slug text not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, platform_slug)
+);
+create index on public.store_follows (user_id);
+create index on public.store_follows (platform_slug);
+alter table public.store_follows enable row level security;
+create policy "own store follows" on public.store_follows for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);

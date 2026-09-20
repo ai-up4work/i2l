@@ -1,10 +1,10 @@
 // app/admin/orders/[orderId]/page.tsx
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, Check, ChevronRight, ExternalLink, MessageSquare, PencilLine, Trash2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, ExternalLink, ImagePlus, Loader2, MessageSquare, PencilLine, Send, Trash2, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import { STAGE_ORDER, CHANNEL_LABEL, type Channel, type Order, type OrderStage } from "@/types/admin"
@@ -12,6 +12,9 @@ import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 import QcIssueBanner from "@/components/shared/QcIssueBanner"
+import { createClient } from "@/lib/supabase/client"
+import { subscribeToThreadMessages, type ChatMessageRow } from "@/lib/supabase/chat"
+import { useImageUpload } from "@/lib/upload/useImageUpload"
 
 /* ---------- tokens ---------- */
 
@@ -173,6 +176,9 @@ export default function OrderDetailPage() {
     addInternalNote,
     deleteOrder,
     dataLoading,
+    sendChatMessage,
+    fetchMessagesForOrder,
+    resolveOrderId,
   } = useAdminData()
 
   const order = getOrder(orderId)
@@ -180,6 +186,101 @@ export default function OrderDetailPage() {
   const [stageError, setStageError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
+
+  // ---- embedded order-chat panel state ----
+  // See data/wishdrop-chat-messages-order-id.sql for why this can show
+  // messages at all: chat_messages had no order_id column before, so
+  // there was no way to isolate "just the conversation about THIS
+  // order" out of a thread that carries a customer's whole history.
+  const [orderMessages, setOrderMessages] = useState<ChatMessageRow[]>([])
+  const [loadingMessages, setLoadingMessages] = useState(true)
+  const [messageDraft, setMessageDraft] = useState("")
+  const [messageAttachmentUrl, setMessageAttachmentUrl] = useState<string | null>(null)
+  const [sendingMessage, setSendingMessage] = useState(false)
+  const messageListRef = useRef<HTMLDivElement>(null)
+  const { uploading: uploadingAttachment, upload: uploadMessageAttachment } = useImageUpload()
+
+  useEffect(() => {
+    if (!order?.chatThreadId) {
+      setLoadingMessages(false)
+      return
+    }
+    let cancelled = false
+    setLoadingMessages(true)
+    fetchMessagesForOrder(order.id, order.chatThreadId).then((rows) => {
+      if (!cancelled) {
+        setOrderMessages(rows)
+        setLoadingMessages(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [order?.id, order?.chatThreadId, fetchMessagesForOrder])
+
+  // Live-receive: subscribeToThreadMessages fires for EVERY new message
+  // on the thread (it can only filter by thread_id at the realtime
+  // layer — Postgres changefeeds don't support arbitrary column
+  // filters cheaply), so this filters client-side down to messages
+  // actually tagged to this order before appending.
+  useEffect(() => {
+    if (!order?.chatThreadId) return
+    const realOrderId = resolveOrderId(order.id)
+    if (!realOrderId) return
+    const supabase = createClient()
+    const unsubscribe = subscribeToThreadMessages(supabase, order.chatThreadId, (row) => {
+      if (row.order_id !== realOrderId) return
+      setOrderMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
+    })
+    return unsubscribe
+  }, [order?.id, order?.chatThreadId, resolveOrderId])
+
+  // Keep the panel scrolled to the newest message.
+  useEffect(() => {
+    messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight })
+  }, [orderMessages])
+
+  const handleAttachMessageImage = async (file: File) => {
+    // 'products' is the closest existing bucket — no dedicated chat-
+    // attachments folder exists in UploadFolder yet (see
+    // lib/upload/useImageUpload.ts); reusing it rather than adding a
+    // new folder value, which would also need the /api/upload route's
+    // own allowlist updated.
+    const url = await uploadMessageAttachment(file, "products")
+    if (url) setMessageAttachmentUrl(url)
+  }
+
+  const handleSendOrderMessage = async () => {
+    if (!order?.chatThreadId || (!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage) return
+    setSendingMessage(true)
+    const res = await sendChatMessage(order.chatThreadId, messageDraft, messageAttachmentUrl ?? undefined, order.id)
+    if (res.ok) {
+      const sentAttachment = messageAttachmentUrl
+      setMessageDraft("")
+      setMessageAttachmentUrl(null)
+      // Optimistic append — the realtime subscription above will also
+      // see this insert and no-op (same id already present) rather
+      // than duplicate it.
+      setOrderMessages((prev) => [
+        ...prev,
+        {
+          id: `optimistic-${Date.now()}`,
+          thread_id: order.chatThreadId!,
+          sender: "ops",
+          sender_name: currentUser.name,
+          text: messageDraft || null,
+          attachment_url: sentAttachment,
+          request_id: null,
+          order_id: resolveOrderId(order.id) ?? null,
+          sent_via_whatsapp: false,
+          created_at: new Date().toISOString(),
+        },
+      ])
+    } else {
+      console.error("[handleSendOrderMessage]", res.error)
+    }
+    setSendingMessage(false)
+  }
 
   // Depend on the item ids, not the order object, so unrelated order updates
   // (notes, stage changes) don't refetch QC issues.
@@ -516,20 +617,129 @@ export default function OrderDetailPage() {
 
           {/* Sidebar */}
           <aside className="flex flex-col gap-6">
-            <SectionCard title="Customer chat">
-              {order.chatThreadId ? (
-                <Link
-                  href={`/admin/chat?thread=${order.chatThreadId}`}
-                  className={`flex items-center gap-3 rounded-xl bg-teal/10 px-4 py-3 text-sm font-medium text-teal-deep transition-colors hover:bg-teal/15 ${FOCUS}`}
-                >
-                  <MessageSquare size={16} className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">Open chat with {order.customerName}</span>
-                  <ChevronRight size={16} className="shrink-0 text-teal-deep/50" />
-                </Link>
+            <section className="flex flex-1 flex-col rounded-2xl border border-ink/10 bg-card p-5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
+                  <MessageSquare size={16} className="text-teal-deep" />
+                  Customer chat
+                </h2>
+                {order.chatThreadId && (
+                  <Link
+                    href={`/admin/chat?thread=${order.chatThreadId}`}
+                    className={`flex items-center gap-1 rounded text-xs font-semibold text-teal-deep hover:underline ${FOCUS}`}
+                  >
+                    Full thread <ChevronRight size={12} />
+                  </Link>
+                )}
+              </div>
+
+              {!order.chatThreadId ? (
+                <p className="mt-3 text-sm text-ink/45">No chat thread linked to this order.</p>
               ) : (
-                <p className="text-sm text-ink/45">No chat thread linked to this order.</p>
+                <>
+                  <p className="mt-1 text-xs text-ink/50">
+                    Only messages tagged to this order — the full thread may carry more history than shown here.
+                  </p>
+
+                  <div ref={messageListRef} className="mt-4 max-h-[22rem] min-h-[6rem] space-y-2 overflow-y-auto">
+                    {loadingMessages ? (
+                      <p className="text-sm text-ink/40">Loading messages…</p>
+                    ) : orderMessages.length === 0 ? (
+                      <p className="text-sm text-ink/45">No messages about this order yet.</p>
+                    ) : (
+                      orderMessages.map((m) => (
+                        <div
+                          key={m.id}
+                          className={`rounded-xl border-l-2 p-3 text-sm shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
+                            m.sender === "customer"
+                              ? "border-l-ink/20 bg-parchment/50"
+                              : "border-l-teal-deep bg-teal/[0.05]"
+                          }`}
+                        >
+                          {m.text && <p className="whitespace-pre-wrap break-words text-ink/80">{m.text}</p>}
+                          {m.attachment_url && (
+                            <a
+                              href={m.attachment_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
+                            >
+                              View attachment <ExternalLink size={11} />
+                            </a>
+                          )}
+                          <p className="mt-1.5 text-xs text-ink/40">
+                            {m.sender_name}, {new Date(m.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="mt-auto space-y-2 pt-4">
+                    <label htmlFor="order-message-draft" className="sr-only">
+                      Send a message about this order
+                    </label>
+                    {messageAttachmentUrl && (
+                      <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment/40 p-2">
+                        <img src={messageAttachmentUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
+                        <span className="flex-1 text-xs text-ink/50">Image attached</span>
+                        <button
+                          type="button"
+                          onClick={() => setMessageAttachmentUrl(null)}
+                          aria-label="Remove attachment"
+                          className="rounded p-1 text-ink/40 hover:bg-ink/[0.06] hover:text-ink"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )}
+                    <textarea
+                      id="order-message-draft"
+                      value={messageDraft}
+                      onChange={(e) => setMessageDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSendOrderMessage()
+                      }}
+                      rows={2}
+                      placeholder="Message the customer about this order…"
+                      disabled={sendingMessage}
+                      className={`${FIELD} w-full resize-none`}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        className={`flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-parchment/60 ${
+                          uploadingAttachment ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          disabled={uploadingAttachment}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ""
+                            if (file) handleAttachMessageImage(file)
+                          }}
+                          className="hidden"
+                        />
+                        {uploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                        {uploadingAttachment ? "Uploading…" : "Attach image"}
+                      </label>
+                      <span className="text-xs text-ink/40">Ctrl or ⌘ + Enter to send</span>
+                      <button
+                        type="button"
+                        onClick={handleSendOrderMessage}
+                        disabled={(!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage}
+                        className={BTN_PRIMARY}
+                      >
+                        <Send size={13} />
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
-            </SectionCard>
+            </section>
 
             <section className="flex flex-1 flex-col rounded-2xl border border-gold/30 bg-gold/[0.07] p-5">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">

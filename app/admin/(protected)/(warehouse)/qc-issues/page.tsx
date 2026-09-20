@@ -23,6 +23,10 @@ import { fetchOpenQcIssuesWithContext, type QcIssueWithContext } from "@/lib/sup
 //     is ever deleted, so a fully resolved issue stays visible for analytics and
 //     future reference. Shown expanded by default; set showResolved's initial
 //     value to false to start collapsed.
+//
+// RESTYLE (2026-09): rows are taller with a 64px item photo (was 48px), the
+// item title wraps to two lines instead of truncating, and cards use the same
+// surface color as the other admin pages. Fetching and sections are unchanged.
 
 const ISSUE_TYPE_LABEL: Record<string, string> = {
   faulty_unit: "Faulty unit",
@@ -61,6 +65,9 @@ const TONE = {
   },
 } as const
 
+const CARD = "rounded-2xl border border-ink/10 bg-card"
+const LINK_BUTTON = "text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+
 function IssueRow({
   issue,
   tone,
@@ -84,9 +91,13 @@ function IssueRow({
     >
       {issue.itemImage ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={issue.itemImage} alt="" className="h-12 w-12 flex-none rounded-xl object-cover ring-1 ring-ink/10" />
+        <img
+          src={issue.itemImage}
+          alt=""
+          className="h-14 w-14 flex-none rounded-xl object-cover ring-1 ring-ink/10 sm:h-16 sm:w-16"
+        />
       ) : (
-        <div className="h-12 w-12 flex-none rounded-xl bg-ink/[0.04] ring-1 ring-ink/10" />
+        <div className="h-14 w-14 flex-none rounded-xl bg-ink/[0.04] ring-1 ring-ink/10 sm:h-16 sm:w-16" />
       )}
 
       <div className="min-w-0 flex-1">
@@ -97,8 +108,8 @@ function IssueRow({
             {ISSUE_TYPE_LABEL[issue.issueType] ?? issue.issueType}
           </span>
         </div>
-        <p className="mt-1 truncate text-sm text-ink/75">{issue.itemTitle}</p>
-        <p className="truncate text-xs text-ink/50">{issue.customerName}</p>
+        <p className="mt-1 line-clamp-2 break-words text-sm font-medium leading-snug text-ink/80">{issue.itemTitle}</p>
+        <p className="mt-0.5 truncate text-xs text-ink/50">{issue.customerName}</p>
 
         {/* mobile: the right-hand column is hidden, so it moves under the text */}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink/45 sm:hidden">
@@ -143,7 +154,7 @@ function Section({
         </h2>
         {hint && <p className="hidden text-xs text-ink/45 sm:block">{hint}</p>}
       </div>
-      <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/10 bg-white">{children}</div>
+      <div className={`divide-y divide-ink/[0.06] overflow-hidden ${CARD}`}>{children}</div>
     </section>
   )
 }
@@ -190,7 +201,7 @@ export default function QcIssuesPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
+      <div className="mx-auto max-w-8xl px-6 pb-8 pt-10 lg:px-10">
         {/* ── Header ── */}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
@@ -206,51 +217,47 @@ export default function QcIssuesPage() {
             </div>
           </div>
 
-          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-white">
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
             <div className="px-5 py-3">
               <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Need a decision</dt>
-              <dd className={`mt-0.5 font-display text-xl ${!loading && needsDecision.length > 0 ? "text-rose-700" : "text-ink"}`}>
+              <dd className={`mt-0.5 font-display text-xl tabular-nums ${!loading && needsDecision.length > 0 ? "text-rose-700" : "text-ink"}`}>
                 {stat(needsDecision.length)}
               </dd>
             </div>
             <div className="px-5 py-3">
               <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Awaiting replacement</dt>
-              <dd className={`mt-0.5 font-display text-xl ${!loading && awaitingReplacement.length > 0 ? "text-amber-700" : "text-ink"}`}>
+              <dd className={`mt-0.5 font-display text-xl tabular-nums ${!loading && awaitingReplacement.length > 0 ? "text-amber-700" : "text-ink"}`}>
                 {stat(awaitingReplacement.length)}
               </dd>
             </div>
             <div className="px-5 py-3">
               <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Resolved</dt>
-              <dd className="mt-0.5 font-display text-xl text-ink">{stat(resolved.length)}</dd>
+              <dd className="mt-0.5 font-display text-xl tabular-nums text-ink">{stat(resolved.length)}</dd>
             </div>
           </dl>
         </div>
 
         {loading ? (
-          <div className="mt-8 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white p-5" aria-busy="true">
+          <div className={`mt-8 flex flex-col gap-3 p-5 ${CARD}`} aria-busy="true">
             {[1, 2].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded-xl bg-ink/[0.04]" />
+              <div key={i} className="h-20 animate-pulse rounded-xl bg-ink/[0.04]" />
             ))}
           </div>
         ) : failed ? (
-          <div className="mt-8 flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-white px-4 py-16 text-center">
+          <div className={`mt-8 flex flex-col items-center gap-3 px-4 py-16 text-center ${CARD}`}>
             <AlertTriangle size={22} className="text-rose-500" />
             <div>
               <p className="text-sm font-semibold text-ink/70">Couldn&rsquo;t load QC issues</p>
               <p className="mt-1 max-w-xs text-xs text-ink/50">Check your connection, then try again.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setReloadKey((k) => k + 1)}
-              className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
-            >
+            <button type="button" onClick={() => setReloadKey((k) => k + 1)} className={LINK_BUTTON}>
               Try again
             </button>
           </div>
         ) : (
           <>
             {activeCount === 0 && (
-              <div className="mt-8 flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-white px-4 py-16 text-center">
+              <div className={`mt-8 flex flex-col items-center gap-3 px-4 py-16 text-center ${CARD}`}>
                 <Inbox size={22} className="text-ink/25" />
                 <div>
                   <p className="text-sm font-semibold text-ink/70">Nothing waiting on resolution</p>
@@ -258,10 +265,7 @@ export default function QcIssuesPage() {
                     Items appear here as soon as they&rsquo;re flagged faulty during Quality check.
                   </p>
                 </div>
-                <Link
-                  href="/admin/qc"
-                  className="text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
-                >
+                <Link href="/admin/qc" className={LINK_BUTTON}>
                   Go to Quality check
                 </Link>
               </div>
@@ -308,10 +312,7 @@ export default function QcIssuesPage() {
                   <ChevronRight size={14} className={`text-ink/40 transition-transform ${showResolved ? "rotate-90" : ""}`} aria-hidden />
                 </button>
                 {showResolved ? (
-                  <div
-                    id="resolved-issues"
-                    className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/10 bg-white"
-                  >
+                  <div id="resolved-issues" className={`divide-y divide-ink/[0.06] overflow-hidden ${CARD}`}>
                     {resolved.map((issue) => (
                       <IssueRow
                         key={issue.id}

@@ -113,8 +113,8 @@ function canSeeNavItem(item: NavItem, role: Role): boolean {
 function getTopItems(role: Role): NavItem[] {
   const items: NavItem[] = [
     { label: "Dashboard", href: DASHBOARD_HREF[role], icon: LayoutDashboard, roles: ["manager", "sales", "warehouse"] },
-    { label: "Orders", href: "/admin/orders", icon: ClipboardList, roles: ["manager", "sales", "warehouse"] },
     { label: "Requests", href: "/admin/requests", icon: ClipboardList, roles: ["manager", "sales"] },
+    { label: "Orders", href: "/admin/orders", icon: ClipboardList, roles: ["manager", "sales", "warehouse"] },
     { label: "Customer chat", href: "/admin/chat", icon: MessageCircle, roles: ["manager", "sales"] },
     { label: "quote", href: "/admin/quote", icon: ClipboardList, roles: ["manager", "sales"] },
   ]
@@ -171,7 +171,7 @@ function getGroups(role: Role): Group[] {
         { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"], locked: true },
         { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },
         { label: "All staff", href: "/admin/super-admin/staff", icon: Users, roles: ["super_admin"] },
-        { label: "Warehouse Sites", href: "/admin/warehouses", icon: Building2, roles: ["super_admin"] },
+        { label: "Warehouse Sites", href: "/admin/super-admin/warehouses", icon: Building2, roles: ["super_admin"] },
         {
           label: "Pricing engine",
           href: "/admin/super-admin/settings/pricing-engine",

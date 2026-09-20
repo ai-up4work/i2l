@@ -5,12 +5,11 @@ import { useMemo, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, ClipboardCheck, Inbox, Layers, Search, SearchX, Store } from "lucide-react"
+import { AlertTriangle, ChevronRight, ClipboardCheck, Inbox, Layers, Search, SearchX, Store } from "lucide-react"
 
 import { useAdminData, isOrderAgeBreached } from "@/contexts/AdminDataContext"
 import { QC_STATUS_LABEL, CHANNEL_LABEL, type QCStatus, type QCLine } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
-import { panelClass } from "@/components/admin/seller/shared"
 
 // Quality Check queue: items that have been bought and have arrived at this
 // warehouse site, waiting to be inspected. It is the stage before Pack & label.
@@ -27,6 +26,11 @@ import { panelClass } from "@/components/admin/seller/shared"
 //
 // Backed by AdminDataContext.visibleQcLines, joined live from purchases +
 // orders, so this queue can never disagree with Purchases or Order detail.
+//
+// RESTYLE (2026-09): rows are taller with a 64px product photo (was 40px), the
+// product title wraps to two lines instead of truncating, flagged rows get a
+// red left edge (same as problem rows on Purchases), and each row has a
+// chevron to show it's clickable. Filtering and grouping are unchanged.
 
 const TABS: { key: "all" | QCStatus; label: string }[] = [
   { key: "all", label: "All" },
@@ -51,10 +55,13 @@ const QC_STATUS_TONE: Record<QCStatus, StatusTone> = {
   flagged: "rose",
 }
 
-// Seven columns, shared by the legend and every row so they always line up.
-// Written out in full (with the sm: prefix) so Tailwind can see the class.
+const CARD = "rounded-2xl border border-ink/10 bg-card"
+
+// Eight columns (the last is the chevron), shared by the legend and every row
+// so they always line up. Written out in full (with the sm: prefix) so Tailwind
+// can see the class.
 const GRID =
-  "sm:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)_3rem_6rem_6.5rem_minmax(0,0.8fr)_9rem]"
+  "sm:grid-cols-[minmax(0,2.4fr)_minmax(0,1.1fr)_3rem_6rem_6.5rem_minmax(0,0.8fr)_9rem_1.5rem]"
 const COLUMNS = ["Product", "Seller", "Qty", "Arrived", "Order age", "Photos", "Status"]
 
 interface OrderGroup {
@@ -141,7 +148,7 @@ export default function QCPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
+      <div className="mx-auto max-w-8xl px-6 pb-8 pt-10 lg:px-10">
         {/* ── Header ── */}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
@@ -156,19 +163,19 @@ export default function QCPage() {
             </div>
           </div>
 
-          <dl className="flex divide-x divide-ink/10 overflow-hidden rounded-2xl border border-ink/10 bg-card">
+          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
             <div className="px-5 py-3">
-              <dt className="text-xs font-medium text-ink/45">Items to inspect</dt>
-              <dd className="mt-0.5 font-display text-xl text-ink">{pending.length}</dd>
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Items to inspect</dt>
+              <dd className="mt-0.5 font-display text-xl tabular-nums text-ink">{pending.length}</dd>
             </div>
             <div className="px-5 py-3">
-              <dt className="text-xs font-medium text-ink/45">Flagged items</dt>
-              <dd className={`mt-0.5 font-display text-xl ${flaggedTotal > 0 ? "text-rose-700" : "text-ink"}`}>
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Flagged items</dt>
+              <dd className={`mt-0.5 font-display text-xl tabular-nums ${flaggedTotal > 0 ? "text-rose-700" : "text-ink"}`}>
                 {flaggedTotal}
               </dd>
             </div>
             <div className="px-5 py-3">
-              <dt className="text-xs font-medium text-ink/45">Oldest order waiting</dt>
+              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Oldest order waiting</dt>
               <dd className={`mt-0.5 font-display text-xl ${oldestBreached ? "text-rose-700" : "text-ink"}`}>
                 {oldestPending ? oldestPending.orderAgeLabel : "—"}
               </dd>
@@ -177,7 +184,7 @@ export default function QCPage() {
         </div>
 
         {/* ── Filters ── */}
-        <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div role="tablist" aria-label="Filter by status" className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
             {TABS.map((t) => (
               <button
@@ -196,7 +203,7 @@ export default function QCPage() {
             ))}
           </div>
 
-          <div className="relative w-full sm:w-72">
+          <div className="relative w-full sm:w-80">
             <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink/35" />
             <input
               type="text"
@@ -230,20 +237,21 @@ export default function QCPage() {
              account for the card border. ── */}
         {groups.length > 0 && (
           <div
-            className={`sticky top-0 z-10 mt-3 hidden items-center gap-x-3 bg-parchment/90 px-[1.3125rem] py-2.5 text-xs font-medium text-ink/50 backdrop-blur sm:grid ${GRID}`}
+            className={`sticky top-0 z-10 mt-3 hidden items-center gap-x-4 bg-parchment/90 px-[1.3125rem] py-2.5 text-xs font-medium text-ink/50 backdrop-blur sm:grid ${GRID}`}
           >
             {COLUMNS.map((label, i) => (
               <span key={label} className={i === 2 ? "text-right" : ""}>
                 {label}
               </span>
             ))}
+            <span />
           </div>
         )}
 
         {/* ── Grouped list ── */}
         <div className="mt-1 space-y-4">
           {groups.length === 0 ? (
-            <div className={panelClass}>
+            <div className={CARD}>
               <EmptyState
                 hasSearch={hasSearch}
                 tab={tab}
@@ -278,14 +286,14 @@ function OrderGroupCard({ group, onOpenLine }: { group: OrderGroup; onOpenLine: 
   const anyBreached = group.allLines.some((l) => isOrderAgeBreached(l.orderAgeHours))
 
   return (
-    <div className={`overflow-hidden ${panelClass}`}>
+    <div className={`overflow-hidden ${CARD}`}>
       {/* Order header: always shown, even for a single-item order, so which
           order a row belongs to never depends on matching numbers by eye. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-ink/[0.06] bg-parchment/40 px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-ink/[0.06] bg-parchment/50 px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <Link
             href={`/admin/orders/${group.orderId}`}
-            className="rounded font-display text-sm font-semibold outline-none hover:text-teal-deep hover:underline focus-visible:ring-2 focus-visible:ring-teal/40"
+            className="rounded font-display text-base font-semibold outline-none hover:text-teal-deep hover:underline focus-visible:ring-2 focus-visible:ring-teal/40"
           >
             {group.orderNumber}
           </Link>
@@ -329,7 +337,7 @@ function OrderGroupCard({ group, onOpenLine }: { group: OrderGroup; onOpenLine: 
       </div>
 
       {hiddenCount > 0 && (
-        <p className="border-b border-ink/[0.06] bg-parchment/20 px-5 py-1.5 text-[11px] text-ink/45">
+        <p className="border-b border-ink/[0.06] bg-parchment/20 px-5 py-1.5 text-xs text-ink/45">
           +{hiddenCount} other item{hiddenCount === 1 ? "" : "s"} on this order not shown in the current filter
         </p>
       )}
@@ -361,22 +369,24 @@ function QCRow({ row, onOpen }: { row: QCLine; onOpen: () => void }) {
   return (
     <div
       onClick={onOpen}
-      className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-ink/[0.02] sm:gap-y-0 ${GRID}`}
+      className={`relative grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 border-b border-ink/[0.06] px-5 py-4 transition-colors last:border-b-0 hover:bg-ink/[0.02] focus-within:bg-teal/[0.04] sm:gap-y-0 ${GRID}`}
     >
+      {row.status === "flagged" && <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-rose-500" />}
+
       {/* Product */}
-      <span className="flex min-w-0 items-center gap-3">
-        <span className="h-10 w-10 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04]">
-          <Image src={row.productImage} alt="" width={40} height={40} className="h-full w-full object-cover" />
+      <span className="flex min-w-0 items-center gap-4">
+        <span className="h-18 w-18 flex-none overflow-hidden rounded-xl border border-ink/10 bg-ink/[0.04] sm:h-20 sm:w-20">
+          <Image src={row.productImage} alt="" width={180} height={180} className="h-full w-full object-cover" />
         </span>
         <span className="min-w-0">
           <Link
             href={`/admin/qc/${row.id}`}
             onClick={(e) => e.stopPropagation()}
-            className="block truncate rounded text-sm font-semibold outline-none hover:text-teal-deep hover:underline focus-visible:ring-2 focus-visible:ring-teal/40"
+            className="line-clamp-2 break-words rounded text-sm font-semibold leading-snug outline-none hover:text-teal-deep hover:underline focus-visible:ring-2 focus-visible:ring-teal/40"
           >
             {row.productTitle}
           </Link>
-          {row.variant && <span className="block truncate text-xs text-ink/50">{row.variant}</span>}
+          {row.variant && <span className="mt-1 block truncate text-xs text-ink/50">{row.variant}</span>}
         </span>
       </span>
 
@@ -384,27 +394,29 @@ function QCRow({ row, onOpen }: { row: QCLine; onOpen: () => void }) {
       <span className="sm:hidden">{pill}</span>
 
       <span className="hidden min-w-0 flex-col sm:flex">
-        <span className="flex min-w-0 items-center gap-1.5 text-sm text-ink/70">
-          <Store size={12} className="flex-none text-ink/30" aria-hidden />
+        <span className="flex min-w-0 items-center gap-1.5 text-sm text-ink/75">
+          <Store size={13} className="flex-none text-ink/30" aria-hidden />
           <span className="truncate">{row.sellerName}</span>
         </span>
-        <span className="truncate text-xs text-ink/40">{CHANNEL_LABEL[row.channel]}</span>
+        <span className="mt-0.5 truncate text-xs text-ink/45">{CHANNEL_LABEL[row.channel]}</span>
       </span>
 
-      <span className="hidden text-right text-sm tabular-nums text-ink/60 sm:block">{row.quantity}</span>
+      <span className="hidden text-right text-sm tabular-nums text-ink/65 sm:block">{row.quantity}</span>
 
-      <span className="hidden whitespace-nowrap text-sm tabular-nums text-ink/50 sm:block">{row.arrivedAgo}</span>
+      <span className="hidden whitespace-nowrap text-sm tabular-nums text-ink/55 sm:block">{row.arrivedAgo}</span>
 
       <span className={`hidden items-center gap-2 whitespace-nowrap text-sm tabular-nums sm:inline-flex ${ageText}`}>
         <span className={`h-2 w-2 flex-none rounded-full ${ageDot}`} aria-hidden />
         {row.orderAgeLabel}
       </span>
 
-      <span className="hidden truncate text-sm text-ink/50 sm:block">
+      <span className="hidden truncate text-sm text-ink/55 sm:block">
         {row.photoCount > 0 ? `${row.photoCount} photo${row.photoCount > 1 ? "s" : ""}` : "—"}
       </span>
 
       <span className="hidden sm:block">{pill}</span>
+
+      <ChevronRight size={16} className="hidden flex-none text-ink/25 sm:block" aria-hidden />
 
       {/* mobile-only details */}
       <span className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink/55 sm:hidden">

@@ -269,6 +269,53 @@ export async function fetchOlderThreadMessages(
   return { messages: page.reverse(), hasMore }
 }
 
+/**
+ * Messages tagged to a SPECIFIC request within a thread — same idea as
+ * fetchOrderMessages above, for the request detail page's own embedded
+ * chat panel. A "general" thread can carry many requests (and orders)
+ * over a customer's lifetime, so this is what isolates "just the
+ * conversation about THIS request" out of that whole history.
+ */
+export async function fetchRequestMessages(
+  supabase: SupabaseClient,
+  threadId: string,
+  requestId: string,
+): Promise<ChatMessageRow[]> {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .eq('request_id', requestId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+/**
+ * Messages tagged to a SPECIFIC order within a thread — backs the small
+ * chat panel on the order detail page (app/admin/orders/[orderId]/page.tsx).
+ * Distinct from fetchRecentThreadMessages, which returns everything in
+ * the thread regardless of which order (or request, or neither) it was
+ * about — a thread carries a customer's whole history, but this order's
+ * own panel should only ever show what's actually about it. See
+ * wishdrop-chat-messages-order-id.sql for why this only sees messages
+ * sent after that column existed.
+ */
+export async function fetchOrderMessages(
+  supabase: SupabaseClient,
+  threadId: string,
+  orderId: string,
+): Promise<ChatMessageRow[]> {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
 /** Inserts one message and bumps the thread's last_activity (+ unread
  * flag when the sender is the customer — see the module doc comment). */
 export async function sendChatMessage(
@@ -281,6 +328,13 @@ export async function sendChatMessage(
     attachmentUrl?: string | null
     /** Tags this message to a Channel 3 request (chat_messages.request_id) — shown as a visible tag in the admin chat view (see wishdrop-admin-route-specs.md's /admin/chat spec). Used for the initial message a request is created with, and for any staff/customer follow-up while that request is still open. */
     requestId?: string | null
+    /** Tags this message to an order (chat_messages.order_id) — backs the
+     * order detail page's own small chat panel (see fetchOrderMessages
+     * above). Independent of requestId: a Channel 1/2 order was never a
+     * request in the first place, and even a Channel 3 order's own
+     * follow-up messages are about the ORDER now, not the request that
+     * preceded it. */
+    orderId?: string | null
   },
 ): Promise<ChatMessageRow> {
   const { data, error } = await supabase
@@ -292,18 +346,19 @@ export async function sendChatMessage(
       text: params.text || null,
       attachment_url: params.attachmentUrl ?? null,
       request_id: params.requestId ?? null,
+      order_id: params.orderId ?? null,
     })
     .select('*')
     .single()
   if (error) throw error
 
-  await supabase
-    .from('chat_threads')
-    .update({
-      last_activity: new Date().toISOString(),
-      ...(params.sender === 'customer' ? { unread: true } : {}),
-    })
-    .eq('id', params.threadId)
+  // Built as a concretely-typed variable rather than an inline
+  // conditional spread — see setOrderExportHold/reassignOrderSite's own
+  // comment on this in orders-admin.ts for why the inline form collapses
+  // Supabase's generic Update<T> field types to `never`.
+  const threadUpdate: { last_activity: string; unread?: boolean } = { last_activity: new Date().toISOString() }
+  if (params.sender === 'customer') threadUpdate.unread = true
+  await supabase.from('chat_threads').update(threadUpdate).eq('id', params.threadId)
 
   return data
 }

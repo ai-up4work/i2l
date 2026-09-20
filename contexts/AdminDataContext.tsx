@@ -94,7 +94,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { subscribeWithDiagnostics } from "@/lib/supabase/chat"
+import { subscribeWithDiagnostics, type ChatMessageRow } from "@/lib/supabase/chat"
 import type {
   Role,
   Channel,
@@ -449,6 +449,8 @@ import {
   confirmRequestReal,
   confirmRequestPaymentReal,
   sendAdminChatMessage,
+  fetchOrderMessagesReal,
+  fetchRequestMessagesReal,
   markThreadReadReal,
   markSentViaWhatsAppReal,
 } from "@/lib/supabase/requests-admin"
@@ -1166,7 +1168,33 @@ interface AdminDataContextValue {
   getChatThread: (id: string) => ChatThread | undefined
   getChatThreadForRequest: (requestId: string) => ChatThread | undefined
   /** Sends a staff reply for real, awaiting the write. Optional attachmentUrl (e.g. a QC photo, or anything the admin attaches from SendMessageModal). Returns { ok:false, error } instead of silently pretending success if the insert fails (e.g. an RLS policy rejecting it) — see this function's own doc comment for the exact bug this replaced. */
-  sendChatMessage: (threadId: string, body: string, attachmentUrl?: string) => Promise<{ ok: boolean; error?: string }>
+  sendChatMessage: (
+    threadId: string,
+    body: string,
+    attachmentUrl?: string,
+    orderId?: string,
+    requestIdOverride?: string,
+  ) => Promise<{ ok: boolean; error?: string }>
+  /** Messages tagged to a specific request (chat_messages.request_id) —
+   * backs the request detail page's own small chat panel. Unlike
+   * fetchMessagesForOrder, requestId here is already the real uuid (see
+   * sendChatMessage's own comment on why Request.id needs no
+   * resolution the way Order.id does). Returns [] (logged, not thrown)
+   * on any failure, same reasoning as fetchMessagesForOrder. */
+  fetchMessagesForRequest: (requestId: string, threadId: string) => Promise<ChatMessageRow[]>
+  /** Messages tagged to a specific order (chat_messages.order_id) —
+   * backs the order detail page's own small chat panel. orderId is the
+   * DISPLAY id, resolved internally same as sendChatMessage above.
+   * Returns [] (logged, not thrown) on any failure, since a page
+   * showing "no messages yet" is a much safer failure mode for a read
+   * than crashing the whole order detail page over it. */
+  fetchMessagesForOrder: (orderId: string, threadId: string) => Promise<ChatMessageRow[]>
+  /** Real orders.id uuid for a display id ("WD-1000037") — same lookup
+   * every real write in this file already uses internally, exposed here
+   * only because the order detail page's chat panel needs it client-side
+   * to filter realtime message inserts (which arrive tagged with the
+   * real uuid) down to messages about this specific order. */
+  resolveOrderId: (orderId: string) => string | undefined
   markThreadRead: (threadId: string) => void
   /** Marks the given message as sent via the wa.me manual-send flow — does NOT open the link itself, that's a page-level concern */
   markSentViaWhatsApp: (threadId: string, messageId: string) => void
@@ -3031,12 +3059,34 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * locally on success, returning ok/error so callers (SendMessageModal)
    * can show a real failure instead of silently pretending it worked.
    */
-  const sendChatMessage = async (threadId: string, body: string, attachmentUrl?: string): Promise<{ ok: boolean; error?: string }> => {
+  const sendChatMessage = async (
+    threadId: string,
+    body: string,
+    attachmentUrl?: string,
+    orderId?: string,
+    requestIdOverride?: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
     const trimmed = body.trim()
     if (!trimmed && !attachmentUrl) return { ok: false, error: "Message is empty." }
 
     const thread = chatThreads.find((t) => t.id === threadId)
-    const result = await sendAdminChatMessage(threadId, currentUser.name, trimmed, thread?.requestId, attachmentUrl)
+    // orderId (when given) is the DISPLAY id ("WD-1000037") like every
+    // other id this context's public API deals in — resolved to the
+    // real orders.id uuid here, same as every other real write in this
+    // file, so callers (the order detail page's chat panel) never need
+    // to know the real/display id distinction exists.
+    const realOrderId = orderId ? resolveRealId(orderId) : undefined
+    // requestIdOverride lets a caller (the request detail page's own
+    // chat panel) explicitly tag a message to A SPECIFIC request,
+    // rather than falling back to thread?.requestId — which is
+    // unreliable here: a thread is one-per-customer and can carry many
+    // requests over that customer's whole lifetime, so "whatever
+    // request this thread happens to remember" is not necessarily the
+    // one the admin is actually looking at right now. Request.id is
+    // already the real uuid (unlike Order.id, which is the display id),
+    // so no resolveRealId step is needed for it.
+    const effectiveRequestId = requestIdOverride ?? thread?.requestId
+    const result = await sendAdminChatMessage(threadId, currentUser.name, trimmed, effectiveRequestId, attachmentUrl, realOrderId)
     if (!result.ok) {
       console.error("[sendChatMessage] real write failed — nothing was sent to the customer", result.error)
       return { ok: false, error: result.error ?? "Failed to send message. Please try again." }
@@ -3058,6 +3108,26 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       })
     )
     return { ok: true }
+  }
+
+  const fetchMessagesForOrder = async (orderId: string, threadId: string): Promise<ChatMessageRow[]> => {
+    const realOrderId = resolveRealId(orderId)
+    if (!realOrderId) return []
+    try {
+      return await fetchOrderMessagesReal(threadId, realOrderId)
+    } catch (err) {
+      console.error("[fetchMessagesForOrder]", err)
+      return []
+    }
+  }
+
+  const fetchMessagesForRequest = async (requestId: string, threadId: string): Promise<ChatMessageRow[]> => {
+    try {
+      return await fetchRequestMessagesReal(threadId, requestId)
+    } catch (err) {
+      console.error("[fetchMessagesForRequest]", err)
+      return []
+    }
   }
 
   const markThreadRead = (threadId: string) => {
@@ -3184,6 +3254,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     getChatThread,
     getChatThreadForRequest,
     sendChatMessage,
+    fetchMessagesForOrder,
+    fetchMessagesForRequest,
+    resolveOrderId: resolveRealId,
     markThreadRead,
     markSentViaWhatsApp,
     resetToSeedData,

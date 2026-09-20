@@ -572,6 +572,7 @@ export interface Database {
           text: string | null
           attachment_url: string | null
           request_id: string | null
+          order_id: string | null
           sent_via_whatsapp: boolean
           created_at: string
         }
@@ -583,6 +584,7 @@ export interface Database {
           text?: string | null
           attachment_url?: string | null
           request_id?: string | null
+          order_id?: string | null
           sent_via_whatsapp?: boolean
           created_at?: string
         }
@@ -746,6 +748,22 @@ export interface Database {
           viewed_at?: string
         }
         Update: Partial<Database['public']['Tables']['recently_viewed']['Insert']>
+        Relationships: []
+      }
+      store_follows: {
+        Row: {
+          id: string
+          user_id: string
+          platform_slug: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          platform_slug: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['store_follows']['Insert']>
         Relationships: []
       }
       loyalty_accounts: {
@@ -1265,6 +1283,10 @@ export interface Database {
       increment_scrape_health: {
         Args: { p_domain: string; p_success: boolean; p_title?: string; p_image_url?: string; p_price?: string }
         Returns: undefined
+      }
+      seller_follower_count: {
+        Args: { p_platform_slug: string }
+        Returns: number
       }
     }
     Enums: Record<string, never>
