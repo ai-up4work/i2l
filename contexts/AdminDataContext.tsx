@@ -1663,7 +1663,6 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // refetch, ~400ms after things go quiet.
   const ordersRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestsRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const staffRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeSupabaseRef = useRef(createClient())
 
   useEffect(() => {
@@ -1677,11 +1676,6 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
       requestsRefetchTimer.current = setTimeout(() => loadRealRequests({ silent: true }), 400)
     }
-    const scheduleStaffRefetch = () => {
-      if (staffRefetchTimer.current) clearTimeout(staffRefetchTimer.current)
-      staffRefetchTimer.current = setTimeout(() => loadStaffDirectory(), 400)
-    }
-
     // One channel, every table that feeds loadRealOrders — orders
     // themselves, their line items, purchase records, and QC issues.
     // A change on any of them can change what an order/purchase/QC
@@ -1713,32 +1707,51 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           .on("postgres_changes", { event: "*", schema: "public", table: "requests" }, scheduleRequestsRefetch),
     )
 
-    // Staff roster — a new hire, a role/site change, a deactivation.
-    // Matters most for whoever's looking at the staff pages themselves,
-    // but also feeds the reassign-request dropdown and the reports
-    // "staff assigned here" panel elsewhere in the app, so it's worth
-    // keeping live rather than requiring a full page reload to notice a
-    // teammate just got added.
-    const unsubscribeStaff = subscribeWithDiagnostics(
-      supabase,
-      "admin-staff",
-      () =>
-        supabase
-          .channel(`admin-staff:${Math.random().toString(36).slice(2)}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "staff_accounts" }, scheduleStaffRefetch),
-    )
-
     return () => {
       if (ordersRefetchTimer.current) clearTimeout(ordersRefetchTimer.current)
       if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
-      if (staffRefetchTimer.current) clearTimeout(staffRefetchTimer.current)
       unsubscribeOrders()
       unsubscribeRequests()
-      unsubscribeStaff()
     }
-    // loadRealOrders/loadRealRequests/loadStaffDirectory are stable
-    // (useCallback with no deps) — this only needs to run once, not on
-    // every render.
+    // loadRealOrders/loadRealRequests are stable (useCallback with no
+    // deps) — this only needs to run once, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Staff roster — deliberately NOT a client-side postgres_changes
+  // subscription like orders/requests above. `staff_accounts` has no
+  // client-facing RLS SELECT policy at all, by design (see
+  // wishdrop-supabase-schema.sql's own comment: staff/admin tables are
+  // meant to be read only through server-side routes using the service
+  // role key, same as loadStaffDirectory's `/api/admin/staff` fetch
+  // already does). A Postgres-changes subscription is evaluated
+  // against the SUBSCRIBING (browser, anon/authenticated) session's
+  // RLS, not the server route's service role — so it can't be granted
+  // visibility here without adding a permissive "authenticated" SELECT
+  // policy on a table holding staff names/emails/roles, which is a real
+  // exposure (any logged-in customer's session could then read the
+  // whole staff directory), not just an interim shortcut. That's a
+  // materially worse trade-off than the same interim policy already
+  // accepted for orders/requests.
+  //
+  // Staff roster changes (a hire, a role/site change, a deactivation)
+  // are also low-frequency and low-urgency compared to a live order/
+  // request queue, so a live socket isn't worth that exposure. Instead:
+  // poll the existing safe route on an interval, and refresh
+  // immediately when the tab regains focus (covers the common case of
+  // switching back after a teammate made a change elsewhere).
+  useEffect(() => {
+    const POLL_MS = 60_000
+    const interval = setInterval(() => loadStaffDirectory(), POLL_MS)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadStaffDirectory()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+    // loadStaffDirectory is stable (useCallback with no deps).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
