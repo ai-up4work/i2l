@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, Loader2, RefreshCw, MessageCircle, Truck, Plane, Info, Link } from 'lucide-react'
+import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, RefreshCw, MessageCircle, Truck, Plane, Info, Link, ExternalLink } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
+import ProductGallery from '@/components/stores/ProductGallery'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
 import FlipkartProductView from '@/components/platforms/FlipkartProductView'
@@ -29,7 +30,6 @@ import {
   type ProductPriceableItem,
   type DeliveryPriceOption,
 } from '@/lib/pricing'
-import Image from 'next/image'
 
 /**
  * CHANNEL 1/2 (priced, real listing) vs CHANNEL 3 (unpriced — ogOnly or
@@ -81,6 +81,12 @@ type ItemOverlayProps = {
 type DeliveryChoice = 'economy' | 'express'
 
 const ANIMATION_MS = 300
+
+// Shown in the gallery when a scrape fails and no real product image
+// survived. Lives in /public, so drop your file at
+// public/images/product-placeholder.png (or change this path to match
+// wherever you put it).
+const PLACEHOLDER_IMAGE = '/images/product-placeholder.png'
 
 // Counts a displayed LKR figure smoothly from its previous value to a new
 // one whenever `value` changes (delivery method switch, qty change, etc.)
@@ -490,6 +496,219 @@ function QuoteModal({
   )
 }
 
+// SHARED LAYOUT for both CHANNEL 3 screens:
+//   - GenericProductView: an unrecognized/ogOnly site where we DID get
+//     an image and/or title, and
+//   - UnreadableListingFallback: a scrape that failed outright.
+// Both render through this one component, so the container, grid,
+// gallery, title, price line, notice, qty stepper and chat button are
+// guaranteed identical — the only thing that differs is how much real
+// data is filled in. The layout mirrors AmazonProductView (the
+// successful, branded screen): same `max-w-6xl` container, same named
+// grid areas (mobile: info -> gallery -> rest; sm+: gallery left, info
+// top-right, rest bottom-right), same ProductGallery frame, same h1
+// title style, same black action button.
+//
+// Images: if there's at least one real image it goes through the shared
+// ProductGallery. If there are none, a plain square frame shows
+// PLACEHOLDER_IMAGE (from /public) — it doesn't go through
+// ProductGallery, so it can't collapse to zero height, and if the file
+// is missing it shows an icon instead of a blank box.
+function ChatListingView({
+  siteLabel,
+  siteUrl,
+  showShortlink,
+  title,
+  emptyTitle,
+  images,
+  priceLabel,
+  notice,
+  qty,
+  onQtyChange,
+  onAction,
+  loading,
+  loadingLabel,
+  disabled,
+  unavailable,
+  submitError,
+  onRetry,
+  retryDisabled,
+}: {
+  siteLabel: string
+  siteUrl?: string | null
+  showShortlink?: boolean
+  title?: string | null
+  emptyTitle: string
+  images: string[]
+  priceLabel: string | null
+  notice: string
+  qty: number
+  onQtyChange: (qty: number) => void
+  onAction: () => void
+  loading?: boolean
+  loadingLabel?: string
+  disabled?: boolean
+  unavailable?: boolean
+  submitError?: string | null
+  onRetry?: () => void
+  retryDisabled?: boolean
+}) {
+  // Flips to true if PLACEHOLDER_IMAGE 404s (file missing / wrong name).
+  const [placeholderFailed, setPlaceholderFailed] = useState(false)
+  const hasImage = images.length > 0
+
+  return (
+    <div className="mx-auto max-w-6xl px-6 lg:px-10">
+      <div className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
+        {/* Top of buy box: source + title.
+            Mobile: first (area "info"). Desktop: top-right column. */}
+        <div className="min-w-0 [grid-area:info]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
+            {siteUrl ? (
+              <a
+                href={siteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 ring-1 ring-inset ring-ink/10 transition-colors hover:text-ink"
+              >
+                <Zap size={11} className="text-teal-deep" strokeWidth={2} />
+                {siteLabel}
+                <ExternalLink size={11} />
+              </a>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 ring-1 ring-inset ring-ink/10">
+                <Zap size={11} className="text-teal-deep" strokeWidth={2} />
+                {siteLabel}
+              </span>
+            )}
+            {showShortlink && (
+              <span
+                title="This was a shortened link — resolved to the real product page before we read it."
+                className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 ring-1 ring-inset ring-ink/10"
+              >
+                <Link size={11} className="text-teal-deep" strokeWidth={2} />
+                Shortlink
+              </span>
+            )}
+          </div>
+
+          <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+            {title || <span className="italic text-ink/40">{emptyTitle}</span>}
+          </h1>
+        </div>
+
+        {/* Image column.
+            Mobile: second (area "gallery"). Desktop: left column,
+            spanning both rows. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          {hasImage ? (
+            <ProductGallery
+              images={images}
+              title={title}
+              resetKey={siteUrl ?? undefined}
+              theme={{
+                frameBorder: 'border-ink/10',
+                activeThumb: 'border-teal-deep ring-1 ring-teal-deep',
+                restingThumb: 'border-ink/10',
+                placeholderText: 'text-ink/40',
+              }}
+            />
+          ) : (
+            <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white">
+              {placeholderFailed ? (
+                <div className="grid h-full w-full place-items-center text-ink/20">
+                  <ShoppingBag size={48} strokeWidth={1.2} />
+                </div>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={PLACEHOLDER_IMAGE}
+                  alt=""
+                  onError={() => setPlaceholderFailed(true)}
+                  className="h-full w-full object-cover"
+                />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Rest of buy box: price, notice, qty + chat action.
+            Mobile: third (area "rest"). Desktop: bottom-right column. */}
+        <div className="min-w-0 [grid-area:rest]">
+          {priceLabel ? (
+            <p className="text-3xl font-bold text-teal-deep">{priceLabel}</p>
+          ) : (
+            <p className="text-base font-semibold text-ink/40">Price to be confirmed</p>
+          )}
+
+          <div className="mt-4 flex items-start gap-2 rounded-xl bg-teal/[0.06] p-3 text-sm text-ink/70 ring-1 ring-inset ring-teal/15">
+            <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
+            <span>{notice}</span>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3">
+            {submitError && (
+              <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
+                {submitError}
+              </p>
+            )}
+
+            <div className="flex min-w-0 flex-nowrap items-center gap-2">
+              <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+                <button
+                  type="button"
+                  aria-label="Decrease quantity"
+                  onClick={() => onQtyChange(Math.max(1, qty - 1))}
+                  className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+                >
+                  <Minus size={15} />
+                </button>
+                <span className="min-w-[20px] text-center font-bold tabular-nums">{qty}</span>
+                <button
+                  type="button"
+                  aria-label="Increase quantity"
+                  onClick={() => onQtyChange(qty + 1)}
+                  className="grid h-7 w-7 place-items-center rounded-md border border-ink/15 text-ink/60 transition-colors hover:border-teal/30 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+
+              <RequestActionButton
+                onClick={onAction}
+                disabled={!!disabled}
+                loading={!!loading}
+                loadingLabel={loadingLabel}
+                unavailable={!!unavailable}
+                icon={<MessageCircle size={16} />}
+                color="#000000"
+                disabledColor="#c7c7c7"
+                className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+              >
+                CHAT ABOUT THIS ITEM
+              </RequestActionButton>
+            </div>
+
+            <p className="text-xs text-ink/40">You will not be charged now. This opens a chat with our team.</p>
+
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={retryDisabled}
+                className="inline-flex items-center gap-1.5 self-start text-xs font-semibold text-teal-deep transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw size={13} />
+                Try loading again
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // CHANNEL 3 fallback for an unrecognized/ogOnly result.site — this is
 // the generic Open Graph/JSON-LD path (see ScrapeResult.ogOnly's doc
 // comment): no confirmed size/color options, and no price that's been
@@ -497,7 +716,7 @@ function QuoteModal({
 // QuoteModal (see the file-level doc comment) — its single action
 // (onGoToChat) calls onSubmitRequest directly and skips straight to a
 // real conversation with the team, since that was always where this had
-// to end up anyway.
+// to end up anyway. Layout lives in ChatListingView above.
 function GenericProductView(
   props: Parameters<typeof AmazonProductView>[0] & {
     onGoToChat: () => void
@@ -506,88 +725,31 @@ function GenericProductView(
   },
 ) {
   const { result, qty, onQtyChange, onGoToChat, loading, canAct, submitting, submitError } = props
-  const images = result.images?.length ? result.images : []
+  const hostname = hostnameFromUrl(result.url)
+  const priceLabel =
+    result.price != null && result.price !== ''
+      ? [result.currencyCode, result.price].filter(Boolean).join(' ')
+      : null
+
   return (
-    <div className="grid gap-6 sm:grid-cols-2">
-      <div className="aspect-square overflow-hidden rounded-xl border border-ink/10 bg-white">
-        {images[0] ? (
-          <Image src={images[0]} alt={result.title ?? ''} className="h-full w-full object-cover" width={120} height={120} />
-        ) : (
-          <div className="grid h-full w-full place-items-center text-ink/20">
-            <ShoppingBag size={32} strokeWidth={1.2} />
-          </div>
-        )}
-      </div>
-      <div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 text-xs font-semibold text-ink/50 ring-1 ring-inset ring-ink/10">
-          <Zap size={11} className="text-teal-deep" strokeWidth={2} />
-          {result.site ?? 'Online store'}
-        </span>
-        {result.resolvedFromShortlink && (
-          <span
-            title="This was a shortened link — resolved to the real product page before we read it."
-            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 text-xs font-semibold text-ink/50 ring-1 ring-inset ring-ink/10"
-          >
-            <Link size={11} className="text-teal-deep" strokeWidth={2} />
-            Shortlink
-          </span>
-        )}
-        <h3 className="mt-2 font-display text-xl leading-snug text-ink">{result.title ?? 'Untitled item'}</h3>
-        <p className="mt-2 font-display text-xl text-ink">
-          {result.currencyCode ?? ''} {result.price ?? '—'}
-        </p>
-
-        <div className="mt-4 flex items-start gap-2 rounded-xl bg-teal/[0.06] p-3 text-sm text-ink/70 ring-1 ring-inset ring-teal/15">
-          <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
-          <span>
-            This one needs a quick manual check — sizes, colors, and the final price. Start a chat and our team
-            will confirm everything with you there, before anything is charged.
-          </span>
-        </div>
-
-        {submitError && (
-          <p className="mt-3 rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
-            {submitError}
-          </p>
-        )}
-
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
-            <button
-              type="button"
-              aria-label="Decrease quantity"
-              onClick={() => onQtyChange(Math.max(1, qty - 1))}
-              className="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-ink/50 transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
-            >
-              <Minus size={15} />
-            </button>
-            <span className="min-w-[20px] text-center font-bold tabular-nums text-ink">{qty}</span>
-            <button
-              type="button"
-              aria-label="Increase quantity"
-              onClick={() => onQtyChange(qty + 1)}
-              className="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-ink/50 transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal-deep active:scale-90"
-            >
-              <Plus size={15} />
-            </button>
-          </div>
-
-          <RequestActionButton
-            onClick={onGoToChat}
-            disabled={!canAct}
-            loading={loading || submitting}
-            loadingLabel={submitting ? 'Starting chat…' : 'Loading…'}
-            unavailable={result.unavailable}
-            icon={<MessageCircle size={16} />}
-            className="flex-1 whitespace-nowrap rounded-xl bg-teal-deep px-5 py-3 text-sm font-bold text-parchment hover:bg-teal"
-          >
-            Chat about this item
-          </RequestActionButton>
-        </div>
-        <p className="mt-2 text-xs text-ink/40">You won&rsquo;t be charged now — this opens a chat with our team.</p>
-      </div>
-
-    </div>
+    <ChatListingView
+      siteLabel={hostname ?? result.site ?? 'Online store'}
+      siteUrl={hostname ? result.url : null}
+      showShortlink={!!result.resolvedFromShortlink}
+      title={result.title}
+      emptyTitle="Untitled item"
+      images={result.images ?? []}
+      priceLabel={priceLabel}
+      notice="This one needs a quick manual check — sizes, colors, and the final price. Start a chat and our team will confirm everything with you there, before anything is charged."
+      qty={qty}
+      onQtyChange={onQtyChange}
+      onAction={onGoToChat}
+      disabled={!canAct}
+      loading={!!loading || submitting}
+      loadingLabel={submitting ? 'STARTING CHAT…' : 'LOADING…'}
+      unavailable={result.unavailable}
+      submitError={submitError}
+    />
   )
 }
 
@@ -665,23 +827,16 @@ function hostnameFromUrl(url?: string | null): string | null {
 // the QuoteModal or touches the cart. onContinueViaChat calls
 // onSubmitRequest directly (handleStartChat), no review step.
 //
-// By the time this renders, useProductLookup has ALREADY tried the
-// OG-tag fallback and it came back genuinely empty (see
-// fetchOgFallback's doc comment in hooks/useProductLookup.ts) — there's
-// no more image/title data to go fetch here. What this section was
-// actually missing was visual consistency: GenericProductView (the
-// ogOnly case, one tier up) always shows an image-box + title even when
-// the image is a placeholder icon and the title falls back to "Untitled
-// item", so a card with literally nothing (no image, no name) read as
-// broken next to it. This now renders the same image-placeholder +
-// label shape — real image/title if either happened to survive on the
-// failed result, a ShoppingBag placeholder icon and the URL's own
-// hostname otherwise — so the section stays visually consistent even
-// with zero real data.
+// Renders through ChatListingView — the exact same layout, gallery,
+// buttons and copy structure as GenericProductView — just with whatever
+// little data survived: a real image/title if either did, otherwise the
+// placeholder image, an "unable to load" title, and the URL's hostname.
 function UnreadableListingFallback({
   url,
   title,
   image,
+  qty,
+  onQtyChange,
   onRetry,
   onContinueViaChat,
   submitting,
@@ -690,6 +845,8 @@ function UnreadableListingFallback({
   url?: string | null
   title?: string | null
   image?: string | null
+  qty: number
+  onQtyChange: (qty: number) => void
   onRetry?: () => void
   onContinueViaChat: () => void
   submitting?: boolean
@@ -697,60 +854,25 @@ function UnreadableListingFallback({
 }) {
   const hostname = hostnameFromUrl(url)
   return (
-    <div className="flex flex-col gap-6 rounded-xl border border-ink/10 bg-card p-6 text-center motion-safe:[animation:contentFadeIn_0.25s_ease-out_both] sm:flex-row sm:items-center sm:gap-5 sm:text-left">
-      <div className="mx-auto grid h-20 w-20 flex-none place-items-center overflow-hidden rounded-xl border border-ink/10 bg-white sm:mx-0">
-        {image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={image} alt="" className="h-full w-full object-contain p-1.5" />
-        ) : (
-          <ShoppingBag size={26} className="text-ink/20" strokeWidth={1.2} />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        {hostname && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-parchment px-2 py-0.5 text-xs font-semibold text-ink/50 ring-1 ring-inset ring-ink/10">
-            <Zap size={11} className="text-teal-deep" strokeWidth={2} />
-            {hostname}
-          </span>
-        )}
-        <p className="mt-1.5 text-sm font-semibold text-ink">
-          {title || "We couldn't load this listing automatically"}
-        </p>
-        <p className="mt-1 text-sm text-ink/55">
-          No problem — start a chat and our team will check the details, price, and options with you directly.
-        </p>
-
-        {submitError && (
-          <p className="mt-3 rounded-xl bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
-            {submitError}
-          </p>
-        )}
-
-        <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
-          {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              disabled={submitting}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RefreshCw size={15} />
-              Try again
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onContinueViaChat}
-            disabled={submitting}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-deep px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-indigo-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={15} />}
-            {submitting ? 'Starting chat…' : 'Continue via chat'}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ChatListingView
+      siteLabel={hostname ?? 'Online store'}
+      siteUrl={hostname ? url : null}
+      title={title}
+      emptyTitle="We couldn’t load this listing automatically"
+      images={image ? [image] : []}
+      priceLabel={null}
+      notice="We couldn’t read the details for this one. Start a chat and our team will check the price, sizes, and options with you there, before anything is charged."
+      qty={qty}
+      onQtyChange={onQtyChange}
+      onAction={onContinueViaChat}
+      disabled={!!submitting}
+      loading={!!submitting}
+      loadingLabel="STARTING CHAT…"
+      unavailable={false}
+      submitError={submitError}
+      onRetry={onRetry}
+      retryDisabled={!!submitting}
+    />
   )
 }
 
@@ -1021,15 +1143,23 @@ export default function ItemInfoModal({
               <SlowLoadNotice />
             </>
           ) : result!.error ? (
-            <UnreadableListingFallback
-              url={result?.url}
-              title={result?.title}
-              image={result?.images?.[0]}
-              onRetry={onRetry}
-              onContinueViaChat={handleStartChat}
-              submitting={submitting}
-              submitError={submitError}
-            />
+            // Same wrapper (same `pt-8`, same fade-in) as the success
+            // branch below, so the failure screen lines up with it
+            // instead of sitting higher up under the floating close
+            // button.
+            <div className="flex flex-col gap-6 pt-8 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
+              <UnreadableListingFallback
+                url={result?.url}
+                title={result?.title}
+                image={result?.images?.[0]}
+                qty={qty}
+                onQtyChange={onQtyChange}
+                onRetry={onRetry}
+                onContinueViaChat={handleStartChat}
+                submitting={submitting}
+                submitError={submitError}
+              />
+            </div>
           ) : (
             <div
               key={`${result!.site ?? ''}|${result!.title ?? ''}`}
