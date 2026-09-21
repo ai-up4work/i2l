@@ -335,6 +335,12 @@ export async function sendChatMessage(
      * follow-up messages are about the ORDER now, not the request that
      * preceded it. */
     orderId?: string | null
+    /** 'whatsapp' when this message arrived via (or is being relayed
+     * out through) the Cloud API webhook — see
+     * data/wishdrop-chat-messages-channel.sql. Omitted/undefined for
+     * the normal in-app case, same "omit rather than pass null"
+     * convention requestId/orderId already use above. */
+    channel?: string | null
   },
 ): Promise<ChatMessageRow> {
   const { data, error } = await supabase
@@ -347,6 +353,7 @@ export async function sendChatMessage(
       attachment_url: params.attachmentUrl ?? null,
       request_id: params.requestId ?? null,
       order_id: params.orderId ?? null,
+      channel: params.channel ?? null,
     })
     .select('*')
     .single()

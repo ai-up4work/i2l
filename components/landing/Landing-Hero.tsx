@@ -141,7 +141,7 @@ export default function Hero() {
               aria-label="Product link"
               value={link}
               onChange={(event) => setLink(event.target.value)}
-              placeholder="Paste product link (e.g. Amazon, eBay, etc.)"
+              placeholder="Paste product link here (e.g. https://example.com/item)"
               className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
             />
             <button

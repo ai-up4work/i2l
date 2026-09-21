@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCheck, ChevronDown, ChevronUp, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import {
   type ChatMessageRow,
   buildReplyBody,
@@ -601,6 +602,13 @@ function AdminChatPageInner() {
           setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
         }
       }
+      // Best-effort — if this thread's last customer message came in
+      // via WhatsApp, the reply that was just written above also goes
+      // out that way. See relay-outbound/route.ts for the actual
+      // decision logic; this call never blocks or fails the send
+      // itself. Only the text portion relays — an attachment sent
+      // alongside it isn't forwarded as WhatsApp media in this pass.
+      triggerWhatsAppRelay(selectedId, firstText)
       setDraft('')
       setReplyingTo(null)
       setPendingFiles([])

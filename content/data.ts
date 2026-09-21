@@ -48,19 +48,17 @@ export const topChoices: TopChoiceItem[] = [
 export type Partner = { name: string; logo: string }
 
 export const partners: Partner[] = [
-  // { name: 'eBay', logo: '/logos/ebay.png' },
-  { name: 'Amazon', logo: '/logos/amazon.png' },
-  { name: 'Flipkart', logo: '/logos/flipkart.png' },
-  { name: 'Myntra', logo: '/logos/myntra.png' },
-  { name: 'Meesho', logo: '/logos/meesho.png' },
-  // { name: 'AliExpress', logo: '/logos/aliexpress.png' },
-  { name: 'FirstCry', logo: '/logos/firstcry.png' },
-  { name: 'Tata CLiQ', logo: '/logos/tata-cliq.png' },
-  { name: 'Nykaa', logo: '/logos/nykaa.png' },
-  { name: 'Ajio', logo: '/logos/ajio.png' },
-  { name: 'HopScotch', logo: '/logos/hopscotch.png' },
-  { name: 'Westside', logo: '/logos/westside.png' },
-  { name: 'Seleqt', logo: '/logos/seleqt.png' },
+  // { name: 'Amazon', logo: '/logos/amazon.png' },
+  // { name: 'Flipkart', logo: '/logos/flipkart.png' },
+  // { name: 'Myntra', logo: '/logos/myntra.png' },
+  // { name: 'Meesho', logo: '/logos/meesho.png' },
+  // { name: 'FirstCry', logo: '/logos/firstcry.png' },
+  // { name: 'Tata CLiQ', logo: '/logos/tata-cliq.png' },
+  // { name: 'Nykaa', logo: '/logos/nykaa.png' },
+  // { name: 'Ajio', logo: '/logos/ajio.png' },
+  // { name: 'HopScotch', logo: '/logos/hopscotch.png' },
+  // { name: 'Westside', logo: '/logos/westside.png' },
+  // { name: 'Seleqt', logo: '/logos/seleqt.png' },
 ]
 
 

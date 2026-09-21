@@ -589,6 +589,12 @@ export interface Database {
           request_id: string | null
           order_id: string | null
           sent_via_whatsapp: boolean
+          // See data/wishdrop-chat-messages-channel.sql — 'whatsapp' for
+          // a message that arrived via, or was relayed out through, the
+          // Cloud API webhook; null for the normal in-app case. Distinct
+          // from sent_via_whatsapp above, which specifically means
+          // "staff manually used the wa.me deep-link button."
+          channel: string | null
           created_at: string
         }
         Insert: {
@@ -601,6 +607,7 @@ export interface Database {
           request_id?: string | null
           order_id?: string | null
           sent_via_whatsapp?: boolean
+          channel?: string | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['chat_messages']['Insert']>

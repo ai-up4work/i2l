@@ -619,6 +619,7 @@ export default function RequestDetailPage() {
           request_id: request.id,
           order_id: null,
           sent_via_whatsapp: false,
+          channel: null,
           created_at: new Date().toISOString(),
         },
       ])

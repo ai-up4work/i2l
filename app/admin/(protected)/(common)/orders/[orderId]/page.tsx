@@ -318,6 +318,7 @@ export default function OrderDetailPage() {
           request_id: null,
           order_id: resolveOrderId(order.id) ?? null,
           sent_via_whatsapp: false,
+          channel: null,
           created_at: new Date().toISOString(),
         },
       ])

@@ -26,6 +26,7 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { sendChatMessage as realSendChatMessage, markThreadRead as realMarkThreadRead, fetchOrderMessages as realFetchOrderMessages, fetchRequestMessages as realFetchRequestMessages } from '@/lib/supabase/chat'
+import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import type { RequestStatus, ChatSender as MockChatSender } from '@/types/admin'
 
 /**
@@ -673,6 +674,11 @@ export async function sendAdminChatMessage(
   const supabase = createClient()
   try {
     await realSendChatMessage(supabase, { threadId, sender: 'ops', senderName: staffName, text: body, requestId, attachmentUrl, orderId })
+    // Same best-effort relay as the main /admin/chat inbox's handleSend
+    // — see lib/chat/relay-client.ts and relay-outbound/route.ts for
+    // why this lives as a separate client-safe trigger rather than
+    // inside sendChatMessage itself.
+    triggerWhatsAppRelay(threadId, body)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: extractErrorMessage(err, 'Failed to send message.') }
