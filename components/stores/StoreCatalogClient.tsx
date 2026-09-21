@@ -208,7 +208,7 @@ function MiniCart({
   onClear: () => void;
 }) {
   const total = getCartSubtotalLKR(items);
-  const WA = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '+94755354830').replace(/\D/g, '');
+  const WA = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '+94770774828').replace(/\D/g, '');
   const lines = formatCartLinesForWhatsApp(items);
 
   const whatsappText = encodeURIComponent(

@@ -86,6 +86,12 @@ export default function Footer() {
           <a href="/terms" className="transition-colors hover:text-ink">
             Terms of Use
           </a>
+          <a href="/privacy" className="transition-colors hover:text-ink">
+            Privacy Policy
+          </a>
+          <a href="/data-deletion" className="transition-colors hover:text-ink">
+            Data Deletion
+          </a>
           <span className="ml-auto flex items-center gap-1.5">
             <Globe size={14} /> Sri Lanka &ndash; English
           </span>

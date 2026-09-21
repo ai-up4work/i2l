@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrders, isLiveOrder, type Order } from '@/contexts/Ordercontexts'
 import { createClient } from '@/lib/supabase/client'
+import { buildWhatsAppLink, deriveHandle } from '@/lib/chat/waLink'
 import {
   type ChatMessageRow,
   type ChatSender,
@@ -57,21 +58,11 @@ export type ChatMessage = {
   requestId: string | null
 }
 
-const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94755354830' // fallback for dev
-
-export function deriveHandle(name: string) {
-  const first = name.trim().split(/\s+/)[0] ?? name
-  return `@${first.toLowerCase()}`
-}
-
-export function buildWhatsAppLink(handle: string | null, prefillText?: string) {
-  const text =
-    prefillText ??
-    (handle
-      ? `Hi, this is ${handle} continuing from the WishDrop chat.`
-      : `Hi, I'd like to talk to WishDrop support.`)
-  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`
-}
+// Re-exported so existing imports from '@/contexts/ChatContext' (the
+// admin chat page's `deriveHandle`, this file's own use of both below)
+// keep working unchanged — see lib/chat/waLink.ts's own comment for why
+// these moved out of this 'use client' file in the first place.
+export { buildWhatsAppLink, deriveHandle }
 
 function rowToMessage(row: ChatMessageRow): ChatMessage {
   const { quoted, text } = parseReplyBody(row.text ?? '')

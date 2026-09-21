@@ -41,28 +41,35 @@ function OrderStatusIcon({
     <button
       type="button"
       onClick={onClick}
-      className="group flex flex-1 flex-col items-center gap-2.5 py-2 text-center transition-opacity duration-150 hover:opacity-70"
+      className="group flex min-w-0 flex-1 flex-col items-center gap-2 py-2 text-center transition-opacity duration-150 hover:opacity-70 sm:gap-2.5"
     >
       <Icon size={22} strokeWidth={1.6} className="text-ink/60" />
-      <span className="text-xs font-semibold text-ink/60 group-hover:text-ink">
+      <span className="text-[11px] font-semibold text-ink/60 group-hover:text-ink sm:text-xs">
         {label}
       </span>
     </button>
   )
 }
 
-// Thumbnail cluster — same as before: single image for a 1-item order,
-// up to 3 staggered overlapping tiles + "+N" for multi-item orders.
+// Thumbnail cluster: single image for a 1-item order, up to 3 staggered
+// overlapping tiles + "+N" for multi-item orders. Sizes are smaller on
+// mobile so the cluster leaves room for the text column, and use explicit
+// pixel values (not h-18/w-18) so they work on Tailwind v3 and v4.
 function LatestOrderThumbnails({ items }: { items: MyOrdersCardOrderItem[] }) {
   const visible = items.slice(0, 3)
   const overflow = items.length - visible.length
 
   if (items.length <= 1) {
     return (
-      <span className="h-24 w-24 flex-none overflow-hidden rounded-lg bg-white motion-safe:[animation:fadeUp_0.4s_ease-out_both]">
+      <span className="h-20 w-20 flex-none overflow-hidden rounded-lg bg-white sm:h-24 sm:w-24 motion-safe:[animation:fadeUp_0.4s_ease-out_both]">
         {items[0] && (
-          // eslint-disable-next-line @next/next/no-img-element -- fixed thumbnail, plain img keeps this simple
-          <Image src={items[0].image} alt="" className="h-full w-full object-cover" width={96} height={96} />
+          <Image
+            src={items[0].image}
+            alt=""
+            className="h-full w-full object-cover"
+            width={96}
+            height={96}
+          />
         )}
       </span>
     )
@@ -73,16 +80,21 @@ function LatestOrderThumbnails({ items }: { items: MyOrdersCardOrderItem[] }) {
       {visible.map((item, i) => (
         <span
           key={i}
-          className="h-18 w-18 overflow-hidden rounded-lg border-2 border-card bg-white shadow-sm transition-transform duration-200 hover:z-10 hover:-translate-y-1 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+          className="h-14 w-14 overflow-hidden rounded-lg border-2 border-card bg-white shadow-sm transition-transform duration-200 hover:z-10 hover:-translate-y-1 sm:h-[72px] sm:w-[72px] motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
           style={{ zIndex: visible.length - i, animationDelay: `${i * 80}ms` }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- fixed thumbnail, plain img keeps this simple */}
-          <Image src={item.image} alt="" className="h-full w-full object-cover" width={72} height={72} />
+          <Image
+            src={item.image}
+            alt=""
+            className="h-full w-full object-cover"
+            width={72}
+            height={72}
+          />
         </span>
       ))}
       {overflow > 0 && (
         <span
-          className="flex h-12 w-12 items-center justify-center rounded-lg border-2 border-card bg-ink/10 text-xs font-semibold text-ink/60 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+          className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-card bg-ink/10 text-xs font-semibold text-ink/60 sm:h-[72px] sm:w-[72px] motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
           style={{ animationDelay: `${visible.length * 80}ms` }}
         >
           +{overflow}
@@ -134,7 +146,7 @@ export default function MyOrdersCard({
 
   return (
     <div
-      className="relative order-2 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-ink/10 bg-card p-6 motion-safe:[animation:fadeUp_0.4s_ease-out_both] lg:order-3 lg:h-full"
+      className="relative order-2 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-ink/10 bg-card p-4 sm:p-6 motion-safe:[animation:fadeUp_0.4s_ease-out_both] lg:order-3 lg:h-full"
       style={{ animationDelay: `${animationDelayMs}ms` }}
     >
       <div className="absolute inset-x-0 top-0 h-[3px] bg-gold" aria-hidden="true" />
@@ -161,22 +173,26 @@ export default function MyOrdersCard({
         <button
           type="button"
           onClick={onViewOrders}
-          className="mt-5 flex flex-1 items-center gap-4 rounded-xl border border-teal/25 bg-teal/8 px-4 py-3.5 text-left transition-colors hover:border-teal/40"
+          className="mt-5 flex flex-1 items-center gap-3 rounded-xl border border-teal/25 bg-teal/8 p-3 text-left transition-colors hover:border-teal/40 sm:gap-4 sm:px-4 sm:py-3.5"
         >
           <LatestOrderThumbnails items={latestOrder.items} />
 
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-ink/70">
-              {latestOrder.items.length > 1
-                ? `${latestOrder.items.length} items`
-                : latestOrder.items[0]?.name}
-            </p>
-            <AnimatedOrderStatus status={latestOrder.status} />
-          </div>
+          {/* Mobile: three stacked lines (name / status / track order).
+              sm+: name + status on the left, "Track order" pushed to the right. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-4">
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="truncate text-[13px] text-ink/70 sm:text-sm">
+                {latestOrder.items.length > 1
+                  ? `${latestOrder.items.length} items`
+                  : latestOrder.items[0]?.name}
+              </p>
+              <AnimatedOrderStatus status={latestOrder.status} />
+            </div>
 
-          <span className="flex flex-none items-center gap-1 text-xs font-semibold text-teal-deep">
-            Track order <ChevronRight size={14} />
-          </span>
+            <span className="flex flex-none items-center gap-1 text-xs font-semibold text-teal-deep">
+              Track order <ChevronRight size={14} />
+            </span>
+          </div>
         </button>
       ) : (
         <div className="mt-5 flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl bg-ink/[0.025] py-10 text-center">

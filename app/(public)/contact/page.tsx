@@ -1,29 +1,45 @@
 import { Mail, MapPin, MessageCircle, Phone } from 'lucide-react'
 import ContactForm from '@/components/shared/ContactForm'
+import { buildWhatsAppLink } from '@/lib/chat/waLink'
 
 export const metadata = {
   title: 'Contact Us | WishDrop',
   description: 'Get in touch with WishDrop support — WhatsApp, email, phone, or send a message directly.',
 }
 
+// Sri Lankan mobile number 0770774828 in the +CC-no-leading-zero shape
+// wa.me/tel: links need, kept in one place so the WhatsApp and Phone
+// channels below can never drift apart the way the display text and
+// the (previously nonexistent) link would have otherwise.
+const PHONE_LOCAL = '0770774828'
+const PHONE_INTL = '+94770774828'
+
 const channels = [
   {
     icon: MessageCircle,
     title: 'WhatsApp & in-app chat',
     detail: "Fastest for order-specific questions — we can see your request or order history.",
-    action: 'Open chat',
+    action: 'Open WhatsApp',
+    // Same buildWhatsAppLink() the floating chat widget's "Continue on
+    // WhatsApp" button already uses (contexts/ChatContext.tsx) — one
+    // shared number (NEXT_PUBLIC_WHATSAPP_NUMBER), not a second
+    // hardcoded copy that could quietly go stale here while that one
+    // gets updated.
+    href: buildWhatsAppLink(null, "Hi, I have a question about WishDrop."),
   },
   {
     icon: Mail,
     title: 'Email',
     detail: "support@wishdrop.shop — for anything that needs attachments or isn't urgent.",
     action: 'support@wishdrop.shop',
+    href: 'mailto:support@wishdrop.shop',
   },
   {
     icon: Phone,
     title: 'Phone',
     detail: 'Available during business hours for account and delivery issues.',
-    action: '+94 11 234 5678',
+    action: PHONE_LOCAL,
+    href: `tel:${PHONE_INTL}`,
   },
 ]
 
@@ -45,7 +61,7 @@ export default function ContactPage() {
 
       <div className="mt-12 grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:gap-16">
         <div className="flex flex-col gap-4">
-          {channels.map(({ icon: Icon, title, detail, action }) => (
+          {channels.map(({ icon: Icon, title, detail, action, href }) => (
             <div key={title} className="flex gap-4 rounded-2xl border border-ink/10 bg-card p-5">
               <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-teal/10 text-teal-deep">
                 <Icon size={20} />
@@ -53,7 +69,14 @@ export default function ContactPage() {
               <div>
                 <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
                 <p className="mt-1 font-body text-sm leading-relaxed text-ink/60">{detail}</p>
-                <p className="mt-2 font-body text-sm font-semibold text-teal-deep">{action}</p>
+                <a
+                  href={href}
+                  target={href.startsWith('http') ? '_blank' : undefined}
+                  rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                  className="mt-2 inline-block font-body text-sm font-semibold text-teal-deep transition-colors hover:text-teal-deep/80 hover:underline"
+                >
+                  {action}
+                </a>
               </div>
             </div>
           ))}
