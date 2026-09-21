@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await sendTemplateMessage(e164ToWhatsAppDigits(phoneE164), templateName, templateLang, [code])
+    await sendTemplateMessage(e164ToWhatsAppDigits(phoneE164), templateName, templateLang, [code], code)
   } catch (err) {
     console.error('[whatsapp/send-code] WhatsApp send failed', err)
     // Roll back the pending code rather than leave a request half-done

@@ -49,13 +49,43 @@ export async function sendTextMessage(toE164: string, body: string) {
  * when the customer hasn't messaged you in the last 24h. The template
  * name, language, and parameter count/order must exactly match what you
  * registered and got approved in WhatsApp Manager.
+ *
+ * otpCode is separate from bodyParams on purpose: an AUTHENTICATION-
+ * category template's body text is fixed by Meta ("<code> is your
+ * verification code") and takes the code as its one body parameter same
+ * as any other template — but if it also has a Copy Code button (which
+ * Meta now requires for auth templates), that button needs the SAME
+ * code again, as its own separate `button` component, or the button
+ * doesn't know what to copy. A plain body-only template (order
+ * confirmed, shipped, etc.) has no button at all, so this stays
+ * optional rather than folded into bodyParams — most callers won't
+ * pass it.
  */
 export async function sendTemplateMessage(
   toE164: string,
   templateName: string,
   languageCode: string,
-  bodyParams: string[] = []
+  bodyParams: string[] = [],
+  otpCode?: string,
 ) {
+  const components: Record<string, unknown>[] = []
+  if (bodyParams.length) {
+    components.push({ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) })
+  }
+  if (otpCode) {
+    // Meta's own docs confirm this exact shape: even though the button
+    // is CREATED as otp_type "copy_code" in WhatsApp Manager, Meta
+    // stores/sends it back as a "url"-subtype button — the code above
+    // that creation-time detail is what the send-time API actually
+    // expects, not "copy_code" itself.
+    components.push({
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: [{ type: 'text', text: otpCode }],
+    })
+  }
+
   const res = await fetch(graphUrl(`${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`), {
     method: 'POST',
     headers: {
@@ -69,14 +99,7 @@ export async function sendTemplateMessage(
       template: {
         name: templateName,
         language: { code: languageCode }, // e.g. "en_US"
-        components: bodyParams.length
-          ? [
-              {
-                type: 'body',
-                parameters: bodyParams.map((text) => ({ type: 'text', text })),
-              },
-            ]
-          : undefined,
+        components: components.length ? components : undefined,
       },
     }),
   })
