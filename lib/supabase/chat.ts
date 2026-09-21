@@ -357,7 +357,18 @@ export async function sendChatMessage(
     })
     .select('*')
     .single()
-  if (error) throw error
+  if (error) {
+    // DEBUG: logs the FULL raw Postgres/PostgREST error (code, details,
+    // hint — not just .message) right where it happens, before it gets
+    // re-thrown and potentially reduced to a generic "Failed to send"
+    // by whichever UI catches it (see ChatContext.tsx's sendMessage).
+    // A missing-column error (exactly what happens if one of this
+    // session's migrations hasn't been run against the real database
+    // yet) shows up here with the real column/table name — the earlier
+    // generic UI message alone can't tell you that.
+    console.error('[sendChatMessage] chat_messages insert failed', error)
+    throw error
+  }
 
   // Built as a concretely-typed variable rather than an inline
   // conditional spread — see setOrderExportHold/reassignOrderSite's own
@@ -382,7 +393,21 @@ export async function sendChatMessage(
   if (params.sender === 'customer') threadUpdate.unread = true
   if (params.requestId !== undefined) threadUpdate.last_request_id = params.requestId
   if (params.orderId !== undefined) threadUpdate.last_order_id = params.orderId
-  await supabase.from('chat_threads').update(threadUpdate).eq('id', params.threadId)
+  const { error: threadUpdateError } = await supabase
+    .from('chat_threads')
+    .update(threadUpdate)
+    .eq('id', params.threadId)
+  if (threadUpdateError) {
+    // DEBUG: this update previously had NO error check at all — a
+    // missing last_order_id/last_request_id column (see
+    // wishdrop-chat-threads-context-rollup.sql) would fail completely
+    // silently here, with zero visibility anywhere. Not thrown, same
+    // reasoning as the orders/requests flag update below: the message
+    // itself already sent successfully by this point, and failing the
+    // whole send over the inbox rollup would be worse than a stale
+    // pill. But silent-and-invisible was strictly worse than logged.
+    console.error('[sendChatMessage] chat_threads update failed', threadUpdateError)
+  }
 
   // Per-record "needs a reply" flag — see
   // data/wishdrop-orders-requests-unreplied-flag.sql. True the moment a

@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrders, isLiveOrder, type Order } from '@/contexts/Ordercontexts'
 import { createClient } from '@/lib/supabase/client'
+import { buildWhatsAppLink, deriveHandle } from '@/lib/chat/waLink'
 import {
   type ChatMessageRow,
   type ChatSender,
@@ -57,21 +58,11 @@ export type ChatMessage = {
   requestId: string | null
 }
 
-const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94755354830' // fallback for dev
-
-export function deriveHandle(name: string) {
-  const first = name.trim().split(/\s+/)[0] ?? name
-  return `@${first.toLowerCase()}`
-}
-
-export function buildWhatsAppLink(handle: string | null, prefillText?: string) {
-  const text =
-    prefillText ??
-    (handle
-      ? `Hi, this is ${handle} continuing from the WishDrop chat.`
-      : `Hi, I'd like to talk to WishDrop support.`)
-  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`
-}
+// Re-exported so existing imports from '@/contexts/ChatContext' (the
+// admin chat page's `deriveHandle`, this file's own use of both below)
+// keep working unchanged — see lib/chat/waLink.ts's own comment for why
+// these moved out of this 'use client' file in the first place.
+export { buildWhatsAppLink, deriveHandle }
 
 function rowToMessage(row: ChatMessageRow): ChatMessage {
   const { quoted, text } = parseReplyBody(row.text ?? '')
@@ -348,16 +339,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       setSending(true)
       setSendError(null)
+      // Hoisted above the try block on purpose — a `const` declared
+      // inside try{} isn't visible inside its own catch{}, and this is
+      // needed there too for the debug log on failure.
+      const orderId = activeOrder && activeOrder !== 'general' ? activeOrder.dbId : undefined
       try {
         const senderName = user.name
         const firstText = options?.replyTo ? buildReplyBody(options.replyTo.text, trimmed) : trimmed
-        // Only passed when a specific order is pinned — 'general'/null
-        // both mean "omit the key", not "explicitly null", so an
-        // untagged message never overwrites the admin inbox's rollup of
-        // this thread's last known order context. See sendChatMessage's
-        // own comment in lib/supabase/chat.ts for why that distinction
-        // matters.
-        const orderId = activeOrder && activeOrder !== 'general' ? activeOrder.dbId : undefined
 
         if (files.length === 0) {
           const row = await sendChatMessage(supabaseRef.current, {
@@ -399,6 +387,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch (err) {
+        // DEBUG: the UI-facing setSendError below only ever shows
+        // err.message (or a generic fallback if err isn't even a real
+        // Error) — never enough on its own to tell a missing-column
+        // error (see this session's SQL migrations) apart from an RLS
+        // rejection, a network failure, or anything else. This is the
+        // one place a customer (or whoever's looking at their browser
+        // console) can see the actual raw error Supabase returned.
+        console.error('[ChatContext] sendMessage failed', { threadId, orderId, err })
         setSendError(err instanceof Error ? err.message : 'Failed to send. Please try again.')
       } finally {
         setSending(false)
