@@ -7,20 +7,60 @@
 //
 // Kept as its own module (rather than inlined in parsers.ts) so the browser
 // process lifecycle (launch/reuse/close) is centralized in one place.
+//
+// FIX: this used to import chromium straight from the full `playwright`
+// package unconditionally. That works locally because `playwright`'s own
+// postinstall step downloads a real Chromium binary into a local cache
+// directory outside node_modules — but that download never happens as
+// part of a Vercel build, and the cache directory isn't part of the
+// deployed function bundle either. The result was exactly the reported
+// production error: "Cannot find module .../playwright-core/browsers.json"
+// — real code, missing binary, working locally and failing identically
+// every time on Vercel. @sparticuz/chromium was already a dependency in
+// package.json, clearly intended for exactly this, just never actually
+// wired up here. Now: local dev keeps using the full `playwright` package
+// (already confirmed working there, no reason to change it), and anything
+// that looks like a real deployment uses playwright-core + @sparticuz
+// /chromium's serverless-safe prebuilt binary instead. Both are already
+// auto-externalized by Next.js's own default serverExternalPackages list
+// (confirmed — no next.config.mjs change needed for this).
 
-import { chromium, type Browser } from 'playwright'
+import type { Browser } from 'playwright-core'
 
 let browserPromise: Promise<Browser> | null = null
+
+async function launchBrowser(): Promise<Browser> {
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    const { chromium } = await import('playwright-core')
+    const sparticuzChromium = (await import('@sparticuz/chromium')).default
+    // UNVERIFIED against this exact @sparticuz/chromium version (149.x)
+    // beyond what its own docs/examples show — if this specific call
+    // shape has changed (executablePath() argument, args/headless
+    // property names), this is the first place to check. The package
+    // itself is the well-established, standard fix for this exact
+    // Vercel + Playwright combination, so a remaining failure after this
+    // change most likely means a small API-shape mismatch here, not
+    // that the overall approach is wrong.
+    return chromium.launch({
+      args: sparticuzChromium.args,
+      executablePath: await sparticuzChromium.executablePath(),
+      headless: true,
+    })
+  }
+
+  const { chromium } = await import('playwright')
+  return chromium.launch({
+    headless: true,
+    args: ['--disable-blink-features=AutomationControlled'],
+  })
+}
 
 // Reuse one browser instance across requests instead of launching per-call —
 // launching Chromium is the expensive part (~1-2s), reusing the process
 // brings a render call down to roughly just navigation + wait time.
 function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    browserPromise = chromium.launch({
-      headless: true,
-      args: ['--disable-blink-features=AutomationControlled'],
-    })
+    browserPromise = launchBrowser()
   }
   return browserPromise
 }
