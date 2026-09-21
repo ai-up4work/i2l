@@ -345,7 +345,7 @@ function AllStores({
                     className="flex items-center gap-3 sm:gap-4 py-3 sm:py-3.5 group hover:bg-teal/5 rounded-xl px-2 -mx-2 transition-colors"
                   >
                     <div
-                      className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden border border-ink/10 shrink-0"
+                      className="relative w-15 h-15 sm:w-15 sm:h-15 rounded-xl overflow-hidden border border-ink/10 shrink-0"
                       style={store.bannerStyle}
                     >
                       <Image
