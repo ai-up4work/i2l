@@ -39,6 +39,7 @@ import type { StoreProviderConfig } from '@/lib/store-config'
 import { fetchShopifyCollections } from '@/lib/store-providers/shopify'
 import { fetchWooCommerceCategories } from '@/lib/store-providers/woocommerce'
 import { fetchJsonApiCategories } from '@/lib/store-providers/jsonapi'
+import { fetchAnishkaCreationProducts, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation'
 
 interface SellerCollectionRow {
   id: string
@@ -91,12 +92,57 @@ async function fetchShopifyCollectionsWithCounts(
   return withCounts.filter((c): c is SellerCollectionRow => c != null && c.productCount > 0)
 }
 
+/**
+ * Anishka Creation: real category counts, one live fetch per category
+ * (same page-1 total-count read fetchAnishkaCreationProducts already
+ * does off the site's own "out of N total" footer) — same cost/effort
+ * tradeoff as fetchShopifyCollectionsWithCounts above, just against a
+ * fixed category list instead of a discovered one.
+ */
+async function fetchAnishkaCollectionsWithCounts(platform: string): Promise<SellerCollectionRow[]> {
+  const rows = await Promise.all(
+    Object.keys(ANISHKA_CATEGORY_PATHS).map(async (category): Promise<SellerCollectionRow | null> => {
+      try {
+        const result = await fetchAnishkaCreationProducts(platform, 'Anishka Creation', {
+          page: 1,
+          perPage: 48,
+          category,
+          search: '',
+          sort: 'newest',
+        })
+        return { id: category, name: category, productCount: result.total }
+      } catch {
+        return null // one category's page being briefly unreachable shouldn't blank out the rest
+      }
+    })
+  )
+  return rows.filter((c): c is SellerCollectionRow => c != null && c.productCount > 0)
+}
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
   const authCheck = await requireStaffRole(SOURCING_ROLES)
   if (!authCheck.ok) return authCheck.response
   const { admin } = authCheck
 
   const { platform } = await params
+
+  // Hardcoded one-off extractor, checked before the generic provider
+  // dispatch below — same reason as every other dispatch point in this
+  // project (product.ts, app/api/stores/[platform]/route.ts, live-count)
+  // — see lib/store-providers/sellers/anishka-creation.ts's header
+  // comment. No DB lookup needed first since this doesn't depend on the
+  // seller's saved provider_config at all.
+  if (platform === 'anishka-creation') {
+    try {
+      const collections = await fetchAnishkaCollectionsWithCounts(platform)
+      return NextResponse.json({ collections })
+    } catch (err) {
+      return NextResponse.json({
+        collections: [],
+        warning: err instanceof Error ? err.message : "Could not reach this seller's live feed.",
+      })
+    }
+  }
 
   const { data: seller, error: sellerError } = await admin
     .from('sellers')

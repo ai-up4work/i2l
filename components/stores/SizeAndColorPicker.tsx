@@ -47,7 +47,7 @@ function ColorSwatch({
         aria-pressed={selected}
         aria-label={name}
         className={
-          'relative grid h-15 w-15 place-items-center overflow-hidden rounded-full border-2 shadow-sm bg-cover bg-center transition-all ' +
+          'relative grid h-9 w-9 place-items-center overflow-hidden rounded-full border-2 shadow-sm bg-cover bg-center transition-all ' +
           (selected
             ? 'border-teal-deep ring-2 ring-teal-deep ring-offset-1 ring-offset-parchment'
             : available
@@ -118,7 +118,7 @@ function SizeChip({
       disabled={!interactive || !available}
       title={available ? undefined : 'Currently unavailable'}
       aria-pressed={selected}
-      className={`flex w-[72px] flex-col items-center gap-1 rounded-lg border p-1.5 text-center transition-all ${
+      className={`flex w-[52px] flex-col items-center gap-1 rounded-lg border p-1.5 text-center transition-all ${
         selected
           ? 'border-teal-deep bg-teal/5 shadow-[0_1px_2px_rgba(15,15,15,0.04),0_4px_10px_-6px_rgba(20,120,110,0.35)]'
           : !available
@@ -129,7 +129,7 @@ function SizeChip({
       }`}
     >
       <span
-        className={`relative grid h-12 w-12 place-items-center overflow-hidden rounded-md ring-1 ${
+        className={`relative grid h-8 w-8 place-items-center overflow-hidden rounded-md ring-1 ${
           selected ? 'ring-2 ring-teal-deep ring-offset-1 ring-offset-white' : 'ring-ink/10'
         }`}
         style={{ backgroundImage: tintFor(label) }}

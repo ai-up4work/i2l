@@ -200,7 +200,7 @@ function MarketplacesCarousel({ stores }: { stores: AffiliatedStore[] }) {
 function ItemCount({ store, live }: { store: StoreWithProvider; live?: LiveCountEntry }) {
   const cached = store.itemCount || null;
 
-  if (store.providerType === 'mock') {
+  if (store.providerType === 'mock' && store.slug !== 'anishka-creation') {
     return <>{cached ?? 0} items</>;
   }
 
@@ -442,8 +442,14 @@ export default function StoresPage() {
   // sequential, one-at-a-time approach as /admin/sellers, so this page
   // doesn't hammer every provider's feed at once. Keyed by `slug`, which
   // is this page's name for the platform id (`platform` on the admin side).
+  // anishka-creation is a deliberate exception: its stored providerType
+  // is 'mock' (nothing left in its saved config actually gets read — see
+  // lib/store-providers/sellers/anishka-creation.ts), but the underlying
+  // route already knows to run its real hardcoded feed by platform slug.
+  // Without this OR, its item count would stay stuck on whatever's
+  // cached instead of ever showing the real number.
   const liveFeedPlatforms = useMemo(
-    () => stores.filter(s => s.providerType !== 'mock').map(s => s.slug),
+    () => stores.filter(s => s.providerType !== 'mock' || s.slug === 'anishka-creation').map(s => s.slug),
     [stores],
   );
   const { entries: liveCounts } = useSequentialLiveProductCounts(liveFeedPlatforms);

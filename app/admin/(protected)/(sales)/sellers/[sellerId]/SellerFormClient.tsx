@@ -403,7 +403,15 @@ export default function SellerFormClient({
   // (or back) in the Method card and saving wouldn't turn the "Products
   // (live)" stat on/off — it'd keep showing whatever was true at initial
   // page load until a full reload re-ran the server component.
-  const isLiveFeedStats = !isNew && !!seller && providerType !== 'mock'
+  //
+  // anishka-creation is a deliberate exception: its saved provider_config
+  // is 'mock' (the honest label once html-scrape's selectors went unused —
+  // see lib/store-providers/sellers/anishka-creation.ts), but it has a
+  // real hardcoded feed behind it that the live-count route already knows
+  // to call by platform slug. Without this OR, "Products (live)" would
+  // stay permanently off for the one seller that actually has a working
+  // live count to show.
+  const isLiveFeedStats = !isNew && !!seller && (providerType !== 'mock' || seller.platform === 'anishka-creation')
   const live = useLiveProductCount(seller?.platform ?? '', isLiveFeedStats)
 
   // Currency auto-detection state. `currencyTouched` starts true in EDIT

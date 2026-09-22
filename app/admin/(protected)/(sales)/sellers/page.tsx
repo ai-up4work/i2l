@@ -141,8 +141,14 @@ export default function SellersListPage() {
     }
   }, [reloadKey])
 
+  // anishka-creation is a deliberate exception: its saved provider_config
+  // is 'mock' (nothing in it actually gets read anymore — see
+  // lib/store-providers/sellers/anishka-creation.ts), but it has a real
+  // hardcoded feed behind it, called by platform slug regardless of the
+  // saved config. Without this OR, its Products count would never join
+  // the live-count queue at all.
   const liveFeedPlatforms = useMemo(
-    () => sellers.filter((s) => s.providerConfig.type !== "mock").map((s) => s.platform),
+    () => sellers.filter((s) => s.providerConfig.type !== "mock" || s.platform === 'anishka-creation').map((s) => s.platform),
     [sellers],
   )
   const { entries: liveCounts, refresh: refreshLiveCount } = useSequentialLiveProductCounts(liveFeedPlatforms)
@@ -493,7 +499,7 @@ function ProductsCell({
   live?: LiveCountEntry
   onRefresh: () => void
 }) {
-  const isLiveFeed = seller.providerConfig.type !== "mock"
+  const isLiveFeed = seller.providerConfig.type !== "mock" || seller.platform === 'anishka-creation'
   const cached = seller.store.itemCount ?? null
 
   if (!isLiveFeed) {
