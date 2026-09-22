@@ -40,7 +40,7 @@ import AliExpressProductView from './platforms/AliExpressProductView'
 // see `scraperTestLinks` there. To add a platform to this QA tool, set
 // `sampleProductUrl` + `sampleProductLabel` on that store's entry in
 // affiliatedStores; don't add a preset link here directly.
-import { scraperTestLinks as PRESET_LINKS, type ScraperTestLink as PresetLink } from '@/data/stores/data'
+import { scraperTestLinks as PRESET_LINKS, type ScraperTestLink as PresetLink } from '@/data/stores/demo'
 
 //
 
