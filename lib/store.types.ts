@@ -16,8 +16,23 @@ export interface StoreProductVariant {
    * feed actually distinguishes a photo per variant — most commonly used
    * to show a real product photo as a color swatch instead of a guessed
    * flat color. Absent, not defaulted, when the feed doesn't provide one.
+   * Intentionally the LOWER-resolution image when a provider has both —
+   * this is what the small swatch icon shows, and a thumbnail is exactly
+   * right for something that size. See `fullImage` for the resolution a
+   * shopper should actually view once this variant is selected.
    */
   image?: string;
+  /**
+   * The high-resolution version of `image`, when a provider can tell the
+   * two apart (e.g. a thumbnail-in-a-listing vs. its own full-size
+   * original). Optional and additive — most providers only ever have one
+   * resolution, in which case this stays unset and callers should just
+   * use `image` for everything. When both are present, a consumer should
+   * show `image` immediately (fast, already the swatch photo) and swap to
+   * `fullImage` once it's loaded, rather than blocking the initial
+   * render on a full-size fetch.
+   */
+  fullImage?: string;
 }
 
 /** A selectable option axis, e.g. { name: 'Size', values: ['S','M','L'] }. */
@@ -95,6 +110,19 @@ export interface StoreProduct {
   fullDescription?: string;
   averageRating?: number;
   reviewCount?: number;
+  /**
+   * Overrides the "Colors" section heading in SizeAndColorPicker.tsx for
+   * this product, when the color-shaped option (image-backed swatches,
+   * matched by the literal option name 'color' internally — see
+   * optionAvailability/colorImageMap/findMatchingVariant in
+   * lib/product-options.ts) doesn't actually represent colors. E.g. a
+   * wholesale catalog's individual print/pattern designs reuse the same
+   * swatch-with-photo mechanism but shouldn't be labeled "Colors" to a
+   * shopper. Leave unset for an actual color option — "Colors" remains
+   * the default. The option's internal `name` must still be 'color' for
+   * the swatch picker to find it at all; this only changes what's shown.
+   */
+  variantLabel?: string;
 }
 
 export interface StoreApiResponse {

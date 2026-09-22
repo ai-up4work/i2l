@@ -12,7 +12,7 @@ const ROLE_LABEL: Record<Role, string> = {
 }
 
 export function RoleSwitcher() {
-  const { role, setRole, currentUser, sites } = useAdminData()
+  const { role, currentUser, sites } = useAdminData()
   const siteName = currentUser.siteId ? sites.find((s) => s.id === currentUser.siteId)?.name : null
 
   return (
@@ -24,18 +24,9 @@ export function RoleSwitcher() {
           {siteName ? ` · ${siteName}` : ""}
         </p>
       </div>
-      <select
-        value={role}
-        onChange={(e) => setRole(e.target.value as Role)}
-        className="rounded-md border border-indigo-200 bg-white px-2 py-1.5 text-sm text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal"
-        aria-label="Preview the console as a different role"
-      >
-        {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-          <option key={r} value={r}>
-            Preview as {ROLE_LABEL[r]}
-          </option>
-        ))}
-      </select>
+      <span className="rounded-md border border-indigo-200 bg-white px-2 py-1.5 text-sm text-indigo-700">
+        {ROLE_LABEL[role]}
+      </span>
     </div>
   )
 }

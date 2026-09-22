@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ClipboardCheck,
   ExternalLink,
-  FileCode2,
   ImagePlus,
   Loader2,
   Package,
@@ -39,8 +38,10 @@ import {
   CheckRow,
   DEFAULT_JSON_FIELDS,
   DEFAULT_HTML_SELECTORS,
+  DEFAULT_DETAIL_SELECTORS,
   type JsonFieldsState,
   type HtmlSelectorsState,
+  type DetailSelectorsState,
   type CheckStatus,
   type CheckOutcome,
   type TestExtractorResult,
@@ -535,13 +536,49 @@ export default function SellerFormClient({
     cfg?.type === 'html-scrape' ? cfg.selectors : DEFAULT_HTML_SELECTORS
   )
   const [listingUrl, setListingUrl] = useState(cfg?.type === 'html-scrape' ? cfg.listingUrl : '')
+  // Off by default \u2014 most html-scrape sellers are the classic one-page-
+  // per-product case. Only turn this on for a listing whose OWN detail
+  // page lists several purchasable items itself (see DEFAULT_DETAIL_SELECTORS's
+  // comment) \u2014 flipping it on is what actually adds `detail` to the saved
+  // config; leaving it off keeps the config exactly as before, `detail: undefined`.
+  const [useDetailItems, setUseDetailItems] = useState(cfg?.type === 'html-scrape' && Boolean(cfg.detail))
+  const [detailSelectors, setDetailSelectors] = useState<DetailSelectorsState>(
+    cfg?.type === 'html-scrape' && cfg.detail ? cfg.detail : DEFAULT_DETAIL_SELECTORS
+  )
+  // Per-category listing pages (html-scrape's equivalent of Shopify's
+  // collectionMap) — reuses the same {category, handle} row shape, with
+  // `handle` here holding a path/URL on the source site rather than a
+  // Shopify collection handle. Manual entry only (no live-detect endpoint
+  // to fetch these from the way Shopify's detect-collections route does),
+  // since an arbitrary scraped site has no structured category API.
+  const [htmlCategoryMap, setHtmlCategoryMap] = useState<CategoryMappingRow[]>(() => {
+    const existing = cfg?.type === 'html-scrape' ? cfg.categoryMap : undefined
+    return existing ? Object.entries(existing).map(([category, handle]) => ({ category, handle })) : []
+  })
+  const addHtmlCategoryRow = () => setHtmlCategoryMap((prev) => [...prev, { category: '', handle: '' }])
+  const removeHtmlCategoryRow = (index: number) => setHtmlCategoryMap((prev) => prev.filter((_, i) => i !== index))
+  const updateHtmlCategoryRow = (index: number, patch: Partial<CategoryMappingRow>) =>
+    setHtmlCategoryMap((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  const htmlCategoryMapPayload =
+    htmlCategoryMap.some((r) => r.category.trim() && r.handle.trim())
+      ? Object.fromEntries(htmlCategoryMap.filter((r) => r.category.trim() && r.handle.trim()).map((r) => [r.category.trim(), r.handle.trim()]))
+      : undefined
   const [configSaved, setConfigSaved] = useState(false)
 
   // Tracks whether the config has changed since the last simulation run, so
   // the Test panel can flag itself stale instead of silently showing
   // results for a config that no longer matches what's on screen.
   const [lastTestedSignature, setLastTestedSignature] = useState<string | null>(null)
-  const currentSignature = JSON.stringify({ providerType, baseUrl, jsonFields, htmlSelectors, listingUrl })
+  const currentSignature = JSON.stringify({
+    providerType,
+    baseUrl,
+    jsonFields,
+    htmlSelectors,
+    listingUrl,
+    useDetailItems,
+    detailSelectors,
+    htmlCategoryMap,
+  })
   const resultsStale = lastTestedSignature !== null && lastTestedSignature !== currentSignature
 
   const setJsonField = (field: keyof JsonFieldsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -549,6 +586,9 @@ export default function SellerFormClient({
 
   const setHtmlSelector = (field: keyof HtmlSelectorsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setHtmlSelectors((prev) => ({ ...prev, [field]: e.target.value }))
+
+  const setDetailSelector = (field: keyof DetailSelectorsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setDetailSelectors((prev) => ({ ...prev, [field]: e.target.value }))
 
   const onProviderTypeChange = (value: StoreProviderType) => {
     setProviderType(value)
@@ -618,6 +658,8 @@ export default function SellerFormClient({
       currency: currency || undefined,
       listingUrl,
       selectors: htmlSelectors,
+      detail: useDetailItems ? detailSelectors : undefined,
+      categoryMap: htmlCategoryMapPayload,
     }
   }
 
@@ -648,7 +690,7 @@ export default function SellerFormClient({
       // so a fix immediately has a chance to auto-promote the seller back
       // to active (see runSimulation's auto-promote block below), instead
       // of leaving it pending_review until the next unrelated page load.
-      if (providerType !== 'mock' && providerType !== 'html-scrape') {
+      if (providerType !== 'mock') {
         runSimulation()
       }
     } catch (err) {
@@ -827,6 +869,10 @@ export default function SellerFormClient({
           baseUrl,
           currency,
           jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
+          listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
+          htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
+          detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
+          categoryMap: providerType === 'html-scrape' ? htmlCategoryMapPayload : undefined,
           productInput: manualInput.trim(),
         }),
       })
@@ -844,13 +890,17 @@ export default function SellerFormClient({
       ? baseUrl && `${baseUrl.replace(/\/+$/, '')} (public WooCommerce feed + categories)`
       : providerType === 'jsonapi'
       ? baseUrl && jsonFields.listEndpoint && `${baseUrl.replace(/\/+$/, '')}${jsonFields.listEndpoint}`
+      : providerType === 'html-scrape'
+      ? listingUrl && listingUrl
       : null
 
   const canRunSimulation =
-    (providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi') &&
+    (providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape') &&
     !!baseUrl &&
     (providerType !== 'jsonapi' ||
-      (jsonFields.idField && jsonFields.nameField && jsonFields.priceField && jsonFields.imageField))
+      (jsonFields.idField && jsonFields.nameField && jsonFields.priceField && jsonFields.imageField)) &&
+    (providerType !== 'html-scrape' ||
+      (!!listingUrl && !!htmlSelectors.productCard && !!htmlSelectors.title && !!htmlSelectors.image && !!htmlSelectors.link))
 
   const runSimulation = async () => {
     setSimRunning(true)
@@ -869,6 +919,10 @@ export default function SellerFormClient({
           baseUrl,
           currency,
           jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
+          listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
+          htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
+          detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
+          categoryMap: providerType === 'html-scrape' ? htmlCategoryMapPayload : undefined,
         }),
       })
       result = (await res.json()) as TestExtractorResult
@@ -938,10 +992,9 @@ export default function SellerFormClient({
 
   // Auto-run the checklist once when the ADD wizard reaches the "Test &
   // verify" step, so an admin who never touches "Run all checks" still
-  // gets a real verification attempt before Review — html-scrape has no
-  // live simulation wired up (see testPanel) so it's excluded.
+  // gets a real verification attempt before Review.
   useEffect(() => {
-    if (isNew && step === 2 && providerType !== 'mock' && providerType !== 'html-scrape' && canRunSimulation && !simHasRunRef.current && !simRunning) {
+    if (isNew && step === 2 && providerType !== 'mock' && canRunSimulation && !simHasRunRef.current && !simRunning) {
       runSimulation()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -951,14 +1004,7 @@ export default function SellerFormClient({
   // so simply opening the page is enough to retry promotion — no
   // dedicated "verify" screen needed.
   useEffect(() => {
-    if (
-      !isNew &&
-      seller &&
-      form.status === 'pending_review' &&
-      providerType !== 'mock' &&
-      providerType !== 'html-scrape' &&
-      canRunSimulation
-    ) {
+    if (!isNew && seller && form.status === 'pending_review' && providerType !== 'mock' && canRunSimulation) {
       runSimulation()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -981,7 +1027,8 @@ export default function SellerFormClient({
     },
     { pass: 0, fail: 0, skip: 0 }
   )
-  const isLiveProvider = providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi'
+  const isLiveProvider =
+    providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape'
 
   // ---- ADD mode: wizard ----
   // (step/setStep is declared earlier, alongside lastRunPassed — see the
@@ -1002,7 +1049,6 @@ export default function SellerFormClient({
   // decides whether it lands as `active` or `pending_review`.
   const derivedStatus = (): SellerStatus => {
     if (providerType === 'mock') return 'active'
-    if (providerType === 'html-scrape') return 'pending_review' // nothing auto-tests this yet
     return lastRunPassed ? 'active' : 'pending_review'
   }
 
@@ -1573,14 +1619,110 @@ export default function SellerFormClient({
 
       {providerType === 'html-scrape' && (
         <div className={`flex flex-col gap-3 p-4 ${groupClass}`}>
-          <p className="text-xs font-semibold text-ink/50">CSS selectors \u2014 point these at a real category/shop page&rsquo;s markup.</p>
+          <p className="text-xs font-semibold text-ink/50">CSS selectors — point these at a real category/shop page&rsquo;s markup.</p>
           <SelectorField label="Listing page path" value={listingUrl} onChange={(e) => setListingUrl(e.target.value)} placeholder="/shop" />
           <SelectorField label="Product card" value={htmlSelectors.productCard} onChange={setHtmlSelector('productCard')} placeholder=".product-card" />
           <SelectorField label="Title" value={htmlSelectors.title} onChange={setHtmlSelector('title')} placeholder=".product-name" />
-          <SelectorField label="Price" value={htmlSelectors.price} onChange={setHtmlSelector('price')} placeholder=".price-now" />
+          <SelectorField label="Price" value={htmlSelectors.price ?? ''} onChange={setHtmlSelector('price')} placeholder=".price-now" />
+          <p className="-mt-2 text-[11px] leading-relaxed text-ink/40">
+            Point Title and Price at the SAME selector if a card shows its name and price together in one text block
+            (e.g. &ldquo;Catalog - 17432&rdquo; + &ldquo;Min 1595 - Max 1595 INR&rdquo; in one element) — a &ldquo;Min X - Max
+            Y&rdquo; range in that text is read automatically and stripped back out of the title.
+          </p>
           <SelectorField label="Image" value={htmlSelectors.image} onChange={setHtmlSelector('image')} placeholder="img.gallery-thumb" />
           <SelectorField label="Link to product" value={htmlSelectors.link} onChange={setHtmlSelector('link')} placeholder="a.product-link" />
           <SelectorField label="Variants (optional)" value={htmlSelectors.variants ?? ''} onChange={setHtmlSelector('variants')} placeholder=".size-option" />
+          <SelectorField
+            label="Page query param (optional)"
+            value={htmlSelectors.pageParam ?? ''}
+            onChange={setHtmlSelector('pageParam')}
+            placeholder="page"
+          />
+          <p className="-mt-2 text-[11px] leading-relaxed text-ink/40">
+            Set this if the listing page itself paginates (a &ldquo;page=2&rdquo; link in its own pagination). Leave blank
+            for a single-page listing — every page past the first will otherwise just repeat page 1.
+          </p>
+
+          <div className="mt-2 flex flex-col gap-2 rounded-lg border border-ink/10 bg-parchment/40 p-3">
+            <p className="text-xs font-semibold text-ink/50">
+              Category mapping (optional) — map a category to its OWN listing page on this site, e.g. &ldquo;Sarees&rdquo;
+              &rarr; <span className="font-mono text-ink/60">/category/sarees</span>. Without this, the storefront only
+              ever shows the one listing page above.
+            </p>
+            {htmlCategoryMap.length === 0 ? (
+              <p className="text-xs text-ink/40">No categories mapped yet — the storefront will show one combined listing.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {htmlCategoryMap.map((row, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+                    <input
+                      type="text"
+                      value={row.category}
+                      onChange={(e) => updateHtmlCategoryRow(i, { category: e.target.value })}
+                      placeholder="Category, e.g. Sarees"
+                      className={inputClass}
+                    />
+                    <input
+                      type="text"
+                      value={row.handle}
+                      onChange={(e) => updateHtmlCategoryRow(i, { handle: e.target.value })}
+                      placeholder="/category/sarees"
+                      className={monoInputClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeHtmlCategoryRow(i)}
+                      title="Remove this mapping"
+                      className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-ink/10 text-ink/40 hover:bg-red-600/5 hover:text-red-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={addHtmlCategoryRow}
+              className="flex items-center gap-1.5 self-start text-xs font-semibold text-teal-deep hover:underline"
+            >
+              + Add category mapping
+            </button>
+          </div>
+
+          <label className="mt-2 flex items-center gap-2 text-xs font-medium text-ink/70">
+            <input
+              type="checkbox"
+              checked={useDetailItems}
+              onChange={(e) => setUseDetailItems(e.target.checked)}
+              className="h-4 w-4"
+            />
+            A listing card&rsquo;s detail page lists several priced items itself (a &ldquo;catalog&rdquo; page), not one product
+          </label>
+          {useDetailItems && (
+            <div className="flex flex-col gap-3 rounded-lg border border-ink/10 bg-parchment/40 p-3">
+              <p className="text-[11px] leading-relaxed text-ink/45">
+                Selectors below apply to the DETAIL page (what &ldquo;Link to product&rdquo; above points at), not the listing
+                page. Each repeating item becomes one purchasable design/variant under this catalog.
+              </p>
+              <SelectorField label="Repeating item" value={detailSelectors.item} onChange={setDetailSelector('item')} placeholder=".design-row" />
+              <SelectorField label="Item label / code" value={detailSelectors.itemLabel} onChange={setDetailSelector('itemLabel')} placeholder=".design-code" />
+              <SelectorField label="Item price" value={detailSelectors.price} onChange={setDetailSelector('price')} placeholder=".design-price" />
+              <SelectorField label="Item image" value={detailSelectors.image} onChange={setDetailSelector('image')} placeholder="img.design-photo" />
+              <SelectorField
+                label="Availability (optional)"
+                value={detailSelectors.availability ?? ''}
+                onChange={setDetailSelector('availability')}
+                placeholder=".design-stock"
+              />
+              <SelectorField
+                label="Description (optional)"
+                value={detailSelectors.description ?? ''}
+                onChange={setDetailSelector('description')}
+                placeholder=".design-desc"
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1594,17 +1736,6 @@ export default function SellerFormClient({
           <p className="max-w-xs text-xs leading-relaxed text-ink/45">
             No live feed configured for this provider type \u2014 there&rsquo;s nothing to test. Catalogue entries{' '}
             {isNew ? 'will be added' : 'here are added'} by hand.
-          </p>
-        </div>
-      )}
-
-      {providerType === 'html-scrape' && (
-        <div className={`flex flex-col items-center justify-center gap-3 p-10 text-center border-dashed ${groupClass}`}>
-          <FileCode2 size={26} className="text-ink/20" strokeWidth={1.5} />
-          <p className="max-w-sm text-xs leading-relaxed text-ink/45">
-            Live simulation isn&rsquo;t wired up for HTML scraping yet \u2014 it needs the scraping engine behind{' '}
-            <span className="font-mono text-ink/55">app/api/scrape/route.ts</span>. Verify selectors manually against
-            the listing page for now \u2014 this seller stays under review until someone does.
           </p>
         </div>
       )}
@@ -1678,6 +1809,8 @@ export default function SellerFormClient({
             <p className="mt-1 text-xs text-ink/45">
               {providerType === 'jsonapi'
                 ? 'Paste a product URL, or just the raw id, to check one product instead of a random sample.'
+                : providerType === 'html-scrape'
+                ? 'Paste a real detail-page URL from the store to check one product (or one catalog, if the detail selectors above are on) instead of a random sample.'
                 : 'Paste a real product URL from the store (or just its handle/slug) to check one product instead of a random sample.'}
             </p>
 
@@ -1694,6 +1827,8 @@ export default function SellerFormClient({
                     ? 'e.g. 5f2c... or a full product URL'
                     : providerType === 'shopify'
                     ? 'e.g. https://store.com/products/blue-shirt'
+                    : providerType === 'html-scrape'
+                    ? 'e.g. https://www.anishkacreation.com/p/17522'
                     : 'e.g. https://store.com/product/blue-shirt/'
                 }
                 className={`flex-1 ${monoInputClass}`}
@@ -2006,8 +2141,6 @@ export default function SellerFormClient({
                     <ReviewRow label="Verification" onEdit={() => setStep(2)}>
                       {providerType === 'mock' ? (
                         <p className="text-xs font-semibold text-teal-deep">Nothing to verify \u2014 already Active.</p>
-                      ) : providerType === 'html-scrape' ? (
-                        <p className="text-xs text-ink/45">Not auto-tested \u2014 stays Pending review until checked by hand.</p>
                       ) : simRunning ? (
                         <p className="flex items-center gap-1.5 text-xs font-semibold text-indigo">
                           <Loader2 size={11} className="animate-spin" />
@@ -2216,6 +2349,15 @@ export default function SellerFormClient({
                       {currency && <SummaryRow term="Currency" value={currency} />}
                       {providerType === 'jsonapi' && <SummaryRow term="List endpoint" value={jsonFields.listEndpoint || '\u2014'} mono />}
                       {providerType === 'html-scrape' && <SummaryRow term="Listing page" value={listingUrl || '\u2014'} mono />}
+                      {providerType === 'html-scrape' && htmlSelectors.pageParam && (
+                        <SummaryRow term="Paginated via" value={`?${htmlSelectors.pageParam}=N`} mono />
+                      )}
+                      {providerType === 'html-scrape' && useDetailItems && (
+                        <SummaryRow term="Detail page" value="Catalog of several priced items" />
+                      )}
+                      {providerType === 'html-scrape' && htmlCategoryMapPayload && (
+                        <SummaryRow term="Categories mapped" value={String(Object.keys(htmlCategoryMapPayload).length)} />
+                      )}
                     </dl>
 
                     {/* Collections this seller's products currently sit in

@@ -48,12 +48,14 @@ import {
   fetchWooCommerceCategories,
   fetchWooCommerceCurrency,
 } from '@/lib/store-providers/woocommerce';
+import { fetchHtmlScrapeProduct, fetchHtmlScrapeProducts, urlToHandle } from '@/lib/store-providers/html-scrape';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreProduct } from '@/lib/store.types';
 import type {
   ShopifyProviderConfig,
   WooCommerceProviderConfig,
   JsonApiProviderConfig,
+  HtmlScrapeProviderConfig,
 } from '@/lib/store-config';
 
 
@@ -172,6 +174,14 @@ interface RequestBody {
   baseUrl?: string;
   currency?: string;
   jsonFields?: JsonFieldsBody;
+  /** html-scrape only \u2014 mirrors HtmlScrapeProviderConfig's own fields,
+   * built from whatever the admin currently has typed into the Method
+   * column (unsaved), same "test against the exact live state" contract
+   * every other provider type already gets here. */
+  listingUrl?: string;
+  htmlSelectors?: HtmlScrapeProviderConfig['selectors'];
+  detail?: HtmlScrapeProviderConfig['detail'];
+  categoryMap?: HtmlScrapeProviderConfig['categoryMap'];
   /** 'list' (default) runs the full onboarding checklist against a page-1
    * sample. 'single' fetches exactly one product by URL/handle instead —
    * for spot-checking a specific complex product rather than whatever
@@ -280,10 +290,10 @@ export async function POST(req: NextRequest) {
   // live feed is reported separately via `currencyDetected` below.
   const typedCurrency = body.currency?.trim() || '';
 
-  if (providerType !== 'shopify' && providerType !== 'woocommerce' && providerType !== 'jsonapi') {
-    // mock/html-scrape are intentionally not testable here — the UI
-    // already hides the "Run all checks" button for those, this is just
-    // the server-side mirror of that same rule.
+  if (providerType !== 'shopify' && providerType !== 'woocommerce' && providerType !== 'jsonapi' && providerType !== 'html-scrape') {
+    // mock is intentionally not testable here — the UI already hides
+    // the "Run all checks" button for it, this is just the server-side
+    // mirror of that same rule.
     return NextResponse.json(
       { ok: false, error: `No live test is available for provider type "${providerType}".` },
       { status: 400 }
@@ -294,8 +304,61 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'A store base URL is required to run a test.' }, { status: 400 });
   }
 
+  // html-scrape has no fixed URL convention to guess a handle from the
+  // way shopify/woocommerce do (see extractHandle below, which only
+  // knows those two) — it round-trips a pasted URL through the same
+  // path+query encoding fetchHtmlScrapeProducts uses for a card's own
+  // handle, so "test a specific product" works on any URL shape.
+  if (providerType === 'html-scrape' && body.mode === 'single') {
+    const handle = urlToHandle(body.productInput ?? '', baseUrl);
+    if (!handle) {
+      return NextResponse.json<TestExtractorProductResult>(
+        { ok: false, error: 'Enter a real product/detail-page URL to test.' },
+        { status: 400 }
+      );
+    }
+    if (!body.htmlSelectors || !body.htmlSelectors.title || !body.htmlSelectors.image) {
+      return NextResponse.json<TestExtractorProductResult>({
+        ok: false,
+        error: 'Title and Image selectors must be set before a single product can be tested.',
+      });
+    }
+    const selectors = body.htmlSelectors;
+    try {
+      const config: HtmlScrapeProviderConfig = {
+        type: 'html-scrape',
+        baseUrl,
+        currency: typedCurrency || undefined,
+        listingUrl: body.listingUrl || baseUrl,
+        selectors,
+        detail: body.detail,
+        categoryMap: body.categoryMap,
+      };
+      const product = await fetchHtmlScrapeProduct('__test__', config, 'Test store', handle);
+      if (!product) {
+        return NextResponse.json<TestExtractorProductResult>({
+          ok: false,
+          error: 'No usable product data found at that URL with the current selectors.',
+        });
+      }
+      return NextResponse.json<TestExtractorProductResult>({ ok: true, product });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'The request failed.';
+      return NextResponse.json<TestExtractorProductResult>({ ok: false, error: message });
+    }
+  }
+
   // ── mode: 'single' — one specific product, not a random sample ─────────
   if (body.mode === 'single') {
+    if (providerType === 'html-scrape') {
+      // Unreachable in practice — the html-scrape-specific single-mode
+      // block above already handles and returns for this case. This
+      // check exists purely so TypeScript narrows providerType back
+      // down to what extractHandle actually knows how to parse, rather
+      // than widening that function's signature to accept a provider
+      // type it has no real convention for.
+      return fail('Unexpected state — html-scrape should have been handled already.');
+    }
     const handle = extractHandle(body.productInput ?? '', providerType);
     if (!handle) {
       return NextResponse.json<TestExtractorProductResult>(
@@ -453,6 +516,40 @@ export async function POST(req: NextRequest) {
         categoriesNote,
         sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
         currencyDetected: detectedCurrency !== null,
+      });
+    }
+
+    if (providerType === 'html-scrape') {
+      if (!body.listingUrl) return fail('A listing page path is required to run a test.');
+      const s = body.htmlSelectors;
+      if (!s || !s.productCard || !s.title || !s.image || !s.link) {
+        return fail('Product card, Title, Image, and Link selectors must all be set before this listing can be tested.');
+      }
+      const config: HtmlScrapeProviderConfig = {
+        type: 'html-scrape',
+        baseUrl,
+        // No live currency source for a scraped HTML page the way
+        // Shopify's /cart.js or WooCommerce's Store API cart give one —
+        // same honest limitation jsonapi already has below, so this
+        // always relies on whatever the admin typed in.
+        currency: typedCurrency || 'INR',
+        listingUrl: body.listingUrl,
+        selectors: s,
+        detail: body.detail,
+        categoryMap: body.categoryMap,
+      };
+
+      const result = await fetchHtmlScrapeProducts('__test__', config, 'Test store', DEFAULT_PARAMS);
+
+      return NextResponse.json<TestExtractorResult>({
+        ok: true,
+        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },
+        categories: body.categoryMap
+          ? Object.keys(body.categoryMap).map((category) => ({ handle: category, title: category }))
+          : undefined,
+        categoriesNote: body.categoryMap ? undefined : 'No category mapping configured — this test covers the default listing page only.',
+        sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
+        currencyDetected: false,
       });
     }
 

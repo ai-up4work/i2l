@@ -1,6 +1,23 @@
 import type { StoreProduct } from '@/lib/store.types'
 
 /**
+ * Whether an option is actually part of the product's real variant data
+ * (i.e. present in `product.options`) rather than just a display list
+ * (`product.sizes`/`product.colors`). The two can legitimately diverge —
+ * a wholesale catalog's shared size list, for example, is shown to the
+ * shopper but was deliberately left out of `options` because the source
+ * has no real per-size stock/price to match against (see
+ * lib/store-providers/sellers/anishka-creation.ts's own comment on this).
+ * A caller should only treat an option as REQUIRED-before-matching when
+ * it's actually matchable — otherwise a size/color that's purely
+ * informational blocks variant selection for a dimension that was never
+ * meant to gate it.
+ */
+export function isMatchableOption(product: StoreProduct, optionName: string): boolean {
+  return product.options?.some((o) => o.name.toLowerCase() === optionName.toLowerCase()) ?? false
+}
+
+/**
  * Cross-references a product's full option list (e.g. all 5 sizes the
  * store carries) against its real variants to determine which specific
  * values are actually purchasable right now. A value with no matching

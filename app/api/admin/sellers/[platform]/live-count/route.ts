@@ -15,6 +15,8 @@ import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyProducts } from '@/lib/store-providers/shopify';
 import { fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
+import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
+import { fetchAnishkaCreationProducts } from '@/lib/store-providers/sellers/anishka-creation';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 
 const PER_PAGE_DEFAULT = 12;
@@ -46,13 +48,24 @@ export async function GET(
 
     const config = seller.config;
 
+    // Hardcoded one-off extractor, checked before the generic provider
+    // dispatch below — see lib/store-providers/sellers/anishka-creation.ts's
+    // header comment. Without this, this seller's own provider_config
+    // being 'mock' (the honest label once its selectors went unused —
+    // see the conversation this route fix came out of) meant this stat
+    // silently read 0 products forever, not because nothing was there,
+    // but because nothing here knew to look at the real extractor.
     const result =
-      config.type === 'shopify'
+      platform === 'anishka-creation'
+        ? await fetchAnishkaCreationProducts(platform, seller.name, fetchParams)
+        : config.type === 'shopify'
         ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
         : config.type === 'woocommerce'
         ? await fetchWooCommerceProducts(platform, config, fetchParams)
         : config.type === 'jsonapi'
         ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
+        : config.type === 'html-scrape'
+        ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
         : await fetchMockProducts(platform, fetchParams);
 
     // Admin live-count callers only need the totals, not the actual

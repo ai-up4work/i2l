@@ -4,10 +4,20 @@ import { fetchJsonApiProduct } from './jsonapi';
 import { fetchMockProduct } from './mock';
 import { fetchShopifyProduct, fetchShopifyProductRestOnly } from './shopify';
 import { fetchWooCommerceProduct } from './woocommerce';
+import { fetchHtmlScrapeProduct } from './html-scrape';
+import { fetchAnishkaCreationProduct } from './sellers/anishka-creation';
 
 export async function fetchStoreProduct(platform: string, handle: string): Promise<StoreProduct | null> {
   const seller = await getSellerAndConfig(platform);
   if (!seller) return null;
+
+  // Hardcoded one-off extractor, checked before the generic provider
+  // dispatch below — see lib/store-providers/sellers/anishka-creation.ts's
+  // own header comment for why this platform doesn't go through
+  // html-scrape's generic selector config at all.
+  if (platform === 'anishka-creation') {
+    return fetchAnishkaCreationProduct(platform, seller.name, handle);
+  }
 
   const config = seller.config;
 
@@ -19,6 +29,9 @@ export async function fetchStoreProduct(platform: string, handle: string): Promi
   }
   if (config.type === 'jsonapi') {
     return fetchJsonApiProduct(platform, config, seller.name, handle);
+  }
+  if (config.type === 'html-scrape') {
+    return fetchHtmlScrapeProduct(platform, config, seller.name, handle);
   }
   return fetchMockProduct(platform, handle);
 }
@@ -35,6 +48,10 @@ export async function fetchStoreProductForRedirectCheck(platform: string, handle
   const seller = await getSellerAndConfig(platform);
   if (!seller) return null;
 
+  if (platform === 'anishka-creation') {
+    return fetchAnishkaCreationProduct(platform, seller.name, handle);
+  }
+
   const config = seller.config;
 
   if (config.type === 'shopify') {
@@ -45,6 +62,9 @@ export async function fetchStoreProductForRedirectCheck(platform: string, handle
   }
   if (config.type === 'jsonapi') {
     return fetchJsonApiProduct(platform, config, seller.name, handle);
+  }
+  if (config.type === 'html-scrape') {
+    return fetchHtmlScrapeProduct(platform, config, seller.name, handle);
   }
   return fetchMockProduct(platform, handle);
 }

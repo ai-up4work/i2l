@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import Link from 'next/link'
 import { Heart, Minus, Plus } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
-import { findMatchingVariant } from '@/lib/product-options'
+import type { StoreProductVariant } from '@/lib/store.types'
+import { isMatchableOption } from '@/lib/product-options'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -34,36 +35,51 @@ function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistPr
 export default function ProductActions({
   product,
   platform,
+  qty,
+  onQtyChange,
+  selectedSize,
+  selectedColor,
+  onSelectSize,
+  onSelectColor,
+  variantMatch,
 }: {
   product: StoreProduct
   platform: string
+  /** Quantity now lives in the parent (ProductPurchasePanel) alongside
+   * the size/color selection, since AddToBagButton needs all three
+   * together and the parent is what actually owns that combined state. */
+  qty: number
+  onQtyChange: (qty: number) => void
+  selectedSize?: string
+  selectedColor?: string
+  onSelectSize: (size: string) => void
+  onSelectColor: (color: string) => void
+  /** Computed once by the parent (it already needs this for the gallery/
+   * price swap) and passed down rather than recomputed here — avoids two
+   * separate findMatchingVariant calls silently disagreeing if the
+   * matching logic ever changes in only one call site. undefined = no
+   * per-variant data to check; null = fully selected but nothing matches
+   * that combination. */
+  variantMatch: StoreProductVariant | null | undefined
 }) {
-  const [qty, setQty] = useState(1)
-  const [selectedSize, setSelectedSize] = useState<string | undefined>()
-  const [selectedColor, setSelectedColor] = useState<string | undefined>()
   const wishlist = useWishlist()
 
   const hasSizes = !!product.sizes?.length
   const hasColors = !!product.colors?.length
-  const missingSize = hasSizes && !selectedSize
-  const missingColor = hasColors && !selectedColor
+  // Same "informational vs. actually matchable" distinction as
+  // ProductPurchasePanel's needsSelection — must stay consistent with
+  // it, since that's what variantMatch (passed down as a prop) was
+  // computed against. A mismatch here would mean this component asks
+  // for a size the parent never required before resolving the variant.
+  const sizeRequired = hasSizes && isMatchableOption(product, 'size')
+  const colorRequired = hasColors && isMatchableOption(product, 'color')
+  const missingSize = sizeRequired && !selectedSize
+  const missingColor = colorRequired && !selectedColor
   const needsSelection = missingSize || missingColor
-
-  // Once every required option has a value, cross-check the actual
-  // combination against the variant list — a size that's fine on its own
-  // can still be sold out in the color the shopper just picked, which the
-  // chips (checked one option at a time) can't catch by themselves.
-  const variantMatch = useMemo(() => {
-    if (needsSelection) return null
-    const selected: Record<string, string> = {}
-    if (selectedSize) selected['Size'] = selectedSize
-    if (selectedColor) selected['Color'] = selectedColor
-    return findMatchingVariant(product, selected)
-  }, [product, selectedSize, selectedColor, needsSelection])
 
   // null = no per-variant data to check (nothing to block on);
   // undefined = fully selected but no variant matches that combo.
-  const comboUnavailable = variantMatch === undefined
+  const comboUnavailable = !needsSelection && variantMatch === undefined
 
   const selectedOptions = useMemo(() => {
     const opts: Record<string, string> = {}
@@ -92,15 +108,15 @@ export default function ProductActions({
         product={product}
         selectedSize={selectedSize}
         selectedColor={selectedColor}
-        onSelectSize={setSelectedSize}
-        onSelectColor={setSelectedColor}
+        onSelectSize={onSelectSize}
+        onSelectColor={onSelectColor}
       />
 
       <div className={`flex flex-wrap items-center gap-3 ${hasSizes || hasColors ? 'mt-4' : ''}`}>
         <div className="flex shrink-0 items-center overflow-hidden rounded-xl border border-ink/15">
           <button
             type="button"
-            onClick={() => setQty((q) => Math.max(1, q - 1))}
+            onClick={() => onQtyChange(Math.max(1, qty - 1))}
             aria-label="Decrease quantity"
             className="flex h-11 w-10 items-center justify-center transition-colors hover:bg-card"
           >
@@ -109,7 +125,7 @@ export default function ProductActions({
           <span className="w-8 text-center text-sm font-bold text-ink">{qty}</span>
           <button
             type="button"
-            onClick={() => setQty((q) => Math.min(10, q + 1))}
+            onClick={() => onQtyChange(Math.min(10, qty + 1))}
             aria-label="Increase quantity"
             className="flex h-11 w-10 items-center justify-center transition-colors hover:bg-card"
           >

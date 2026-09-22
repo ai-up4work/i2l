@@ -5,6 +5,8 @@ import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
 import { fetchWooCommerceCategories, fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
+import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
+import { fetchAnishkaCreationProducts, ANISHKA_BASE_URL, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreApiResponse, StoreApiError } from '@/lib/store.types';
 
@@ -43,6 +45,19 @@ export async function GET(
     // via a best-effort distinct-category scan over a page of products
     // (no dedicated taxonomy endpoint to call for those).
     if (searchParams.get('collections') === '1') {
+      // Hardcoded one-off extractor — see
+      // lib/store-providers/sellers/anishka-creation.ts's header comment
+      // for why this platform is checked before the generic provider
+      // dispatch below, same as the main products branch further down.
+      if (platform === 'anishka-creation') {
+        return NextResponse.json({
+          platform,
+          baseUrl: ANISHKA_BASE_URL,
+          count: Object.keys(ANISHKA_CATEGORY_PATHS).length,
+          collections: Object.keys(ANISHKA_CATEGORY_PATHS).map((title) => ({ handle: title, title })),
+        });
+      }
+
       const config = seller.config;
       let collections: LiveCollection[] = [];
 
@@ -82,6 +97,16 @@ export async function GET(
           if (!seen.has(slug)) seen.set(slug, p.category);
         }
         collections = Array.from(seen, ([handle, title]) => ({ handle, title }));
+      } else if (config.type === 'html-scrape') {
+        // Real category browsing now works when the seller's config has
+        // a categoryMap (see HtmlScrapeProviderConfig in store-config.ts)
+        // — each entry becomes a filter button, and fetchHtmlScrapeProducts
+        // requests that category's own listing page instead of the
+        // default one. No categoryMap configured still means a single
+        // implicit "General" category, same as before.
+        collections = config.categoryMap
+          ? Object.keys(config.categoryMap).map((category) => ({ handle: category, title: category }))
+          : [];
       } else {
         // mock stores have no "real" backing catalog to introspect.
         return NextResponse.json(
@@ -109,12 +134,16 @@ export async function GET(
     const config = seller.config;
 
     const result =
-      config.type === 'shopify'
+      platform === 'anishka-creation'
+        ? await fetchAnishkaCreationProducts(platform, seller.name, fetchParams)
+        : config.type === 'shopify'
         ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
         : config.type === 'woocommerce'
         ? await fetchWooCommerceProducts(platform, config, fetchParams)
         : config.type === 'jsonapi'
         ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
+        : config.type === 'html-scrape'
+        ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
         : await fetchMockProducts(platform, fetchParams);
 
     return NextResponse.json(

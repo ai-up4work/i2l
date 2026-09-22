@@ -1,15 +1,12 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, Package, Star, Weight, Zap } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { getDualDeliveryPricing } from '@/lib/pricing'
-import ProductActions from '@/components/stores/ProductActions'
-import ProductGallery from '@/components/stores/ProductGallery'
-import ProductRequestButton from '@/components/stores/ProductRequestButton'
+import ProductPurchasePanel from '@/components/stores/ProductPurchasePanel'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
-import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import ProductInfoTabs from '@/components/stores/ProductInfoTabs'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import ViewTracker from './ViewTracker'
@@ -114,29 +111,6 @@ import type { StoreProduct } from '@/lib/store.types'
 // the same sense a catalogue shopper has. It's placed after the
 // try/catch below returns early on a failed fetch, so a broken upstream
 // load never gets recorded as a view.
-
-/** Renders 1–5 filled/outline stars. Rounds to the nearest half-star visually via two overlaid glyphs is overkill here — whole-star rounding reads clearly at this size. */
-function RatingStars({ rating, count }: { rating: number; count?: number }) {
-  const rounded = Math.round(rating)
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Star
-            key={i}
-            size={13}
-            className={i < rounded ? 'fill-gold-deep text-gold-deep' : 'fill-transparent text-ink/20'}
-            strokeWidth={1.5}
-          />
-        ))}
-      </span>
-      <span className="text-xs font-semibold text-ink/60">
-        {rating.toFixed(1)}
-        {count != null && count > 0 && <span className="font-normal text-ink/40"> ({count})</span>}
-      </span>
-    </span>
-  )
-}
 
 export async function generateMetadata({
   params,
@@ -256,164 +230,13 @@ export default async function ProductDetailPage({
               tall the gallery is. */}
           <div className="mx-auto max-w-6xl px-6 pb-10 pt-8 lg:px-10">
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
-              <div className={`relative min-w-0 ${!product.inStock ? 'grayscale-[0.4] opacity-90' : ''}`}>
-                <ProductGallery images={product.images?.length ? product.images : [product.image]} alt={product.name} />
-                {!product.inStock && (
-                  <span className="absolute left-4 top-4 rounded-full border border-ink/10 bg-parchment/95 px-3 py-1 text-xs font-semibold text-ink/70 shadow-sm backdrop-blur-sm">
-                    Sold out
-                  </span>
-                )}
-              </div>
-              <div className="flex h-full min-w-0 flex-col">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
-                  <span className="inline-flex items-center gap-2">
-                    <Link
-                      href={`/demo/quote?${new URLSearchParams({
-                        mode: 'simple',
-                        delivery: 'economy',
-                        pcs: '1',
-                        value: String(product.price),
-                        currency: product.currency,
-                        ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
-                      }).toString()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="See price breakdown"
-                      className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
-                    >
-                      <img src={store.logo} alt="" className="h-full w-full object-cover" />
-                    </Link>
-                    {store.name} · {product.condition}
-                  </span>
-                  {product.averageRating != null && (
-                    <>
-                      <span className="text-ink/20">·</span>
-                      <RatingStars rating={product.averageRating} count={product.reviewCount} />
-                    </>
-                  )}
-                </div>
-
-                <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
-                  {product.name}
-                </h1>
-
-                {/* Economy vs Express delivery-price comparison, styled
-                    like a two-part shipping slip: a ticket-stub
-                    perforation separates the options instead of a plain
-                    divider. Each row carries its own full-opacity accent
-                    color (teal / gold) so neither reads as disabled;
-                    Economy keeps the larger price treatment since it's
-                    the storefront default, Express states its price
-                    delta in one line. */}
-                <div className="mt-3 rounded-3xl border border-ink/15 bg-card shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">
-                  <div className="flex items-center gap-3 rounded-t-[calc(1.5rem-1px)] bg-teal/[0.05] px-5 py-4">
-                    <Package size={18} strokeWidth={1.75} className="shrink-0 text-teal-deep" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-ink">
-                        Economy <span className="font-normal text-teal-deep">· recommended</span>
-                      </p>
-                      <p className="text-xs text-ink/45">Delivery arrives in 3–4 weeks</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="font-display text-2xl font-bold tabular-nums text-teal-deep sm:text-[28px]">
-                        {dualPricing.economy.formattedPrice}
-                      </p>
-                      {dualPricing.economy.formattedCompareAtPrice != null && (
-                        <p className="text-xs text-ink/35">
-                          <span className="line-through">{dualPricing.economy.formattedCompareAtPrice}</span>
-                          {dualPricing.economy.discountPercent != null && (
-                            <span className="ml-1.5 text-teal-deep">
-                              {dualPricing.economy.discountPercent}% less
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Perforation seam — notches are page-background-colored
-                      circles punched into the card's side edges at the
-                      seam height. */}
-                  <div className="relative">
-                    <div className="border-t border-dashed border-ink/15" />
-                    <span className="absolute left-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
-                    <span className="absolute right-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
-                  </div>
-
-                  <div className="flex items-center gap-3 rounded-b-[calc(1.5rem-1px)] bg-gold/[0.06] px-5 py-4">
-                    <Zap size={18} strokeWidth={1.75} className="shrink-0 text-gold-deep" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-ink">Express</p>
-                      <p className="text-xs text-ink/45">
-                        Delivery arrives in 12 - 15 days
-                        {dualPricing.formattedExpressPremium != null && (
-                          <> · {dualPricing.formattedExpressPremium} more</>
-                        )}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="font-display text-xl font-bold tabular-nums text-gold-deep sm:text-2xl">
-                        {dualPricing.express.formattedPrice}
-                      </p>
-                      {dualPricing.express.formattedCompareAtPrice != null && (
-                        <p className="text-xs text-ink/35">
-                          <span className="line-through">{dualPricing.express.formattedCompareAtPrice}</span>
-                          {dualPricing.express.discountPercent != null && (
-                            <span className="ml-1.5 text-gold-deep">
-                              {dualPricing.express.discountPercent}% less
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <p className="mt-3 text-xs text-ink/45">Sold by {product.seller}</p>
-
-                {product.weightKg != null && (
-                  <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-ink/50">
-                    <Weight size={12} strokeWidth={1.8} className="text-ink/35" />
-                    Ships at {product.weightKg} kg
-                  </p>
-                )}
-
-                {/* Marketplace flow can't add a specific variant to a bag (it
-                    goes through the request/proxy-buy flow instead), so the
-                    picker renders read-only here — no onSelect props means
-                    SizeAndColorPicker just displays availability. The
-                    non-marketplace flow's interactive picker lives inside
-                    ProductActions instead, since the selection needs to be
-                    wired into "Add to bag".
-                    When the product is sold out, a small status line sits
-                    just above the picker — same muted dot + text treatment
-                    as the gallery tag — since a sold-out product's sizes
-                    are shown for reference only here and can't actually
-                    be selected toward a purchase. */}
-                {isMarketplace && (
-                  <div className="mt-5">
-                    {!product.inStock && (
-                      <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/50">
-                        <span className="h-1.5 w-1.5 rounded-full bg-ink/35" />
-                        Sold out — sizes shown for reference only
-                      </p>
-                    )}
-                    <SizeAndColorPicker product={product} />
-                  </div>
-                )}
-
-                {isMarketplace ? (
-                  <ProductRequestButton
-                    productUrl={product.url ?? ''}
-                    unavailable={!product.inStock}
-                    className="mt-6 flex w-full items-center justify-center rounded-xl bg-teal px-5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-teal-deep sm:w-auto sm:px-8"
-                  >
-                    CHECKOUT
-                  </ProductRequestButton>
-                ) : (
-                  <ProductActions product={product} platform={store.platform} />
-                )}
-              </div>
+              <ProductPurchasePanel
+                product={product}
+                platform={store.platform}
+                storeName={store.name}
+                storeLogo={store.logo}
+                isMarketplace={isMarketplace}
+              />
             </div>
 
             {/* Description / Details / Shipping & Returns / Size chart —

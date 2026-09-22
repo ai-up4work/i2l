@@ -650,15 +650,78 @@ export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
    * detail page, which selectors.link points to.
    */
   listingUrl: string;
+  /**
+   * Per-category listing pages, the html-scrape equivalent of Shopify's
+   * collectionMap / WooCommerce's categoryMap \u2014 maps a WishDrop category
+   * name to that category's OWN listing page on the source site (a path
+   * or full URL; a bare path is resolved against baseUrl). When a shopper
+   * filters the storefront by category, fetchHtmlScrapeProducts requests
+   * this URL instead of `listingUrl`. Omit entirely for a single-listing
+   * seller (no category browsing) \u2014 `listingUrl` alone still works as
+   * the "All" view either way.
+   */
+  categoryMap?: Record<string, string>;
   selectors: {
     /** Selector for each repeating product-card container on listingUrl. */
     productCard: string;
     title: string;
-    price: string;
+    /**
+     * Optional — some sites (wholesale/reseller catalog sites in
+     * particular) never show a price on the listing/grid page at all,
+     * only once you open a specific item's own detail page. Leave unset
+     * rather than pointing it at something that isn't really a price;
+     * the grid card then shows "View for price" and the real number
+     * only appears once the shopper opens the detail page (see `detail`
+     * below), same as the source site's own behavior.
+     *
+     * Can point at the SAME node as `title` — some sites (Anishka
+     * Creation included) render a card's name and its price range in
+     * one text block ("Catalog - 17432<br>Min 1595 - Max 1595 INR")
+     * rather than two separate elements. The parser looks for a
+     * "Min X - Max Y CUR" pattern in whatever this selector resolves to
+     * before falling back to a plain single-amount read, and strips
+     * that same pattern back out of `title`'s text so it doesn't leak
+     * into the product name.
+     */
+    price?: string;
     image: string;
     /** href on the card, linking to the product's own detail page. */
     link: string;
     /** Optional — only if variant info is visible on the listing page itself. */
     variants?: string;
+    /**
+     * Query param name for page-N of the listing (e.g. 'page' turns a
+     * request into '{listingUrl}?page=2'). Omit for a single-page
+     * listing — the fetch then always requests listingUrl as-is and
+     * every page beyond the first returns whatever that one page has.
+     * Set this the moment a listing turns out to paginate upstream
+     * (Anishka Creation's category pages do — up to 14 pages for one
+     * category) or every page past the first silently repeats page 1.
+     */
+    pageParam?: string;
+  };
+  /**
+   * Optional second selector set for sites where the "detail page" a
+   * listing card links to isn't a single product at all, but a page that
+   * itself lists several purchasable line items — e.g. a wholesale
+   * "catalog" page showing several individual designs, each with its own
+   * price/image/code, under one listing card. When set, fetchHtmlScrapeProduct
+   * reads THESE selectors against the detail page and returns one
+   * StoreProduct per repeating `item` — mapped to StoreProduct.variants,
+   * not separate products — instead of expecting the detail page to be a
+   * single product's own PDP. Omit entirely for the common one-page-per-
+   * product case; the flat `selectors` above already cover that.
+   */
+  detail?: {
+    /** Selector for each repeating purchasable item on the detail page. */
+    item: string;
+    /** A stable code/label distinguishing this item from its siblings (e.g. a design code) — becomes this variant's `title`/option value. */
+    itemLabel: string;
+    price: string;
+    image: string;
+    /** Optional — per-item availability text/class; absence is treated as available. */
+    availability?: string;
+    /** Optional — falls back to the listing card's own title when unset. */
+    description?: string;
   };
 }
