@@ -37,6 +37,25 @@ function domainFor(url: string): string {
 }
 
 /**
+ * Matches a stale/dead pooled HTTP connection getting reused on a
+ * serverless instance that was frozen between invocations — the remote
+ * side (or a proxy in between) already closed it during the freeze, but
+ * Node's fetch/undici connection pool doesn't find out until the next
+ * request tries to reuse it. Purely transient: a fresh connection (what
+ * a plain retry gets, since the dead one is now evicted from the pool)
+ * succeeds immediately. Not specific to Supabase or this function —
+ * this class of error shows up on any serverless + connection-pooled-
+ * fetch combination — so this is deliberately a generic pattern match,
+ * not a scrape_health-specific fix.
+ */
+const STALE_CONNECTION_RE = /UND_ERR_SOCKET|other side closed|ECONNRESET|socket hang up/i
+
+function isStaleConnectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.message} ${err.cause instanceof Error ? err.cause.message : ''}` : String(err)
+  return STALE_CONNECTION_RE.test(msg)
+}
+
+/**
  * Records one real scrape attempt's outcome for `url`'s domain. Called
  * from /api/product-lookup after every scrapeProduct() call — success
  * defined the same way the client already does (hooks/useProductLookup.ts:
@@ -60,6 +79,17 @@ function domainFor(url: string): string {
  * on the Scrape Health admin page, without needing to catch it in
  * server logs at the exact moment it happened.
  *
+ * FIX: one free retry on a stale-pooled-connection error (see
+ * isStaleConnectionError above) — confirmed from real production logs
+ * ("TypeError: fetch failed ... SocketError: other side closed
+ * (UND_ERR_SOCKET)"), which was silently dropping health-tracking writes
+ * (and their last_error text) on an otherwise-fine request, purely
+ * because of connection staleness unrelated to whether the scrape
+ * itself succeeded. A genuine Supabase/RPC failure (bad params, RLS,
+ * function error) is NOT retried — only this specific transient network
+ * signature — so this doesn't turn a real bug into a silent double-write
+ * or mask an actual problem behind a retry loop.
+ *
  * Fire-and-forget by design: the caller should not `await` this inline
  * in the critical path of returning a scrape result to the customer —
  * see this function's call site in product-lookup/route.ts for the
@@ -75,9 +105,9 @@ export async function upsertScrapeHealth(
   const domain = domainFor(url)
   if (domain === 'unknown') return // nothing meaningful to attribute this attempt to
 
-  try {
+  const attempt = async () => {
     const supabase = createServiceRoleClient()
-    const { error: rpcError } = await supabase.rpc('increment_scrape_health', {
+    return supabase.rpc('increment_scrape_health', {
       p_domain: domain,
       p_success: success,
       p_title: sample?.title ?? undefined,
@@ -85,8 +115,25 @@ export async function upsertScrapeHealth(
       p_price: sample?.price ?? undefined,
       p_error: error ?? undefined,
     })
+  }
+
+  try {
+    let { error: rpcError } = await attempt()
+    if (rpcError && isStaleConnectionError(rpcError)) {
+      ;({ error: rpcError } = await attempt())
+    }
     if (rpcError) console.error('[upsertScrapeHealth]', domain, rpcError)
   } catch (err) {
+    if (isStaleConnectionError(err)) {
+      try {
+        const { error: rpcError } = await attempt()
+        if (rpcError) console.error('[upsertScrapeHealth]', domain, rpcError)
+        return
+      } catch (retryErr) {
+        console.error('[upsertScrapeHealth] threw (after stale-connection retry)', domain, retryErr)
+        return
+      }
+    }
     console.error('[upsertScrapeHealth] threw', domain, err)
   }
 }

@@ -1,7 +1,7 @@
 // lib/scrape/extractors/nykaa.ts
 import * as cheerio from 'cheerio'
 import type { CheerioAPI } from 'cheerio'
-import { cleanText } from '../shared'
+import { cleanText, looksBlocked } from '../shared'
 
 // ---------------------------------------------------------------------
 // Nykaa (www.nykaa.com / www.nykaafashion.com) product-page extractor.
@@ -83,6 +83,102 @@ import { cleanText } from '../shared'
 // ---------------------------------------------------------------------
 
 export const SITE_ID = 'nykaa' as const
+
+// ---------- Scrapingdog fallback (India geo-targeting, PLAIN mode) ----------
+//
+// WHY: production logs show a plain "HTTP 403: Access Denied" from the
+// direct-fetch tier, retried across all 3 header profiles, every one still
+// 403 — an IP-reputation/WAF block on the deployment's own egress IP
+// (Vercel's, or Browserless's), not a CAPTCHA challenge or a rendering
+// problem. Same root cause already fixed for Myntra (see that file's own
+// tier comment) and Ajio — Nykaa just never got the equivalent tier.
+//
+// DELIBERATELY PLAIN, NOT dynamic=true: same reasoning as Myntra's tier —
+// REQUIRES_RENDER_FOR_VARIANTS is false here too, so there's no client-
+// side hydration to pay Scrapingdog's real-browser-render rate for. This
+// is purely about getting past the IP block with a country=in fetch.
+//
+// Reuses the SAME SCRAPINGDOG_API_KEY/SCRAPINGDOG_COUNTRY/
+// SCRAPINGDOG_USE_PREMIUM env vars Myntra's and Ajio's tiers already
+// read — same account/credit pool, not a separate credential.
+
+export const SUPPORTS_SCRAPINGDOG_FALLBACK = true
+
+export function nykaaScrapingdogConfigured(): boolean {
+  return Boolean(process.env.SCRAPINGDOG_API_KEY)
+}
+
+const NYKAA_SCRAPINGDOG_ENDPOINT = 'https://api.scrapingdog.com/scrape'
+const NYKAA_SCRAPINGDOG_COUNTRY = process.env.SCRAPINGDOG_COUNTRY || 'in'
+const NYKAA_SCRAPINGDOG_USE_PREMIUM = process.env.SCRAPINGDOG_USE_PREMIUM === 'true'
+const NYKAA_SCRAPINGDOG_TIMEOUT_MS = Number(process.env.SCRAPINGDOG_TIMEOUT_MS) || 20000
+
+export async function fetchNykaaViaScrapingdog(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  const apiKey = process.env.SCRAPINGDOG_API_KEY
+  if (!apiKey) {
+    return { html: null, error: 'SCRAPINGDOG_API_KEY is not set.' }
+  }
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    url,
+    country: NYKAA_SCRAPINGDOG_COUNTRY,
+    ...(NYKAA_SCRAPINGDOG_USE_PREMIUM ? { premium: 'true' } : {}),
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), NYKAA_SCRAPINGDOG_TIMEOUT_MS)
+  const onExternalAbort = () => controller.abort()
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onExternalAbort)
+  }
+
+  try {
+    const res = await fetch(`${NYKAA_SCRAPINGDOG_ENDPOINT}?${params.toString()}`, {
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const snippet = await res.text().catch(() => '')
+      return {
+        html: null,
+        error: `Scrapingdog returned HTTP ${res.status}${snippet ? `: ${snippet.slice(0, 300)}` : ''}`,
+      }
+    }
+
+    const html = await res.text()
+
+    if (looksBlocked(html)) {
+      return {
+        html: null,
+        error: `Scrapingdog fetch returned a CAPTCHA/robot-check page even with country=${NYKAA_SCRAPINGDOG_COUNTRY} — Nykaa may be blocking Scrapingdog's IP range specifically, or the block isn't purely geographic.`,
+      }
+    }
+
+    return { html, error: null }
+  } catch (e) {
+    clearTimeout(timer)
+    const externalAborted = opts.signal?.aborted ?? false
+    const isAbortError = e instanceof Error && e.name === 'AbortError'
+    return {
+      html: null,
+      error: externalAborted
+        ? 'aborted — client disconnected'
+        : isAbortError
+          ? `Scrapingdog request timed out after ${NYKAA_SCRAPINGDOG_TIMEOUT_MS}ms`
+          : e instanceof Error
+            ? e.message
+            : String(e),
+    }
+  } finally {
+    clearTimeout(timer)
+    if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort)
+  }
+}
 
 // UNCONFIRMED. Set to `false` here on the assumption that Nykaa, like
 // Hopscotch, SSRs its full product record (including the shade/size
