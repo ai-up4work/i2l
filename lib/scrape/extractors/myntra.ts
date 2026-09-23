@@ -2,9 +2,114 @@
 
 import type { CheerioAPI } from 'cheerio'
 
-import { cleanText, detectCurrencyAndClean, domainCurrency } from '../shared'
+import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked } from '../shared'
 
 export const SITE_ID = 'myntra' as const
+
+// ---------- Scrapingdog fallback (India geo-targeting, PLAIN mode) ----------
+//
+// WHY: production logs show Myntra returning a "Site Maintenance" page —
+// not a real maintenance notice, a decoy/block page served to traffic it's
+// detected as bot/datacenter (Vercel's or Browserless's egress IP), not
+// from a residential Indian IP the way a real shopper's would look. Same
+// root cause already fixed for Ajio (real IP-geo block, confirmed via
+// Akamai edge-routing analysis — see extractors/ajio.ts's own tier-3a
+// comment) — Myntra just never got the equivalent tier.
+//
+// DELIBERATELY PLAIN, NOT dynamic=true: unlike Ajio (needs Scrapingdog's
+// real headless-Chrome render because Ajio's content only exists after
+// client-side hydration), Myntra's own REQUIRES_RENDER_FOR_VARIANTS above
+// is false — extractMyxState() reads a JSON blob already embedded in the
+// static HTML, no JS execution required. The block here is purely IP
+// reputation/geography, not a rendering problem, so this only asks
+// Scrapingdog for country=in — omitting dynamic=true keeps this at
+// Scrapingdog's cheap plain-fetch credit cost instead of their ~5x more
+// expensive real-browser-render cost, which Myntra's own data shape
+// doesn't need paying for.
+//
+// Reuses the SAME SCRAPINGDOG_API_KEY/SCRAPINGDOG_COUNTRY/
+// SCRAPINGDOG_USE_PREMIUM env vars Ajio's tier already reads — same
+// account/credit pool, not a separate credential.
+
+export const SUPPORTS_SCRAPINGDOG_FALLBACK = true
+
+export function myntraScrapingdogConfigured(): boolean {
+  return Boolean(process.env.SCRAPINGDOG_API_KEY)
+}
+
+const MYNTRA_SCRAPINGDOG_ENDPOINT = 'https://api.scrapingdog.com/scrape'
+const MYNTRA_SCRAPINGDOG_COUNTRY = process.env.SCRAPINGDOG_COUNTRY || 'in'
+const MYNTRA_SCRAPINGDOG_USE_PREMIUM = process.env.SCRAPINGDOG_USE_PREMIUM === 'true'
+// Plain (non-dynamic) fetch — should be fast, no real-browser render/wait
+// cycle involved. Well short of Ajio's 40s allowance for that reason.
+const MYNTRA_SCRAPINGDOG_TIMEOUT_MS = Number(process.env.SCRAPINGDOG_TIMEOUT_MS) || 20000
+
+export async function fetchMyntraViaScrapingdog(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  const apiKey = process.env.SCRAPINGDOG_API_KEY
+  if (!apiKey) {
+    return { html: null, error: 'SCRAPINGDOG_API_KEY is not set.' }
+  }
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    url,
+    country: MYNTRA_SCRAPINGDOG_COUNTRY,
+    ...(MYNTRA_SCRAPINGDOG_USE_PREMIUM ? { premium: 'true' } : {}),
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MYNTRA_SCRAPINGDOG_TIMEOUT_MS)
+  const onExternalAbort = () => controller.abort()
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onExternalAbort)
+  }
+
+  try {
+    const res = await fetch(`${MYNTRA_SCRAPINGDOG_ENDPOINT}?${params.toString()}`, {
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const snippet = await res.text().catch(() => '')
+      return {
+        html: null,
+        error: `Scrapingdog returned HTTP ${res.status}${snippet ? `: ${snippet.slice(0, 300)}` : ''}`,
+      }
+    }
+
+    const html = await res.text()
+
+    if (looksBlocked(html)) {
+      return {
+        html: null,
+        error: `Scrapingdog fetch returned a CAPTCHA/robot-check page even with country=${MYNTRA_SCRAPINGDOG_COUNTRY} — Myntra may be blocking Scrapingdog's IP range specifically, or the block isn't purely geographic.`,
+      }
+    }
+
+    return { html, error: null }
+  } catch (e) {
+    clearTimeout(timer)
+    const externalAborted = opts.signal?.aborted ?? false
+    const isAbortError = e instanceof Error && e.name === 'AbortError'
+    return {
+      html: null,
+      error: externalAborted
+        ? 'aborted — client disconnected'
+        : isAbortError
+          ? `Scrapingdog request timed out after ${MYNTRA_SCRAPINGDOG_TIMEOUT_MS}ms`
+          : e instanceof Error
+            ? e.message
+            : String(e),
+    }
+  } finally {
+    clearTimeout(timer)
+    if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort)
+  }
+}
 
 export type MyntraVariantOption = {
   label: string

@@ -27,6 +27,9 @@ import {
   SITE_ID as MYNTRA_SITE_ID,
   REQUIRES_RENDER_FOR_VARIANTS as MYNTRA_REQUIRES_RENDER_FOR_VARIANTS,
   consumeMyntraMeta,
+  SUPPORTS_SCRAPINGDOG_FALLBACK as MYNTRA_SUPPORTS_SCRAPINGDOG_FALLBACK,
+  fetchMyntraViaScrapingdog,
+  myntraScrapingdogConfigured,
 } from './extractors/myntra'
 import type { MyntraSizeChartTable } from './extractors/myntra'
 import {
@@ -913,18 +916,39 @@ if (MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK) {
   ]
 }
 
-// Amazon: same ScraperAPI account as Meesho, but this only ever needs its
-// PLAIN (no render, no premium) mode — see extractors/amazon.ts's own
-// comment on why. Missing price-only-in-production is a geo-detection
-// problem (Amazon shows the rest of the page fine from any IP, just gates
-// the buybox price on a detected delivery location), not a rendering or
-// IP-reputation-block problem the way Meesho's is.
+// Amazon: same ScraperAPI account as Meesho, in the same PLAIN (no render,
+// no premium) mode — see extractors/amazon.ts's own comment on why. This
+// registration only helps if Amazon's fetch/render tier gets outright
+// BLOCKED (a real possibility on a datacenter IP) — it's secondary
+// resilience, not the actual fix for the reported bug. The real fix is the
+// POST-parse retry further down in scrapeProduct() (search "geoRetry"):
+// Amazon's page usually fetches fine even from a non-Indian IP, just with
+// the buybox price missing, which this fetch-level tier can never detect
+// or react to — it only ever runs when the fetch itself fails, not when a
+// successful fetch parses to a missing field.
 if (AMAZON_SUPPORTS_SCRAPERAPI_FALLBACK) {
   LAST_RESORT_FALLBACK['amazon'] = [
     {
       configured: amazonScraperApiConfigured,
       fetch: fetchAmazonViaScraperApi,
       source: 'scraperapi',
+    },
+  ]
+}
+
+// Myntra: confirmed via production logs — a "Site Maintenance" decoy page,
+// not a real notice, served specifically to bot/datacenter-looking
+// traffic. Scrapingdog PLAIN mode (no dynamic=true) since Myntra's own
+// REQUIRES_RENDER_FOR_VARIANTS is false — extractMyxState() reads a JSON
+// blob already embedded in static HTML, so this is purely an IP-geo
+// block to get past, not a rendering problem worth paying Scrapingdog's
+// real-browser-render rate for. See extractors/myntra.ts's own comment.
+if (MYNTRA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
+  LAST_RESORT_FALLBACK[MYNTRA_SITE_ID] = [
+    {
+      configured: myntraScrapingdogConfigured,
+      fetch: fetchMyntraViaScrapingdog,
+      source: 'scrapingdog',
     },
   ]
 }
@@ -2101,6 +2125,38 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     parsed = parseHtml(html, url, site)
   } catch (e) {
     return { url, site, error: `Parsing failed: ${e instanceof Error ? e.message : String(e)}` }
+  }
+
+  // Amazon-specific: the fetch above can succeed completely normally
+  // (valid HTML, not blocked, not a JS-shell) while still missing price
+  // specifically — that's a geo-gated buybox, not a fetch failure, so
+  // LAST_RESORT_FALLBACK above (which only ever triggers when the FETCH
+  // itself fails) never runs for this case at all. This is the actual
+  // fix: a targeted, POST-parse retry, only when price is confirmed
+  // missing on a page that otherwise parsed fine. Re-parses the retry's
+  // own HTML and borrows ONLY price/mrp/currencyCode from it — the
+  // original parse's variants/images/rating/etc. are kept as-is rather
+  // than risking a second, differently-rendered page silently replacing
+  // fields that were already working. Silent no-op if ScraperAPI isn't
+  // configured, or if even the geo-targeted retry still comes back
+  // without a price (e.g. a genuinely unavailable/delisted listing) —
+  // never turns a clean result into an error over this.
+  if (site === 'amazon' && !parsed.price && amazonScraperApiConfigured()) {
+    try {
+      const geoRetry = await fetchAmazonViaScraperApi(url, { signal })
+      if (geoRetry.html) {
+        const geoParsed = parseHtml(geoRetry.html, url, site)
+        if (geoParsed.price) {
+          parsed.price = geoParsed.price
+          if (geoParsed.mrp) parsed.mrp = geoParsed.mrp
+          if (geoParsed.currencyCode) parsed.currencyCode = geoParsed.currencyCode
+        }
+      }
+    } catch {
+      // Same reasoning as the outer try/catch below this block — a
+      // retry that itself throws (malformed HTML, a parser edge case)
+      // shouldn't take down a scrape that otherwise already succeeded.
+    }
   }
 
   const priceSource = parsed._priceSource
