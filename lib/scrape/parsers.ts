@@ -1102,10 +1102,25 @@ async function fetchDirectWithRetries(
       lastError = 'JS_SHELL: static HTML lacks confirmed product markup — page appears to hydrate client-side'
       break
     }
-    if (html) return { html, error, source: 'direct' }
 
+    // FIX: previously this was `if (html) return { html, error, source: 'direct' }`
+    // — which meant ANY non-null html short-circuited the whole function
+    // immediately, including a "successful" 200 fetch that was actually a
+    // BLOCKED (CAPTCHA/robot-check/decoy page, e.g. Myntra's "Site
+    // Maintenance" page) or JS_SHELL response. That skipped retries, the
+    // render tier, AND every LAST_RESORT_FALLBACK tier (including the
+    // Scrapingdog fallback built specifically to handle this exact decoy
+    // page) — so a blocked-but-200 response could never recover, even
+    // though every downstream fallback tier existed to fix precisely this.
+    //
+    // Now: html-but-blocked/js-shell is treated the same as a null-html
+    // failure — record the error and keep going. We only bail out of the
+    // retry loop early for a genuine non-retryable HTTP error page (a
+    // real 404/410 etc, not a block/shell page dressed up as 200) where
+    // no downstream tier could plausibly fix anything by continuing.
     lastError = error
-    if (status != null && !RETRYABLE_STATUSES.has(status)) break
+    const isBlockedOrShell = !!error && (error.startsWith('BLOCKED') || error.startsWith('JS_SHELL'))
+    if (!isBlockedOrShell && status != null && !RETRYABLE_STATUSES.has(status)) break
   }
 
   if (signal?.aborted) {
@@ -1175,17 +1190,8 @@ async function fetchDirectWithRetries(
 
   for (const tier of lastResortTiers) {
     if (!tier.configured()) {
-      // FIX: this used to be a silent `continue` — indistinguishable in
-      // the final error from "this site has no fallback tier at all".
-      // Confirmed as a real, hit-twice ambiguity in production: both
-      // Myntra's and Nykaa's Scrapingdog tiers kept showing the
-      // ORIGINAL unchanged error (bare "HTTP 403: Access Denied") with
-      // zero trace of Scrapingdog ever being attempted, and there was
-      // no way to tell from the error alone whether the tier ran and
-      // failed identically, or was never attempted because
-      // SCRAPINGDOG_API_KEY isn't actually visible to this deployment
-      // (e.g. set for Preview but not Production, or added after the
-      // last deploy). Now explicit either way.
+      // Explicit either way — see the doc comment above this block in
+      // the original file for why silent `continue` was ambiguous.
       fallbackErrors.push(`[${tier.source}] tier registered but not configured in this environment — skipped`)
       continue
     }
