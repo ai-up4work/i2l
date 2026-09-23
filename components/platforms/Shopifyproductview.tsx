@@ -10,6 +10,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import ProductInfoTabs, { type ProductInfoTabsData } from '@/components/stores/ProductInfoTabs'
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 
 /**
  * Renders a Shopify scrape result (source: 'shopify_api') using the
@@ -409,7 +410,7 @@ export default function ShopifyProductView({
             -> link -> commerce actions. */}
         <div className="min-w-0">
           <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2">
-            <Image src="/logos/shopify.png" alt="Shopify" width={60} height={12} />
+            <Image src={SITE_LOGOS.shopify!} alt="Shopify" width={60} height={12} />
           </a>
           <h1 className="font-display text-2xl font-extrabold mt-2 tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}

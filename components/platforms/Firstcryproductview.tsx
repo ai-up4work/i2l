@@ -9,6 +9,7 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 
 /**
  * FirstCry look-alike view for the scrape QA tool, brought into full
@@ -433,7 +434,7 @@ export default function FirstCryProductView({
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
-              <Image src="/logos/firstcry.png" alt="FirstCry" width={70} height={16} />
+              <Image src={SITE_LOGOS.firstcry!} alt="FirstCry" width={70} height={16} />
             </a>
             {result.brand && (
               <>

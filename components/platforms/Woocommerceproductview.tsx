@@ -9,6 +9,7 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 
 /**
  * Renders a WooCommerce scrape result (source: 'woocommerce_api') using
@@ -442,7 +443,7 @@ export default function WooCommerceProductView({
             seller -> rating -> price/discount -> stock -> variant rows
             -> link -> commerce actions. */}
         <div className="min-w-0">
-           <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2"><Image src="/logos/woocommerce.png" alt="WooCommerce" width={100} height={20} /></a>            
+           <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2"><Image src={SITE_LOGOS.woocommerce!} alt="WooCommerce" width={100} height={20} /></a>            
      
           <h1 className="font-display text-2xl mt-2 font-extrabold tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}

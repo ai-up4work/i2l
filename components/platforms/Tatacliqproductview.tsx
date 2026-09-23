@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Star, ExternalLink, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import RequestActionButton from '@/components/stores/RequestActionButton'

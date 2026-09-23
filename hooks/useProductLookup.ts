@@ -116,7 +116,19 @@ export function useProductLookup() {
     // deliberately generic, non-technical error value; ItemInfoModal
     // never renders this string directly, it only checks for its
     // presence to show the "try again / continue via chat" screen.
-    const failed: ScrapeResult = { url, site: null, error: 'unreadable' }
+    //
+    // FIX: `site` still comes from the last real attempt's own result
+    // when it has one — scrapeProduct() reliably detects this (see
+    // detectSite() in lib/scrape/parsers.ts, which only ever returns
+    // null for a URL so malformed `new URL()` itself throws) even on a
+    // total failure, and losing it here was the actual reason a known
+    // platform's own logo (ItemInfoModal's SITE_LOGOS lookup) silently
+    // fell back to the generic icon on this exact "nothing recoverable"
+    // path — every earlier stage still knew this was Ajio, only this
+    // object was throwing that away. `attempt.data` can itself be null
+    // (the fetch call threw rather than returning a parsed body), hence
+    // the extra guard.
+    const failed: ScrapeResult = { url, site: attempt.data?.site ?? null, error: 'unreadable' }
     setError('unreadable')
     setResult(failed)
     setLoading(false)

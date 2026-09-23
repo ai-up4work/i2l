@@ -3,6 +3,8 @@
 
 import { useState } from 'react'
 import { ExternalLink, Star, Truck } from 'lucide-react'
+import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 
@@ -167,7 +169,17 @@ export default function MeeshoProductView({
 
         {/* Buy box + details */}
         <div>
-          <h1 className="text-base font-medium leading-snug text-[#2D2D2D]">
+          <a
+            href={result.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8C8C8C] transition-colors hover:text-[#2D2D2D]"
+          >
+            <Image src={SITE_LOGOS.meesho!} alt="Meesho" width={50} height={14} />
+            <ExternalLink size={10} />
+          </a>
+
+          <h1 className="mt-1.5 text-base font-medium leading-snug text-[#2D2D2D]">
             {result.title ?? <span className="italic text-[#A0A0A0]">No title found</span>}
           </h1>
 

@@ -1,6 +1,8 @@
 'use client'
 
 import { ExternalLink, Star, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
+import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import RequestActionButton from '@/components/stores/RequestActionButton'
@@ -204,9 +206,15 @@ export default function SnapdealProductView({
         <ImageGallery images={result.images ?? []} alt={result.title ?? 'Product image'} />
 
         <div>
-          <span className="inline-flex items-center gap-1.5 rounded bg-red-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-red-600 ring-1 ring-inset ring-red-200">
-            Snapdeal
-          </span>
+          <a
+            href={result.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded bg-red-50 px-2 py-0.5 ring-1 ring-inset ring-red-200 transition-opacity hover:opacity-80"
+          >
+            <Image src={SITE_LOGOS.snapdeal!} alt="Snapdeal" width={50} height={14} />
+            <ExternalLink size={10} className="text-red-600" />
+          </a>
 
           <h2 className="mt-2 text-lg font-semibold leading-snug text-ink">
             {result.title ?? <span className="italic text-ink/35">No title found</span>}

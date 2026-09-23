@@ -7,6 +7,7 @@ import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, 
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import ProductGallery from '@/components/stores/ProductGallery'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 import AmazonProductView from '@/components/platforms/AmazonProductView'
 import FlipkartProductView from '@/components/platforms/FlipkartProductView'
 import MeeshoProductView from '@/components/platforms/Meeshoproductview'
@@ -31,6 +32,7 @@ import {
   type ProductPriceableItem,
   type DeliveryPriceOption,
 } from '@/lib/pricing'
+import Image from 'next/image'
 
 /**
  * CHANNEL 1/2 (priced, real listing) vs CHANNEL 3 (unpriced — ogOnly or
@@ -516,6 +518,7 @@ function QuoteModal({
 // ProductGallery, so it can't collapse to zero height, and if the file
 // is missing it shows an icon instead of a blank box.
 function ChatListingView({
+  site,
   siteLabel,
   siteUrl,
   showShortlink,
@@ -535,6 +538,11 @@ function ChatListingView({
   onRetry,
   retryDisabled,
 }: {
+  /** ScrapeResult['site'] — looked up in SITE_LOGOS below. May be a site
+   * this app doesn't recognize at all (an unread/ogOnly listing can come
+   * from anywhere), in which case there's just no logo, same as that
+   * platform's own product view would show nothing too. */
+  site?: string | null
   siteLabel: string
   siteUrl?: string | null
   showShortlink?: boolean
@@ -556,31 +564,16 @@ function ChatListingView({
 }) {
   // Flips to true if PLACEHOLDER_IMAGE 404s (file missing / wrong name).
   const [placeholderFailed, setPlaceholderFailed] = useState(false)
-  // Flips to true if the favicon service itself 404s/fails for this
-  // domain — falls through to the generic placeholder below rather than
-  // showing a broken-image icon.
-  const [faviconFailed, setFaviconFailed] = useState(false)
   const hasImage = images.length > 0
 
-  // We don't have a real product photo, but we DO already know which
-  // site this came from (siteUrl, shown as the "nykaa.com ↗" pill
-  // above) — showing that site's own favicon here is strictly more
-  // informative than a generic gift-bag illustration, and needs no
-  // logo asset of our own to curate/host: no local /public/logos file
-  // for this domain has to exist first (most don't yet — see
-  // data/stores/data.ts's platformLogos, currently all commented out
-  // pending real files). Google's public favicon endpoint works for
-  // effectively any domain with no per-site setup.
-  const siteDomain = siteUrl
-    ? (() => {
-        try {
-          return new URL(siteUrl).hostname.replace(/^www\./, '')
-        } catch {
-          return null
-        }
-      })()
-    : null
-  const faviconUrl = siteDomain ? `https://www.google.com/s2/favicons?domain=${siteDomain}&sz=128` : null
+  // Same shared logo map every per-platform product view uses (see
+  // lib/platform-logos.ts) — a scrape that failed for a known platform
+  // shows the EXACT same brand mark a successful scrape of that same
+  // platform would show, since both now read from the one file. `site`
+  // absent, or present but not in the map (tatacliq — that view has
+  // never shown a logo either — or an unrecognized site entirely),
+  // just falls through to the plain Zap icon below.
+  const siteLogo = site ? SITE_LOGOS[site] : undefined
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
@@ -589,7 +582,17 @@ function ChatListingView({
             Mobile: first (area "info"). Desktop: top-right column. */}
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
-            {siteUrl ? (
+            {siteUrl && siteLogo ? (
+              // Real logo available — shown bare, same as every
+              // per-platform product viewer (no pill background, no
+              // site-name text, no external-link glyph): the logo
+              // itself is already the brand mark, the same way it reads
+              // on a successful scrape of this platform.
+              <a href={siteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center transition-opacity hover:opacity-75">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <Image src={siteLogo} alt={siteLabel} className="h-4 w-auto object-contain" width={70} height={16} />
+              </a>
+            ) : siteUrl ? (
               <a
                 href={siteUrl}
                 target="_blank"
@@ -640,20 +643,7 @@ function ChatListingView({
             />
           ) : (
             <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white">
-              {faviconUrl && !faviconFailed ? (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-b from-card to-white">
-                  <div className="grid h-20 w-20 place-items-center rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={faviconUrl}
-                      alt=""
-                      onError={() => setFaviconFailed(true)}
-                      className="h-full w-full object-contain"
-                    />
-                  </div>
-                  <p className="px-4 text-center text-xs text-ink/40">No product photo — this is {siteDomain}&rsquo;s own icon</p>
-                </div>
-              ) : placeholderFailed ? (
+              {placeholderFailed ? (
                 <div className="grid h-full w-full place-items-center text-ink/20">
                   <ShoppingBag size={48} strokeWidth={1.2} />
                 </div>
@@ -771,6 +761,7 @@ function GenericProductView(
 
   return (
     <ChatListingView
+      site={result.site}
       siteLabel={hostname ?? result.site ?? 'Online store'}
       siteUrl={hostname ? result.url : null}
       showShortlink={!!result.resolvedFromShortlink}
@@ -871,6 +862,7 @@ function hostnameFromUrl(url?: string | null): string | null {
 // placeholder image, an "unable to load" title, and the URL's hostname.
 function UnreadableListingFallback({
   url,
+  site,
   title,
   image,
   qty,
@@ -881,6 +873,10 @@ function UnreadableListingFallback({
   submitError,
 }: {
   url?: string | null
+  /** ScrapeResult['site'] when a failure still identified which
+   * platform it came from — see ChatListingView's own comment on why
+   * this decides which logo (if any) shows. */
+  site?: string | null
   title?: string | null
   image?: string | null
   qty: number
@@ -893,6 +889,7 @@ function UnreadableListingFallback({
   const hostname = hostnameFromUrl(url)
   return (
     <ChatListingView
+      site={site}
       siteLabel={hostname ?? 'Online store'}
       siteUrl={hostname ? url : null}
       title={title}
@@ -1190,6 +1187,7 @@ export default function ItemInfoModal({
             <div className="flex flex-col gap-6 pt-8 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
               <UnreadableListingFallback
                 url={result?.url}
+                site={result?.site}
                 title={result?.title}
                 image={result?.images?.[0]}
                 qty={qty}

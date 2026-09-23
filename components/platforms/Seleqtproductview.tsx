@@ -8,6 +8,7 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 
 /**
  * Renders a Seleqt (seleqt.wishlink.com) scrape result — same structural
@@ -333,7 +334,7 @@ export default function SeleqtProductView({
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs">
            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
-            <Image src="/logos/seleqt.png" alt="seleqt" width={60} height={12} />
+            <Image src={SITE_LOGOS.seleqt!} alt="seleqt" width={60} height={12} />
            </a>
             {result.rating && (
               <>

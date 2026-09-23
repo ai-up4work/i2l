@@ -9,6 +9,7 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -514,7 +515,7 @@ export default function WestsideProductView({
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs">
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
-              <Image src="/logos/westside.png" alt="Westside" width={84} height={16} />
+              <Image src={SITE_LOGOS.westside!} alt="Westside" width={84} height={16} />
             </a>
             {result.brand && <InfoPill>{result.brand}</InfoPill>}
             {gender && <InfoPill>{gender}</InfoPill>}

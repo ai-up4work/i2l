@@ -1,6 +1,8 @@
 'use client'
 
-import { ExternalLink, Star, PackageX, Store, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
+import { ExternalLink, Star, PackageX, Minus, Plus, Heart, ShoppingCart, Check } from 'lucide-react'
+import Image from 'next/image'
+import { SITE_LOGOS } from '@/lib/platform-logos'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import RequestActionButton from '@/components/stores/RequestActionButton'
@@ -238,9 +240,15 @@ export default function AjioProductView({
         <ImageRail images={result.images ?? []} alt={result.title ?? 'Product image'} />
 
         <div>
-          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-ink/40">
-            <Store size={12} strokeWidth={2} /> Ajio
-          </div>
+          <a
+            href={result.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink/40 transition-colors hover:text-ink"
+          >
+            <Image src={SITE_LOGOS.ajio!} alt="Ajio" width={50} height={14} />
+            <ExternalLink size={10} />
+          </a>
 
           <h2 className="mt-2 text-base font-semibold leading-snug text-ink sm:text-lg">
             {result.title ?? <span className="italic text-ink/35">No title found</span>}
