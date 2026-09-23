@@ -3,13 +3,7 @@ import * as cheerio from 'cheerio'
 import type { CheerioAPI } from 'cheerio'
 import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked, looksLikeJsRequiredShell, looksLikeShopifyPasswordWall, readErrorBodySnippet } from './shared'
 import { fetchRendered } from './browser-fetch'
-import {
-  parseAmazon,
-  extractAmazonOptions,
-  SUPPORTS_SCRAPERAPI_FALLBACK as AMAZON_SUPPORTS_SCRAPERAPI_FALLBACK,
-  fetchAmazonViaScraperApi,
-  amazonScraperApiConfigured,
-} from './extractors/amazon'
+import { parseAmazon, extractAmazonOptions } from './extractors/amazon'
 import type { AmazonVariantDimension, AmazonSizeChartTable } from './extractors/amazon'
 import { parseFlipkart } from './extractors/flipkart'
 import {
@@ -908,22 +902,6 @@ if (MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK) {
     {
       configured: meeshoScraperApiConfigured,
       fetch: fetchMeeshoViaScraperApi,
-      source: 'scraperapi',
-    },
-  ]
-}
-
-// Amazon: same ScraperAPI account as Meesho, but this only ever needs its
-// PLAIN (no render, no premium) mode — see extractors/amazon.ts's own
-// comment on why. Missing price-only-in-production is a geo-detection
-// problem (Amazon shows the rest of the page fine from any IP, just gates
-// the buybox price on a detected delivery location), not a rendering or
-// IP-reputation-block problem the way Meesho's is.
-if (AMAZON_SUPPORTS_SCRAPERAPI_FALLBACK) {
-  LAST_RESORT_FALLBACK['amazon'] = [
-    {
-      configured: amazonScraperApiConfigured,
-      fetch: fetchAmazonViaScraperApi,
       source: 'scraperapi',
     },
   ]
