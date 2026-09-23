@@ -52,9 +52,12 @@ function OrderStatusIcon({
 }
 
 // Thumbnail cluster: single image for a 1-item order, up to 3 staggered
-// overlapping tiles + "+N" for multi-item orders. Sizes are smaller on
-// mobile so the cluster leaves room for the text column, and use explicit
-// pixel values (not h-18/w-18) so they work on Tailwind v3 and v4.
+// overlapping tiles + "+N" for multi-item orders. Sizes step up across
+// three breakpoints (56px on the smallest phones, 64px on larger phones,
+// 72px on sm+) so that 3 tiles plus the "+N" badge always have room to
+// sit next to the text column without the card's overflow-hidden
+// clipping the last tile on narrow screens. Uses explicit pixel values
+// (not h-18/w-18) so they work on Tailwind v3 and v4.
 function LatestOrderThumbnails({ items }: { items: MyOrdersCardOrderItem[] }) {
   const visible = items.slice(0, 3)
   const overflow = items.length - visible.length
@@ -76,11 +79,16 @@ function LatestOrderThumbnails({ items }: { items: MyOrdersCardOrderItem[] }) {
   }
 
   return (
-    <span className="flex flex-none -space-x-3">
+    // -space-x-4 (mobile) pulls the tiles into a tighter overlapping stack
+    // than before (-space-x-3), so the whole cluster takes up noticeably
+    // less horizontal width and leaves more room for the text column next
+    // to it on narrow screens. Overlap eases back to -space-x-3 at sm+
+    // where there's width to spare.
+    <span className="flex flex-none -space-x-4 sm:-space-x-3">
       {visible.map((item, i) => (
         <span
           key={i}
-          className="h-14 w-14 overflow-hidden rounded-lg border-2 border-card bg-white shadow-sm transition-transform duration-200 hover:z-10 hover:-translate-y-1 sm:h-[72px] sm:w-[72px] motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+          className="h-14 w-14 overflow-hidden rounded-lg border-2 border-card bg-white shadow-sm transition-transform duration-200 hover:z-10 hover:-translate-y-1 xs:h-16 xs:w-16 sm:h-[72px] sm:w-[72px] motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
           style={{ zIndex: visible.length - i, animationDelay: `${i * 80}ms` }}
         >
           <Image
@@ -94,7 +102,7 @@ function LatestOrderThumbnails({ items }: { items: MyOrdersCardOrderItem[] }) {
       ))}
       {overflow > 0 && (
         <span
-          className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-card bg-ink/10 text-xs font-semibold text-ink/60 sm:h-[72px] sm:w-[72px] motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
+          className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-card bg-ink/10 text-xs font-semibold text-ink/60 xs:h-16 xs:w-16 sm:h-[72px] sm:w-[72px] motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
           style={{ animationDelay: `${visible.length * 80}ms` }}
         >
           +{overflow}
@@ -173,7 +181,7 @@ export default function MyOrdersCard({
         <button
           type="button"
           onClick={onViewOrders}
-          className="mt-5 flex flex-1 items-center gap-3 rounded-xl border border-teal/25 bg-teal/8 p-3 text-left transition-colors hover:border-teal/40 sm:gap-4 sm:px-4 sm:py-3.5"
+          className="mt-5 flex flex-1 items-center gap-1.5 rounded-xl border border-teal/25 bg-teal/8 p-3 text-left transition-colors hover:border-teal/40 xs:gap-2.5 sm:gap-4 sm:px-4 sm:py-3.5"
         >
           <LatestOrderThumbnails items={latestOrder.items} />
 
@@ -189,7 +197,7 @@ export default function MyOrdersCard({
               <AnimatedOrderStatus status={latestOrder.status} />
             </div>
 
-            <span className="flex flex-none items-center gap-1 text-xs font-semibold text-teal-deep">
+            <span className="flex flex-none items-center gap-1 whitespace-nowrap text-xs font-semibold text-teal-deep">
               Track order <ChevronRight size={14} />
             </span>
           </div>
