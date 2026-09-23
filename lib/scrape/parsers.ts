@@ -105,7 +105,13 @@ import { parseFirstCry, SITE_ID as FIRSTCRY_SITE_ID } from './extractors/firstcr
 // doesn't cover). Build a real extractor for any of these the moment it
 // needs variant pickers, MRP, or rating data that OG tags don't carry.
 import { consumeFirstCryMeta } from './extractors/firstcry'
-import { SITE_ID as NYKAA_SITE_ID, parseNykaa } from './extractors/nykaa'
+import {
+  SITE_ID as NYKAA_SITE_ID,
+  parseNykaa,
+  SUPPORTS_SCRAPINGDOG_FALLBACK as NYKAA_SUPPORTS_SCRAPINGDOG_FALLBACK,
+  fetchNykaaViaScrapingdog,
+  nykaaScrapingdogConfigured,
+} from './extractors/nykaa'
 import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq } from './extractors/tataCliq'
 import { SITE_ID as ALIEXPRESS_SITE_ID, parseAliExpress } from './extractors/aliexpress'
 import { parseSeleqt } from './extractors/seleqt'
@@ -953,6 +959,19 @@ if (MYNTRA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
   ]
 }
 
+// Nykaa: same pattern as Myntra — a plain HTTP 403 from every direct-fetch
+// retry, no CAPTCHA/render problem involved (REQUIRES_RENDER_FOR_VARIANTS
+// is false here too). See extractors/nykaa.ts's own tier comment.
+if (NYKAA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
+  LAST_RESORT_FALLBACK[NYKAA_SITE_ID] = [
+    {
+      configured: nykaaScrapingdogConfigured,
+      fetch: fetchNykaaViaScrapingdog,
+      source: 'scrapingdog',
+    },
+  ]
+}
+
 // Ajio: scrape.do tried first (the credential currently configured on
 // this deployment — see extractors/ajio.ts's TIER 3b), then Scrapingdog
 // (kept registered so it activates automatically once a valid
@@ -1155,7 +1174,21 @@ async function fetchDirectWithRetries(
   const fallbackErrors: string[] = []
 
   for (const tier of lastResortTiers) {
-    if (!tier.configured()) continue
+    if (!tier.configured()) {
+      // FIX: this used to be a silent `continue` — indistinguishable in
+      // the final error from "this site has no fallback tier at all".
+      // Confirmed as a real, hit-twice ambiguity in production: both
+      // Myntra's and Nykaa's Scrapingdog tiers kept showing the
+      // ORIGINAL unchanged error (bare "HTTP 403: Access Denied") with
+      // zero trace of Scrapingdog ever being attempted, and there was
+      // no way to tell from the error alone whether the tier ran and
+      // failed identically, or was never attempted because
+      // SCRAPINGDOG_API_KEY isn't actually visible to this deployment
+      // (e.g. set for Preview but not Production, or added after the
+      // last deploy). Now explicit either way.
+      fallbackErrors.push(`[${tier.source}] tier registered but not configured in this environment — skipped`)
+      continue
+    }
 
     const viaFallback = await tier.fetch(url, { signal })
     if (viaFallback.html) {
