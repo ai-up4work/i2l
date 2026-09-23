@@ -2,7 +2,7 @@
 
 import type { CheerioAPI } from 'cheerio'
 
-import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked } from '../shared'
+import { cleanText, detectCurrencyAndClean, domainCurrency, looksBlocked, looksLikeJsRequiredShell } from '../shared'
 
 export const SITE_ID = 'myntra' as const
 
@@ -109,6 +109,139 @@ export async function fetchMyntraViaScrapingdog(
     clearTimeout(timer)
     if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort)
   }
+}
+
+// ---------- ScraperAPI fallback (India geo-targeting, PLAIN mode, two-key rotation) ----------
+//
+// Same rationale as the Scrapingdog tier above (see that block's comment
+// for the full "why" — decoy 'Site Maintenance' page = IP-reputation/
+// geo block, not a rendering problem). This is an ADDITIONAL/ALTERNATE
+// vendor for the exact same job, registered in parsers.ts as a second
+// tier so if one vendor's India IP range gets blocked, the other still
+// might work.
+//
+// Two keys, not one: SCRAPERAPI_KEY_1 and SCRAPERAPI_KEY_2 are treated as
+// an interchangeable pool, not a primary/backup pair. Each call randomly
+// picks a starting key, then tries the OTHER key if the first one's
+// request fails outright (network/timeout) or comes back blocked — so a
+// single exhausted/rate-limited/flagged key doesn't take the whole tier
+// down, and load is naturally spread across both over many calls.
+//
+// DELIBERATELY PLAIN (no render=true): identical reasoning to the
+// Scrapingdog tier — extractMyxState() reads a JSON blob already
+// embedded in the static HTML, no JS execution required, so this stays
+// at ScraperAPI's cheap plain-fetch credit cost instead of their real-
+// browser-render cost.
+//
+// NOTE: geo-targeting (country_code) may be a paid-plan-only feature on
+// ScraperAPI — if the configured plan doesn't support it, ScraperAPI is
+// expected to silently ignore the param and return a non-India-IP
+// response, which may still hit the same block this tier exists to fix.
+// Worth confirming against the account's actual plan.
+
+export const SUPPORTS_SCRAPERAPI_FALLBACK = true
+
+const SCRAPERAPI_KEYS = [process.env.SCRAPERAPI_KEY_1, process.env.SCRAPERAPI_KEY_2].filter(
+  (k): k is string => Boolean(k && k.trim())
+)
+
+export function myntraScraperApiConfigured(): boolean {
+  return SCRAPERAPI_KEYS.length > 0
+}
+
+const MYNTRA_SCRAPERAPI_ENDPOINT = 'https://api.scraperapi.com/'
+const MYNTRA_SCRAPERAPI_COUNTRY = process.env.SCRAPERAPI_COUNTRY || 'in'
+const MYNTRA_SCRAPERAPI_TIMEOUT_MS = Number(process.env.SCRAPERAPI_TIMEOUT_MS) || 20000
+
+function pickStartingKeyIndex(): number {
+  return SCRAPERAPI_KEYS.length > 1 ? Math.floor(Math.random() * SCRAPERAPI_KEYS.length) : 0
+}
+
+async function fetchMyntraViaScraperApiWithKey(
+  url: string,
+  apiKey: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    url,
+    country_code: MYNTRA_SCRAPERAPI_COUNTRY,
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MYNTRA_SCRAPERAPI_TIMEOUT_MS)
+  const onExternalAbort = () => controller.abort()
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onExternalAbort)
+  }
+
+  try {
+    const res = await fetch(`${MYNTRA_SCRAPERAPI_ENDPOINT}?${params.toString()}`, {
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const snippet = await res.text().catch(() => '')
+      return {
+        html: null,
+        error: `ScraperAPI returned HTTP ${res.status}${snippet ? `: ${snippet.slice(0, 300)}` : ''}`,
+      }
+    }
+
+    const html = await res.text()
+
+    if (looksBlocked(html)) {
+      return {
+        html: null,
+        error: `ScraperAPI fetch returned a CAPTCHA/robot-check page even with country_code=${MYNTRA_SCRAPERAPI_COUNTRY} — Myntra may be blocking this ScraperAPI key/IP range specifically, or the block isn't purely geographic.`,
+      }
+    }
+
+    return { html, error: null }
+  } catch (e) {
+    const externalAborted = opts.signal?.aborted ?? false
+    const isAbortError = e instanceof Error && e.name === 'AbortError'
+    return {
+      html: null,
+      error: externalAborted
+        ? 'aborted — client disconnected'
+        : isAbortError
+          ? `ScraperAPI request timed out after ${MYNTRA_SCRAPERAPI_TIMEOUT_MS}ms`
+          : e instanceof Error
+            ? e.message
+            : String(e),
+    }
+  } finally {
+    clearTimeout(timer)
+    if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+export async function fetchMyntraViaScraperApi(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  if (!SCRAPERAPI_KEYS.length) {
+    return { html: null, error: 'Neither SCRAPERAPI_KEY_1 nor SCRAPERAPI_KEY_2 is set.' }
+  }
+
+  const startIdx = pickStartingKeyIndex()
+  const errors: string[] = []
+
+  for (let i = 0; i < SCRAPERAPI_KEYS.length; i++) {
+    if (opts.signal?.aborted) {
+      return { html: null, error: 'aborted — client disconnected' }
+    }
+
+    const keyIdx = (startIdx + i) % SCRAPERAPI_KEYS.length
+    const result = await fetchMyntraViaScraperApiWithKey(url, SCRAPERAPI_KEYS[keyIdx], opts)
+
+    if (result.html) return result
+    if (result.error) errors.push(`[key ${keyIdx + 1}] ${result.error}`)
+  }
+
+  return { html: null, error: errors.join(' | ') }
 }
 
 export type MyntraVariantOption = {
