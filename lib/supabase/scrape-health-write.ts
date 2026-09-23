@@ -50,6 +50,16 @@ function domainFor(url: string): string {
  * success that couldn't extract every field still doesn't blank out an
  * otherwise-good example.
  *
+ * `error`, symmetrically, is only meaningful (and only ever written) on
+ * a real FAILURE — see wishdrop-scrape-health-last-error.sql. This is
+ * scrapeProduct()'s own full diagnostic string (BLOCKED/JS_SHELL/a
+ * specific HTTP status, which fallback tier was tried and how, vendor-
+ * fingerprinted block-page markers, ...) — the same detail the customer
+ * deliberately never sees (see useProductLookup.ts's own comment on
+ * why), made durable here specifically so *someone* can still see it,
+ * on the Scrape Health admin page, without needing to catch it in
+ * server logs at the exact moment it happened.
+ *
  * Fire-and-forget by design: the caller should not `await` this inline
  * in the critical path of returning a scrape result to the customer —
  * see this function's call site in product-lookup/route.ts for the
@@ -60,20 +70,22 @@ export async function upsertScrapeHealth(
   url: string,
   success: boolean,
   sample?: { title?: string | null; imageUrl?: string | null; price?: string | null },
+  error?: string | null,
 ): Promise<void> {
   const domain = domainFor(url)
   if (domain === 'unknown') return // nothing meaningful to attribute this attempt to
 
   try {
     const supabase = createServiceRoleClient()
-    const { error } = await supabase.rpc('increment_scrape_health', {
+    const { error: rpcError } = await supabase.rpc('increment_scrape_health', {
       p_domain: domain,
       p_success: success,
       p_title: sample?.title ?? undefined,
       p_image_url: sample?.imageUrl ?? undefined,
       p_price: sample?.price ?? undefined,
+      p_error: error ?? undefined,
     })
-    if (error) console.error('[upsertScrapeHealth]', domain, error)
+    if (rpcError) console.error('[upsertScrapeHealth]', domain, rpcError)
   } catch (err) {
     console.error('[upsertScrapeHealth] threw', domain, err)
   }

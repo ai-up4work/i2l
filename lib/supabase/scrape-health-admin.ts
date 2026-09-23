@@ -64,6 +64,17 @@ export type DomainHealthRecord = {
   lastSuccessImageUrl: string | null
   lastSuccessPrice: string | null
   lastSuccessAt: string | null
+  /** scrapeProduct()'s own full diagnostic text for the most recent
+   * FAILURE on this domain — see wishdrop-scrape-health-last-error.sql.
+   * This is the detail the customer never sees (BLOCKED vs JS_SHELL vs
+   * a specific HTTP status, which fallback tier was tried and how, ...),
+   * made visible here specifically so "why is this domain failing" is
+   * answerable from this page alone. Null until this domain has had at
+   * least one real failure since instrumentation; a later success
+   * doesn't clear a previously-recorded error — see that file's own
+   * comment on why (ops still wants to know what a flaky domain's last
+   * real failure looked like, not just that it eventually worked). */
+  lastError: string | null
 }
 
 function initialsFromName(name: string): string {
@@ -141,6 +152,7 @@ export async function fetchDomainHealthFromRequests(): Promise<DomainHealthRecor
         lastSuccessImageUrl: null,
         lastSuccessPrice: null,
         lastSuccessAt: null,
+        lastError: null,
       })
     }
   }
@@ -165,7 +177,7 @@ export async function fetchDomainHealth(): Promise<DomainHealthRecord[]> {
     supabase
       .from('scrape_health')
       .select(
-        'domain, fail_count, success_count, last_failure, decision, ops_note, last_success_title, last_success_image_url, last_success_price, last_success_at',
+        'domain, fail_count, success_count, last_failure, decision, ops_note, last_success_title, last_success_image_url, last_success_price, last_success_at, last_error',
       ),
   ])
   if (error) console.error('[fetchDomainHealth] scrape_health read failed', error)
@@ -183,6 +195,7 @@ export async function fetchDomainHealth(): Promise<DomainHealthRecord[]> {
       existing.lastSuccessImageUrl = h.last_success_image_url
       existing.lastSuccessPrice = h.last_success_price
       existing.lastSuccessAt = h.last_success_at
+      existing.lastError = h.last_error
     } else {
       byDomain.set(h.domain, {
         domain: h.domain,
@@ -198,6 +211,7 @@ export async function fetchDomainHealth(): Promise<DomainHealthRecord[]> {
         lastSuccessImageUrl: h.last_success_image_url,
         lastSuccessPrice: h.last_success_price,
         lastSuccessAt: h.last_success_at,
+        lastError: h.last_error,
       })
     }
   }

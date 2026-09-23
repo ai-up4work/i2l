@@ -90,6 +90,24 @@ export async function GET(request: Request) {
   // route WITHOUT this header, so they're unaffected.
   const isQaTraffic = request.headers.get('x-scrape-source') === 'qa-tool'
 
+  // FIX: every real diagnostic detail scrapeProduct() computes (which
+  // tier failed, BLOCKED vs JS_SHELL vs a specific HTTP status, vendor-
+  // fingerprinted block-page markers, per-key ScraperAPI errors, ...)
+  // used to be thrown away the moment this response left the server —
+  // returned to the client, never logged server-side. Unless someone
+  // was tailing Vercel's function logs at the exact moment a request
+  // failed, "why did this platform fail in production" was
+  // unanswerable after the fact. This one line is what actually
+  // answers it: a clear, greppable log line per failure, with the site,
+  // URL, and the FULL error text (not the generic message the customer
+  // sees) all in one place. See upsertScrapeHealth below for the
+  // second, PERSISTENT half of this fix — the same text saved to
+  // scrape_health.last_error so it's visible on the admin Scrape Health
+  // page too, not just in logs that scroll away.
+  if (result.error) {
+    console.error(`[product-lookup] FAILED site=${result.site ?? 'unknown'} url=${resolvedUrl} — ${result.error}`)
+  }
+
   if (!isQaTraffic) {
     // Fire-and-forget: this is the one real call site the Scrape health
     // panel's fail_count/success_count depend on (see
@@ -101,11 +119,18 @@ export async function GET(request: Request) {
     // carries the real title/image/price through so ops can see an
     // actual example of what this domain's product pages look like, not
     // just a bare count (see wishdrop-scrape-health-success-sample.sql).
-    upsertScrapeHealth(resolvedUrl, !result.error, {
-      title: result.title,
-      imageUrl: result.images?.[0],
-      price: result.price,
-    })
+    // On a FAILURE, carries the full error text through instead — see
+    // wishdrop-scrape-health-last-error.sql.
+    upsertScrapeHealth(
+      resolvedUrl,
+      !result.error,
+      {
+        title: result.title,
+        imageUrl: result.images?.[0],
+        price: result.price,
+      },
+      result.error,
+    )
   }
 
   return NextResponse.json(result)

@@ -6,6 +6,7 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  AlertCircle,
   ChevronDown,
   ExternalLink,
   ImageIcon,
@@ -523,6 +524,26 @@ function CustomerLinksTab({
                             {d.lastSuccessPrice && <p className="text-xs text-ink/50">{d.lastSuccessPrice}</p>}
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* The answer to "why is this domain failing" —
+                        scrapeProduct()'s own full diagnostic text (which
+                        tier failed, BLOCKED vs JS_SHELL vs a specific
+                        HTTP status, vendor-fingerprinted block-page
+                        markers, per-key ScraperAPI errors, ...), not the
+                        generic message a customer would ever see. See
+                        wishdrop-scrape-health-last-error.sql. Kept even
+                        after a later success (doesn't get cleared) — a
+                        flaky domain's last real failure is still worth
+                        seeing even once it's working again. */}
+                    {d.lastError && (
+                      <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/[0.05] px-3.5 py-3">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                          <AlertCircle size={12} aria-hidden />
+                          Last failure reason
+                        </p>
+                        <p className="mt-1.5 whitespace-pre-wrap break-words text-xs text-ink/70">{d.lastError}</p>
                       </div>
                     )}
 
