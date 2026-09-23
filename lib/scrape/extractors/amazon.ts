@@ -9,7 +9,7 @@
 // ../shared rather than ../parsers specifically so this file and parsers.ts
 // don't end up importing each other in a circle.
 import type { CheerioAPI } from 'cheerio'
-import { cleanText, detectCurrencyAndClean, domainCurrency } from '../shared'
+import { cleanText, detectCurrencyAndClean, domainCurrency, readErrorBodySnippet } from '../shared'
 
 // ---------- Title ----------
 
@@ -541,4 +541,250 @@ export function parseAmazon($: CheerioAPI, url: string) {
   }
 
   return result
+}
+// ---------- ScraperAPI fallback (India geo-targeting, PLAIN mode) ----------
+//
+// WHY: everything except price was coming through fine in production while
+// working end-to-end locally. Title/images/description aren't geo-gated on
+// Amazon, but the buybox price is — it depends on a detected delivery
+// location, and Amazon shows the rest of the page normally either way. The
+// direct-fetch and in-house headless-render tiers both run from wherever
+// THIS deployment's own egress IP happens to be (Vercel's own datacenters,
+// or Browserless's — see lib/scrape/browser-fetch.ts's BROWSERLESS_WS_ENDPOINT,
+// currently San Francisco), not from India, so price comes back blank even
+// though the page loaded successfully. Same root cause already solved for
+// Ajio (see extractors/ajio.ts's Scrapingdog tier) and, in a harder
+// IP-reputation-block form, for Meesho (this exact file's own
+// fetchMeeshoViaScraperApi) — Amazon just never got the equivalent tier.
+//
+// DELIBERATELY PLAIN, NOT RENDERED: unlike Meesho (render:'true' + premium,
+// needed because Meesho's WAF blocks the IP itself) and Ajio (Scrapingdog's
+// dynamic=true real headless render, needed for JS-heavy content), Amazon's
+// price selectors in this file read straight out of static HTML
+// (#corePriceDisplay_desktop_feature_div etc.) — this already works
+// end-to-end locally on a PLAIN fetch, no browser involved. So this tier
+// only asks ScraperAPI for `country_code: 'in'`, not `render`/`premium` —
+// the cheapest mode that fixes the actual problem (wrong apparent country),
+// not a copy of a heavier tier built for a different problem (JS rendering
+// or IP-reputation blocking). If a plain geo-targeted fetch turns out not
+// to be enough on its own, escalate to render:'true' here — see
+// attemptAmazonScraperApiRequest's `render` option, unused by default.
+//
+// Reuses the SAME env vars as Meesho's tier (SCRAPERAPI_KEY /
+// SCRAPERAPI_KEY_1..10, SCRAPERAPI_ATTEMPT_TIMEOUT_MS,
+// SCRAPERAPI_TOTAL_BUDGET_MS) since it's the same ScraperAPI account/pool —
+// not a separate credential to configure. Key-pool rotation and the
+// quota-exhausted blacklist are each Amazon's own module-level state
+// (separate from Meesho's), so a key going quota-exhausted on one site's
+// tier doesn't cross-contaminate the other's blacklist bookkeeping — but
+// both draw from the same underlying ScraperAPI account/credit pool either
+// way, so a key exhausted by Meesho traffic will still fail here too, just
+// gets discovered (and locally blacklisted) on first use rather than
+// inherited.
+//
+// Intentionally lighter than Meesho's tier: no Redis caching, no free-retry-
+// on-500, no premium/ultra_premium escalation — those are refinements
+// earned by Meesho's harder, previously-flaky block, not assumed necessary
+// here. Add them if Amazon's real-world failure modes turn out to need it.
+
+export const SUPPORTS_SCRAPERAPI_FALLBACK = true
+
+const AMAZON_MAX_SCRAPERAPI_KEYS = 10
+
+function getAmazonScraperApiKeyPool(): string[] {
+  const keys: string[] = []
+  const single = process.env.SCRAPERAPI_KEY
+  if (single) keys.push(single)
+  for (let i = 1; i <= AMAZON_MAX_SCRAPERAPI_KEYS; i++) {
+    const k = process.env[`SCRAPERAPI_KEY_${i}`]
+    if (k) keys.push(k)
+  }
+  return [...new Set(keys)]
+}
+
+let amazonScraperApiRotationIndex = 0
+
+// Same 24h-expiring blacklist pattern as Meesho's tier (see that file's own
+// comment on why a permanent Set was wrong) — kept as Amazon's own Map
+// rather than sharing Meesho's, so the two tiers' bookkeeping can't cross-
+// contaminate each other even though they draw from the same underlying
+// ScraperAPI credit pool.
+const amazonQuotaExhaustedKeys = new Map<string, number>()
+const AMAZON_QUOTA_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+
+function isAmazonKeyQuotaExhausted(key: string): boolean {
+  const exhaustedAt = amazonQuotaExhaustedKeys.get(key)
+  if (exhaustedAt == null) return false
+  if (Date.now() - exhaustedAt > AMAZON_QUOTA_RETRY_AFTER_MS) {
+    amazonQuotaExhaustedKeys.delete(key)
+    return false
+  }
+  return true
+}
+
+function markAmazonKeyQuotaExhausted(key: string): void {
+  amazonQuotaExhaustedKeys.set(key, Date.now())
+}
+
+function nextAmazonScraperApiKeyOrder(pool: string[]): string[] {
+  if (pool.length <= 1) return pool
+  const start = amazonScraperApiRotationIndex % pool.length
+  amazonScraperApiRotationIndex = (amazonScraperApiRotationIndex + 1) % pool.length
+  return [...pool.slice(start), ...pool.slice(0, start)]
+}
+
+export function amazonScraperApiConfigured(): boolean {
+  return getAmazonScraperApiKeyPool().length > 0
+}
+
+export function amazonScraperApiSkipReason(): string {
+  return 'No SCRAPERAPI_KEY or SCRAPERAPI_KEY_1..SCRAPERAPI_KEY_10 found in process.env — same credential Meesho\'s ScraperAPI tier uses; check it\'s set in the right .env file and the server was restarted after adding it.'
+}
+
+const AMAZON_PER_ATTEMPT_TIMEOUT_MS = 20_000 // plain fetch, no render — should be fast; well short of Meesho's 45s render+premium allowance
+const AMAZON_TOTAL_BUDGET_MS = 90_000
+
+function resolveAmazonPerAttemptTimeoutMs(override?: number): number {
+  if (override != null) return override
+  const envValue = Number(process.env.SCRAPERAPI_ATTEMPT_TIMEOUT_MS)
+  return Number.isFinite(envValue) && envValue > 0 ? envValue : AMAZON_PER_ATTEMPT_TIMEOUT_MS
+}
+
+function resolveAmazonTotalBudgetMs(override?: number): number {
+  if (override != null) return override
+  const envValue = Number(process.env.SCRAPERAPI_TOTAL_BUDGET_MS)
+  return Number.isFinite(envValue) && envValue > 0 ? envValue : AMAZON_TOTAL_BUDGET_MS
+}
+
+type AmazonScraperApiAttempt =
+  | { ok: true; html: string }
+  | { ok: false; status: number | null; snippet: string | null; aborted: boolean; budgetExhausted?: boolean }
+
+/** Makes ONE HTTP call to ScraperAPI in plain (non-render) mode +
+ * country_code: 'in'. See this section's top comment for why render/premium
+ * are deliberately left off. */
+async function attemptAmazonScraperApiRequest(
+  apiKey: string,
+  url: string,
+  attemptTimeoutMs: number,
+  { render = false, signal }: { render?: boolean; signal?: AbortSignal } = {}
+): Promise<AmazonScraperApiAttempt> {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    url,
+    country_code: 'in',
+    ...(render ? { render: 'true' } : {}),
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), attemptTimeoutMs)
+
+  const onExternalAbort = () => controller.abort()
+  if (signal) {
+    if (signal.aborted) controller.abort()
+    else signal.addEventListener('abort', onExternalAbort)
+  }
+
+  try {
+    const res = await fetch(`https://api.scraperapi.com/?${params.toString()}`, {
+      signal: controller.signal,
+      cache: 'no-store',
+    })
+    clearTimeout(timer)
+
+    if (!res.ok) {
+      const snippet = await readErrorBodySnippet(res)
+      return { ok: false, status: res.status, snippet, aborted: false }
+    }
+
+    const html = await res.text()
+    return { ok: true, html }
+  } catch (e) {
+    clearTimeout(timer)
+    const externalAborted = signal?.aborted ?? false
+    const isAbortError = e instanceof Error && e.name === 'AbortError'
+    const snippet = externalAborted
+      ? 'aborted — client disconnected or overall ScraperAPI budget was exhausted'
+      : isAbortError
+        ? `timed out after ${attemptTimeoutMs}ms`
+        : e instanceof Error
+          ? e.message
+          : String(e)
+    return { ok: false, status: null, snippet, aborted: isAbortError || externalAborted, budgetExhausted: externalAborted }
+  } finally {
+    if (signal) signal.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+/** Fetches an Amazon product page via ScraperAPI with country_code: 'in',
+ * trying every configured key in rotation, bounded by a single overall
+ * deadline (see AMAZON_TOTAL_BUDGET_MS). Plain mode only — no render, no
+ * premium — see this section's top comment for why. `signal`, when
+ * provided, lets an upstream client disconnect stop everything immediately
+ * rather than running the full budget to completion with nobody listening. */
+export async function fetchAmazonViaScraperApi(
+  url: string,
+  { timeoutMs, totalBudgetMs, signal }: { timeoutMs?: number; totalBudgetMs?: number; signal?: AbortSignal } = {}
+): Promise<{ html: string | null; error: string | null }> {
+  const pool = getAmazonScraperApiKeyPool()
+  if (!pool.length) return { html: null, error: 'No SCRAPERAPI_KEY(_N) configured' }
+
+  const perAttemptTimeoutMs = resolveAmazonPerAttemptTimeoutMs(timeoutMs)
+  const budgetMs = resolveAmazonTotalBudgetMs(totalBudgetMs)
+  const deadline = Date.now() + budgetMs
+  const orderedKeys = nextAmazonScraperApiKeyOrder(pool)
+
+  const perKeyErrors: string[] = []
+
+  function timeoutForNextAttempt(): number | null {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return null
+    return Math.min(perAttemptTimeoutMs, remaining)
+  }
+
+  keyLoop: for (let i = 0; i < orderedKeys.length; i++) {
+    if (signal?.aborted) {
+      return { html: null, error: 'Client disconnected — aborting remaining ScraperAPI attempts.' }
+    }
+    if (Date.now() >= deadline) {
+      perKeyErrors.push(`Overall ${budgetMs}ms ScraperAPI budget exhausted before trying remaining key(s).`)
+      break
+    }
+
+    const apiKey = orderedKeys[i]
+    const keyLabel = orderedKeys.length > 1 ? ` (key ${i + 1}/${orderedKeys.length})` : ''
+
+    if (isAmazonKeyQuotaExhausted(apiKey)) {
+      perKeyErrors.push(`ScraperAPI HTTP 403${keyLabel}: skipped — already confirmed out of credits within the last 24h`)
+      continue
+    }
+
+    const attemptTimeout = timeoutForNextAttempt()
+    if (attemptTimeout == null) {
+      perKeyErrors.push(`Overall ${budgetMs}ms ScraperAPI budget exhausted before trying key${keyLabel}.`)
+      break keyLoop
+    }
+
+    const attempt = await attemptAmazonScraperApiRequest(apiKey, url, attemptTimeout, { signal })
+
+    if (!attempt.ok) {
+      if (attempt.status === 403 && /credit|quota|exhaust/i.test(attempt.snippet ?? '')) {
+        markAmazonKeyQuotaExhausted(apiKey)
+      }
+      perKeyErrors.push(
+        attempt.aborted
+          ? `ScraperAPI request failed${keyLabel}: ${attempt.snippet}`
+          : `ScraperAPI HTTP ${attempt.status}${keyLabel}${attempt.snippet ? `: ${attempt.snippet}` : ''}`
+      )
+      if (attempt.budgetExhausted && Date.now() >= deadline) break keyLoop
+      continue
+    }
+
+    return { html: attempt.html, error: null }
+  }
+
+  return {
+    html: null,
+    error: perKeyErrors.length ? perKeyErrors.join(' | ') : 'All ScraperAPI attempts failed for an unknown reason.',
+  }
 }
