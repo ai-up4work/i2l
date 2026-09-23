@@ -556,7 +556,31 @@ function ChatListingView({
 }) {
   // Flips to true if PLACEHOLDER_IMAGE 404s (file missing / wrong name).
   const [placeholderFailed, setPlaceholderFailed] = useState(false)
+  // Flips to true if the favicon service itself 404s/fails for this
+  // domain — falls through to the generic placeholder below rather than
+  // showing a broken-image icon.
+  const [faviconFailed, setFaviconFailed] = useState(false)
   const hasImage = images.length > 0
+
+  // We don't have a real product photo, but we DO already know which
+  // site this came from (siteUrl, shown as the "nykaa.com ↗" pill
+  // above) — showing that site's own favicon here is strictly more
+  // informative than a generic gift-bag illustration, and needs no
+  // logo asset of our own to curate/host: no local /public/logos file
+  // for this domain has to exist first (most don't yet — see
+  // data/stores/data.ts's platformLogos, currently all commented out
+  // pending real files). Google's public favicon endpoint works for
+  // effectively any domain with no per-site setup.
+  const siteDomain = siteUrl
+    ? (() => {
+        try {
+          return new URL(siteUrl).hostname.replace(/^www\./, '')
+        } catch {
+          return null
+        }
+      })()
+    : null
+  const faviconUrl = siteDomain ? `https://www.google.com/s2/favicons?domain=${siteDomain}&sz=128` : null
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
@@ -616,7 +640,20 @@ function ChatListingView({
             />
           ) : (
             <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white">
-              {placeholderFailed ? (
+              {faviconUrl && !faviconFailed ? (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-b from-card to-white">
+                  <div className="grid h-20 w-20 place-items-center rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={faviconUrl}
+                      alt=""
+                      onError={() => setFaviconFailed(true)}
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                  <p className="px-4 text-center text-xs text-ink/40">No product photo — this is {siteDomain}&rsquo;s own icon</p>
+                </div>
+              ) : placeholderFailed ? (
                 <div className="grid h-full w-full place-items-center text-ink/20">
                   <ShoppingBag size={48} strokeWidth={1.2} />
                 </div>
