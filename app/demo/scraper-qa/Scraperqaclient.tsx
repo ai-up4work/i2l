@@ -40,7 +40,7 @@ import AliExpressProductView from './platforms/AliExpressProductView'
 // see `scraperTestLinks` there. To add a platform to this QA tool, set
 // `sampleProductUrl` + `sampleProductLabel` on that store's entry in
 // affiliatedStores; don't add a preset link here directly.
-import { scraperTestLinks as PRESET_LINKS, type ScraperTestLink as PresetLink } from '@/data/stores/demo'
+import { scraperTestLinks as PRESET_LINKS, type ScraperTestLink as PresetLink } from '@/data/stores/data'
 
 //
 
@@ -606,44 +606,76 @@ export default function ScraperQaClient() {
     // gap instead of silently showing an empty picker. If a real
     // JS-rendering fetch tier for variants is ever added, this is the
     // flag that should gate it — see ScrapeProductOptions.needVariants.
-    fetch(`/api/product-lookup?url=${encodeURIComponent(activeUrl)}&needVariants=true`, {
-      signal: controller.signal,
-    })
-      .then(async (res) => {
-        const body = await res.json().catch(() => null)
-        if (!res.ok) {
-          throw new Error((body && body.error) || `Request failed (${res.status})`)
-        }
-        return body as ScrapeResult
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setResult(data)
-          if (data.unavailable) {
-            prefillUnavailableNote(activeUrl)
+    //
+    // FIX: this used to be a single fetch attempt, while the real
+    // customer-facing paste-a-link flow (hooks/useProductLookup.ts)
+    // silently retries once after a 5s delay before giving up. Same
+    // /api/product-lookup endpoint, same scrapeProduct() engine either
+    // way — the two were never testing a different scraper, just judging
+    // it by a different number of attempts. That made a platform that
+    // "flakily works" (transient rate-limit/block, clears on a second
+    // try) look broken here while actually working for real customers —
+    // confusing to read as a QA signal. Mirrors ONLY the retry, not
+    // useProductLookup's further OG-metadata fallback or its blanket
+    // "unreadable" error message — this page's whole purpose is showing
+    // whether the REAL scraper actually got real data, so it still
+    // reports the true scraper error text and still shows nothing
+    // recovered when both real attempts fail, rather than quietly
+    // passing on a name+photo the way the customer-facing flow does.
+    const RETRY_DELAY_MS = 5000
+    const fetchUrl = `/api/product-lookup?url=${encodeURIComponent(activeUrl)}&needVariants=true`
+
+    async function attemptLookup(): Promise<ScrapeResult> {
+      const res = await fetch(fetchUrl, { signal: controller.signal })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error((body && body.error) || `Request failed (${res.status})`)
+      return body as ScrapeResult
+    }
+
+    async function run() {
+      let data: ScrapeResult
+      try {
+        data = await attemptLookup()
+        if (data.error) throw new Error(data.error)
+      } catch (firstErr) {
+        if (cancelled) return
+        try {
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+          if (cancelled) return
+          data = await attemptLookup()
+          if (data.error) throw new Error(data.error)
+        } catch (secondErr) {
+          if (!cancelled) {
+            const err = secondErr instanceof Error ? secondErr : firstErr
+            const isTimeout = err instanceof DOMException && err.name === 'AbortError'
+            setRequestError(
+              isTimeout
+                ? `Scrape timed out after ${Math.round(SCRAPE_TIMEOUT_MS / 1000)}s — the target site took too long to respond.`
+                : err instanceof Error
+                  ? err.message
+                  : 'Request failed'
+            )
+            // Intentionally not clearing `result` here — if a variant
+            // re-fetch fails we keep showing the last successful result
+            // rather than wiping the whole panel; the error surfaces as
+            // an inline banner above the (still visible) stale result.
           }
+          return
         }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          const isTimeout = err instanceof DOMException && err.name === 'AbortError'
-          setRequestError(
-            isTimeout
-              ? `Scrape timed out after ${Math.round(SCRAPE_TIMEOUT_MS / 1000)}s — the target site took too long to respond.`
-              : err instanceof Error
-                ? err.message
-                : 'Request failed'
-          )
-          // Intentionally not clearing `result` here — if a variant
-          // re-fetch fails we keep showing the last successful result
-          // rather than wiping the whole panel; the error surfaces as
-          // an inline banner above the (still visible) stale result.
+      }
+
+      if (!cancelled) {
+        setResult(data)
+        if (data.unavailable) {
+          prefillUnavailableNote(activeUrl)
         }
-      })
-      .finally(() => {
-        clearTimeout(timeoutId)
-        if (!cancelled) setLoading(false)
-      })
+      }
+    }
+
+    run().finally(() => {
+      clearTimeout(timeoutId)
+      if (!cancelled) setLoading(false)
+    })
 
     return () => {
       cancelled = true
