@@ -517,8 +517,7 @@ export default function WestsideProductView({
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
               <Image src={SITE_LOGOS.westside!} alt="Westside" width={84} height={16} />
             </a>
-            {result.brand && <InfoPill>{result.brand}</InfoPill>}
-            {gender && <InfoPill>{gender}</InfoPill>}
+            
           </div>
 
           <h1 className="mt-2 text-2xl font-medium leading-snug tracking-tight text-[#1c1c1c] sm:text-3xl">
