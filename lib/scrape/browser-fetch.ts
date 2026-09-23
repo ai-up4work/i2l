@@ -202,11 +202,34 @@ export async function closeBrowser(): Promise<void> {
   if (browserPromise) {
     const b = await browserPromise.catch(() => null)
     if (b && b.isConnected()) {
-      await b.close()
+      // A browser we're discarding specifically BECAUSE it looks
+      // unhealthy (see BROWSER_UNHEALTHY_RE below) may not close
+      // cleanly either — swallow that failure too, same as
+      // context.close() already does in fetchRendered's own finally.
+      // The goal here is just to null out browserPromise so the next
+      // getBrowser() call starts fresh; a close() that hangs or throws
+      // shouldn't block that.
+      await b.close().catch(() => {})
     }
     browserPromise = null
   }
 }
+
+// Matches error text from a browser process that's still technically
+// "connected" (isConnected() stays true) but internally unhealthy —
+// getBrowser()'s own reuse check only ever discards a browser once the
+// connection itself drops, so a degraded-but-connected browser (out of
+// memory, too many zombie renderer processes, ...) was never being
+// recycled at all. On a warm serverless instance, every subsequent
+// request kept reusing the SAME poisoned browser for the rest of that
+// instance's lifetime — one bad request effectively broke every render-
+// tier scrape after it, until a cold start happened to reset module
+// state. Confirmed against real production logs: one domain showing "1
+// succeeded, 17 failed", all 17 failures reading
+// "page.goto: net::ERR_INSUFFICIENT_RESOURCES" — a resource-exhaustion
+// signature, not a per-site block. Not an exhaustive list — extend if a
+// different degraded-but-connected failure mode turns up.
+const BROWSER_UNHEALTHY_RE = /ERR_INSUFFICIENT_RESOURCES|Target closed|Target page, context or browser has been closed|ERR_CONNECTION_(CLOSED|RESET|ABORTED)|Session closed/i
 
 const DESKTOP_VIEWPORTS = [
   { width: 1920, height: 1080 },
@@ -429,6 +452,17 @@ export async function fetchRendered(
     return { html, error: null }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    // If the underlying browser process itself looks unhealthy (not
+    // just this one navigation), discard it now rather than leaving
+    // getBrowser()'s reuse check to keep handing it out — see
+    // BROWSER_UNHEALTHY_RE's own comment above for why isConnected()
+    // alone doesn't catch this. Every request on this warm instance
+    // AFTER this one gets a fresh browser instead of inheriting this
+    // same degraded one. Best-effort: closeBrowser() itself never
+    // throws into this catch (it swallows its own close() failure).
+    if (BROWSER_UNHEALTHY_RE.test(msg)) {
+      await closeBrowser()
+    }
     return { html: null, error: `Browser fetch failed: ${msg}` }
   } finally {
     if (context) await context.close().catch(() => {})
