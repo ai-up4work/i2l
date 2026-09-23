@@ -332,13 +332,28 @@ function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> })
     <div className="flex flex-col gap-3">
       {chart.map((table, i) => (
         <div key={i}>
-          {'title' in table && table.title && (
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#a39d8c]">{table.title}</p>
-          )}
+          {(() => {
+            const normalized = table as unknown as {
+              title?: string
+              columns?: string[]
+              headers?: string[]
+              rows?: unknown[]
+              data?: unknown[]
+            }
+            const columns = normalized.columns ?? normalized.headers ?? []
+            const rows = normalized.rows ?? normalized.data ?? []
+
+            return (
+              <>
+                {normalized.title && (
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#a39d8c]">
+                    {normalized.title}
+                  </p>
+                )}
           <table className="w-full border-collapse text-left text-[12px] text-[#1c1c1c]">
             <thead>
               <tr className="border-b border-[#e5e1d6]">
-                {table.columns.map((col) => (
+                {columns.map((col) => (
                   <th key={col} className="py-1 pr-4 font-semibold">
                     {col}
                   </th>
@@ -346,17 +361,20 @@ function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> })
               </tr>
             </thead>
             <tbody>
-              {table.rows.map((row, r) => (
+              {rows.map((row, r) => (
                 <tr key={r} className="border-b border-[#f0ede4] last:border-0">
-                  {table.columns.map((col) => (
+                  {columns.map((col, c) => (
                     <td key={col} className="py-1 pr-4">
-                      {row[col]}
+                      {String(Array.isArray(row) ? row[c] ?? '' : (row as Record<string, unknown>)[col] ?? '')}
                     </td>
                   ))}
                 </tr>
               ))}
             </tbody>
           </table>
+              </>
+            )
+          })()}
         </div>
       ))}
     </div>

@@ -43,27 +43,23 @@ import {
   fetchAjioViaTlsFingerprint,
   // Scrapingdog tier — one of two hosted-render/geo-targeting fallbacks
   // for Ajio, tried before the TLS-fingerprint tier. See
-  // extractors/ajio.ts's TIER 3a header comment for why this sits ahead
-  // of the fingerprint tier.
+  // extractors/ajio.ts's TIER 3a header comment.
   SUPPORTS_SCRAPINGDOG_FALLBACK as AJIO_SUPPORTS_SCRAPINGDOG_FALLBACK,
   ajioScrapingdogConfigured,
   fetchAjioViaScrapingdog,
-  // scrape.do tier — the other hosted-render/geo-targeting fallback,
-  // sibling to Scrapingdog above (same role: real headless render from
-  // an India-targeted IP, different vendor). See extractors/ajio.ts's
-  // TIER 3b header comment for the param mapping (render=true,
-  // geoCode=in) and why this is kept independently configured rather
-  // than replacing Scrapingdog.
+  // scrape.do tier — sibling to Scrapingdog (real headless render from
+  // an India-targeted IP, different vendor). See TIER 3b header comment.
   SUPPORTS_SCRAPE_DO_FALLBACK as AJIO_SUPPORTS_SCRAPE_DO_FALLBACK,
   ajioScrapeDoConfigured,
   fetchAjioViaScrapeDo,
   // Parse.bot tier — preferred path for Ajio when PARSE_API_KEY is set.
-  // See extractors/ajio.ts's "TIER 1" header comment for the full
-  // rationale/priority order across all Ajio fetch tiers.
   ajioParseBotConfigured,
   fetchAjioViaParseBot,
   mapParseBotProductToAjio,
 } from './extractors/ajio'
+// NEW: types for the extra fields the Parse.bot tier now returns
+// (size chart, coupons/payment offers) — see ScrapeResult below.
+import type { AjioSizeChartTable, AjioOffer } from './extractors/ajio'
 import {
   parseJioMart,
   extractJioMartOptions,
@@ -133,32 +129,31 @@ export type ScrapeResult = {
   images?: string[]
   options?: Record<string, string> | null
   variants?: AmazonVariantDimension[]
-  sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable)[] | null
+  // CHANGED: added AjioSizeChartTable to the union so the Parse.bot
+  // tier's size chart type-checks when spread into the result.
+  sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable | AjioSizeChartTable)[] | null
   error?: string
   warning?: string
   description?: string | null
   // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi',
   // 'scrapingdog', and 'scrape_do' — all are non-'direct' tiers reached
   // only after (or instead of) the plain fetch + headless-render
-  // pipeline. The label tells you which mechanism actually produced the
-  // result:
+  // pipeline. The label tells you which mechanism produced the result:
   //   - 'scraperapi': paid residential-proxy API (Meesho)
-  //   - 'fingerprint_fetch': self-hosted TLS-fingerprint-matching fetch (Ajio, final fallback)
-  //   - 'scrapingdog': Scrapingdog hosted headless-render API, India-geo-targeted (Ajio, fallback)
-  //   - 'scrape_do': scrape.do hosted headless-render API, India-geo-targeted (Ajio, sibling fallback to scrapingdog)
-  //   - 'parsebot': Parse.bot hosted scraper API — a real HTTP call
-  //     returning structured JSON, not HTML scraping (Ajio, most preferred)
+  //   - 'fingerprint_fetch': self-hosted TLS-fingerprint fetch (Ajio, final fallback)
+  //   - 'scrapingdog': Scrapingdog hosted headless-render API, India-geo-targeted
+  //   - 'scrape_do': scrape.do hosted headless-render API, India-geo-targeted
+  //   - 'parsebot': Parse.bot hosted scraper API — structured JSON, not HTML scraping (Ajio, most preferred)
   source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   /**
    * True when `site` is one of the OG-only platforms (see
    * extractors/og-only.ts) — meaning this result came ENTIRELY from the
    * generic embedded-state/JSON-LD/OG-meta fallback chain in
-   * parseHtml() below, not from a real per-site extractor that
-   * inspected this page's DOM. No `variants`, MRP, or rating data will
-   * ever be present on a result with this flag set. Surfaced in the QA
-   * tool's SpecRow so a reviewer isn't misled into thinking a missing
-   * field is a bug rather than an expected limitation of this tier.
+   * parseHtml() below, not from a real per-site extractor. No `variants`,
+   * MRP, or rating data will ever be present on a result with this flag
+   * set. Surfaced in the QA tool's SpecRow so a reviewer isn't misled
+   * into thinking a missing field is a bug.
    */
   ogOnly?: boolean
   _priceSource?: 'meta_description'
@@ -178,14 +173,19 @@ export type ScrapeResult = {
   currentBidPrice?: string | null
   itemEndDate?: string | null
   variantsNote?: string | null
+  // CHANGED: new Ajio (Parse.bot tier) fields.
+  /** Coupons + bank/UPI offers (Ajio Parse.bot tier). */
+  offers?: AjioOffer[] | null
+  /** Marketed-by / manufactured-by / country-of-origin / net-qty rows. */
+  legalInfo?: { name: string; value: string }[] | null
+  /** Short urgency label, e.g. "Selling Fast". */
+  urgencyTag?: string | null
   internalRedirect?: string
   /** True when the URL the customer pasted was a shortlink (bit.ly,
    * amzn.in, an affiliate redirect, etc.) that got resolved to its real
    * destination before scraping — see lib/scrape/resolve-redirect.ts.
    * `url` above is already the resolved, real product URL either way;
-   * this is purely a transparency flag so the customer/admin can see
-   * "this came from a shortened link" rather than it looking identical
-   * to a plain pasted product URL. */
+   * this is purely a transparency flag. */
   resolvedFromShortlink?: boolean
 }
 
@@ -293,20 +293,13 @@ function jitterDelay(min = 200, max = 700) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// CHANGED: added ['westside', 'westside'] so a westside.com URL is
-// recognized by hostname BEFORE the generic SHOPIFY_PRODUCT_PATH_RE
-// fallback in detectSite() ever gets a chance to run. Previously there
-// was no entry for Westside here, so any westside.com/products/{x} URL
-// fell all the way through this loop, matched the generic
-// "/products/{handle} path => 'shopify'" heuristic instead, and got
-// permanently tagged site: 'shopify' — which is why ItemInfoModal
-// rendered ShopifyProductView instead of WestsideProductView even
-// though a dedicated 'westside' case already existed there. Westside
-// genuinely IS built on Shopify's backend, so rather than just fixing
-// the label, scrapeProduct() below still routes 'westside' through the
-// real Shopify API (scrapeShopifyProduct) — see scrapeWestsideProduct —
-// so the result keeps the high-fidelity variant/stock/price data while
-// being honestly tagged as 'westside' for display purposes.
+// 'westside' must be matched by hostname BEFORE the generic
+// SHOPIFY_PRODUCT_PATH_RE fallback in detectSite() gets a chance to run,
+// otherwise any westside.com/products/{x} URL is permanently tagged
+// site: 'shopify' and ItemInfoModal renders ShopifyProductView instead of
+// WestsideProductView. Westside genuinely IS Shopify-backed, so
+// scrapeProduct() still routes it through the real Shopify API
+// (scrapeWestsideProduct) and just relabels the result.
 const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['amazon', 'amazon'],
   ['flipkart', 'flipkart'],
@@ -324,12 +317,11 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['hopscotch', HOPSCOTCH_SITE_ID],
   ['tatacliq', 'tatacliq'],
   ['aliexpress', ALIEXPRESS_SITE_ID],
-  ['westside', 'westside'], // CHANGED: added — must be matched by hostname before the /products/ path-shape fallback below claims it as 'shopify'.
+  ['westside', 'westside'],
   // seleqt.wishlink.com's product URLs are /product/{id} — the exact
   // shape WOOCOMMERCE_PRODUCT_PATH_RE matches below. Must be listed
-  // here, ahead of that fallback, or every Seleqt link silently gets
-  // detected (and parsed) as a WooCommerce store instead — same
-  // ordering reason as the westside comment above.
+  // here, ahead of that fallback, or every Seleqt link is detected (and
+  // parsed) as a WooCommerce store instead.
   ['seleqt', 'seleqt'],
 ]
 
@@ -777,26 +769,20 @@ async function primeCookies(
 //
 // IMPORTANT: this tier fixes "needs JS to render" problems. It does NOT
 // reliably fix IP-reputation blocks — a sophisticated WAF can block
-// datacenter/cloud egress IP ranges wholesale regardless of what browser
-// is behind them. If a site in this set keeps coming back BLOCKED even
-// via the headless tier, that's the likely explanation — see
-// LAST_RESORT_FALLBACK below, which is the actual fix for that case
-// (and, for Ajio specifically, the Scrapingdog/scrape.do tiers ahead of
-// the TLS-fingerprint tier — see extractors/ajio.ts's TIER 3a/3b header
-// comments for why: diagnostics on this deployment found the block to
-// be geographic, not IP-reputation or fingerprint based).
+// datacenter/cloud egress IP ranges wholesale regardless of the browser
+// behind them. See LAST_RESORT_FALLBACK below for that case (for Ajio,
+// the Scrapingdog/scrape.do tiers — diagnostics found the block to be
+// geographic, not IP-reputation or fingerprint based).
 //
-// UPDATE: 'ajio' added — its static HTML is a normal 200 response, never
-// blocked and never caught by the generic looksLikeJsRequiredShell()
-// heuristic, but the real product markup (div.prod-sp, h1.prod-name, the
-// size/color pickers) only exists after client-side hydration. See
-// STATIC_CONTENT_SUFFICIENT below, which is what actually routes Ajio
-// into this tier despite its static fetch technically "succeeding".
+// 'ajio' is here because its static HTML is a normal 200 (never blocked,
+// never caught by looksLikeJsRequiredShell()) but the real product markup
+// only exists after hydration. STATIC_CONTENT_SUFFICIENT below is what
+// routes Ajio into this tier despite its static fetch "succeeding".
 //
-// NOTE: this whole tier (and the fallback tiers below it) is now
-// skipped entirely for Ajio whenever PARSE_API_KEY is set — see
-// scrapeProduct()'s routing near the bottom of this file, which checks
-// ajioParseBotConfigured() before ever reaching fetchDirectWithRetries.
+// NOTE: this whole tier (and the fallback tiers below it) is skipped for
+// Ajio whenever PARSE_API_KEY is set — see scrapeProduct()'s routing,
+// which checks ajioParseBotConfigured() before ever reaching
+// fetchDirectWithRetries.
 const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID, 'seleqt'])
 
 // Optional per-site selector to wait for before grabbing page.content(),
@@ -807,100 +793,63 @@ const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
   ajio: 'h1.prod-name, div.prod-sp',
   [FIRSTCRY_SITE_ID]: 'span.h1-name, span.prod-price',
   [HOPSCOTCH_SITE_ID]: 'h1, [class*="price"]',
-  // FIX: 'h1' alone wasn't enough — a real QA run got title/images/
-  // sizes correctly but "No price found", even though the exact same
-  // price selector worked in an earlier run against the same product.
-  // Everything ELSE hydrating correctly while price specifically didn't
-  // points at a timing race, not a broken selector: price most likely
-  // comes from a separate, slightly-delayed call (common for live/
-  // dynamic pricing, so a cached page doesn't show a stale discount),
-  // arriving after h1/images/sizes rather than alongside them.
-  // waitForSelector('a, b') is OR, not AND — it resolves the instant
-  // EITHER matches, so listing h1 alongside the price selector
-  // wouldn't have helped; h1 was already winning that race.
+  // FIX: 'h1' alone wasn't enough — a real QA run got title/images/sizes
+  // but "No price found", even though the same price selector worked in
+  // an earlier run. Everything else hydrating while price didn't points
+  // at a timing race: price likely comes from a separate, slightly
+  // delayed call. waitForSelector('a, b') is OR, not AND, so listing h1
+  // alongside wouldn't help.
   //
-  // FIX 2: waiting for the container element's own first fix wasn't
-  // enough EITHER — a container can mount empty and fill in a moment
-  // later (React renders the wrapper div, then the price span inside
-  // it once the pricing call resolves), and plain waitForSelector only
-  // confirms the ELEMENT exists, not that it has real content yet.
-  // Playwright's own `:has-text()` extension closes that gap — it only
-  // matches once the container's text actually contains "₹", which is
-  // the real thing this needs to wait for, not a proxy for it. Two
-  // currency symbols (not just ₹) since a page geo-served in a
-  // different currency shouldn't need its own bespoke fix later.
+  // FIX 2: waiting for the container's existence wasn't enough either —
+  // a container can mount empty and fill in later. Playwright's
+  // `:has-text()` only matches once the container's text actually
+  // contains "₹" (or "$" for a geo-served page in another currency).
   //
-  // Same safety net as every other RENDER_WAIT_SELECTOR entry either
-  // way: fetchRendered doesn't hard-fail if this never appears (8s
-  // timeout, then proceeds anyway) — so this can only help, never
-  // regress a page that genuinely has no price.
+  // Same safety net as every other entry: fetchRendered doesn't
+  // hard-fail if this never appears (8s timeout, then proceeds anyway).
   seleqt: 'div.mt-4.flex.items-baseline.gap-2:has-text("₹"), div.mt-4.flex.items-baseline.gap-2:has-text("$")',
 }
 
 // Per-site check for whether a successful (200 OK, not blocked, not
 // flagged by the generic looksLikeJsRequiredShell() heuristic) static
 // fetch actually contains the real product markup, or is a shell that
-// only hydrates client-side. Distinct from looksLikeJsRequiredShell()
-// (a generic, site-agnostic heuristic) — this is a site-specific,
-// confirmed-selector check, needed because Ajio's shell doesn't trip
-// the generic heuristic at all: it's an ordinary 200 response, just
-// missing the product block until JS runs. Confirmed against a real
-// captured, fully-rendered Ajio PDP (see extractors/ajio.ts's parseAjio
-// doc comments) that these two class names are present once the page
-// has actually hydrated.
+// only hydrates client-side. Site-specific and confirmed-selector based,
+// needed because Ajio's shell doesn't trip the generic heuristic.
 const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolean>> = {
   [AJIO_SITE_ID]: (html) => html.includes('class="prod-sp"') || html.includes('class="prod-name"'),
   [FIRSTCRY_SITE_ID]: (html) => html.includes('class="h1-name"') && html.includes('prod-price'),
   [HOPSCOTCH_SITE_ID]: hasHydratedHopscotchMarkup,
   // Explicit and FALSE by design — omitting a site here defaults to
   // "static fetch is sufficient" (see the `!contentCheck` check below)
-  // and would skip the render tier entirely, which is the opposite of
-  // what RENDER_FALLBACK_HOSTS above is trying to force for Seleqt. The
-  // confirmed static response has no trace of the price span this
-  // checks for, so this is never actually true today — kept as a real
-  // function (not a hardcoded `() => false`) so a future pass CAN
-  // detect a genuinely-hydrated response if Seleqt ever changes to SSR.
+  // and would skip the render tier entirely, the opposite of what
+  // RENDER_FALLBACK_HOSTS is trying to force for Seleqt. The confirmed
+  // static response has no trace of the price span this checks for, so
+  // this is never actually true today — kept as a real function so a
+  // future pass CAN detect a genuinely-hydrated response if Seleqt ever
+  // changes to SSR.
   seleqt: (html) => html.includes('text-lg font-bold'),
 }
 
 // ---------- Per-site last-resort fallback registry ----------
 //
 // Last-resort tier(s) for sites whose block survives even the headless
-// tier above. Each entry is an ORDERED ARRAY of fallback mechanisms
-// tried in sequence until one succeeds — a site can register more than
-// one (Ajio now has three: Scrapingdog, scrape.do, then a self-hosted
-// TLS-fingerprint fetch), each opted into by its own extractor module
-// (same pattern as SITE_OPTIONS_EXTRACTORS above — parsers.ts stays
-// generic, the site module owns the mechanics):
+// tier above. Each entry is an ORDERED ARRAY of fallback mechanisms tried
+// in sequence until one succeeds, opted into by each extractor module
+// (parsers.ts stays generic, the site module owns the mechanics):
 //
-//   - Meesho: a residential-IP proxy pool (ScraperAPI's product) — the
-//     actual fix for an IP-reputation block, not a "better" browser
-//     fingerprint. Confirmed via real testing to be necessary for Meesho.
-//   - Ajio, tier A (tried first): scrape.do's hosted headless-render
-//     API with geoCode=in geo-targeting — see extractors/ajio.ts's TIER
-//     3b header comment. Fixes BOTH the hydration requirement (real
-//     headless Chrome on their end) and the geographic block diagnosed
-//     on this deployment (India-targeted IP), in one hosted call.
-//     Currently the vendor with a valid credential configured on this
-//     deployment.
-//   - Ajio, tier B: Scrapingdog's equivalent hosted headless-render API
-//     with country=in — same role as tier A, different vendor. Kept
-//     registered alongside scrape.do (not instead of it) so it
-//     activates automatically the moment a valid SCRAPINGDOG_API_KEY is
-//     set, with no further code changes needed to use it or run both.
-//   - Ajio, tier C (final, tried only if neither hosted vendor above is
-//     configured or both fail): a self-hosted TLS-fingerprint-matching
-//     fetch (see extractors/ajio.ts + lib/scrape/tls-fetch.ts) — fixes
-//     fingerprint-only checks without a third-party API, but does NOT
-//     execute JS, so it cannot on its own solve Ajio's hydration
-//     requirement. Kept as a last-resort cheap attempt.
+//   - Meesho: ScraperAPI residential-IP proxy pool (IP-reputation block).
+//   - Ajio, tier A (tried first): scrape.do headless render + geoCode=in.
+//   - Ajio, tier B: Scrapingdog headless render + country=in — activates
+//     automatically once a valid SCRAPINGDOG_API_KEY is set.
+//   - Ajio, tier C (final): self-hosted TLS-fingerprint fetch (no JS
+//     execution, so it can't solve hydration on its own).
 //     NOTE: this whole array is only reached for Ajio when PARSE_API_KEY
-//     is unset — see the routing note on RENDER_FALLBACK_HOSTS above.
+//     is unset.
 //
 // `fetch` accepts an optional AbortSignal so a client disconnect (or the
-// caller's own overall deadline) can cancel an in-flight call instead of
-// letting it run — and, for ScraperAPI/Scrapingdog/scrape.do, get
-// billed — to completion with nobody left to receive the result.
+// caller's own deadline) can cancel an in-flight call instead of letting
+// it run — and, for ScraperAPI/Scrapingdog/scrape.do, get billed — to
+// completion with nobody left to receive the result.
 type LastResortTier = {
   configured: () => boolean
   fetch: (
@@ -922,16 +871,13 @@ if (MEESHO_SUPPORTS_SCRAPERAPI_FALLBACK) {
   ]
 }
 
-// Amazon: same ScraperAPI account as Meesho, in the same PLAIN (no render,
-// no premium) mode — see extractors/amazon.ts's own comment on why. This
-// registration only helps if Amazon's fetch/render tier gets outright
-// BLOCKED (a real possibility on a datacenter IP) — it's secondary
-// resilience, not the actual fix for the reported bug. The real fix is the
-// POST-parse retry further down in scrapeProduct() (search "geoRetry"):
-// Amazon's page usually fetches fine even from a non-Indian IP, just with
-// the buybox price missing, which this fetch-level tier can never detect
-// or react to — it only ever runs when the fetch itself fails, not when a
-// successful fetch parses to a missing field.
+// Amazon: same ScraperAPI account as Meesho, in PLAIN (no render, no
+// premium) mode. This registration only helps if Amazon's fetch/render
+// tier gets outright BLOCKED — it's secondary resilience. The real fix
+// for the reported bug is the POST-parse retry in scrapeProduct() (search
+// "geoRetry"): Amazon's page usually fetches fine from a non-Indian IP,
+// just with the buybox price missing, which a fetch-level tier can never
+// detect.
 if (AMAZON_SUPPORTS_SCRAPERAPI_FALLBACK) {
   LAST_RESORT_FALLBACK['amazon'] = [
     {
@@ -942,13 +888,10 @@ if (AMAZON_SUPPORTS_SCRAPERAPI_FALLBACK) {
   ]
 }
 
-// Myntra: confirmed via production logs — a "Site Maintenance" decoy page,
-// not a real notice, served specifically to bot/datacenter-looking
-// traffic. Scrapingdog PLAIN mode (no dynamic=true) since Myntra's own
-// REQUIRES_RENDER_FOR_VARIANTS is false — extractMyxState() reads a JSON
-// blob already embedded in static HTML, so this is purely an IP-geo
-// block to get past, not a rendering problem worth paying Scrapingdog's
-// real-browser-render rate for. See extractors/myntra.ts's own comment.
+// Myntra: confirmed via production logs — a "Site Maintenance" decoy
+// page served to bot/datacenter-looking traffic. Scrapingdog PLAIN mode
+// (no dynamic=true) since Myntra's REQUIRES_RENDER_FOR_VARIANTS is false
+// — the state blob is in static HTML, so this is purely an IP-geo block.
 if (MYNTRA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
   LAST_RESORT_FALLBACK[MYNTRA_SITE_ID] = [
     {
@@ -959,9 +902,8 @@ if (MYNTRA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
   ]
 }
 
-// Nykaa: same pattern as Myntra — a plain HTTP 403 from every direct-fetch
-// retry, no CAPTCHA/render problem involved (REQUIRES_RENDER_FOR_VARIANTS
-// is false here too). See extractors/nykaa.ts's own tier comment.
+// Nykaa: same pattern as Myntra — a plain HTTP 403 from every direct
+// retry, no render problem involved.
 if (NYKAA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
   LAST_RESORT_FALLBACK[NYKAA_SITE_ID] = [
     {
@@ -972,16 +914,10 @@ if (NYKAA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
   ]
 }
 
-// Ajio: scrape.do tried first (the credential currently configured on
-// this deployment — see extractors/ajio.ts's TIER 3b), then Scrapingdog
-// (kept registered so it activates automatically once a valid
-// SCRAPINGDOG_API_KEY is set — no code change needed to switch back or
-// run both side by side), then TLS-fingerprint as the final cheap
-// fallback if neither hosted vendor is configured or both fail. Built
-// as an array and only assigned if at least one tier is actually
-// available, so an all-disabled config leaves
-// LAST_RESORT_FALLBACK[AJIO_SITE_ID] unset (matching the old
-// Partial<Record<...>> "no entry" behavior) rather than an empty array.
+// Ajio: scrape.do first (the credential currently configured), then
+// Scrapingdog, then TLS-fingerprint as the final cheap fallback. Only
+// assigned if at least one tier is available, so an all-disabled config
+// leaves the entry unset rather than an empty array.
 const ajioFallbackTiers: LastResortTier[] = []
 
 if (AJIO_SUPPORTS_SCRAPE_DO_FALLBACK) {
@@ -1014,18 +950,10 @@ if (ajioFallbackTiers.length) {
 
 // ---------------------------------------------------------------------
 // Block-page fingerprinting — surfaces WHICH wall we hit, not just that
-// we hit one. Both fetchDirectOnce's BLOCKED path and the render tier's
-// BLOCKED path previously discarded the actual response HTML once
-// looksBlocked() returned true, so every "BLOCKED" error looked
-// identical regardless of what was actually served — a generic
-// Cloudflare "checking your browser" page and a hard IP-ban page from a
-// completely different vendor both just said "BLOCKED: CAPTCHA/robot-
-// check page". That made "is this IP reputation or fingerprinting"
-// genuinely unanswerable from the error text alone. This pulls the
-// <title>, plus known vendor markers if any appear in the raw HTML,
-// into the error message itself — the person debugging a failed scrape
-// shouldn't need a second round-trip just to find out which WAF they're
-// looking at.
+// we hit one. Pulls the <title>, plus known vendor markers if any appear
+// in the raw HTML, into the error message so the person debugging a
+// failed scrape doesn't need a second round-trip to find out which WAF
+// they're looking at.
 const BLOCK_VENDOR_MARKERS: Array<[string, RegExp]> = [
   ['Akamai Bot Manager', /akamai|_abck|ak_bmsc|sensor_data/i],
   ['PerimeterX / HUMAN', /perimeterx|_px3|_pxhd|px-captcha/i],
@@ -1073,9 +1001,7 @@ async function fetchDirectWithRetries(
   }
 
   // Site-specific "does this static HTML actually have the real product
-  // markup" check (currently only Ajio) — see STATIC_CONTENT_SUFFICIENT
-  // above for why this exists separately from the generic
-  // looksLikeJsRequiredShell() heuristic used inside fetchDirectOnce.
+  // markup" check — see STATIC_CONTENT_SUFFICIENT above.
   const contentCheck = STATIC_CONTENT_SUFFICIENT[site]
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1093,31 +1019,22 @@ async function fetchDirectWithRetries(
       if (!contentCheck || contentCheck(html)) {
         return { html, error: null, source: 'direct' }
       }
-      // Static fetch succeeded (200, not blocked, not a generic
-      // JS-shell) but this site's confirmed content check says the real
-      // product markup still isn't there — a client-hydrated shell the
-      // generic heuristic doesn't catch. Don't keep retrying the same
-      // static fetch (a different header profile won't change what's
-      // server-rendered) — fall through to the render tier below.
+      // Static fetch succeeded (200, not blocked, not a generic JS-shell)
+      // but this site's confirmed content check says the real product
+      // markup still isn't there. Don't keep retrying the same static
+      // fetch — fall through to the render tier below.
       lastError = 'JS_SHELL: static HTML lacks confirmed product markup — page appears to hydrate client-side'
       break
     }
 
-    // FIX: previously this was `if (html) return { html, error, source: 'direct' }`
-    // — which meant ANY non-null html short-circuited the whole function
-    // immediately, including a "successful" 200 fetch that was actually a
-    // BLOCKED (CAPTCHA/robot-check/decoy page, e.g. Myntra's "Site
-    // Maintenance" page) or JS_SHELL response. That skipped retries, the
-    // render tier, AND every LAST_RESORT_FALLBACK tier (including the
-    // Scrapingdog fallback built specifically to handle this exact decoy
-    // page) — so a blocked-but-200 response could never recover, even
-    // though every downstream fallback tier existed to fix precisely this.
-    //
-    // Now: html-but-blocked/js-shell is treated the same as a null-html
-    // failure — record the error and keep going. We only bail out of the
-    // retry loop early for a genuine non-retryable HTTP error page (a
-    // real 404/410 etc, not a block/shell page dressed up as 200) where
-    // no downstream tier could plausibly fix anything by continuing.
+    // FIX: previously `if (html) return { html, error, source: 'direct' }`
+    // short-circuited on ANY non-null html, including a 200 that was
+    // actually BLOCKED (CAPTCHA/decoy page, e.g. Myntra's "Site
+    // Maintenance") or JS_SHELL. That skipped retries, the render tier,
+    // AND every LAST_RESORT_FALLBACK tier. Now html-but-blocked/js-shell
+    // is treated like a null-html failure — record and keep going. Only
+    // bail out early for a genuine non-retryable HTTP error page (a real
+    // 404/410) where no downstream tier could plausibly help.
     lastError = error
     const isBlockedOrShell = !!error && (error.startsWith('BLOCKED') || error.startsWith('JS_SHELL'))
     if (!isBlockedOrShell && status != null && !RETRYABLE_STATUSES.has(status)) break
@@ -1128,15 +1045,9 @@ async function fetchDirectWithRetries(
   }
 
   // Tracks the render tier's own failure reason separately from
-  // `lastError`, which the last-resort fallback below is otherwise free
-  // to overwrite. Without this, a failure in the tier that's actually
-  // capable of fixing a hydration problem (headless Chromium, real JS
-  // execution) gets silently discarded in favor of the last-resort
-  // tier's failure — which, for Ajio, is a raw HTTP client that never
-  // executes JS and was never going to succeed on a hydration problem in
-  // the first place (see fetchAjioViaTlsFingerprint's doc comments). The
+  // `lastError`, which the last-resort fallback is free to overwrite. The
   // render-tier reason is almost always the more actionable one to
-  // surface to whoever's debugging a failed scrape.
+  // surface (the last-resort TLS tier never executes JS).
   let renderTierError: string | null = null
 
   if (RENDER_FALLBACK_HOSTS.has(site)) {
@@ -1145,22 +1056,11 @@ async function fetchDirectWithRetries(
     })
 
     if (rendered.html && looksBlocked(rendered.html)) {
-      // The headless browser successfully rendered *something*, but
-      // that something is itself a block/CAPTCHA wall. Deliberately NOT
-      // asserting a cause here (earlier versions of this message
-      // guessed "likely an IP-reputation block, not a fingerprint
-      // check") — a real JS-executing Chromium getting walled off is
-      // just as consistent with browser/behavioral fingerprinting
-      // (navigator.webdriver, WebGL renderer, missing interaction
-      // events — see browser-fetch.ts's stealth notes) as with IP
-      // reputation or geography, and asserting the wrong one sends
-      // debugging effort in the wrong direction. If a plain non-JS
-      // fetch (e.g. the TLS-fingerprint fallback) or a country-targeted
-      // hosted render (e.g. the Scrapingdog/scrape.do fallback)
-      // succeeds with a clean response, that's actual evidence about
-      // which factor mattered — but this callsite doesn't have that
-      // information yet, so it stays neutral and lets the caller
-      // correlate.
+      // Deliberately NOT asserting a cause: a real JS-executing Chromium
+      // getting walled off is just as consistent with browser/behavioral
+      // fingerprinting as with IP reputation or geography. If a
+      // country-targeted hosted render succeeds afterwards, that's real
+      // evidence — but this callsite doesn't have it yet.
       renderTierError = `BLOCKED: CAPTCHA/robot-check page (via headless browser — cause not yet determined: could be IP reputation, geography, or browser/behavioral fingerprinting specific to the headless tier). ${describeBlockPage(rendered.html)}`
       lastError = renderTierError
     } else if (rendered.html && looksLikeJsRequiredShell(rendered.html)) {
@@ -1179,19 +1079,13 @@ async function fetchDirectWithRetries(
   }
 
   // Walk this site's registered last-resort tiers IN ORDER, stopping at
-  // the first one that's both configured and succeeds. Errors from
-  // every attempted (configured) tier are accumulated rather than the
-  // last one silently overwriting the others, so a debugging person can
-  // see e.g. "scrape.do failed for reason X, then Scrapingdog also
-  // failed for reason Y, then TLS-fingerprint also failed for reason Z"
-  // instead of only ever seeing the last tier's message.
+  // the first one that's both configured and succeeds. Errors from every
+  // attempted tier are accumulated rather than overwritten.
   const lastResortTiers = LAST_RESORT_FALLBACK[site] ?? []
   const fallbackErrors: string[] = []
 
   for (const tier of lastResortTiers) {
     if (!tier.configured()) {
-      // Explicit either way — see the doc comment above this block in
-      // the original file for why silent `continue` was ambiguous.
       fallbackErrors.push(`[${tier.source}] tier registered but not configured in this environment — skipped`)
       continue
     }
@@ -1207,10 +1101,8 @@ async function fetchDirectWithRetries(
 
   if (fallbackErrors.length) {
     // Combine rather than overwrite: the render tier's failure (when
-    // there is one) is the actionable signal for what's actually wrong
-    // with this scrape — every last-resort tier failing on top of that
-    // is expected/secondary, not a replacement diagnosis. See
-    // renderTierError's doc comment above.
+    // there is one) is the actionable signal; every last-resort tier
+    // failing on top of that is secondary.
     const combined = fallbackErrors.join(' | ')
     lastError =
       renderTierError && renderTierError !== combined
@@ -1245,31 +1137,17 @@ function buildAdHocShopifyConfig(origin: string, domainHint: string | null): Sho
 }
 
 // Generic over StoreProduct — used by both Shopify and WooCommerce, since
-// both providers normalize into the same StoreProduct/StoreProductOption
-// shape.
-//
-// CHANGED: `url` used to always be hardcoded null on every tile ("both
-// providers' single-product fetch already returns every variant's price/
-// image/availability in the one call the caller already made, so tiles
-// render as informational rather than clickable") — but that reasoning
-// missed that ItemInfoModal's variant-select flow (onSelectVariant ->
-// handleSelectVariant) is URL-driven: it re-calls scrapeProduct(url) with
-// whatever url a tile carries, and does nothing at all when url is null.
-// With every tile's url hardcoded to null, every size/color swatch was
-// effectively disabled/"locked" in the UI — visible (price, stock,
-// selected state) but not clickable, even for perfectly in-stock
-// alternate sizes (see the Westside "Superstar..." jacket QA case: sizes
-// M/L/XL are all in stock but were unselectable).
+// both normalize into the same StoreProduct/StoreProductOption shape.
 //
 // `variantUrlFor` is an optional callback the caller supplies to turn a
 // candidate variant into a real, re-fetchable URL (e.g. the current
 // request URL with `?variant=<id>` set — see buildShopifyVariantSelectUrl
-// below, used by scrapeShopifyProduct/scrapeWestsideProduct). When the
-// caller doesn't supply one (still the case for scrapeWooCommerceProduct,
-// which has no equivalent variant-select URL scheme wired up yet), tiles
-// fall back to the previous informational-only behavior — this is an
-// intentional, pre-existing gap for WooCommerce, not something this
-// change tries to solve.
+// below). ItemInfoModal's variant-select flow is URL-driven: it re-calls
+// scrapeProduct(url) with whatever url a tile carries and does nothing
+// when url is null — so with every url hardcoded null, every swatch was
+// effectively "locked". When the caller doesn't supply one (still the
+// case for scrapeWooCommerceProduct), tiles fall back to informational-
+// only — an intentional, pre-existing gap for WooCommerce.
 function buildStoreVariantDimensions(
   product: StoreProduct,
   current: NonNullable<StoreProduct['variants']>[number] | undefined = product.variants?.[0],
@@ -1298,13 +1176,6 @@ function buildStoreVariantDimensions(
           price: v ? String(v.price) : null,
           currencyCode: product.currency ?? null,
           image: v?.image ?? null,
-          // CHANGED: was hardcoded `null`. Now asks the caller-supplied
-          // variantUrlFor for a real selectable URL when available, and
-          // only falls back to null (informational/non-clickable, the
-          // old behavior) when no builder was passed in, or the variant
-          // itself is unresolved (v undefined — a label with no matching
-          // variant, which shouldn't normally happen but is handled
-          // defensively the same way `price`/`image` already are above).
           url: v && variantUrlFor ? variantUrlFor(v) : null,
           selected: v ? v.id === current.id : false,
           outOfStock: v ? !v.available : true,
@@ -1317,20 +1188,15 @@ function buildStoreVariantDimensions(
 /**
  * Resolves which variant a scrape request is actually asking for.
  *
- * Storefronts encode the selected variant in a product URL two
- * different ways:
+ * Storefronts encode the selected variant in a product URL two ways:
  *   1. Shopify's own numeric variant id — `?variant=41234567890123`
  *   2. Human-readable option query params — `?Color=Brown&Size=S`
  *      (common on headless/custom-frontend stores, e.g. westside.com)
  *
- * Previously this only checked (1), so any URL using form (2) silently
- * fell through to `variants[0]` — an arbitrary "whatever the API
- * happened to return first" variant, which may be out of stock even
- * when the variant the URL actually names is available. That produced
- * false "unavailable" results for in-stock products (see the Westside
- * "Superstar Dark Brown Heart-Detail Hooded Cotton Jacket" QA case:
- * ?Color=Brown&Size=S was resolving to Brown/XS — out of stock —
- * instead of Brown/S, which is in stock).
+ * Only checking (1) made any URL using form (2) silently fall through to
+ * `variants[0]` — an arbitrary variant that may be out of stock even when
+ * the variant the URL names is available (see the Westside "Superstar
+ * Dark Brown Heart-Detail Hooded Cotton Jacket" QA case).
  */
 function findRequestedVariant(
   url: string,
@@ -1347,10 +1213,8 @@ function findRequestedVariant(
     if (byId) return byId
   }
 
-  // 2. Fall back to matching option name=value query params (e.g.
-  // Color=Brown&Size=S) against product.options, case-insensitively —
-  // how storefronts encode the selected variant when they don't use
-  // Shopify's numeric id in the URL.
+  // 2. Fall back to matching option name=value query params against
+  // product.options, case-insensitively.
   if (product.options?.length) {
     const requested: Record<string, string> = {}
     for (const opt of product.options) {
@@ -1373,36 +1237,23 @@ function findRequestedVariant(
   }
 
   // 3. Nothing in the URL told us which variant was intended — first
-  // variant is the least-bad default, same as the old behavior.
+  // variant is the least-bad default.
   return variants[0]
 }
 
 // ---------- Shopify theme-embedded product JSON (fallback when REST + Plus discovery both fail) ----------
 //
-// Most Shopify themes (the Dawn family especially, which the large
-// majority of stores are built on or derived from) embed the FULL
-// product object — every variant, real prices, compare-at price, every
-// image — directly in the server-rendered HTML, as
-// <script type="application/json" id="ProductJson-...">, purely so the
-// theme's own client-side JS (variant picker, cart) can read it without
-// an extra API call. This is genuinely the SAME data REST's
-// /products/{handle}.js would return, just already sitting in the page
-// — so a store that's blocked the live .js endpoint (Gymshark's case:
-// server-rendered theme, not headless, REST locked down) can often
-// still be read at FULL fidelity this way, not just the title/price/
-// one-image ceiling the generic OG/JSON-LD fallback is stuck with.
+// Most Shopify themes (Dawn family especially) embed the FULL product
+// object — every variant, real prices, compare-at price, every image —
+// in the server-rendered HTML, as <script type="application/json"
+// id="ProductJson-...">. It's the SAME data REST's /products/{handle}.js
+// would return, so a store that's blocked the live .js endpoint
+// (Gymshark's case) can often still be read at FULL fidelity this way.
 //
-// Distinct from extractEmbeddedStateProduct() above: that's a generic
-// tree-walking scanner that scores ANY json blob against generic
-// PRICE_KEYS/NAME_KEYS heuristics and has no idea prices here are in
-// CENTS — Shopify's own convention, not a general one. Picking this up
-// through the generic path would silently produce a price 100x too
-// high. This extractor specifically recognizes Shopify's product JSON
-// shape (variants[].price + .available + .id, a numeric handle-bearing
-// product) and handles the cents conversion correctly, the same way
-// normaliseShopifyJsProduct in shopify.ts already does for REST's own
-// .js response — because structurally this IS that same response
-// shape, just delivered a different way.
+// Distinct from extractEmbeddedStateProduct(): that generic scanner has
+// no idea prices here are in CENTS (Shopify's convention) and would
+// produce a price 100x too high. This extractor recognizes Shopify's
+// specific product shape and handles the cents conversion.
 interface ShopifyThemeJsonVariant {
   id: number | string
   title?: string
@@ -1434,8 +1285,7 @@ function looksLikeShopifyThemeProduct(node: any): node is ShopifyThemeJsonProduc
 }
 
 function extractShopifyThemeEmbeddedProduct($: CheerioAPI, html: string): ShopifyThemeJsonProduct | null {
-  // Tier 1: the id-tagged convention almost every Dawn-family theme
-  // uses — highest confidence, since the id itself names the intent.
+  // Tier 1: the id-tagged convention almost every Dawn-family theme uses.
   let found: ShopifyThemeJsonProduct | null = null
   $('script[type="application/json"]').each((_, el) => {
     if (found) return
@@ -1452,10 +1302,7 @@ function extractShopifyThemeEmbeddedProduct($: CheerioAPI, html: string): Shopif
   })
   if (found) return found
 
-  // Tier 2: no id-tagged script found — fall back to scanning every
-  // embedded JSON blob (same collector the generic path uses) for
-  // anything matching Shopify's specific product shape, in case this
-  // theme embeds it under a different tag/variable name.
+  // Tier 2: scan every embedded JSON blob for Shopify's product shape.
   const blobs = collectEmbeddedJsonBlobs($, html)
   for (const blob of blobs) {
     if (looksLikeShopifyThemeProduct(blob)) return blob
@@ -1492,16 +1339,11 @@ function normaliseShopifyThemeJsonProduct(p: ShopifyThemeJsonProduct, url: strin
     title: p.title,
     price: String(variant.price / 100),
     mrp: variant.compare_at_price != null ? String(variant.compare_at_price / 100) : null,
-    // Neither the theme JSON nor REST's own .js response ever carries a
-    // currency field (see fetchShopifyShopCurrency's doc comment in
-    // shopify.ts for why) — domainCurrency is the same best-effort
-    // fallback used everywhere else in this file for an unrecognized
-    // host, and stays honestly null rather than guessing when even that
-    // gives no signal. Downstream (applyScrapeResultToDraft in
-    // DashboardContext.tsx) already refuses to auto-price a customer
-    // order off a null currencyCode — that safety net is what actually
-    // protects against a wrong guess here, not this function pretending
-    // to know.
+    // Neither the theme JSON nor REST's .js response carries a currency
+    // field — domainCurrency is the same best-effort fallback used
+    // everywhere else, and stays honestly null when it gives no signal.
+    // Downstream (applyScrapeResultToDraft) already refuses to auto-price
+    // a customer order off a null currencyCode.
     currencyCode: domainCurrency(url),
     rating: null,
     review_count: null,
@@ -1514,29 +1356,19 @@ function normaliseShopifyThemeJsonProduct(p: ShopifyThemeJsonProduct, url: strin
   }
 }
 
-// CHANGED: new helper. Turns a candidate variant into a URL the modal can
-// actually re-fetch to select it — findRequestedVariant (above) already
-// checks a `?variant=<id>` query param FIRST, before falling back to
-// Color=/Size= matching, so setting that param here works universally for
-// any Shopify-backed store's product page, regardless of what query
-// format the *original* incoming URL happened to use (Shopify's plain
-// numeric ?variant=, or a headless/custom-frontend convention like
-// westside.com's ?Color=Brown&Size=S). Shopify's own /products/{handle}.js
-// endpoint ignores the query string entirely and always returns the full
-// product with every variant — the query param is only ever read by OUR
-// OWN findRequestedVariant, so overwriting it here is safe and doesn't
-// change what data comes back, only which variant scrapeProduct treats as
-// "current" once it does.
+// Turns a candidate variant into a URL the modal can re-fetch to select
+// it — findRequestedVariant checks `?variant=<id>` FIRST, so setting that
+// param works for any Shopify-backed store regardless of the original
+// URL's query format. Shopify's /products/{handle}.js ignores the query
+// string; only OUR findRequestedVariant reads it.
 function buildShopifyVariantSelectUrl(baseUrl: string, variantId: string): string | null {
   try {
     const u = new URL(baseUrl)
     u.searchParams.set('variant', variantId)
     return u.toString()
   } catch {
-    // Malformed baseUrl shouldn't be possible this deep in the pipeline
-    // (scrapeProduct already parsed it via `new URL(url)` earlier), but
-    // fail safe to the old informational-only behavior rather than
-    // throwing and losing the whole scrape over a cosmetic URL feature.
+    // Fail safe to informational-only rather than throwing over a
+    // cosmetic URL feature.
     return null
   }
 }
@@ -1581,19 +1413,12 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
         )
       : null
 
-  // CHANGED: was `buildStoreVariantDimensions(product, currentVariant)` —
-  // no url builder, so every tile's url came out null (locked/
-  // non-clickable). Now passes buildShopifyVariantSelectUrl so each
-  // in-stock size/color tile gets a real `?variant=<id>` URL the modal
-  // can re-fetch through onSelectVariant.
   const variants = buildStoreVariantDimensions(product, currentVariant, (v) =>
     buildShopifyVariantSelectUrl(url, v.id)
   )
 
-  // Extra fields ScrapeResult doesn't formally declare yet, carried through
-  // the same way scrapeEbayProductViaApi does — so nothing StoreProduct
-  // actually returned gets thrown away just because the base ScrapeResult
-  // type hasn't caught up to modeling it.
+  // Extra fields ScrapeResult doesn't formally declare, carried through
+  // the same way scrapeEbayProductViaApi does.
   const result: ScrapeResult & Record<string, any> = {
     url,
     site: 'shopify',
@@ -1611,16 +1436,12 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
     review_count: null,
     availability: (currentVariant ? currentVariant.available : product.inStock) ? 'In stock' : 'Out of stock',
     // BUGFIX: was `product.vendor` (the manufacturer) — mislabeled AND it
-    // silently discarded the real seller/store name. `product.seller` is
-    // the field WooCommerce's scraper already reads correctly.
+    // discarded the real seller/store name.
     seller: product.seller ?? null,
-    // `vendor` now goes where ScrapeResult already has a dedicated slot
-    // for it (same field eBay populates), instead of being discarded.
     brand: product.vendor ?? null,
     images: product.images?.length ? product.images : product.image ? [product.image] : [],
     options: currentOptions,
     variants: variants.length ? variants : undefined,
-    // Previously dropped entirely.
     sku: product.sku ?? null,
     description: product.description || null,
     fullDescription: product.fullDescription || null,
@@ -1639,26 +1460,13 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
   return result
 }
 
-// CHANGED: new wrapper. Westside's storefront genuinely runs on
-// Shopify's backend (its URLs match /products/{handle} just like any
-// other Shopify store), so rather than giving Westside its own scraping
-// pipeline, this reuses the real, authoritative Shopify API path
-// (scrapeShopifyProduct) — full variant/stock/price/currency data,
-// findRequestedVariant's Color/Size query-param resolution, etc. — and
-// then just relabels the result's `site` back to 'westside' so
-// ItemInfoModal's dedicated `case 'westside'` branch (WestsideProductView)
-// picks it up instead of the generic ShopifyProductView. Keeps the
-// higher-fidelity data source while fixing the mislabeled UI.
+// Westside's storefront genuinely runs on Shopify's backend, so this
+// reuses the real Shopify API path and just relabels `site` back to
+// 'westside' so ItemInfoModal's `case 'westside'` (WestsideProductView)
+// picks it up instead of ShopifyProductView.
 //
-// On failure (scrapeShopifyProduct returning an `error`), this
-// deliberately does NOT relabel — scrapeProduct()'s caller checks
-// `result.error` and, on a Shopify-path failure, falls back to the
-// generic HTML-scrape pipeline the same way it already does for a
-// generic Shopify/WooCommerce detection failure (see
-// `fellBackFromStorePlatform` below). Leaving `site: 'shopify'` on the
-// error result there is harmless — it's discarded immediately, never
-// returned to a caller — and keeps this function a thin, honest pass-
-// through rather than duplicating scrapeShopifyProduct's error shape.
+// On failure this deliberately does NOT relabel — scrapeProduct()
+// discards the error result and falls back to the generic HTML pipeline.
 async function scrapeWestsideProduct(url: string): Promise<ScrapeResult> {
   const result = await scrapeShopifyProduct(url)
   if (result.error) return result
@@ -1758,17 +1566,14 @@ async function scrapeWooCommerceProduct(url: string): Promise<ScrapeResult> {
 
 // ---------- eBay (real Browse API, no scraping) ----------
 //
-// Preferred path for eBay whenever EBAY_APP_ID/EBAY_CERT_ID are configured
-// (see lib/store-providers/ebay.ts) — this calls eBay's own Browse API
-// (getItemByLegacyId) instead of scraping the item page's JSON-LD/DOM.
-// scrapeProduct() only falls through to the legacy scraper-based
-// SITE_PARSERS.ebay path (parseEbay, below) when those env vars are unset.
+// Preferred path for eBay whenever EBAY_APP_ID/EBAY_CERT_ID are
+// configured (see lib/store-providers/ebay.ts). scrapeProduct() only
+// falls through to the legacy scraper-based SITE_PARSERS.ebay path
+// (parseEbay) when those env vars are unset.
 //
 // SCOPE NOTE: getItemByLegacyId returns full detail for the ONE item/
 // variation requested, not a browsable sibling-variant list — so
-// `variants` here is read-only info (color/size/etc from
-// localizedAspects), not a clickable re-fetching picker like the other
-// platform views. See buildVariantDimensions in ebay.ts.
+// `variants` here is read-only info, not a clickable re-fetching picker.
 async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
   const parsedId = parseEbayItemUrl(url)
   if (!parsedId) {
@@ -1794,9 +1599,7 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
     }
   }
 
-  // Extra fields EbayProductView.tsx reads defensively via `as any`
-  // (sellerFeedbackScore, sellerFeedbackPercent, condition, shipping) —
-  // same key names as the old scraper output, now sourced from the API.
+  // Extra fields EbayProductView.tsx reads defensively via `as any`.
   const result: ScrapeResult & Record<string, any> = {
     url,
     site: 'ebay',
@@ -1850,9 +1653,14 @@ async function scrapeEbayProductViaApi(url: string): Promise<ScrapeResult> {
 // Preferred path for Ajio whenever PARSE_API_KEY is configured (see
 // extractors/ajio.ts's "TIER 1" header comment). Bypasses fetch +
 // headless-render + Scrapingdog + scrape.do + TLS-fingerprint entirely:
-// a single HTTP call to Parse.bot returns structured product JSON
-// directly, sourced from Ajio's own Hybris/OCC backend rather than
-// scraped HTML.
+// one HTTP call returns structured product JSON from Ajio's own
+// Hybris/OCC backend.
+//
+// mapParseBotProductToAjio now also returns sizeChart, offers,
+// itemSpecifics, categoryPath, discountPercentage, quantityAvailable,
+// returnsAccepted/returnPeriodDays, legalInfo, urgencyTag, description
+// and per-size stockLevel/lowStock. They all flow through the `...parsed`
+// spread below; ScrapeResult declares each of them.
 async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> {
   const { data, error } = await fetchAjioViaParseBot(url)
   if (!data) {
@@ -1876,38 +1684,22 @@ async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> 
 
 // ---------- Site-specific parsers ----------
 //
-// Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, and Snapdeal each
-// have their own dedicated extractor module (./extractors/*.ts) — split
-// out because each has enough site-specific logic (variant swatches,
-// availability detection, grid-layout edge cases) to be worth testing in
-// isolation.
+// Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, and Snapdeal
+// each have their own dedicated extractor module (./extractors/*.ts).
 //
-// FirstCry, Nykaa, Hopscotch, Tata CLiQ, and AliExpress do NOT have a
-// dedicated extractor — each is wired to the shared makeOgOnlyParser()
-// factory in extractors/og-only.ts, which relies entirely on the generic
-// embedded-state/JSON-LD/OG-meta fallback chain in parseHtml() below (no
-// site-specific DOM selectors). See that file's doc comment for exactly
-// what that does and doesn't cover, and ScrapeResult.ogOnly above for how
-// this gets surfaced to the QA tool.
+// FirstCry, Nykaa, Hopscotch, Tata CLiQ, and AliExpress do NOT — each is
+// wired to the shared makeOgOnlyParser() factory in extractors/og-only.ts,
+// which relies entirely on the generic embedded-state/JSON-LD/OG-meta
+// fallback chain in parseHtml() below. See ScrapeResult.ogOnly above.
 //
-// Westside is likewise handled without its own dedicated DOM extractor —
-// but unlike the OG-only five above, it doesn't fall back to generic
-// OG/JSON-LD scraping at all in the normal case: scrapeProduct() routes
-// it straight through the real Shopify API (see scrapeWestsideProduct
-// above). `parseGeneric` below is registered here only as the SECONDARY
-// fallback used if that Shopify-API call itself fails (see
-// `fellBackFromStorePlatform` in scrapeProduct()) — same role parseGeneric
-// already plays for a plain 'shopify'/'woocommerce' detection that fails.
+// Westside is handled without its own DOM extractor: scrapeProduct()
+// routes it through the real Shopify API (scrapeWestsideProduct).
+// `parseGeneric` below is registered only as the SECONDARY fallback used
+// if that Shopify-API call itself fails.
 //
-// eBay's entry here (parseEbay/SITE_PARSERS.ebay) is now the FALLBACK
-// path only — used when EBAY_APP_ID/EBAY_CERT_ID aren't configured. See
-// scrapeEbayProductViaApi above and scrapeProduct's routing below for the
-// preferred, credentialed path via eBay's real Browse API.
-//
-// Ajio's entry here (parseAjio/SITE_PARSERS.ajio) is similarly now the
-// FALLBACK path — used when PARSE_API_KEY isn't configured. See
-// scrapeAjioProductViaParseBot above and scrapeProduct's routing below
-// for the preferred Parse.bot path.
+// eBay's entry (parseEbay) and Ajio's entry (parseAjio) are the FALLBACK
+// paths — used when EBAY_APP_ID/EBAY_CERT_ID / PARSE_API_KEY aren't
+// configured.
 
 function parseGeneric($: CheerioAPI, url: string) {
   const domainHint = domainCurrency(url)
@@ -1995,12 +1787,11 @@ function parseHtml(html: string, url: string, site: Exclude<SiteId, 'shopify' | 
 export type ScrapeProductOptions = {
   needVariants?: boolean
   /** Propagated from the incoming HTTP request (e.g. Next.js's
-   * `request.signal`) all the way down through fetchDirectWithRetries
-   * and into whichever last-resort fetcher is registered — so a client
+   * `request.signal`) all the way down through fetchDirectWithRetries and
+   * into whichever last-resort fetcher is registered — so a client
    * disconnecting stops in-flight upstream calls (including a paid
    * ScraperAPI, Scrapingdog, or scrape.do request) instead of them
-   * running — and being billed — to completion with nobody left to
-   * receive the result. */
+   * running — and being billed — to completion. */
   signal?: AbortSignal
 }
 
@@ -2027,41 +1818,23 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   }
 
   // detectSite's 'shopify'/'woocommerce' classification for an
-  // unrecognized host is a URL-SHAPE GUESS ONLY (any /products/{x} path
-  // -> 'shopify', any /product/{x} path -> 'woocommerce' — see
-  // SHOPIFY_PRODUCT_PATH_RE / WOOCOMMERCE_PRODUCT_PATH_RE above), not a
-  // confirmed fact about the site's actual platform. Plenty of
-  // non-Shopify/non-WooCommerce stores use the exact same URL
-  // convention — and even a CONFIRMED real Shopify store might be a
-  // headless Shopify Plus setup (Hydrogen/Oxygen), which
-  // scrapeShopifyProduct() -> fetchShopifyProduct() already tries via
-  // REST first and the Storefront GraphQL discovery tier second (see
-  // lib/store-providers/shopify-plus.ts) — so a Shopify failure at this
-  // point has already exhausted both of Shopify's own tiers, not just
-  // the basic one. What it HASN'T tried is the possibility that this
-  // isn't a Shopify store at all, which the generic HTML-scraping
-  // pipeline below can often still read something out of (title/image
-  // at minimum, same as any other 'generic' site — see og-only.ts). A
-  // failed attempt now falls through into that generic pipeline instead
-  // of giving up, with `site` reassigned to 'generic' so the result
-  // honestly reflects what actually happened rather than still claiming
-  // 'shopify'.
+  // unrecognized host is a URL-SHAPE GUESS ONLY, not a confirmed fact
+  // about the site's platform. Plenty of non-Shopify/non-WooCommerce
+  // stores use the same URL convention — and even a CONFIRMED Shopify
+  // store might be headless Shopify Plus, which scrapeShopifyProduct()
+  // already tries via REST first and Storefront GraphQL discovery second.
+  // What it HASN'T tried is that this isn't a Shopify store at all, which
+  // the generic HTML-scraping pipeline below can often still read
+  // something out of. A failed attempt now falls through into that
+  // pipeline with `site` reassigned to 'generic', so the result honestly
+  // reflects what happened.
   //
-  // CHANGED: 'westside' now gets the exact same treatment as 'shopify'
-  // (real API first, generic-fallback-on-failure second) — see the
-  // dedicated `else if (site === 'westside')` branch below and
-  // scrapeWestsideProduct's doc comment above for why this is routed
-  // through the real Shopify API rather than getting its own scraping
-  // pipeline.
+  // 'westside' gets the same treatment (real Shopify API first,
+  // generic-fallback-on-failure second).
   //
-  // Tracked separately from `site` (which gets reassigned to 'generic'
-  // below) so the result can still be honestly marked ogOnly even
-  // though it didn't go through makeOgOnlyParser()/the SITE_HOST_MAP
-  // og-only registration — it has the exact same limitations (no
-  // variants, no MRP, no rating, often only one image), so it should
-  // read that way to anyone consuming the result, not look like richer
-  // data than it actually is just because the URL happened to guess
-  // 'shopify' first.
+  // Tracked separately from `site` so the result can still be honestly
+  // marked ogOnly — it has the same limitations (no variants, MRP,
+  // rating, often one image).
   let fellBackFromStorePlatform = false
 
   if (site === 'shopify') {
@@ -2070,16 +1843,6 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     site = 'generic'
     fellBackFromStorePlatform = true
   } else if (site === 'westside') {
-    // CHANGED: new branch. Westside is a Shopify-backed storefront, so
-    // this hits the real Shopify API first via scrapeWestsideProduct
-    // (which internally calls scrapeShopifyProduct and just relabels
-    // `site` back to 'westside' on success) — same real variant/stock/
-    // price data a plain Shopify URL would get, but correctly tagged so
-    // ItemInfoModal renders WestsideProductView instead of
-    // ShopifyProductView. On failure, falls through to the generic
-    // HTML-scrape pipeline below (parseGeneric, registered for
-    // 'westside' in SITE_PARSERS), exactly like the 'shopify' branch
-    // above does for its own failures.
     const westsideResult = await scrapeWestsideProduct(url)
     if (!westsideResult.error) return westsideResult
     site = 'generic'
@@ -2090,20 +1853,17 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     site = 'generic'
     fellBackFromStorePlatform = true
   } else {
-    // Prefer the real eBay Browse API whenever credentials are configured —
-    // it's authoritative data straight from eBay, not a DOM/JSON-LD guess.
-    // Falls through to the legacy scraper below only if EBAY_APP_ID /
-    // EBAY_CERT_ID aren't set, so this stays a zero-config upgrade.
+    // Prefer the real eBay Browse API whenever credentials are configured
+    // — authoritative data straight from eBay. Falls through to the
+    // legacy scraper only if EBAY_APP_ID / EBAY_CERT_ID aren't set.
     if (site === 'ebay' && ebayCredentialsConfigured()) {
       return await scrapeEbayProductViaApi(url)
     }
 
     // Prefer Parse.bot's hosted Ajio scraper whenever PARSE_API_KEY is
-    // configured — real structured JSON from Ajio's own backend, skipping
-    // fetch + headless-render + Scrapingdog + scrape.do + TLS-fingerprint
-    // entirely for this site. Falls through to the legacy scraping
-    // pipeline below only if PARSE_API_KEY is unset, so this is a
-    // zero-config upgrade just like the eBay branch above.
+    // configured — structured JSON from Ajio's own backend, skipping
+    // fetch + headless-render + Scrapingdog + scrape.do + TLS-fingerprint.
+    // Falls through to the legacy pipeline only if PARSE_API_KEY is unset.
     if (site === AJIO_SITE_ID && ajioParseBotConfigured()) {
       return await scrapeAjioProductViaParseBot(url)
     }
@@ -2119,18 +1879,14 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     return { url, site, error }
   }
 
-  // This HTML was only fetched because REST + Plus discovery both
-  // failed (fellBackFromStorePlatform) — before trying to extract
-  // anything from it, rule out the one case where there's genuinely
-  // nothing to extract: the store itself is gated behind Shopify's own
-  // password/"coming soon" wall. This is a MERCHANT choice, not a bot
-  // block — no fetch tier can or should get past it (see
-  // looksLikeShopifyPasswordWall's doc comment) — so this returns a
-  // clear, specific error instead of letting it fall through to the
-  // theme-JSON/generic parsers, which would otherwise either find
-  // nothing and report a confusing generic "no title/price found", or
-  // worse, misparse the password page's own form/copy as if it were
-  // product content.
+  // This HTML was only fetched because REST + Plus discovery both failed
+  // (fellBackFromStorePlatform) — before extracting anything, rule out the
+  // one case where there's genuinely nothing to extract: the store is
+  // gated behind Shopify's own password/"coming soon" wall. That's a
+  // MERCHANT choice, not a bot block — no fetch tier can or should get
+  // past it — so return a clear, specific error instead of letting the
+  // theme-JSON/generic parsers misparse the password page's own form/copy
+  // as product content.
   if (fellBackFromStorePlatform && looksLikeShopifyPasswordWall(html)) {
     return {
       url,
@@ -2140,22 +1896,19 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     }
   }
 
-  // This HTML was only fetched because REST + Plus discovery both
-  // failed (fellBackFromStorePlatform) — before giving up to the fully
-  // generic OG/JSON-LD parse below, check whether the theme itself
-  // embedded the real product JSON (see extractShopifyThemeEmbeddedProduct's
-  // doc comment above). When it's there, this is strictly better data
-  // — real per-variant prices/stock/images, not a title+one-image
-  // ceiling — for the exact same page load, no extra request needed.
+  // Before giving up to the fully generic OG/JSON-LD parse below, check
+  // whether the theme itself embedded the real product JSON (see
+  // extractShopifyThemeEmbeddedProduct). When it's there, this is
+  // strictly better data — real per-variant prices/stock/images — for the
+  // exact same page load.
   if (fellBackFromStorePlatform) {
     try {
       const $ = cheerio.load(html)
       const themeProduct = extractShopifyThemeEmbeddedProduct($, html)
       if (themeProduct) return normaliseShopifyThemeJsonProduct(themeProduct, url)
     } catch {
-      // Fall through to the generic parse below — a malformed/unexpected
-      // theme JSON shape shouldn't take down the one fallback tier that
-      // was already working before this was added.
+      // Fall through to the generic parse below — a malformed theme JSON
+      // shape shouldn't take down the fallback tier that already worked.
     }
   }
 
@@ -2166,20 +1919,16 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     return { url, site, error: `Parsing failed: ${e instanceof Error ? e.message : String(e)}` }
   }
 
-  // Amazon-specific: the fetch above can succeed completely normally
-  // (valid HTML, not blocked, not a JS-shell) while still missing price
-  // specifically — that's a geo-gated buybox, not a fetch failure, so
-  // LAST_RESORT_FALLBACK above (which only ever triggers when the FETCH
-  // itself fails) never runs for this case at all. This is the actual
-  // fix: a targeted, POST-parse retry, only when price is confirmed
-  // missing on a page that otherwise parsed fine. Re-parses the retry's
-  // own HTML and borrows ONLY price/mrp/currencyCode from it — the
-  // original parse's variants/images/rating/etc. are kept as-is rather
-  // than risking a second, differently-rendered page silently replacing
-  // fields that were already working. Silent no-op if ScraperAPI isn't
-  // configured, or if even the geo-targeted retry still comes back
-  // without a price (e.g. a genuinely unavailable/delisted listing) —
-  // never turns a clean result into an error over this.
+  // Amazon-specific: the fetch can succeed completely normally (valid
+  // HTML, not blocked, not a JS-shell) while still missing price — a
+  // geo-gated buybox, not a fetch failure, so LAST_RESORT_FALLBACK (which
+  // only triggers when the FETCH fails) never runs for this case. This is
+  // the actual fix: a targeted POST-parse retry, only when price is
+  // confirmed missing on a page that otherwise parsed fine. Borrows ONLY
+  // price/mrp/currencyCode from the retry — the original parse's
+  // variants/images/rating are kept. Silent no-op if ScraperAPI isn't
+  // configured or the retry still has no price; never turns a clean
+  // result into an error over this.
   if (site === 'amazon' && !parsed.price && amazonScraperApiConfigured()) {
     try {
       const geoRetry = await fetchAmazonViaScraperApi(url, { signal })
@@ -2192,9 +1941,8 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
         }
       }
     } catch {
-      // Same reasoning as the outer try/catch below this block — a
-      // retry that itself throws (malformed HTML, a parser edge case)
-      // shouldn't take down a scrape that otherwise already succeeded.
+      // A retry that itself throws shouldn't take down a scrape that
+      // otherwise already succeeded.
     }
   }
 
@@ -2208,9 +1956,8 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   delete (parsed as any)._flipkartWarning
   const flipkartUnavailable = (parsed as any)._flipkartUnavailable
   delete (parsed as any)._flipkartUnavailable
-  // Consumed the same way as the per-site *Warning/*Unavailable flags
-  // above — set by makeOgOnlyParser() in extractors/og-only.ts for the
-  // five OG-only platforms, and surfaced as ScrapeResult.ogOnly.
+  // Set by makeOgOnlyParser() in extractors/og-only.ts for the OG-only
+  // platforms, surfaced as ScrapeResult.ogOnly.
   const ogOnly = (parsed as any)._ogOnly
   delete (parsed as any)._ogOnly
   const meeshoMeta = consumeMeeshoMeta(parsed)
@@ -2237,7 +1984,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (amazonGridWarning) {
     result.warning = (result.warning ? result.warning + ' | ' : '') + amazonGridWarning
   }
-  
+
   if (amazonUnavailable) {
     result.unavailable = true
   }
@@ -2283,14 +2030,13 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (firstCryMeta.unavailable) {
     result.unavailable = true
   }
-  
+
   if (hopscotchMeta.warning) {
     result.warning = (result.warning ? result.warning + ' | ' : '') + hopscotchMeta.warning
   }
   if (hopscotchMeta.unavailable) {
     result.unavailable = true
   }
-  
 
   if (!result.title) {
     result.warning =
