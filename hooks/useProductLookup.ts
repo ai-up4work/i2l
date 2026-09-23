@@ -37,8 +37,21 @@ async function fetchProductLookup(url: string): Promise<{ ok: boolean; data: Scr
  * result) when there's genuinely nothing usable, so the caller can
  * fall through to the "couldn't load this, try again or continue via
  * chat" state honestly rather than showing an empty-looking card.
+ *
+ * `knownSite`: this function only ever calls /api/og-lookup, which has
+ * no access to scrapeProduct()'s own detectSite() result — it can't
+ * determine the site itself. The caller (lookup(), below) already knows
+ * it from the last real attempt's own result, even though that attempt
+ * failed overall, and passes it through here instead of this function
+ * hardcoding 'generic' regardless of what the real site actually was.
+ * Same bug, same fix, as the terminal `failed` object further down —
+ * see that one's comment for the full story (confirmed against a real
+ * Myntra block: og-lookup recovered the blocked page's own <title>
+ * ("Site Maintenance") as if it were real, while also discarding that
+ * this was Myntra at all, which is what silently broke
+ * ItemInfoModal's SITE_LOGOS lookup on this exact path).
  */
-async function fetchOgFallback(url: string): Promise<ScrapeResult | null> {
+async function fetchOgFallback(url: string, knownSite: ScrapeResult['site']): Promise<ScrapeResult | null> {
   try {
     const res = await fetch(`/api/og-lookup?url=${encodeURIComponent(url)}`)
     if (!res.ok) return null
@@ -54,7 +67,7 @@ async function fetchOgFallback(url: string): Promise<ScrapeResult | null> {
     // instead of falling into the error/retry state.
     return {
       url,
-      site: 'generic',
+      site: knownSite ?? 'generic',
       title: meta.title ?? null,
       images: meta.image ? [meta.image] : [],
       price: null,
@@ -105,7 +118,7 @@ export function useProductLookup() {
     // deep inside the scraper, not something a customer can act on, and
     // naming it (e.g. "captcha") just invites confusion or a support
     // ticket about nothing. Try the OG-only fallback before giving up.
-    const ogFallback = await fetchOgFallback(url)
+    const ogFallback = await fetchOgFallback(url, attempt.data?.site ?? null)
     if (ogFallback) {
       setResult(ogFallback)
       setLoading(false)
