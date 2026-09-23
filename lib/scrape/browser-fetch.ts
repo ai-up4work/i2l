@@ -30,10 +30,19 @@ const BROWSERLESS_WS_ENDPOINT =
 // connection server-side ("queues up to twice your concurrency limit")
 // rather than rejecting it outright, and it may sit queued for a while
 // before a session frees up. A short timeout makes a queued-but-otherwise-
-// fine request look identical to a genuinely broken endpoint. Default is
-// intentionally generous to give the queue a chance to drain; tighten it
-// back down once you've confirmed you're not hitting concurrency limits.
-const BROWSERLESS_CONNECT_TIMEOUT_MS = Number(process.env.BROWSERLESS_CONNECT_TIMEOUT_MS) || 45000
+// fine request look identical to a genuinely broken endpoint.
+//
+// FIX (was 45000ms x 2 attempts = ~91s worst case before even starting the
+// local-browser fallback below): that default actively worked against the
+// retry's own purpose — on a platform with a function max-duration shorter
+// than ~91s + fallback time (Vercel included), the request died before the
+// fallback got a chance to run at all. 8000ms keeps the one retry this
+// still defaults to (a genuinely queued connection usually clears in low
+// single-digit seconds, not 45), while capping the worst case around 17s.
+// Override via env vars if your account's real queueing behavior needs
+// more headroom — this is a safer default, not a claim that 8s is always
+// enough for every account/plan.
+const BROWSERLESS_CONNECT_TIMEOUT_MS = Number(process.env.BROWSERLESS_CONNECT_TIMEOUT_MS) || 8000
 const BROWSERLESS_CONNECT_MAX_ATTEMPTS = Number(process.env.BROWSERLESS_CONNECT_MAX_ATTEMPTS) || 2
 
 async function connectToBrowserless(): Promise<Browser> {
