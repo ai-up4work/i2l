@@ -141,12 +141,17 @@ export default function ProductPurchasePanel({
 
   const galleryImages = useMemo(() => {
     const base = product.images?.length ? product.images : product.image ? [product.image] : []
-    const lead = displayImage.variantId === variantMatch?.id ? displayImage.url : effectiveVariantImage
-    if (!lead) return base
-    // Selected variant's photo leads, with the rest of the product's own
-    // gallery following (deduped) — so switching variants doesn't lose
-    // access to the other angles/shots the base listing already had.
-    return [lead, ...base.filter((img) => img !== lead)]
+    // With a variant selected, its own photo is the WHOLE gallery, not a
+    // lead image with the base product's photo tacked on after it — for
+    // this kind of catalog, `product.images` is really just the first
+    // variant's own photo (there's no second real angle behind it), so
+    // appending `base` here just showed an unrelated design's picture as
+    // a second thumbnail no matter which variant was actually selected.
+    // Only fall back to the base product's own gallery when nothing's
+    // been picked yet.
+    if (!variantMatch) return base
+    const lead = displayImage.variantId === variantMatch.id ? displayImage.url : effectiveVariantImage
+    return lead ? [lead] : base
   }, [product.images, product.image, displayImage, variantMatch?.id, effectiveVariantImage])
 
   // Recomputed on every price change rather than once on load — this is

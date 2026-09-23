@@ -222,18 +222,39 @@ function readProductDetails($item: Cheerio<any>, $: CheerioAPI): string | undefi
 }
 
 /**
+ * Finds which column (if any) of the summary table is actually the Size
+ * column, by reading the table's own `<thead>` — NOT a fixed position.
+ * The table's column count varies per catalog: some have 4 columns
+ * (Catalog Name / Full Catalog Price / Size / Buy Full Catalog), others
+ * — made-to-order items with no fixed sizing — only have 3 (no Size
+ * column at all, confirmed against a real page: catalog 17505). Assuming
+ * Size always sits at a fixed index meant a 3-column catalog's "Buy Full
+ * Catalog" cell (containing a "Book Now" button) got read as if it were
+ * a size. Returns -1 when there's genuinely no Size column on this
+ * catalog, which readCatalogSizes treats as "show no Sizes section at
+ * all" rather than showing a broken one.
+ */
+function findSizeColumnIndex($: CheerioAPI): number {
+  let index = -1;
+  $('table.table-bordered thead tr').first().find('th').each((i, th) => {
+    if (cleanText($(th))?.trim().toLowerCase() === 'size') index = i;
+  });
+  return index;
+}
+
+/**
  * Reads the catalog-level Size row — "Size: M(38"),L(40"),XL(42"),XXL(44")"
  * plus a "Size Chart" button, all inside one `<td>` with no class of its
- * own to key off. Positionally reliable instead: the summary table always
- * has exactly one row with 4 cells in a fixed order (Catalog Name / Full
- * Catalog Price / Size / Buy Full Catalog), confirmed against a real page,
- * so the Size cell is always index 2. Shared across every design in the
- * catalog — this is one size list for the whole catalog, not per-design —
- * hence a separate top-level `options` entry rather than living on each
- * variant the way Design does.
+ * own to key off; see findSizeColumnIndex for how its column position is
+ * actually located. Shared across every design in the catalog — this is
+ * one size list for the whole catalog, not per-design — hence a separate
+ * top-level `options` entry rather than living on each variant the way
+ * Design does.
  */
 function readCatalogSizes($: CheerioAPI): string[] {
-  const $sizeCell = $('table.table-bordered tbody tr').first().find('td').eq(2);
+  const sizeColumnIndex = findSizeColumnIndex($);
+  if (sizeColumnIndex < 0) return []; // this catalog has no Size column — nothing to show, not a fallback guess
+  const $sizeCell = $('table.table-bordered tbody tr').first().find('td').eq(sizeColumnIndex);
   if (!$sizeCell.length) return [];
   // Strip the "Size Chart" button before reading text, or its own label
   // would get appended onto the size list ("M(38"),...,XXL(44")Size Chart").

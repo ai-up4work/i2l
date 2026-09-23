@@ -83,6 +83,18 @@ export type CartOrderLine = {
   source?: 'catalogue' | 'link'
   /** CartProduct.site — the affiliated store's slug for a catalogue item, or the scraper's SiteId (e.g. 'amazon', 'flipkart') for a link item. Written to order_items.seller_name so Purchases/QC/etc. show a real seller instead of "Unassigned seller". */
   site?: string | null
+  /**
+   * CartProduct.selectedOptions carried through to checkout — the actual
+   * size/color/design the customer picked, e.g. {"Color":"ACB1145","Size":"M(38\")"}.
+   * Written into order_items.variant_label (a real column that already
+   * existed but was never populated by this path — see confirmCartOrder
+   * below) so purchasing staff can see exactly what was selected without
+   * needing the item's own URL to encode it. Most affiliated stores'
+   * product URLs don't carry variant info either (Anishka Creation is
+   * the case this was built for, but the gap applied to every multi-
+   * variant store equally, not just that one).
+   */
+  selectedOptions?: Record<string, string>
 }
 
 export type ConfirmResult = { ok: boolean; error?: string }
@@ -759,10 +771,20 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             })
             const sellerName = line.site ? cleanSiteLabel(line.site) : undefined
             const isCatalogue = line.source === 'catalogue'
+            // "Color: ACB1145, Size: M(38")" — stable key order (sorted)
+            // so the same selection always renders identically regardless
+            // of which order the option chips happened to be clicked in.
+            const variantLabel = line.selectedOptions
+              ? Object.keys(line.selectedOptions)
+                  .sort()
+                  .map((k) => `${k}: ${line.selectedOptions![k]}`)
+                  .join(', ') || null
+              : null
             return {
               order_id: orderId,
               product_snapshot_id: snapshotId,
               title: line.name,
+              variant_label: variantLabel,
               quantity: line.qty,
               unit_price: line.unitPriceLKR,
               seller_name: sellerName ?? null,
