@@ -1,7 +1,7 @@
 // app/demo/scraper-qa/platforms/NykaaProductView.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
@@ -31,6 +31,13 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * LAYOUT ON MOBILE (<sm): same grid-template-areas reflow as the other
  * views — info (badge/title) above gallery, above the rest of the buy
  * box (seller/price/variants/stock/commerce actions).
+ *
+ * ProductInfoTabs below carries the same treatment as the other
+ * platform views' updated tab panels: a pill rail with a real sliding
+ * indicator (measured off the active button's rect) instead of a flat
+ * underline, and the tab content sitting inside a bordered card with
+ * detail rows capped to a readable column instead of a bare
+ * `justify-between` stretched across the full 6xl-wide panel.
  */
 
 const NYKAA_PINK = '#FC2779'
@@ -219,9 +226,8 @@ function NykaaCommerceActions({
 }
 
 /* ---------------------------------------------------------------------
- * ProductInfoTabs — inlined, Nykaa-flavored (pink active indicator),
- * same Description / Details / Shipping & Returns structure and same
- * bottom-most full-width slot as the other platform views.
+ * ProductInfoTabs — pill rail with a sliding indicator + a contained
+ * card panel, same treatment now shared across the platform views.
  * ------------------------------------------------------------------- */
 
 const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
@@ -229,9 +235,9 @@ type InfoTab = (typeof INFO_TABS)[number]
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-[#282828]/80">{label}</dt>
-      <dd className="text-right text-[#767676]">{value}</dd>
+    <div className="flex items-baseline justify-between gap-4 rounded-lg px-2 py-1.5 transition-colors hover:bg-[#fc2779]/[0.04]">
+      <dt className="text-[#767676]">{label}</dt>
+      <dd className="text-right font-medium text-[#282828]">{value}</dd>
     </div>
   )
 }
@@ -254,9 +260,18 @@ function sanitizeDescription(raw: string | null | undefined): string | null {
   text = text.replace(/<style[\s\S]*?<\/style>/gi, ' ')
   text = text.replace(/<script[\s\S]*?<\/script>/gi, ' ')
   text = text.replace(/<[^>]+>/g, ' ')
+  // Strip leaked at-rule blocks (@media, @font-face, @supports, ...) —
+  // these don't match the selector-run pattern below because they
+  // start with '@' and often wrap their condition in parens, e.g.
+  // "@media (min-width:769px){ }". Handled separately, before the
+  // general selector stripper, and tolerant of one level of nested
+  // braces (a @media block wrapping an actual rule).
+  text = text.replace(/@[a-zA-Z-]+[^{}]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, ' ')
   // Strip leaked raw CSS rule blocks: a run of selector-ish characters
   // immediately followed by a brace-delimited declaration list.
   text = text.replace(/[.#]?[a-zA-Z0-9_\-.,#:>~ \[\]="'%]+\{[^{}]*\}/g, ' ')
+  // Any bare/empty brace pair left over once the above have run.
+  text = text.replace(/\{\s*\}/g, ' ')
   text = text
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -272,59 +287,148 @@ function sanitizeDescription(raw: string | null | undefined): string | null {
   return text
 }
 
+type ComboItem = { name: string; mrp: string | null; qty: string | null }
+
+// Combo/kit listings on Nykaa (and similar sites) often flatten their
+// contents into the description as repeated
+// "<Product name>: (MRP: 600.00/-) | Quantity: 1 |" runs rather than a
+// real structured field. Left as plain prose this reads as one
+// unbroken wall of pipes and parentheses. This pulls each run out into
+// a proper item, and returns what's left over (the actual intro
+// sentence, e.g. "Explore the entire range...") separately so it can
+// still be shown as normal prose above the list. Returns null when the
+// text doesn't contain this pattern at all, so normal single-product
+// descriptions are untouched.
+function extractComboItems(text: string): { items: ComboItem[]; remainder: string } | null {
+  const itemRegex = /([^|]+?):\s*\(\s*MRP:\s*([\d,]+(?:\.\d+)?)\s*\/-\s*\)\s*\|\s*Quantity:\s*(\d+)\s*\|/gi
+  const items: ComboItem[] = []
+  let match: RegExpExecArray | null
+  while ((match = itemRegex.exec(text))) {
+    items.push({ name: match[1].trim().replace(/^[:\-–]\s*/, ''), mrp: match[2], qty: match[3] })
+  }
+  if (!items.length) return null
+
+  const remainder = text.replace(itemRegex, ' ').replace(/\s+/g, ' ').trim()
+  return { items, remainder }
+}
+
+// Sliding pink pill indicator behind the active tab, measured from the
+// real button rects so it stays exact regardless of label width.
+function useSlidingIndicator(activeTab: InfoTab) {
+  const railRef = useRef<HTMLDivElement | null>(null)
+  const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const [style, setStyle] = useState<{ left: number; width: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const rail = railRef.current
+    const btn = btnRefs.current.get(activeTab)
+    if (!rail || !btn) return
+    const railRect = rail.getBoundingClientRect()
+    const btnRect = btn.getBoundingClientRect()
+    setStyle({ left: btnRect.left - railRect.left + rail.scrollLeft, width: btnRect.width })
+  }, [activeTab])
+
+  return { railRef, btnRefs, style }
+}
+
 function ProductInfoTabs({ result }: { result: ScrapeResult }) {
   const [activeTab, setActiveTab] = useState<InfoTab>('Description')
+  const { railRef, btnRefs, style: indicatorStyle } = useSlidingIndicator(activeTab)
+
+  const hasSpecifics = !!(result.brand || result.mpn || result.categoryPath || result.itemSpecifics?.length)
 
   return (
     <div className="mt-8 border-t border-[#ececec] pt-6">
-      <div className="flex gap-5 border-b border-[#ececec]">
+      <div
+        ref={railRef}
+        className="relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#fc2779]/[0.04] p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {indicatorStyle && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-1 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring-1 ring-inset ring-[#282828]/[0.06] transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+            style={{ width: indicatorStyle.width, transform: `translateX(${indicatorStyle.left}px)` }}
+          />
+        )}
         {INFO_TABS.map((tab) => (
           <button
             key={tab}
             type="button"
+            ref={(el) => {
+              if (el) btnRefs.current.set(tab, el)
+              else btnRefs.current.delete(tab)
+            }}
             onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab
-                ? 'text-[#282828]'
-                : 'border-transparent text-[#a3a3a3] hover:text-[#282828]'
+            aria-pressed={activeTab === tab}
+            className={`relative z-10 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 ${
+              activeTab === tab ? 'text-[#282828]' : 'text-[#a3a3a3] hover:text-[#282828]/70'
             }`}
-            style={activeTab === tab ? { borderColor: NYKAA_PINK } : undefined}
           >
             {tab}
           </button>
         ))}
       </div>
+
       <div
         key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-[#484848] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+        className="mt-4 min-h-[96px] rounded-2xl border border-[#282828]/[0.06] bg-[#fafafa] p-4 text-sm leading-relaxed text-[#484848] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both] sm:p-5"
       >
         {activeTab === 'Description' &&
           (() => {
             const cleaned = sanitizeDescription((result as ScrapeResult & { description?: string }).description)
-            return cleaned ? (
-              <p>{cleaned}</p>
-            ) : (
-              <p className="text-[#a3a3a3]">
-                We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-                {result.title ?? 'no title available.'}
-              </p>
+            if (!cleaned) {
+              return (
+                <p className="text-[#a3a3a3]">
+                  We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
+                  {result.title ?? 'no title available.'}
+                </p>
+              )
+            }
+
+            const combo = extractComboItems(cleaned)
+            if (!combo) return <p>{cleaned}</p>
+
+            return (
+              <div className="flex flex-col gap-4">
+                {combo.remainder && <p>{combo.remainder}</p>}
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold text-[#282828]/60">
+                    What&apos;s in this combo ({combo.items.length} {combo.items.length === 1 ? 'item' : 'items'})
+                  </p>
+                  <ul className="flex flex-col divide-y divide-[#282828]/[0.06] overflow-hidden rounded-xl border border-[#282828]/[0.06] bg-white">
+                    {combo.items.map((item, i) => (
+                      <li key={i} className="flex items-center justify-between gap-4 px-3 py-2.5">
+                        <span className="min-w-0 flex-1 text-[13px] font-medium text-[#282828]">{item.name}</span>
+                        <span className="flex flex-none items-center gap-3 text-xs text-[#767676]">
+                          {item.qty && <span>Qty {item.qty}</span>}
+                          {item.mrp && (
+                            <span className="font-semibold" style={{ color: NYKAA_PINK }}>
+                              {fmt(item.mrp, result.currencyCode) ?? `₹${item.mrp}`}
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             )
           })()}
+
         {activeTab === 'Details' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
+          <dl className="mx-auto flex w-full max-w-xl flex-col divide-y divide-[#282828]/[0.06] text-xs">
             {result.brand && <DetailRow label="Brand" value={result.brand} />}
             {result.mpn && <DetailRow label="Model" value={result.mpn} />}
             {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
             {result.itemSpecifics?.map((spec) => (
               <DetailRow key={spec.name} label={spec.name} value={spec.value} />
             ))}
-            {!result.brand && !result.mpn && !result.itemSpecifics?.length && (
-              <p className="text-[#a3a3a3]">We don&apos;t have any additional details for this listing.</p>
-            )}
+            {!hasSpecifics && <p className="text-[#a3a3a3]">We don&apos;t have any additional details for this listing.</p>}
           </dl>
         )}
+
         {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
+          <dl className="mx-auto flex w-full max-w-xl flex-col divide-y divide-[#282828]/[0.06] text-xs">
             {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
             <DetailRow
               label="Returns"
