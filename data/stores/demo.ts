@@ -102,6 +102,7 @@ export const platformLogos: Record<string, string> = {
   // seleqt: '/logos/seleqt.png',
   // boAt: '/logos/boat.png',
   // lenskart: '/logos/lenskart.png',
+  // croma: '/logos/croma.png',
 }
 
 
@@ -303,6 +304,19 @@ export const affiliatedStores: AffiliatedStore[] = [
     storeType: 'marketplace',
     sampleProductUrl: 'https://www.lenskart.com/vincent-chase-vce000714-black-1-eyeglasses.html',
     sampleProductLabel: 'Vincent Chase VCE000714 Black 1 Eyeglasses',
+  },
+  {
+    platform: 'croma',
+    name: 'Croma',
+    logo: '/logos/croma-squared.png',
+    url: 'https://www.croma.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: 'India’s leading electronics and home appliances retailer, offering a wide range of products at competitive prices.',
+    categories: ['Electronics', 'Home Appliances', 'Consumer Electronics'],
+    storeType: 'marketplace',
+    sampleProductUrl: 'https://www.croma.com/agaro-regal-plus-800w-dry-vacuum-cleaner-with-2-in-1-hassle-free-cleaning-transparent-/p/270772',
+    sampleProductLabel: 'Agaro Regal Plus 800W Dry Vacuum Cleaner with 2-in-1 Hassle-Free Cleaning (Transparent)',
   }
   // {
   //   platform: 'ebay',
