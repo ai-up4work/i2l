@@ -598,7 +598,7 @@ export default function HomePage({
                   <button
                     type="button"
                     onClick={onViewProfile}
-                    className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-ink/55 hover:text-teal-deep"
+                    className="flex hidden items-center gap-1 whitespace-nowrap text-xs font-semibold text-ink/55 hover:text-teal-deep"
                   >
                     My Profile <ChevronRight size={13} />
                   </button>
