@@ -24,6 +24,7 @@ import SnapdealProductView from '@/components/platforms/SnapdealProductView'
 import ShopifyProductView from '@/components/platforms/Shopifyproductview'
 import WooCommerceProductView from '@/components/platforms/Woocommerceproductview'
 import LenskartProductView from '@/components/platforms/Lenskartproductview'
+import CromaProductView from '@/components/platforms/Cromaproductview'
 import SeleqtProductView from '@/components/platforms/Seleqtproductview'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
@@ -1196,6 +1197,8 @@ export default function ItemInfoModal({
         return <SeleqtProductView {...commerceProps} />
       case 'lenskart':
         return <LenskartProductView {...commerceProps} />
+      case 'croma':
+        return <CromaProductView {...commerceProps} />
       default:
         return <GenericProductView {...commerceProps} />
     }

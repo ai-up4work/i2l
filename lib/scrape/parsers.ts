@@ -94,6 +94,13 @@ import {
   REQUIRES_RENDER_FOR_VARIANTS as EBAY_REQUIRES_RENDER_FOR_VARIANTS,
   consumeEbayMeta,
 } from '@/lib/scrape/extractors/ebay'
+import {
+  SITE_ID as CROMA_SITE_ID,
+  parseCroma,
+  consumeCromaMeta,
+  hasHydratedCromaMarkup,
+  REQUIRES_RENDER_FOR_VARIANTS as CROMA_REQUIRES_RENDER_FOR_VARIANTS,
+} from './extractors/croma'
 import { parseFirstCry, SITE_ID as FIRSTCRY_SITE_ID } from './extractors/firstcry'
 // The five platforms below have no dedicated extractor — each is a thin
 // wrapper around the shared OG-tag-only fallback path (see
@@ -215,6 +222,10 @@ export type ScrapeResult = {
    * `url` above is already the resolved, real product URL either way;
    * this is purely a transparency flag. */
   resolvedFromShortlink?: boolean
+  /** Croma "Key Features" list. */
+  keyFeatures?: string[] | null
+  /** Croma "User Manual" PDF link. */
+  manualUrl?: string | null
 }
 
 export type SiteId =
@@ -230,6 +241,7 @@ export type SiteId =
   | 'nykaa'
   | 'hopscotch'
   | 'tatacliq'
+  | 'croma'
   | 'tataCliq'
   | 'Aliexpress'
   | 'westside'
@@ -352,6 +364,7 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['tatacliq', 'tatacliq'],
   ['aliexpress', ALIEXPRESS_SITE_ID],
   ['westside', 'westside'],
+  ['croma.com', CROMA_SITE_ID],
   // NEW: boAt Lifestyle (boat-lifestyle.com) — Shopify-backed, brand
   // logo instead of the generic Shopify one.
   ['boat-lifestyle', 'boat'],
@@ -844,7 +857,7 @@ async function primeCookies(
 // variant LABELS themselves missing from static HTML (not just images),
 // that's a different, bigger problem and would justify moving Lenskart
 // into this set for real.
-const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID, 'seleqt'])
+const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID, 'seleqt',CROMA_SITE_ID, 'nykaa', 'westside', 'boat'])
 
 // Optional per-site selector to wait for before grabbing page.content(),
 // so the render tier doesn't snapshot the page before the bit we
@@ -854,6 +867,7 @@ const RENDER_WAIT_SELECTOR: Partial<Record<SiteId, string>> = {
   ajio: 'h1.prod-name, div.prod-sp',
   [FIRSTCRY_SITE_ID]: 'span.h1-name, span.prod-price',
   [HOPSCOTCH_SITE_ID]: 'h1, [class*="price"]',
+  [CROMA_SITE_ID]: ':text-matches("₹\\s?\\d")',
   // FIX: 'h1' alone wasn't enough — a real QA run got title/images/sizes
   // but "No price found", even though the same price selector worked in
   // an earlier run. Everything else hydrating while price didn't points
@@ -880,6 +894,7 @@ const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolea
   [AJIO_SITE_ID]: (html) => html.includes('class="prod-sp"') || html.includes('class="prod-name"'),
   [FIRSTCRY_SITE_ID]: (html) => html.includes('class="h1-name"') && html.includes('prod-price'),
   [HOPSCOTCH_SITE_ID]: hasHydratedHopscotchMarkup,
+  [CROMA_SITE_ID]: hasHydratedCromaMarkup,
   // Explicit and FALSE by design — omitting a site here defaults to
   // "static fetch is sufficient" (see the `!contentCheck` check below)
   // and would skip the render tier entirely, the opposite of what
@@ -1036,6 +1051,9 @@ const BLOCK_VENDOR_MARKERS: Array<[string, RegExp]> = [
   ['Google reCAPTCHA', /recaptcha/i],
   ['hCaptcha', /hcaptcha/i],
 ]
+
+
+const SKIP_ALL_GENERIC_FALLBACKS = new Set<SiteId>([CROMA_SITE_ID])
 
 function describeBlockPage(html: string): string {
   const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i)
@@ -1825,6 +1843,7 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   boat: parseGeneric,
   seleqt: parseSeleqt,
   [LENSKART_SITE_ID]: parseLenskart,
+  [CROMA_SITE_ID]: parseCroma,
 }
 
 const SKIP_STRUCTURED_FALLBACK = new Set<SiteId>(
@@ -1835,31 +1854,19 @@ function parseHtml(html: string, url: string, site: Exclude<SiteId, 'shopify' | 
   const $ = cheerio.load(html)
   const rawParsed = site === 'generic' ? parseGeneric($, url) : SITE_PARSERS[site]($, url)
 
-  const embedded = extractEmbeddedStateProduct($, html)
+  const skipAll = SKIP_ALL_GENERIC_FALLBACKS.has(site)
 
-  const parsed: Record<string, any> & { options?: Record<string, string> | null } = SKIP_STRUCTURED_FALLBACK.has(site)
-    ? withFallbacks(rawParsed, embedded)
-    : withFallbacks(rawParsed, embedded, extractJsonLdProduct($), extractOgMeta($))
+  const parsed: Record<string, any> & { options?: Record<string, string> | null } = skipAll
+    ? { ...rawParsed }
+    : (() => {
+        const embedded = extractEmbeddedStateProduct($, html)
+        return SKIP_STRUCTURED_FALLBACK.has(site)
+          ? withFallbacks(rawParsed, embedded)
+          : withFallbacks(rawParsed, embedded, extractJsonLdProduct($), extractOgMeta($))
+      })()
 
   let usedMetaDescriptionPrice = false
-  if (parsed.price == null) {
-    const metaPrice = extractMetaDescriptionPrice($)
-    if (metaPrice.price != null) {
-      parsed.price = metaPrice.price
-      if (!parsed.currencyCode && metaPrice.currencyCode) parsed.currencyCode = metaPrice.currencyCode
-      usedMetaDescriptionPrice = true
-    }
-  }
-
-  parsed.images = filterLikelyProductImages(parsed.images)
-
-  const optionsExtractor = SITE_OPTIONS_EXTRACTORS[site]
-  if (optionsExtractor) {
-    const opts = optionsExtractor($)
-    if (opts) parsed.options = opts
-  }
-
-  if (parsed.price == null && parsed.mrp != null) {
+  if (parsed.price == null && !skipAll) {
     parsed.price = parsed.mrp
   }
 
@@ -1895,6 +1902,7 @@ const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
   ...(JIOMART_REQUIRES_RENDER_FOR_VARIANTS ? [JIOMART_SITE_ID] : []),
   ...(SNAPDEAL_REQUIRES_RENDER_FOR_VARIANTS ? [SNAPDEAL_SITE_ID] : []),
   ...(HOPSCOTCH_REQUIRES_RENDER_FOR_VARIANTS ? [HOPSCOTCH_SITE_ID] : []),
+  ...(CROMA_REQUIRES_RENDER_FOR_VARIANTS ? [CROMA_SITE_ID] : [])
 ])
 
 function hasVariantData(parsed: Record<string, any>): boolean {
@@ -2108,6 +2116,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const jiomartMeta = consumeJioMartMeta(parsed)
   const firstCryMeta = consumeFirstCryMeta(parsed)
   const hopscotchMeta = consumeHopscotchMeta(parsed)
+  const cromaMeta = consumeCromaMeta(parsed)
   // CHANGED: was never called — _tataCliqWarning/_tataCliqUnavailable
   // leaked into the result through `...parsed` below and sold-out Tata
   // CLiQ items never got `unavailable = true`.
@@ -2187,7 +2196,12 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (hopscotchMeta.unavailable) {
     result.unavailable = true
   }
-
+  if (cromaMeta.warning) {
+    result.warning = (result.warning ? result.warning + ' | ' : '') + cromaMeta.warning
+  }
+  if (cromaMeta.unavailable) {
+    result.unavailable = true
+  }
   if (tataCliqMeta.warning) {
     result.warning = (result.warning ? result.warning + ' | ' : '') + tataCliqMeta.warning
   }

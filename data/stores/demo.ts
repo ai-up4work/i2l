@@ -315,8 +315,8 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: 'India’s leading electronics and home appliances retailer, offering a wide range of products at competitive prices.',
     categories: ['Electronics', 'Home Appliances', 'Consumer Electronics'],
     storeType: 'marketplace',
-    sampleProductUrl: 'https://www.croma.com/agaro-regal-plus-800w-dry-vacuum-cleaner-with-2-in-1-hassle-free-cleaning-transparent-/p/270772',
-    sampleProductLabel: 'Agaro Regal Plus 800W Dry Vacuum Cleaner with 2-in-1 Hassle-Free Cleaning (Transparent)',
+    sampleProductUrl: 'https://www.croma.com/croma-80-cm-32-inch-2-star-led-hd-ready-smart-linux-tv-with-a+-grade-led-panel/p/316060',
+    sampleProductLabel: 'Croma 80 cm (32 inch) 2 Star LED HD Ready Smart Linux TV with A+ Grade LED Panel',
   }
   // {
   //   platform: 'ebay',
