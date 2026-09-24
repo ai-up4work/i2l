@@ -120,6 +120,25 @@ import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq, consumeTataCliqMeta } from 
 import { TATACLIQ_HOSTED_TIERS } from './hosted-fetch'
 import { SITE_ID as ALIEXPRESS_SITE_ID, parseAliExpress } from './extractors/aliexpress'
 import { parseSeleqt } from './extractors/seleqt'
+// Lenskart — DOM-only extractor (data-cy attribute hooks, no embedded
+// JSON tier confirmed yet — see extractors/lenskart.ts's header for
+// exactly what has and hasn't been verified).
+//
+// needsLenskartSwatchImageRetry / mergeLenskartSwatchImages /
+// extractLenskartColorVariants / extractLenskartStyleDescription power
+// the post-parse render-tier retry below, added after a live scrape
+// (and an independent direct fetch of the same URL) confirmed swatch
+// images NEVER exist in Lenskart's static server-rendered HTML — see
+// that block's comment for the full story.
+import {
+  SITE_ID as LENSKART_SITE_ID,
+  parseLenskart,
+  consumeLenskartMeta,
+  needsLenskartSwatchImageRetry,
+  mergeLenskartSwatchImages,
+  extractLenskartColorVariants,
+  extractLenskartStyleDescription,
+} from './extractors/lenskart'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -218,6 +237,8 @@ export type SiteId =
   // with its own logo (SITE_LOGOS.boat) instead of the generic Shopify one.
   | 'boat'
   | 'seleqt'
+  // Lenskart — DOM-only extractor, see extractors/lenskart.ts.
+  | 'lenskart'
   | 'shopify'
   | 'woocommerce'
   | 'generic'
@@ -339,6 +360,10 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   // here, ahead of that fallback, or every Seleqt link is detected (and
   // parsed) as a WooCommerce store instead.
   ['seleqt', 'seleqt'],
+  // Lenskart (lenskart.com) — real DOM extractor, see
+  // extractors/lenskart.ts. Substring match, so this also covers any
+  // regional subdomain that still contains "lenskart".
+  [LENSKART_SITE_ID, LENSKART_SITE_ID],
 ]
 
 const SHOPIFY_PRODUCT_PATH_RE = /\/products\/([^/?#]+)/i
@@ -804,6 +829,21 @@ async function primeCookies(
 // hard block on the IP ("Attention Required!"), which a datacenter-IP
 // headless browser can't get past — it would only burn ~25s before the
 // hosted residential tiers in LAST_RESORT_FALLBACK run anyway.
+//
+// 'lenskart' is also deliberately NOT in this set. Confirmed (via a live
+// scrapeProduct() run AND an independent direct fetch of the same URL)
+// that Lenskart's PRIMARY page content — title, price, variant labels,
+// selection state, sizes — is present and correct in the plain static
+// response; only Frame Color SWATCH IMAGES are entirely client-hydrated
+// and never appear in static HTML. Routing the whole site through this
+// tier would pay the ~render-tier cost on every single scrape just to
+// fix one field. Instead, a narrow, non-fatal render-tier RETRY runs only
+// for that one field, only when it's confirmed missing — see
+// needsLenskartSwatchImageRetry / mergeLenskartSwatchImages usage in
+// scrapeProduct() below. If a future scrape ever shows title/price/
+// variant LABELS themselves missing from static HTML (not just images),
+// that's a different, bigger problem and would justify moving Lenskart
+// into this set for real.
 const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID, 'seleqt'])
 
 // Optional per-site selector to wait for before grabbing page.content(),
@@ -849,6 +889,11 @@ const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolea
   // future pass CAN detect a genuinely-hydrated response if Seleqt ever
   // changes to SSR.
   seleqt: (html) => html.includes('text-lg font-bold'),
+  // NOT registered for Lenskart: its static HTML IS sufficient for
+  // title/price/variants (confirmed live) — only swatch images are
+  // missing, and that's handled by a narrow post-parse retry, not by
+  // treating the whole page as an insufficient shell. See
+  // RENDER_FALLBACK_HOSTS's comment above for the full reasoning.
 }
 
 // ---------- Per-site last-resort fallback registry ----------
@@ -1727,8 +1772,9 @@ async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> 
 
 // ---------- Site-specific parsers ----------
 //
-// Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, and Snapdeal
-// each have their own dedicated extractor module (./extractors/*.ts).
+// Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, Snapdeal, and
+// Lenskart each have their own dedicated extractor module
+// (./extractors/*.ts).
 //
 // FirstCry, Nykaa, Hopscotch, Tata CLiQ, and AliExpress do NOT — each is
 // wired to the shared makeOgOnlyParser() factory in extractors/og-only.ts,
@@ -1778,6 +1824,7 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   westside: parseGeneric,
   boat: parseGeneric,
   seleqt: parseSeleqt,
+  [LENSKART_SITE_ID]: parseLenskart,
 }
 
 const SKIP_STRUCTURED_FALLBACK = new Set<SiteId>(
@@ -2009,6 +2056,37 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     }
   }
 
+  // Lenskart-specific: swatch images are entirely client-hydrated — a
+  // live scrape (source: 'direct') AND an independent direct fetch of
+  // the same URL both confirmed the static response carries ZERO images
+  // for ANY Frame Color option, even the ones that show a real <img> in
+  // every DevTools capture of the hydrated page (see lenskart.ts's
+  // header for the full trail). A second static fetch will never
+  // recover them — only a real headless render can — so this is a
+  // targeted POST-parse retry through the render tier, only when every
+  // Frame Color option is confirmed imageless on a page that otherwise
+  // parsed fine. Merges ONLY the `image` field into the already-trusted
+  // static parse — labels, selection, lowStock and sizes all stay
+  // exactly as the static fetch produced them. Silent no-op if the
+  // render tier fails or still can't produce images; never turns a
+  // clean result into an error over this.
+  if (site === LENSKART_SITE_ID && needsLenskartSwatchImageRetry((parsed as any).variants)) {
+    try {
+      const rendered = await fetchRendered(url, {
+        waitForSelector: 'div[role="group"][aria-label="Frame Color"] img',
+      })
+      if (rendered.html) {
+        const $rendered = cheerio.load(rendered.html)
+        const renderedStyleDescription = extractLenskartStyleDescription($rendered)
+        const renderedColors = extractLenskartColorVariants($rendered, renderedStyleDescription)
+        mergeLenskartSwatchImages((parsed as any).variants, renderedColors)
+      }
+    } catch {
+      // Non-fatal — a failed enrichment retry shouldn't take down a
+      // scrape that otherwise already succeeded with good variant data.
+    }
+  }
+
   const priceSource = parsed._priceSource
   delete parsed._priceSource
   const amazonGridWarning = (parsed as any)._amazonGridWarning
@@ -2034,6 +2112,8 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // leaked into the result through `...parsed` below and sold-out Tata
   // CLiQ items never got `unavailable = true`.
   const tataCliqMeta = consumeTataCliqMeta(parsed)
+  // Lenskart — same consume-and-strip pattern as every other site.
+  const lenskartMeta = consumeLenskartMeta(parsed)
   const result: ScrapeResult = { url, site, source, ...parsed }
   // Show a Shopify-backed brand (boAt / Westside) under its own label even
   // though this result came from the generic HTML fallback.
@@ -2112,6 +2192,13 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     result.warning = (result.warning ? result.warning + ' | ' : '') + tataCliqMeta.warning
   }
   if (tataCliqMeta.unavailable) {
+    result.unavailable = true
+  }
+
+  if (lenskartMeta.warning) {
+    result.warning = (result.warning ? result.warning + ' | ' : '') + lenskartMeta.warning
+  }
+  if (lenskartMeta.unavailable) {
     result.unavailable = true
   }
 

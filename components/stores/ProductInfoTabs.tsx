@@ -1,7 +1,8 @@
+// components/stores/ProductInfoTabs.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
-import DOMPurify from 'dompurify'
+import { normalizeDescription } from '@/lib/scrape/normalize-description'
 
 // Structural, not tied to StoreProduct — anything shaped like this
 // works (StoreProduct already satisfies it; ScrapeResult-derived
@@ -22,7 +23,7 @@ export interface ProductInfoTabsData {
   sizeChart?: Array<Record<string, string> & { size: string }> | null
 }
 
-const ALL_TABS = ['Description', 'Details', 'Shipping & Returns', 'Size chart'] as const
+const ALL_TABS = ['Description', 'Details', 'Shipping & Returns', 'Size chart', 'FAQs'] as const
 type InfoTab = (typeof ALL_TABS)[number]
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -38,10 +39,37 @@ export default function ProductInfoTabs({ product }: { product: ProductInfoTabsD
   const p = product
 
   const rawDescription = p.fullDescription || p.description || ''
-  const hasDescription = rawDescription.trim().length > 0
-  const hasDetails = !!(p.vendor || p.productType || p.sku || p.condition)
+  const hasRawDescription = rawDescription.trim().length > 0
+
+  // Runs the merchant's raw body_html (or the flat plain-text
+  // description as a fallback) through normalizeDescription() — strips
+  // theme-breaking inline styles, decorative wrapper divs, and
+  // unresolved lazy-load images, and pulls a spec table / FAQ block out
+  // into structured data instead of leaving them as prose. This used to
+  // go through a bare `DOMPurify.sanitize(rawDescription)` call, which
+  // only strips XSS vectors (script tags, event handlers) — it left
+  // every merchant-specific styling problem (white-on-nothing text,
+  // full-bleed banner divs, a buried spec <table>, broken <img>s
+  // waiting on a lazy-load script we don't run) completely intact.
+  const [normalized, setNormalized] = useState<ReturnType<typeof normalizeDescription> | null>(null)
+  useEffect(() => {
+    if (hasRawDescription) {
+      setNormalized(normalizeDescription(p.fullDescription, p.description))
+    } else {
+      setNormalized(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.fullDescription, p.description, hasRawDescription])
+
+  const cleanDescriptionHtml = normalized?.html ?? ''
+  const extractedSpecs = normalized?.specs ?? []
+  const extractedFaqs = normalized?.faqs ?? []
+
+  const hasDescription = hasRawDescription
+  const hasDetails = !!(p.vendor || p.productType || p.sku || p.condition || extractedSpecs.length)
   const hasShipping = !!(p.seller || p.itemLocation || p.weightKg != null || p.returnsAccepted != null)
   const hasSizeChart = !!p.sizeChart?.length
+  const hasFaqs = extractedFaqs.length > 0
 
   const tabs = ALL_TABS.filter((t) =>
     t === 'Description'
@@ -50,18 +78,12 @@ export default function ProductInfoTabs({ product }: { product: ProductInfoTabsD
         ? hasDetails
         : t === 'Shipping & Returns'
           ? hasShipping
-          : hasSizeChart
+          : t === 'Size chart'
+            ? hasSizeChart
+            : hasFaqs
   )
 
   const [activeTab, setActiveTab] = useState<InfoTab | null>(tabs[0] ?? null)
-
-  const [cleanDescriptionHtml, setCleanDescriptionHtml] = useState('')
-  useEffect(() => {
-    if (hasDescription) {
-      setCleanDescriptionHtml(DOMPurify.sanitize(rawDescription))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawDescription, hasDescription])
 
   if (!tabs.length || !activeTab) return null
 
@@ -108,6 +130,13 @@ export default function ProductInfoTabs({ product }: { product: ProductInfoTabsD
             {p.productType && <DetailRow label="Type" value={p.productType} />}
             {p.sku && <DetailRow label="SKU" value={p.sku} />}
             {p.condition && <DetailRow label="Condition" value={p.condition} />}
+            {/* Specs pulled out of the merchant's own spec table (see
+                normalizeDescription's extractSpecs) — additive to the
+                manual fields above, not a replacement, since a given
+                platform may populate one, the other, or both. */}
+            {extractedSpecs.map((spec) => (
+              <DetailRow key={spec.name} label={spec.name} value={spec.value} />
+            ))}
           </dl>
         )}
 
@@ -155,6 +184,20 @@ export default function ProductInfoTabs({ product }: { product: ProductInfoTabsD
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {activeTab === 'FAQs' && hasFaqs && (
+          <div className="flex flex-col divide-y divide-ink/5">
+            {extractedFaqs.map((faq) => (
+              <details key={faq.question} className="group py-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-ink/80 marker:content-none">
+                  {faq.question}
+                  <span className="text-teal-deep transition-transform group-open:rotate-45">+</span>
+                </summary>
+                <p className="mt-2 text-xs leading-relaxed text-ink/55">{faq.answer}</p>
+              </details>
+            ))}
           </div>
         )}
       </div>

@@ -37,14 +37,23 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * Adding another Shopify-backed brand later only needs a SITE_LOGOS
  * entry (plus its detectSite/relabel in parsers.ts).
  *
- * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN: buildStoreVariantDimensions()
- * in parsers.ts always sets `url: null` on every option — the one API
- * call already returned every variant's price/image/availability, so
- * there's nothing left to re-fetch by "selecting" a tile the way
- * Amazon's swatches do. `onSelectVariant` is still accepted here (for
- * interface parity with the other platform views) but will never
- * actually fire. Tiles just update local `selectedByDimension` state so
- * the buy box reflects whichever combination the shopper is looking at.
+ * VARIANT TILES ARE NEVER CLICKABLE (FOR RE-SCRAPING), BY DESIGN:
+ * buildStoreVariantDimensions() in parsers.ts always sets `url: null`
+ * on every option — the one API call already returned every variant's
+ * price/image/availability, so there's nothing left to re-fetch by
+ * "selecting" a tile the way Amazon's swatches do. `onSelectVariant` is
+ * still accepted here (for interface parity with the other platform
+ * views) but will never actually fire.
+ *
+ * IMAGE SWAP ON VARIANT CLICK: Shopify's product API returns ONE flat
+ * `images` array containing every variant's photos mixed together (all
+ * of color A's angles, then all of color B's, etc, in upload order) —
+ * it does NOT filter or reorder that array per variant, so nothing
+ * about the gallery would change on its own just from picking a tile.
+ * Each variant option DOES carry its own `image` field, though, so
+ * clicking a tile pulls that specific photo to the front of the
+ * gallery via `selectedImage` below — instant, no network round-trip,
+ * since (per the point above) there's no re-scrape to wait on anyway.
  *
  * VARIANT TILE STYLING: rendered as square swatch cards (image, or a
  * deterministically-tinted gradient placeholder keyed off the option's
@@ -139,12 +148,13 @@ function tintFor(label: string) {
 }
 
 /** One variant dimension (Size, Color, ...) as a row of informational
- * swatch cards — never clickable, since every tile's url is always
- * null (see doc comment above). Selecting one only updates local
- * display state. Each card pairs a square image (or a tinted
- * placeholder when no image was returned) with the label and price
- * stacked underneath, closer to Amazon/Flipkart's swatch treatment
- * than a flat chip. */
+ * swatch cards — never clickable for re-scraping, since every tile's
+ * url is always null (see doc comment above). Selecting one updates
+ * local display state AND (via onPick's `image` arg) swaps the
+ * gallery's lead photo instantly. Each card pairs a square image (or a
+ * tinted placeholder when no image was returned) with the label and
+ * price stacked underneath, closer to Amazon/Flipkart's swatch
+ * treatment than a flat chip. */
 function VariantRow({
   dim,
   selectedLabel,
@@ -152,7 +162,7 @@ function VariantRow({
 }: {
   dim: NonNullable<ScrapeResult['variants']>[number]
   selectedLabel: string | null
-  onPick: (label: string) => void
+  onPick: (label: string, image: string | null | undefined, outOfStock: boolean | undefined) => void
 }) {
   return (
     <div>
@@ -168,7 +178,7 @@ function VariantRow({
             <button
               key={opt.label}
               type="button"
-              onClick={() => onPick(opt.label)}
+              onClick={() => onPick(opt.label, opt.image, opt.outOfStock)}
               disabled={opt.outOfStock}
               title={opt.outOfStock ? 'Out of stock' : opt.label}
               className={`group flex w-[86px] flex-col items-center gap-1.5 rounded-xl border p-2 text-center transition-all ${
@@ -227,6 +237,7 @@ function VariantRow({
  */
 function ShopifyCommerceActions({
   result,
+  unavailable,
   qty,
   onQtyChange,
   inWishlist,
@@ -238,6 +249,11 @@ function ShopifyCommerceActions({
   canAct,
 }: {
   result: ScrapeResult
+  /** Overrides result.unavailable — see the main component's
+   * `selectedOutOfStock` state. result.unavailable only ever reflects
+   * whichever variant happened to be selected at scrape time; this
+   * reflects whichever variant tile is CURRENTLY picked in the UI. */
+  unavailable: boolean
   qty: number
   onQtyChange: (qty: number) => void
   inWishlist: boolean
@@ -292,7 +308,7 @@ function ShopifyCommerceActions({
             onClick={onAddToCart}
             disabled={!canAct}
             loading={loading}
-            unavailable={result.unavailable}
+            unavailable={unavailable}
             unavailableLabel="NOT AVAILABLE"
             icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
             color="#000000"
@@ -314,7 +330,7 @@ function ShopifyCommerceActions({
           onClick={onRequestReview}
           disabled={!canAct}
           loading={loading}
-          unavailable={result.unavailable}
+          unavailable={unavailable}
           unavailableLabel="NOT AVAILABLE"
           icon={<ShoppingCart size={16} />}
           color="#95bf47"
@@ -391,14 +407,61 @@ export default function ShopifyProductView({
   // above on why these tiles never trigger onSelectVariant.
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
 
+  // The variant option's own `image` (if it has one), pulled to the
+  // front of the gallery the instant a tile is clicked — see the
+  // "IMAGE SWAP ON VARIANT CLICK" doc comment above for why this can't
+  // rely on a re-scrape the way Amazon/Flipkart's swatches do.
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+
+  // Whether the CURRENTLY SELECTED tile is out of stock — NOT the same
+  // as result.unavailable. result.unavailable is a snapshot from
+  // whichever variant happened to be selected at scrape time (e.g. the
+  // exact URL that was scraped); it never changes after that, so if the
+  // scraped variant was OOS but the shopper clicks an in-stock color,
+  // result.unavailable would keep reporting "unavailable" forever with
+  // nothing in the UI ever clearing it. This is seeded from whichever
+  // option came back `selected: true` and updated on every tile click
+  // instead, so the stock label and buttons always track what's
+  // actually showing on screen.
+  const [selectedOutOfStock, setSelectedOutOfStock] = useState(false)
+
   useEffect(() => {
     const initial: Record<string, string> = {}
+    let initialOutOfStock = false
     for (const dim of result.variants ?? []) {
       const selectedOpt = dim.options.find((o) => o.selected)
-      if (selectedOpt) initial[dim.dimension] = selectedOpt.label
+      if (selectedOpt) {
+        initial[dim.dimension] = selectedOpt.label
+        if (selectedOpt.outOfStock) initialOutOfStock = true
+      }
     }
     setSelectedByDimension(initial)
+    setSelectedOutOfStock(initialOutOfStock)
+    // New product loaded — drop any lead-image override from the
+    // previous one so the gallery starts from its own natural order.
+    setSelectedImage(null)
   }, [result.url, result.variants])
+
+  function pickOption(
+    dimension: string,
+    label: string,
+    image: string | null | undefined,
+    outOfStock: boolean | undefined,
+  ) {
+    setSelectedByDimension((prev) => ({ ...prev, [dimension]: label }))
+    if (image) setSelectedImage(image)
+    setSelectedOutOfStock(!!outOfStock)
+    // onSelectVariant is intentionally NOT called here — see the
+    // "VARIANT TILES ARE NEVER CLICKABLE" doc comment above; every
+    // option's url is always null for Shopify results, so there is
+    // nothing to re-scrape.
+  }
+
+  // Reorders `images` so the clicked variant's photo leads the gallery,
+  // without dropping or duplicating any of the other shots.
+  const galleryImages = selectedImage && images.includes(selectedImage)
+    ? [selectedImage, ...images.filter((src) => src !== selectedImage)]
+    : images
 
   const price = fmt(result.price, result.currencyCode)
   const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
@@ -407,7 +470,12 @@ export default function ShopifyProductView({
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
       : null
 
-  const inStock = !result.unavailable
+  // If this product has variants, trust the CURRENTLY selected one
+  // (selectedOutOfStock, kept in sync with every tile click) over the
+  // scrape-time snapshot in result.unavailable. Only fall back to
+  // result.unavailable for a variant-less listing, where there's no
+  // per-tile state to track in the first place.
+  const inStock = result.variants?.length ? !selectedOutOfStock : !result.unavailable
 
   // Brand logo for this result ('boat' -> boAt's own logo, anything else
   // Shopify-backed -> the generic Shopify mark). See logoFor() above.
@@ -424,11 +492,16 @@ export default function ShopifyProductView({
     
 
       <div className="grid gap-8 sm:grid-cols-2">
-        {/* Image gallery — shared component, app default theme */}
+        {/* Image gallery — shared component, app default theme. Keyed by
+            the SELECTED IMAGE too (not just result.url) so switching
+            variants forces the gallery to reset its own active-thumbnail
+            index back to the new lead photo instead of keeping whatever
+            index was active before, which could now point at a
+            different picture. */}
         <ProductGallery
-          images={images}
+          images={galleryImages}
           title={result.title}
-          resetKey={result.url}
+          resetKey={`${result.url}|${selectedImage ?? ''}`}
           theme={{
             frameBorder: 'border-ink/10',
             activeThumb: 'border-teal-deep ring-1 ring-teal-deep',
@@ -481,7 +554,7 @@ export default function ShopifyProductView({
                   key={dim.dimension}
                   dim={dim}
                   selectedLabel={selectedByDimension[dim.dimension] ?? null}
-                  onPick={(label) => setSelectedByDimension((prev) => ({ ...prev, [dim.dimension]: label }))}
+                  onPick={(label, image, outOfStock) => pickOption(dim.dimension, label, image, outOfStock)}
                 />
               ))}
             </div>
@@ -497,6 +570,7 @@ export default function ShopifyProductView({
 
           <ShopifyCommerceActions
             result={result}
+            unavailable={!inStock}
             qty={qty}
             onQtyChange={onQtyChange}
             inWishlist={inWishlist}
