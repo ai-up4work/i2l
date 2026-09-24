@@ -44,4 +44,5 @@ export const SITE_LOGOS: Partial<Record<string, string>> = {
   snapdeal: '/logos/snapdeal.png',
   westside: '/logos/westside.png',
   woocommerce: '/logos/woocommerce.png',
+  croma: '/logos/croma.png',
 }
