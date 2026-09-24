@@ -98,6 +98,10 @@ export const platformLogos: Record<string, string> = {
   // nykaa: '/logos/nykaa.png',
   // ajio: '/logos/ajio.png',
   // hopscotch: '/logos/hopscotch.png',
+  // westside: '/logos/westside.png',
+  // seleqt: '/logos/seleqt.png',
+  // boAt: '/logos/boat.png',
+  // lenskart: '/logos/lenskart.png',
 }
 
 

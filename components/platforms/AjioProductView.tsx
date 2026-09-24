@@ -1,7 +1,7 @@
 // components/platforms/AjioProductView.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Star,
   PackageX,
@@ -29,48 +29,27 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 
 /**
- * Renders a scrape result using the SAME structural layout as
+ * Renders a scrape result using the same structural layout as
  * AmazonProductView / FlipkartProductView / MyntraProductView /
- * NykaaProductView — gallery (shared ProductGallery component) + buy
- * box side by side (max-w-6xl), buy box ordered as
- * platform/rating -> brand + title -> seller -> price -> offers ->
- * option chips -> size row (+ size chart) -> stock -> urgency ->
- * AjioCommerceActions, then a bottom-most full-width ProductInfoTabs
- * section — but restyled with Ajio's own visual language:
- *   - slate-navy (#2C4152) primary CTA, rating pill and active tab
- *     indicator, matching the real ajio.com PDP
- *   - orange "(X% OFF)" discount tag next to a struck-through MRP,
- *     with "Inclusive of all taxes" under the price
- *   - brand rendered bold on its own line above the product name
- *     (Ajio's PDP convention), not inline in the title
- *   - round size bubbles (h-9 w-9); Color dimension renders as swatch
- *     thumbnails instead, matching ajio.com's own convention
+ * NykaaProductView, restyled with Ajio's visual language (slate-navy
+ * primary, orange discount tag, brand above title, round size bubbles,
+ * color swatches).
  *
- * Ajio-specific extractor behavior preserved (see
- * lib/scrape/extractors/ajio.ts for the source of truth):
- *   - Size tiles never carry a per-size `url`, so they are
- *     informational only — there is nothing to re-scrape on click.
- *     Tiles only become clickable if an option DOES resolve a url.
- *   - `result.options` (flat label -> value pairs) is still shown as
- *     small chips under the price.
- *   - The "Listing appears unavailable" banner is kept above the grid.
- *
- * Now also surfaces fields the extractor returns but the view
- * previously dropped on the floor:
- *   - `offers` (coupon / payment offers) — collapsible strip under price
- *   - `legalInfo` — merged into the Details tab
- *   - `sizeChart` — "Size Chart" trigger opens a measurement table modal
- *   - `discountPercentage` — used as a fallback when price/mrp math
- *     can't produce a percentage itself
- *   - variant `image` (color swatches) — Color dimension renders
- *     thumbnails instead of text bubbles
- *   - `stockLevel` / `lowStock` per size option — low-stock dot + tooltip
- *   - `quantityAvailable` — shown as a small caption under stock status
- *   - `urgencyTag` — small badge next to stock status when present
- *
- * LAYOUT ON MOBILE (<sm): same grid-template-areas reflow as the other
- * views — info (badge/title) above gallery, above the rest of the buy
- * box (seller/price/options/sizes/stock/commerce actions).
+ * Size handling (this version):
+ *   - Ajio's extractor never gives sizes a per-size `url`, but sizes are
+ *     now SELECTABLE anyway. The variant identity is product url +
+ *     selected options (e.g. { Size: 'M' }).
+ *   - The selected size is appended to the title, exactly like ajio.com:
+ *     "Off Men Brand Printed Regular Fit Sweatshirt | M".
+ *   - The selection is reported to the parent through the optional
+ *     `onSelectionChange` prop so the cart item / quote request can
+ *     carry it. Add `onSelectionChange?: (s: Record<string, string>) => void`
+ *     to PlatformViewProps.
+ *   - When the product has a size dimension, ADD TO BAG / GET QUOTE
+ *     require a size and show "Please select a size" otherwise.
+ *   - If a re-scrape (e.g. color swatch with a url) brings new variants,
+ *     the previous choice is kept when that label still exists and is in
+ *     stock.
  */
 
 const AJIO_INK = '#2C4152'
@@ -109,10 +88,9 @@ function AjioRatingBadge({ rating, count }: { rating: string | null | undefined;
   )
 }
 
-/** Round size bubble. Informational unless the option resolves a url
- * (Ajio's extractor doesn't give sizes one, so normally it isn't).
- * Carries an optional low-stock dot fed by the option's `lowStock`
- * flag, with the exact `stockLevel` in the tooltip when known. */
+/** Round size bubble. Clickable whenever an onClick is supplied and the
+ * size is in stock. Carries an optional low-stock dot fed by the option's
+ * `lowStock` flag, with the exact `stockLevel` in the tooltip when known. */
 function AjioSizeBubble({
   label,
   selected,
@@ -169,7 +147,7 @@ function AjioSizeBubble({
 
 /** Color swatch thumbnail — Ajio renders color options as small square
  * swatches rather than text bubbles. Falls back to a text bubble if the
- * option has no image (defensive; the extractor always supplies one). */
+ * option has no image. */
 function AjioColorSwatch({
   label,
   image,
@@ -219,83 +197,7 @@ function AjioColorSwatch({
   )
 }
 
-/** Collapsible "Offers" strip fed by `result.offers` (coupon + payment
- * offers). Closed by default; opens to a scoped list with a copy
- * affordance on coupon codes. */
-function AjioOffers({ offers }: { offers: ScrapeResult['offers'] }) {
-  const [open, setOpen] = useState(false)
-  const [copiedCode, setCopiedCode] = useState<string | null>(null)
-
-  if (!offers || offers.length === 0) return null
-
-  async function copyCode(code: string) {
-    try {
-      await navigator.clipboard.writeText(code)
-      setCopiedCode(code)
-      setTimeout(() => setCopiedCode((c) => (c === code ? null : c)), 1500)
-    } catch {
-      // Clipboard API unavailable — silently ignore, code is still visible to copy by hand.
-    }
-  }
-
-  return (
-    <div className="mt-4 rounded-xl border border-[#e6e6e6]">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left"
-      >
-        <span className="inline-flex items-center gap-2 text-[13px] font-bold text-[#2c4152]">
-          <Tag size={14} style={{ color: AJIO_ORANGE }} />
-          {offers.length} offer{offers.length === 1 ? '' : 's'} available
-        </span>
-        <ChevronDown
-          size={16}
-          className={`flex-none text-[#8a8a8a] transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-
-      {open && (
-        <ul className="flex flex-col gap-2.5 border-t border-[#e6e6e6] px-3.5 py-3">
-          {offers.map((offer, i) => {
-            const endsAt = fmtDate(offer.endsAt)
-            return (
-              <li key={`${offer.code ?? offer.description}-${i}`} className="flex items-start gap-2.5 text-xs">
-                <Tag size={13} className="mt-0.5 flex-none" style={{ color: AJIO_ORANGE }} />
-                <div className="min-w-0">
-                  <p className="text-[#484848]">{offer.description}</p>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-[#8a8a8a]">
-                    {offer.code && (
-                      <button
-                        type="button"
-                        onClick={() => copyCode(offer.code!)}
-                        className="inline-flex items-center gap-1 rounded border border-dashed border-[#cfcfcf] px-1.5 py-0.5 font-mono font-semibold text-[#2c4152] hover:border-[#2c4152]"
-                      >
-                        {offer.code}
-                        {copiedCode === offer.code ? (
-                          <CopyCheck size={11} className="text-[#1E7E34]" />
-                        ) : (
-                          <Copy size={11} />
-                        )}
-                      </button>
-                    )}
-                    {offer.minOrder != null && <span>· Min order ₹{offer.minOrder}</span>}
-                    {offer.maxSaving != null && <span>· Save up to ₹{offer.maxSaving}</span>}
-                    {offer.newUsersOnly && <span>· New users only</span>}
-                    {endsAt && <span>· Ends {endsAt}</span>}
-                  </p>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-/** Size chart trigger + modal, fed by `result.sizeChart`. Renders each
- * chart's own header/row grid as a scrollable table. */
+/** Size chart trigger + modal, fed by `result.sizeChart`. */
 function AjioSizeChart({ sizeChart }: { sizeChart: ScrapeResult['sizeChart'] }) {
   const [open, setOpen] = useState(false)
 
@@ -381,10 +283,9 @@ function AjioSizeChart({ sizeChart }: { sizeChart: ScrapeResult['sizeChart'] }) 
 }
 
 /**
- * Ajio-styled qty/wishlist/cart/request block — identical shape and
- * slot to AmazonCommerceActions/MyntraCommerceActions/
- * NykaaCommerceActions (qty stepper, wishlist heart, Add to Bag, Get
- * Quote, all inline in one wrapping row), in Ajio's navy/red palette.
+ * Ajio-styled qty/wishlist/cart/request block — same shape and slot as
+ * the other platforms' CommerceActions (qty stepper, wishlist heart,
+ * Add to Bag, Get Quote).
  */
 function AjioCommerceActions({
   result,
@@ -413,8 +314,7 @@ function AjioCommerceActions({
     <div className="mt-6 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         {/* Atomic group: qty stepper + wishlist + Add to Bag. Never
-            splits across lines — flex-nowrap keeps it as one unit for
-            the outer row's wrap decision. */}
+            splits across lines. */}
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
           <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#cfcfcf] px-2.5 py-1.5">
             <button
@@ -462,12 +362,8 @@ function AjioCommerceActions({
           </RequestActionButton>
         </div>
 
-        {/* Get Quote:
-            - Mobile (below sm): grow + basis-full → the only thing
-              allowed to wrap, and when it does it takes the entire
-              next line by itself.
-            - Desktop (sm and up): sm:grow-0 + sm:basis-auto → fixed to
-              its own natural content width. */}
+        {/* Get Quote: mobile takes the whole next line; desktop sits at
+            its natural width. */}
         <RequestActionButton
           onClick={onRequestReview}
           disabled={!canAct}
@@ -489,9 +385,7 @@ function AjioCommerceActions({
 }
 
 /* ---------------------------------------------------------------------
- * ProductInfoTabs — inlined, Ajio-flavored (navy active indicator),
- * same Description / Details / Shipping & Returns structure and same
- * bottom-most full-width slot as the other platform views.
+ * ProductInfoTabs — Description / Details / Shipping & Returns
  * ------------------------------------------------------------------- */
 
 const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
@@ -508,8 +402,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 /** Drops leaked <style>/<script> blocks, tags and raw CSS rule text from
  * scraped descriptions; returns null if what's left is empty or still
- * markup-noise-heavy so the caller can show the "no description"
- * fallback. Same helper as NykaaProductView. */
+ * markup-noise-heavy. */
 function sanitizeDescription(raw: string | null | undefined): string | null {
   if (!raw) return null
   let text = raw
@@ -629,6 +522,7 @@ function ProductInfoTabs({ result }: { result: ScrapeResult }) {
 export default function AjioProductView({
   result,
   onSelectVariant,
+  onSelectionChange,
   qty,
   onQtyChange,
   inWishlist,
@@ -641,29 +535,48 @@ export default function AjioProductView({
 }: PlatformViewProps) {
   const images = result.images ?? []
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
+  const [showSizeError, setShowSizeError] = useState(false)
+  // Always-current copy of the selection so pickOption and the re-scrape
+  // effect never work from a stale closure.
+  const selectionRef = useRef<Record<string, string>>({})
 
+  // Build the selection whenever the scrape result changes. Keep the
+  // user's previous choice per dimension if that label still exists and
+  // is in stock; otherwise fall back to what the extractor marked selected.
   useEffect(() => {
-    const initial: Record<string, string> = {}
+    const prev = selectionRef.current
+    const next: Record<string, string> = {}
     for (const dim of result.variants ?? []) {
-      const selectedOpt = dim.options.find((o) => o.selected)
-      if (selectedOpt) initial[dim.dimension] = selectedOpt.label
+      const prevLabel = prev[dim.dimension]
+      const prevStillValid =
+        prevLabel != null && dim.options.some((o) => o.label === prevLabel && !o.outOfStock)
+      if (prevStillValid) {
+        next[dim.dimension] = prevLabel
+      } else {
+        const selectedOpt = dim.options.find((o) => o.selected)
+        if (selectedOpt) next[dim.dimension] = selectedOpt.label
+      }
     }
-    setSelectedByDimension(initial)
+    selectionRef.current = next
+    setSelectedByDimension(next)
+    onSelectionChange?.(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result.url, result.variants])
 
   function pickOption(dimension: string, label: string, url: string | null) {
-    setSelectedByDimension((prev) => ({ ...prev, [dimension]: label }))
+    const next = { ...selectionRef.current, [dimension]: label }
+    selectionRef.current = next
+    setSelectedByDimension(next)
+    onSelectionChange?.(next)
+    setShowSizeError(false)
     if (url) onSelectVariant(url)
   }
 
   const price = fmt(result.price, result.currencyCode)
   const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
 
-  // Prefer computing the live percentage off the currently selected
-  // variant's price/mrp; fall back to the extractor-provided
-  // `discountPercentage` only when that math isn't available (e.g. mrp
-  // missing but the scraper still captured a discount elsewhere on the
-  // page).
+  // Prefer computing the live percentage off price/mrp; fall back to the
+  // extractor-provided `discountPercentage`.
   const computedPctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -671,7 +584,7 @@ export default function AjioProductView({
   const pctOff = computedPctOff ?? (mrp && result.discountPercentage != null ? result.discountPercentage : null)
 
   const brand = result.brand ?? null
-  const name =
+  const rawName =
     brand && result.title?.startsWith(brand) ? result.title.slice(brand.length).trim() : (result.title ?? null)
 
   const optionEntries = Object.entries(result.options ?? {})
@@ -683,6 +596,31 @@ export default function AjioProductView({
       : true
 
   const sizeDimension = result.variants?.find((d) => d.dimension.toLowerCase() === 'size')
+  const selectedSize = sizeDimension ? (selectedByDimension[sizeDimension.dimension] ?? null) : null
+  const missingSize = !!sizeDimension && !selectedSize
+
+  // The scraped title may already end with " | <size>" (e.g. when the
+  // page was opened on a specific size). Strip any trailing size label so
+  // it isn't doubled, then append the live selection like ajio.com does.
+  const name = (() => {
+    if (!rawName) return null
+    if (!sizeDimension) return rawName
+    for (const opt of sizeDimension.options) {
+      const suffix = new RegExp(`\\s*\\|\\s*${opt.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i')
+      if (suffix.test(rawName)) return rawName.replace(suffix, '').trim()
+    }
+    return rawName
+  })()
+
+  function requireSize(action: () => void) {
+    return () => {
+      if (missingSize) {
+        setShowSizeError(true)
+        return
+      }
+      action()
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
@@ -721,15 +659,20 @@ export default function AjioProductView({
           <h1
             className={`${brand ? 'mt-0.5' : 'mt-2'} text-base font-normal leading-snug text-[#767676] sm:text-lg`}
           >
-            {name ?? <span className="italic text-[#8a8a8a]">No title found</span>}
+            {name ? (
+              <>
+                {name}
+                {selectedSize && (
+                  <span className="font-semibold text-[#2c4152]"> | {selectedSize}</span>
+                )}
+              </>
+            ) : (
+              <span className="italic text-[#8a8a8a]">No title found</span>
+            )}
           </h1>
         </div>
 
-        {/* Image gallery — shared component, Ajio theme.
-            Mobile: second (area "gallery"). Desktop: left column,
-            spanning both rows since "gallery" repeats in both area rows.
-            Guarded against an empty `images` array so the grid cell
-            doesn't collapse to zero size. */}
+        {/* Image gallery — shared component, Ajio theme. */}
         <div className="min-w-0 [grid-area:gallery]">
           {images.length > 0 ? (
             <ProductGallery
@@ -751,8 +694,7 @@ export default function AjioProductView({
         </div>
 
         {/* Rest of buy box: seller -> price -> offers -> option chips ->
-            sizes -> stock -> urgency -> commerce actions. Mobile: third
-            (area "rest"). Desktop: bottom-right column. */}
+            variants -> stock -> urgency -> commerce actions. */}
         <div className="min-w-0 [grid-area:rest]">
           {result.seller && <p className="text-[13px] font-medium text-[#767676]">Sold by {result.seller}</p>}
 
@@ -770,6 +712,7 @@ export default function AjioProductView({
             )}
           </div>
           <p className="mt-1 text-[11px] text-[#8a8a8a]">Inclusive of all taxes</p>
+
 
           {optionEntries.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -803,8 +746,10 @@ export default function AjioProductView({
                     <div className="flex flex-wrap gap-2">
                       {dim.options.map((opt, i) => {
                         const selected = opt.label === selectedLabel
-                        const clickable = !!opt.url && !selected && !opt.outOfStock
-                        const disabledTitle = opt.url ? undefined : `${opt.label} — informational only, no per-size link`
+                        // Selectable even without a per-option url: the
+                        // variant is identified by product url + label.
+                        const clickable = !selected && !opt.outOfStock
+                        const onPick = clickable ? () => pickOption(dim.dimension, opt.label, opt.url) : undefined
                         return isColor ? (
                           <AjioColorSwatch
                             key={`${opt.label}-${i}`}
@@ -812,8 +757,7 @@ export default function AjioProductView({
                             image={opt.image}
                             selected={selected}
                             outOfStock={opt.outOfStock}
-                            disabledTitle={disabledTitle}
-                            onClick={clickable ? () => pickOption(dim.dimension, opt.label, opt.url) : undefined}
+                            onClick={onPick}
                           />
                         ) : (
                           <AjioSizeBubble
@@ -823,8 +767,7 @@ export default function AjioProductView({
                             outOfStock={opt.outOfStock}
                             lowStock={'lowStock' in opt && typeof opt.lowStock === 'boolean' ? opt.lowStock : undefined}
                             stockLevel={'stockLevel' in opt && (typeof opt.stockLevel === 'number' || opt.stockLevel === null) ? opt.stockLevel : undefined}
-                            disabledTitle={disabledTitle}
-                            onClick={clickable ? () => pickOption(dim.dimension, opt.label, opt.url) : undefined}
+                            onClick={onPick}
                           />
                         )
                       })}
@@ -862,15 +805,21 @@ export default function AjioProductView({
             </p>
           )}
 
+          {showSizeError && missingSize && (
+            <p role="alert" className="mt-4 text-xs font-semibold text-[#c9252b]">
+              Please select a size
+            </p>
+          )}
+
           <AjioCommerceActions
             result={result}
             qty={qty}
             onQtyChange={onQtyChange}
             inWishlist={inWishlist}
             onToggleWishlist={onToggleWishlist}
-            onAddToCart={onAddToCart}
+            onAddToCart={requireSize(onAddToCart)}
             justAdded={justAdded}
-            onRequestReview={onRequestReview}
+            onRequestReview={requireSize(onRequestReview)}
             loading={loading}
             canAct={canAct}
           />

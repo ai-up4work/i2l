@@ -98,6 +98,10 @@ export const platformLogos: Record<string, string> = {
   // nykaa: '/logos/nykaa.png',
   // ajio: '/logos/ajio.png',
   // hopscotch: '/logos/hopscotch.png',
+  // westside: '/logos/westside.png',
+  // seleqt: '/logos/seleqt.png',
+  // boAt: '/logos/boat.png',
+  // lenskart: '/logos/lenskart.png',
 }
 
 
@@ -206,7 +210,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     sampleProductLabel: 'HRX Running Shoes',
   },
   {
-    platform: 'tata-cliq',
+    platform: 'tatacliq',
     name: 'Tata CLiQ',
     logo: '/logos/tata-cliq-squared.png',
     url: 'https://www.tatacliq.com',
@@ -261,7 +265,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     sampleProductLabel: 'Ruffled Bow Applique Dress',
   },
   {
-    platform: 'Westside',
+    platform: 'westside',
     name: 'Westside',
     logo: '/logos/westside-squared.png',
     url: 'https://www.westside.com',
@@ -274,6 +278,32 @@ export const affiliatedStores: AffiliatedStore[] = [
       'https://westside.com/products/gia-black-double-layered-cotton-a-line-dress-301086834?Color=Black&Size=XS',
     sampleProductLabel: 'Superstar Dark Brown Heart-Detail Hooded Cotton Jacket',
   },
+  {
+    platform: 'boat',
+    name: 'boAt',
+    logo: '/logos/boat-squared.png',
+    url: 'https://www.boat-lifestyle.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: 'India’s leading audio and lifestyle brand, offering headphones, earphones, speakers, and smartwatches.',
+    categories: ['Electronics', 'Audio', 'Wearables'],
+    storeType: 'marketplace',
+    sampleProductUrl: "https://www.boat-lifestyle.com/products/airdopes-141?variant=40519922352226",
+    sampleProductLabel: 'boAt Airdopes 141 True Wireless Earbuds',
+  },
+  {
+    platform: 'lenskart',
+    name: 'Lenskart',
+    logo: '/logos/lenskart-squared.png',
+    url: 'https://www.lenskart.com',
+    country: 'India',
+    flag: '🇮🇳',
+    description: 'India’s leading eyewear brand, offering prescription glasses, sunglasses, and contact lenses online.',
+    categories: ['Eyewear', 'Sunglasses', 'Contact Lenses'],
+    storeType: 'marketplace',
+    sampleProductUrl: 'https://www.lenskart.com/vincent-chase-vce000714-black-1-eyeglasses.html',
+    sampleProductLabel: 'Vincent Chase VCE000714 Black 1 Eyeglasses',
+  }
   // {
   //   platform: 'ebay',
   //   name: 'eBay',
@@ -848,3 +878,8 @@ export const scraperTestLinks: ScraperTestLink[] = affiliatedStores
     product: s.sampleProductLabel,
     url: s.sampleProductUrl,
   }))
+
+export const SITE_LOGOS_SQUARE: Record<string, string> = affiliatedStores.reduce((acc, s) => {
+  acc[s.platform] = s.logo
+  return acc
+}, {} as Record<string, string>)

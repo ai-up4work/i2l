@@ -55,6 +55,23 @@ import Image from 'next/image'
  *   and seeds the chat thread itself, then navigates to
  *   /account/messages — no intermediate modal step, straight into a
  *   real conversation with the team.
+ *
+ * SELECTED OPTIONS (size / color): platform views that support it
+ * (currently AjioProductView) report the shopper's chosen variant
+ * options through `onSelectionChange`, e.g. { Size: 'M', Color: 'Navy' }.
+ * They are stored here together with the product url they belong to, so
+ * a stale selection can never leak onto a different product. The
+ * selection is:
+ *   - attached to the cart line (and folded into its id so size M and
+ *     size L of the same URL are separate lines),
+ *   - shown in the QuoteModal header,
+ *   - handed back to the view as `initialSelection` after a variant
+ *     re-scrape (a color swatch with a url remounts the view because the
+ *     wrapper is keyed by title), so the chosen size isn't lost.
+ *
+ * PlatformViewProps must include:
+ *   onSelectionChange?: (selection: Record<string, string>) => void
+ *   initialSelection?: Record<string, string> | null
  */
 
 type ItemOverlayProps = {
@@ -83,6 +100,8 @@ type ItemOverlayProps = {
 
 type DeliveryChoice = 'economy' | 'express'
 
+type SelectedOptions = Record<string, string>
+
 const ANIMATION_MS = 300
 
 // Shown in the gallery when a scrape fails and no real product image
@@ -90,6 +109,21 @@ const ANIMATION_MS = 300
 // public/images/product-placeholder.png (or change this path to match
 // wherever you put it).
 const PLACEHOLDER_IMAGE = '/images/product-placeholder.png'
+
+/** Stable string for a selection, e.g. "Color=Navy|Size=M". Empty
+ * selection -> ''. Used to make cart line ids variant-specific. */
+function variantSuffix(sel: SelectedOptions): string {
+  return Object.entries(sel)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('|')
+}
+
+function formatSelection(sel: SelectedOptions): string {
+  return Object.entries(sel)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(' · ')
+}
 
 // Counts a displayed LKR figure smoothly from its previous value to a new
 // one whenever `value` changes (delivery method switch, qty change, etc.)
@@ -347,6 +381,7 @@ function QuoteModal({
   onAddToCart,
   justAdded,
   onGoToCart,
+  selectedOptions,
 }: {
   open: boolean
   onClose: () => void
@@ -361,6 +396,7 @@ function QuoteModal({
   onAddToCart: () => void
   justAdded: boolean
   onGoToCart: () => void
+  selectedOptions: SelectedOptions
 }) {
   const [entered, setEntered] = useState(false)
 
@@ -373,6 +409,8 @@ function QuoteModal({
   }, [open])
 
   if (!open) return null
+
+  const selectionLabel = formatSelection(selectedOptions)
 
   return createPortal(
     <div
@@ -417,6 +455,9 @@ function QuoteModal({
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-ink">{result.title ?? 'Untitled item'}</p>
+              {selectionLabel && (
+                <p className="mt-0.5 truncate text-[11px] font-medium text-ink/50">{selectionLabel}</p>
+              )}
               <div className="mt-1 flex items-center gap-2.5">
                 <button
                   type="button"
@@ -935,6 +976,21 @@ export default function ItemInfoModal({
   // Cart / QuoteModal path never touches these.
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Variant selection reported by the platform view (e.g. { Size: 'M' }),
+  // stored WITH the product url it belongs to so it can never leak onto a
+  // different product. Deliberately not reset in the result-change effect
+  // below: child effects run before parent effects, so a reset there
+  // would wipe the size the view had just reported for the new result.
+  const [selection, setSelection] = useState<{ url: string | null; options: SelectedOptions }>({
+    url: null,
+    options: {},
+  })
+  // Set the moment a variant re-scrape is requested (color swatch with a
+  // url), consumed by the freshly-mounted view via `initialSelection`,
+  // then cleared as soon as that view reports its own selection.
+  const carrySelectionRef = useRef<SelectedOptions | null>(null)
+
   const cart = useCart()
   const wishlist = useWishlist()
 
@@ -974,7 +1030,12 @@ export default function ItemInfoModal({
   }, [result])
 
   useEffect(() => {
-    if (!open) setQuoteOpen(false)
+    if (!open) {
+      setQuoteOpen(false)
+      // Closing the modal ends the shopping session for this item.
+      carrySelectionRef.current = null
+      setSelection({ url: null, options: {} })
+    }
   }, [open])
 
   // Keep "Added to cart" (and the resulting "Go to cart" button) visible
@@ -995,10 +1056,28 @@ export default function ItemInfoModal({
   if (!mounted) return null
 
   const showLoading = !result || loading
-  const handleSelectVariant = (url: string) => onSelectVariant?.(url)
   const productSnapshot = result && !result.error ? toProductSnapshot(result) : null
   const inWishlist = productSnapshot ? wishlist.isInWishlist(productSnapshot.id) : false
   const hasBreakdown = !!result && !result.error && canBuildBreakdown(result)
+
+  // Only trust a selection that was reported for THIS product's url.
+  const selectedOptions: SelectedOptions =
+    result && selection.url === result.url ? selection.options : {}
+  const hasSelection = Object.keys(selectedOptions).length > 0
+
+  const handleSelectVariant = (url: string) => {
+    // A variant re-scrape is about to swap the result (and remount the
+    // view). Remember what was chosen so the new view can restore it.
+    carrySelectionRef.current = hasSelection ? selectedOptions : null
+    onSelectVariant?.(url)
+  }
+
+  function handleSelectionChange(options: SelectedOptions) {
+    if (!result) return
+    // The view has consumed any carried selection by now.
+    carrySelectionRef.current = null
+    setSelection({ url: result.url, options })
+  }
 
   function handleToggleWishlist() {
     if (!productSnapshot) return
@@ -1008,8 +1087,13 @@ export default function ItemInfoModal({
 
   function handleAddToCart() {
     if (!productSnapshot) return
+    // Fold the selection into the cart line id so size M and size L of
+    // the same URL are separate lines instead of merging.
+    const suffix = variantSuffix(selectedOptions)
     const cartProduct: CartProduct = {
       ...productSnapshot,
+      id: suffix ? `${productSnapshot.id}::${suffix}` : productSnapshot.id,
+      selectedOptions: hasSelection ? selectedOptions : undefined,
       sourcePrice: result?.price != null ? String(result.price) : null,
       estimatedPrice: estimatedPrice ?? null,
     }
@@ -1046,6 +1130,8 @@ export default function ItemInfoModal({
     ? {
         result,
         onSelectVariant: handleSelectVariant,
+        onSelectionChange: handleSelectionChange,
+        initialSelection: carrySelectionRef.current,
         estimatedPrice,
         estimatedPriceNote,
         qty,
@@ -1099,6 +1185,9 @@ export default function ItemInfoModal({
       case 'westside':
         return <WestsideProductView {...commerceProps} />
       case 'shopify':
+      // boAt is Shopify-backed; it reuses this view and only differs in
+      // the logo (picked from result.site inside ShopifyProductView).
+      case 'boat':
         return <ShopifyProductView {...commerceProps} />
       case 'woocommerce':
         return <WooCommerceProductView {...commerceProps} />
@@ -1223,6 +1312,7 @@ export default function ItemInfoModal({
         onAddToCart={handleAddToCart}
         justAdded={justAdded}
         onGoToCart={handleGoToCart}
+        selectedOptions={selectedOptions}
       />
     </div>
   )

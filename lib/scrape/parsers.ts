@@ -108,7 +108,16 @@ import {
   fetchNykaaViaScrapingdog,
   nykaaScrapingdogConfigured,
 } from './extractors/nykaa'
-import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq } from './extractors/tataCliq'
+// NOTE: check the casing of this path against the real filename on disk
+// (the extractor's own header says `tatacliq.ts`). Windows is
+// case-insensitive; Vercel's Linux build is not.
+// CHANGED: also imports consumeTataCliqMeta (was never called, so
+// _tataCliqWarning/_tataCliqUnavailable leaked into results and sold-out
+// items never got `unavailable`).
+import { SITE_ID as TATACLIQ_SITE_ID, parseTataCliq, consumeTataCliqMeta } from './extractors/tataCliq'
+// NEW: hosted-render tiers (scrape.do → Scrapingdog, India residential)
+// used as Tata CLiQ's last-resort fallback for its Cloudflare 403.
+import { TATACLIQ_HOSTED_TIERS } from './hosted-fetch'
 import { SITE_ID as ALIEXPRESS_SITE_ID, parseAliExpress } from './extractors/aliexpress'
 import { parseSeleqt } from './extractors/seleqt'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
@@ -205,6 +214,9 @@ export type SiteId =
   | 'tataCliq'
   | 'Aliexpress'
   | 'westside'
+  // NEW: boAt Lifestyle — Shopify-backed, detected by hostname and shown
+  // with its own logo (SITE_LOGOS.boat) instead of the generic Shopify one.
+  | 'boat'
   | 'seleqt'
   | 'shopify'
   | 'woocommerce'
@@ -293,13 +305,14 @@ function jitterDelay(min = 200, max = 700) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// 'westside' must be matched by hostname BEFORE the generic
+// 'westside' and 'boat' must be matched by hostname BEFORE the generic
 // SHOPIFY_PRODUCT_PATH_RE fallback in detectSite() gets a chance to run,
-// otherwise any westside.com/products/{x} URL is permanently tagged
-// site: 'shopify' and ItemInfoModal renders ShopifyProductView instead of
-// WestsideProductView. Westside genuinely IS Shopify-backed, so
-// scrapeProduct() still routes it through the real Shopify API
-// (scrapeWestsideProduct) and just relabels the result.
+// otherwise any westside.com/products/{x} or boat-lifestyle.com/products/{x}
+// URL is permanently tagged site: 'shopify' and ItemInfoModal renders the
+// generic Shopify logo instead of the brand's own. Both genuinely ARE
+// Shopify-backed, so scrapeProduct() still routes them through the real
+// Shopify API (scrapeWestsideProduct / scrapeBoatProduct) and just
+// relabels the result.
 const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['amazon', 'amazon'],
   ['flipkart', 'flipkart'],
@@ -318,6 +331,9 @@ const SITE_HOST_MAP: Array<[string, SiteId]> = [
   ['tatacliq', 'tatacliq'],
   ['aliexpress', ALIEXPRESS_SITE_ID],
   ['westside', 'westside'],
+  // NEW: boAt Lifestyle (boat-lifestyle.com) — Shopify-backed, brand
+  // logo instead of the generic Shopify one.
+  ['boat-lifestyle', 'boat'],
   // seleqt.wishlink.com's product URLs are /product/{id} — the exact
   // shape WOOCOMMERCE_PRODUCT_PATH_RE matches below. Must be listed
   // here, ahead of that fallback, or every Seleqt link is detected (and
@@ -783,6 +799,11 @@ async function primeCookies(
 // Ajio whenever PARSE_API_KEY is set — see scrapeProduct()'s routing,
 // which checks ajioParseBotConfigured() before ever reaching
 // fetchDirectWithRetries.
+//
+// 'tatacliq' is deliberately NOT in this set: its 403 is a Cloudflare
+// hard block on the IP ("Attention Required!"), which a datacenter-IP
+// headless browser can't get past — it would only burn ~25s before the
+// hosted residential tiers in LAST_RESORT_FALLBACK run anyway.
 const RENDER_FALLBACK_HOSTS = new Set<SiteId>(['meesho', 'ajio', FIRSTCRY_SITE_ID, HOPSCOTCH_SITE_ID, 'seleqt'])
 
 // Optional per-site selector to wait for before grabbing page.content(),
@@ -845,6 +866,8 @@ const STATIC_CONTENT_SUFFICIENT: Partial<Record<SiteId, (html: string) => boolea
 //     execution, so it can't solve hydration on its own).
 //     NOTE: this whole array is only reached for Ajio when PARSE_API_KEY
 //     is unset.
+//   - Tata CLiQ: scrape.do then Scrapingdog (India residential + render),
+//     from lib/scrape/hosted-fetch.ts — Cloudflare hard-blocks datacenter IPs.
 //
 // `fetch` accepts an optional AbortSignal so a client disconnect (or the
 // caller's own deadline) can cancel an in-flight call instead of letting
@@ -913,6 +936,10 @@ if (NYKAA_SUPPORTS_SCRAPINGDOG_FALLBACK) {
     },
   ]
 }
+
+// Tata CLiQ: Cloudflare "Attention Required!" 403 on the direct fetch.
+// Keyed by the lowercase 'tatacliq' id detectSite() returns for this host.
+LAST_RESORT_FALLBACK['tatacliq'] = TATACLIQ_HOSTED_TIERS
 
 // Ajio: scrape.do first (the credential currently configured), then
 // Scrapingdog, then TLS-fingerprint as the final cheap fallback. Only
@@ -1473,6 +1500,22 @@ async function scrapeWestsideProduct(url: string): Promise<ScrapeResult> {
   return { ...result, site: 'westside' }
 }
 
+// boAt Lifestyle (boat-lifestyle.com) is a standard Shopify storefront.
+// Same idea as Westside: fetch through the real Shopify API — so
+// `?variant=<id>` URLs, colour/size tiles and prices all work exactly as
+// for any Shopify store — then relabel `site` to 'boat' so the UI shows
+// boAt's own logo (SITE_LOGOS.boat) instead of the generic Shopify one.
+// ItemInfoModal routes 'boat' to ShopifyProductView.
+//
+// On failure this deliberately does NOT relabel — scrapeProduct() discards
+// the error result and falls back to the generic HTML pipeline (and
+// re-applies the boAt label via `displaySite`).
+async function scrapeBoatProduct(url: string): Promise<ScrapeResult> {
+  const result = await scrapeShopifyProduct(url)
+  if (result.error) return result
+  return { ...result, site: 'boat' }
+}
+
 // ---------- WooCommerce (real API, no scraping) ----------
 
 function extractWooCommerceHandle(url: string): { origin: string; handle: string } | null {
@@ -1692,10 +1735,11 @@ async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> 
 // which relies entirely on the generic embedded-state/JSON-LD/OG-meta
 // fallback chain in parseHtml() below. See ScrapeResult.ogOnly above.
 //
-// Westside is handled without its own DOM extractor: scrapeProduct()
-// routes it through the real Shopify API (scrapeWestsideProduct).
-// `parseGeneric` below is registered only as the SECONDARY fallback used
-// if that Shopify-API call itself fails.
+// Westside and boAt are handled without their own DOM extractor:
+// scrapeProduct() routes them through the real Shopify API
+// (scrapeWestsideProduct / scrapeBoatProduct). `parseGeneric` below is
+// registered only as the SECONDARY fallback used if that Shopify-API
+// call itself fails.
 //
 // eBay's entry (parseEbay) and Ajio's entry (parseAjio) are the FALLBACK
 // paths — used when EBAY_APP_ID/EBAY_CERT_ID / PARSE_API_KEY aren't
@@ -1732,6 +1776,7 @@ const SITE_PARSERS: Record<Exclude<SiteId, 'generic' | 'shopify' | 'woocommerce'
   tataCliq: parseTataCliq,
   [ALIEXPRESS_SITE_ID]: parseAliExpress,
   westside: parseGeneric,
+  boat: parseGeneric,
   seleqt: parseSeleqt,
 }
 
@@ -1829,13 +1874,19 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // pipeline with `site` reassigned to 'generic', so the result honestly
   // reflects what happened.
   //
-  // 'westside' gets the same treatment (real Shopify API first,
+  // 'westside' and 'boat' get the same treatment (real Shopify API first,
   // generic-fallback-on-failure second).
   //
   // Tracked separately from `site` so the result can still be honestly
   // marked ogOnly — it has the same limitations (no variants, MRP,
   // rating, often one image).
   let fellBackFromStorePlatform = false
+
+  // The brand label ('westside' | 'boat') a Shopify-backed store should
+  // still be DISPLAYED under even when its Shopify API call failed and
+  // `site` was reassigned to 'generic' for the HTML fallback. Applied to
+  // the final result below so the right logo shows either way.
+  let displaySite: SiteId | null = null
 
   if (site === 'shopify') {
     const shopifyResult = await scrapeShopifyProduct(url)
@@ -1845,6 +1896,13 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   } else if (site === 'westside') {
     const westsideResult = await scrapeWestsideProduct(url)
     if (!westsideResult.error) return westsideResult
+    displaySite = 'westside'
+    site = 'generic'
+    fellBackFromStorePlatform = true
+  } else if (site === 'boat') {
+    const boatResult = await scrapeBoatProduct(url)
+    if (!boatResult.error) return boatResult
+    displaySite = 'boat'
     site = 'generic'
     fellBackFromStorePlatform = true
   } else if (site === 'woocommerce') {
@@ -1872,11 +1930,11 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const { html, error, source } = await fetchDirectWithRetries(url, site, { signal })
 
   if (!html) {
-    return { url, site, error: error ?? 'Fetch failed' }
+    return { url, site: displaySite ?? site, error: error ?? 'Fetch failed' }
   }
 
   if (error && error.startsWith('BLOCKED')) {
-    return { url, site, error }
+    return { url, site: displaySite ?? site, error }
   }
 
   // This HTML was only fetched because REST + Plus discovery both failed
@@ -1890,7 +1948,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   if (fellBackFromStorePlatform && looksLikeShopifyPasswordWall(html)) {
     return {
       url,
-      site,
+      site: displaySite ?? site,
       error:
         "This store is behind Shopify's password/\"coming soon\" wall — it hasn't launched publicly yet, or access is deliberately restricted. No scraping method can or should get past that; this isn't something to retry.",
     }
@@ -1905,7 +1963,12 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     try {
       const $ = cheerio.load(html)
       const themeProduct = extractShopifyThemeEmbeddedProduct($, html)
-      if (themeProduct) return normaliseShopifyThemeJsonProduct(themeProduct, url)
+      if (themeProduct) {
+        const themeResult = normaliseShopifyThemeJsonProduct(themeProduct, url)
+        // Keep the brand label (boAt / Westside) so the right logo shows.
+        if (displaySite) themeResult.site = displaySite
+        return themeResult
+      }
     } catch {
       // Fall through to the generic parse below — a malformed theme JSON
       // shape shouldn't take down the fallback tier that already worked.
@@ -1916,7 +1979,7 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   try {
     parsed = parseHtml(html, url, site)
   } catch (e) {
-    return { url, site, error: `Parsing failed: ${e instanceof Error ? e.message : String(e)}` }
+    return { url, site: displaySite ?? site, error: `Parsing failed: ${e instanceof Error ? e.message : String(e)}` }
   }
 
   // Amazon-specific: the fetch can succeed completely normally (valid
@@ -1967,7 +2030,14 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   const jiomartMeta = consumeJioMartMeta(parsed)
   const firstCryMeta = consumeFirstCryMeta(parsed)
   const hopscotchMeta = consumeHopscotchMeta(parsed)
+  // CHANGED: was never called — _tataCliqWarning/_tataCliqUnavailable
+  // leaked into the result through `...parsed` below and sold-out Tata
+  // CLiQ items never got `unavailable = true`.
+  const tataCliqMeta = consumeTataCliqMeta(parsed)
   const result: ScrapeResult = { url, site, source, ...parsed }
+  // Show a Shopify-backed brand (boAt / Westside) under its own label even
+  // though this result came from the generic HTML fallback.
+  if (displaySite) result.site = displaySite
   if (error) result.warning = error
   if (ogOnly) result.ogOnly = true
   if (fellBackFromStorePlatform) {
@@ -2035,6 +2105,13 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     result.warning = (result.warning ? result.warning + ' | ' : '') + hopscotchMeta.warning
   }
   if (hopscotchMeta.unavailable) {
+    result.unavailable = true
+  }
+
+  if (tataCliqMeta.warning) {
+    result.warning = (result.warning ? result.warning + ' | ' : '') + tataCliqMeta.warning
+  }
+  if (tataCliqMeta.unavailable) {
     result.unavailable = true
   }
 

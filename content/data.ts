@@ -59,6 +59,8 @@ export const partners: Partner[] = [
   // { name: 'HopScotch', logo: '/logos/hopscotch.png' },
   // { name: 'Westside', logo: '/logos/westside.png' },
   // { name: 'Seleqt', logo: '/logos/seleqt.png' },
+  // { name: 'boAt', logo: '/logos/jiomart.png' },
+  // { name: 'Lenskart', logo: '/logos/lenskart.png' },
 ]
 
 

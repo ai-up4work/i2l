@@ -28,6 +28,15 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * API (see scrapeShopifyProduct in parsers.ts), not a DOM/JSON-LD
  * guess — hence the "Verified via Shopify's Product API" badge.
  *
+ * BRAND LOGO: this view also renders Shopify-backed stores that have
+ * their own brand logo — parsers.ts relabels those results (`site:
+ * 'boat'` for boAt Lifestyle, `site: 'westside'`) after the Shopify API
+ * call, and ItemInfoModal routes 'boat' here. The logo is therefore
+ * picked from `result.site` via SITE_LOGOS (see logoFor() below) and
+ * falls back to the generic Shopify logo for any other Shopify store.
+ * Adding another Shopify-backed brand later only needs a SITE_LOGOS
+ * entry (plus its detectSite/relabel in parsers.ts).
+ *
  * VARIANT TILES ARE NEVER CLICKABLE, BY DESIGN: buildStoreVariantDimensions()
  * in parsers.ts always sets `url: null` on every option — the one API
  * call already returned every variant's price/image/availability, so
@@ -66,6 +75,25 @@ function fmt(amount: string | null | undefined, currency: string | null | undefi
   } catch {
     return `${currency ?? ''} ${n}`.trim()
   }
+}
+
+// Display names for Shopify-backed brands that have their own logo.
+// Anything not listed here falls back to the generic Shopify mark.
+const BRAND_LABELS: Record<string, string> = {
+  boat: 'boAt',
+  westside: 'Westside',
+}
+
+/** Picks the logo for this result: the brand's own (SITE_LOGOS[site])
+ * when one exists for `result.site` (e.g. 'boat'), otherwise the generic
+ * Shopify logo. `isBrand` lets the caller size a brand mark slightly
+ * larger than Shopify's own small wordmark. */
+function logoFor(site: ScrapeResult['site']): { src: string; alt: string; isBrand: boolean } {
+  const brandSrc = site && site !== 'shopify' ? SITE_LOGOS[site] : undefined
+  if (brandSrc && site) {
+    return { src: brandSrc, alt: BRAND_LABELS[site] ?? site, isBrand: true }
+  }
+  return { src: SITE_LOGOS.shopify!, alt: 'Shopify', isBrand: false }
 }
 
 function Stars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
@@ -381,6 +409,10 @@ export default function ShopifyProductView({
 
   const inStock = !result.unavailable
 
+  // Brand logo for this result ('boat' -> boAt's own logo, anything else
+  // Shopify-backed -> the generic Shopify mark). See logoFor() above.
+  const logo = logoFor(result.site)
+
   // onSelectVariant intentionally unused in the handler body — kept as a
   // prop only for interface parity with the other platform views (see
   // doc comment above). Referencing it here avoids an unused-var lint
@@ -410,7 +442,15 @@ export default function ShopifyProductView({
             -> link -> commerce actions. */}
         <div className="min-w-0">
           <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2">
-            <Image src={SITE_LOGOS.shopify!} alt="Shopify" width={60} height={12} />
+            {/* Brand logos get a taller box than Shopify's own small
+                wordmark; width follows the file's aspect ratio. */}
+            <Image
+              src={logo.src}
+              alt={logo.alt}
+              width={logo.isBrand ? 90 : 60}
+              height={logo.isBrand ? 28 : 12}
+              style={{ height: logo.isBrand ? 28 : 12, width: 'auto' }}
+            />
           </a>
           <h1 className="font-display text-2xl font-extrabold mt-2 tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/40">No title found</span>}

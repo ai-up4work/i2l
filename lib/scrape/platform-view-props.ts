@@ -5,4 +5,10 @@ import type { StoreCommercePanelProps } from '@/components/stores/StoreCommerceP
 export type PlatformViewProps = Omit<StoreCommercePanelProps, 'result'> & {
   result: ScrapeResult
   onSelectVariant: (url: string) => void
+
+  /** Reports the shopper's chosen variant options, e.g. { Size: 'M', Color: 'Navy' } */
+  onSelectionChange?: (selection: Record<string, string>) => void
+
+  /** Restores a previous selection after a variant re-scrape remounts the view */
+  initialSelection?: Record<string, string> | null
 }
