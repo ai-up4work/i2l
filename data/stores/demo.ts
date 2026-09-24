@@ -302,7 +302,7 @@ export const affiliatedStores: AffiliatedStore[] = [
     description: 'India’s leading eyewear brand, offering prescription glasses, sunglasses, and contact lenses online.',
     categories: ['Eyewear', 'Sunglasses', 'Contact Lenses'],
     storeType: 'marketplace',
-    sampleProductUrl: 'https://www.lenskart.com/vincent-chase-vce000714-black-1-eyeglasses.html',
+    sampleProductUrl: 'https://www.lenskart.com/lenskart-air-la-e15417-c20-eyeglass.html',
     sampleProductLabel: 'Vincent Chase VCE000714 Black 1 Eyeglasses',
   },
   {
