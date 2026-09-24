@@ -61,6 +61,7 @@ export const partners: Partner[] = [
   // { name: 'Seleqt', logo: '/logos/seleqt.png' },
   // { name: 'boAt', logo: '/logos/jiomart.png' },
   // { name: 'Lenskart', logo: '/logos/lenskart.png' },
+  // { name: 'Croma', logo: '/logos/croma.png' },
 ]
 
 

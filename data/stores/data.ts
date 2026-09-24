@@ -102,6 +102,7 @@ export const platformLogos: Record<string, string> = {
   // seleqt: '/logos/seleqt.png',
   // boAt: '/logos/boat.png',
   // lenskart: '/logos/lenskart.png',
+  // croma: '/logos/croma.png',
 }
 
 
