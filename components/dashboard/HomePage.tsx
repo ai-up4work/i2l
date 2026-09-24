@@ -573,7 +573,7 @@ export default function HomePage({
         up a thin gold top edge, echoing a ticket/receipt stub rather than
         a generic dashboard tile.
       */}
-      <div className="grid gap-3 gap-x-8 lg:grid-cols-[minmax(0,1fr)_330px] z-0">
+      <div className="grid gap-3 gap-x-8 lg:grid-cols-[minmax(0,1fr)_330px] z-0 mt-8a">
         {/* Left column: Hello + Buy for me, then My Orders. Measured as a
             whole so Stores for you can match its full height. */}
         <div ref={leftColumnRef} className="flex min-w-0 flex-col gap-3 lg:self-start">
