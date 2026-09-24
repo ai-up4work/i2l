@@ -1,7 +1,7 @@
 // components/platforms/Cromaproductview.tsx
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check, FileText } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
@@ -75,107 +75,58 @@ function CromaRatingStars({ rating, count }: { rating: string | null | undefined
   )
 }
 
-/** Square image swatch, Croma-blue selected ring — used for any
- * variant dimension whose options carry an image (color/finish etc). */
-function CromaSwatch({
+/** Square image tile for a variant option — Croma-blue selected ring.
+ * Deliberately NON-INTERACTIVE: the extractor never has a per-option URL
+ * for Croma (selecting a different size/finish re-navigates via
+ * in-page JS this scrape can't see — see croma.ts's VARIANT PICKER
+ * note), so rendering these as buttons that silently do nothing on
+ * click would be misleading. They show what's available and which one
+ * is currently loaded, nothing more. */
+function CromaVariantTile({
   label,
   imageUrl,
-  price,
-  originalPrice,
   selected,
   outOfStock,
-  onClick,
-  disabledTitle,
 }: {
   label: string
   imageUrl?: string | null
-  price?: string | null
-  originalPrice?: string | null
   selected: boolean
   outOfStock?: boolean
-  onClick?: () => void
-  disabledTitle?: string
 }) {
-  const interactive = !!onClick && !outOfStock
-  return (
-    <span className="inline-flex flex-col items-center gap-1">
-      <button
-        type="button"
-        onClick={interactive ? onClick : undefined}
-        title={outOfStock ? 'Out of stock' : disabledTitle}
-        aria-pressed={selected}
-        aria-label={label}
-        disabled={!interactive}
-        className={
-          'relative h-14 w-14 flex-none overflow-hidden rounded-xl border-[1.5px] bg-cover bg-center bg-[#f5f7fa] transition-all ' +
-          (selected
-            ? 'border-[#0056A4] ring-1 ring-[#0056A4]'
-            : outOfStock
-              ? 'cursor-not-allowed border-ink/10'
-              : interactive
-                ? 'cursor-pointer border-ink/15 hover:border-[#0056A4]/50'
-                : 'cursor-not-allowed border-ink/10 opacity-50')
-        }
-        style={imageUrl ? { backgroundImage: `url(${imageUrl})` } : undefined}
-      >
-        {!imageUrl && (
-          <span className="grid h-full w-full place-items-center text-[9px] font-bold uppercase tracking-tight text-ink/40">
-            {label.trim().slice(0, 2)}
-          </span>
-        )}
-        {outOfStock && (
-          <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[7px] font-bold uppercase tracking-wide text-white">
-            Out of stock
-          </span>
-        )}
-      </button>
-      {price && <span className="text-[10px] font-semibold text-ink">{price}</span>}
-      {originalPrice && <span className="text-[10px] font-normal text-ink/40 line-through">{originalPrice}</span>}
-    </span>
-  )
-}
+  if (imageUrl) {
+    return (
+      <span className="inline-flex flex-col items-center gap-1" title={outOfStock ? `${label} — out of stock` : label}>
+        <span
+          className={
+            'relative h-14 w-14 flex-none overflow-hidden rounded-xl border-[1.5px] bg-cover bg-center bg-[#f5f7fa] ' +
+            (selected ? 'border-[#0056A4] ring-1 ring-[#0056A4]' : outOfStock ? 'border-ink/10 opacity-50' : 'border-ink/15')
+          }
+          style={{ backgroundImage: `url(${imageUrl})` }}
+        >
+          {outOfStock && (
+            <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[7px] font-bold uppercase tracking-wide text-white">
+              Out of stock
+            </span>
+          )}
+        </span>
+      </span>
+    )
+  }
 
-/** Plain text pill — used for any non-image variant dimension. */
-function CromaPill({
-  label,
-  price,
-  originalPrice,
-  selected,
-  outOfStock,
-  onClick,
-  disabledTitle,
-}: {
-  label: string
-  price?: string | null
-  originalPrice?: string | null
-  selected: boolean
-  outOfStock?: boolean
-  onClick?: () => void
-  disabledTitle?: string
-}) {
-  const interactive = !!onClick && !outOfStock
   return (
-    <button
-      type="button"
-      onClick={interactive ? onClick : undefined}
-      title={outOfStock ? 'Out of stock' : disabledTitle}
-      aria-pressed={selected}
-      disabled={!interactive}
+    <span
+      title={outOfStock ? `${label} — out of stock` : label}
       className={
-        'flex flex-col items-center rounded-lg border-[1.5px] px-2.5 py-1.5 text-xs font-medium transition-colors ' +
+        'flex items-center rounded-lg border-[1.5px] px-2.5 py-1.5 text-xs font-medium ' +
         (selected
           ? 'border-[#0056A4] bg-[#0056A4]/[0.06] text-ink'
           : outOfStock
-            ? 'cursor-not-allowed border-ink/10 text-ink/30 line-through'
-            : interactive
-              ? 'cursor-pointer border-ink/15 text-ink hover:border-[#0056A4]/50'
-              : 'cursor-not-allowed border-ink/10 text-ink/30')
+            ? 'border-ink/10 text-ink/30 line-through'
+            : 'border-ink/15 text-ink/70')
       }
     >
       {label}
-      {price && <span className={`text-[10px] font-semibold ${selected ? 'text-[#0056A4]' : 'text-ink/60'}`}>{price}</span>}
-      {originalPrice && <span className="text-[10px] font-normal text-ink/35 line-through">{originalPrice}</span>}
-    </button>
+    </span>
   )
 }
 
@@ -480,7 +431,6 @@ function ProductInfoTabs({
 
 export default function CromaProductView({
   result,
-  onSelectVariant,
   qty,
   onQtyChange,
   inWishlist,
@@ -492,21 +442,6 @@ export default function CromaProductView({
   canAct,
 }: PlatformViewProps) {
   const images = result.images ?? []
-  const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    const initial: Record<string, string> = {}
-    for (const dim of result.variants ?? []) {
-      const selectedOpt = dim.options.find((o) => o.selected)
-      if (selectedOpt) initial[dim.dimension] = selectedOpt.label
-    }
-    setSelectedByDimension(initial)
-  }, [result.url, result.variants])
-
-  function pickOption(dimension: string, label: string, url: string | null) {
-    setSelectedByDimension((prev) => ({ ...prev, [dimension]: label }))
-    if (url) onSelectVariant(url)
-  }
 
   const price = fmt(result.price, result.currencyCode)
   const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
@@ -603,51 +538,24 @@ export default function CromaProductView({
           </div>
 
           {!!result.variants?.length && (
-            <div className="mt-4 flex flex-wrap gap-6">
-              {result.variants.map((dim) => {
-                const hasImages = dim.options.some((o) => !!o.image)
-                const selectedLabel = selectedByDimension[dim.dimension] ?? null
-
-                return (
-                  <div key={dim.dimension}>
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
-                    <div className={hasImages ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>
-                      {dim.options.map((opt, i) => {
-                        const optPrice = fmt(opt.price, opt.currencyCode)
-                        const optOriginalPrice =
-                          opt.mrp && opt.mrp !== opt.price ? fmt(opt.mrp, opt.currencyCode) : null
-                        const selected = opt.label === selectedLabel
-                        const disabledTitle = opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`
-                        const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
-                        return hasImages ? (
-                          <CromaSwatch
-                            key={`${opt.label}-${i}`}
-                            label={opt.label}
-                            imageUrl={opt.image}
-                            price={optPrice}
-                            originalPrice={optOriginalPrice}
-                            selected={selected}
-                            outOfStock={opt.outOfStock}
-                            onClick={onPick}
-                            disabledTitle={disabledTitle}
-                          />
-                        ) : (
-                          <CromaPill
-                            key={opt.label}
-                            label={opt.label}
-                            price={optPrice}
-                            originalPrice={optOriginalPrice}
-                            selected={selected}
-                            outOfStock={opt.outOfStock}
-                            onClick={onPick}
-                            disabledTitle={disabledTitle}
-                          />
-                        )
-                      })}
-                    </div>
+            <div className="mt-4 flex flex-col gap-4">
+              {result.variants.map((dim) => (
+                <div key={dim.dimension}>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
+                  <div className={dim.options.some((o) => !!o.image) ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>
+                    {dim.options.map((opt, i) => (
+                      <CromaVariantTile
+                        key={`${opt.label}-${i}`}
+                        label={opt.label}
+                        imageUrl={opt.image}
+                        selected={!!opt.selected}
+                        outOfStock={!!opt.outOfStock}
+                      />
+                    ))}
                   </div>
-                )
-              })}
+                  <p className="mt-1.5 text-[11px] text-ink/40">Shown for reference — open the listing on Croma to switch.</p>
+                </div>
+              ))}
             </div>
           )}
 

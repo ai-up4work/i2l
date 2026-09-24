@@ -2,20 +2,24 @@
 import type { CheerioAPI, Cheerio } from 'cheerio'
 import type { Element } from 'domhandler'
 import { cleanText } from '../shared'
+import type { AmazonVariantDimension } from './amazon'
 
 // ---------------------------------------------------------------------
 // Croma (www.croma.com) product-page extractor.
 //
-// CAPTURE SCOPE: ONE page only — /p/270772 (AGARO Regal Plus vacuum),
-// and that capture was a markdown-converted text view of the fetched
-// page, NOT raw HTML. So class names, ids and exact nesting have NOT been
-// seen. Everything below is either:
-//   CONFIRMED  — visible in that capture (text, labels, hrefs, alt text)
+// CAPTURE SCOPE: two pages now.
+//   1. /p/270772 (AGARO Regal Plus vacuum) — a markdown-converted text
+//      view, no raw HTML, no variants on this product.
+//   2. /p/316060 (32" LED TV) — a full raw HTML capture. This is what
+//      confirmed the variant picker below, and also independently
+//      confirmed several previously-"UNCONFIRMED" guesses were right:
+//      #pdp-product-price and #old-price (with data-value="...") are
+//      real ids, not guesses — see PRICE_SELECTORS/MRP_SELECTORS.
+// Everything below is either:
+//   CONFIRMED  — seen directly in one of these two captures
 //   UNCONFIRMED — a best guess, marked as such, with a fallback behind it
-// Send a raw/hydrated HTML copy of a Croma PDP and this file can be
-// tightened to real selectors the way lenskart.ts was.
 //
-// CONFIRMED from the capture:
+// CONFIRMED from capture 1 (vacuum):
 //   - Product id is the trailing /p/{id} in the URL (270772).
 //   - Gallery <img alt> is "{full title}_{n}" (e.g. "..._1"), and the
 //     first image src is media-ik.croma.com/.../{id}_0_{hash}.png.
@@ -33,37 +37,64 @@ import { cleanText } from '../shared'
 //     and appear twice (desktop + mobile lists).
 //   - "Overview" heading + prose; a "User Manual" PDF link.
 //
-// !! HEAD-vs-BODY MISMATCH (important) !!
-// In that same capture, <title>/og:title/meta-description described a
+// CONFIRMED from capture 2 (TV), additionally:
+//   - VARIANT PICKER: `li.variant-info-item` holds one dimension —
+//     `p.variant-info-title` is the dimension name (e.g. "Screen Size in
+//     Inches"), and `div.cp-radio` inside it holds one
+//     `div.cp-radio-item.typ-label` per option: a bare `<input
+//     type="radio">` immediately followed by its `<label>` (the option's
+//     display text, e.g. "43", "32"). The currently-loaded product's own
+//     size carries `checked=""` on its input. Multiple `variant-info-item`
+//     rows would mean multiple dimensions (e.g. size AND color on some
+//     other category) — this extractor doesn't assume there's only one.
+//   - IMPORTANT GAP: the radio inputs carry no href/data-url. Selecting a
+//     different size clearly re-navigates the page (via same-origin JS
+//     Croma doesn't expose in static HTML) to a *different* product id's
+//     own PDP — there's no `?size=` query param pattern to construct one
+//     from, the way Shopify's `?variant=` works. So, like FirstCry's
+//     colour swatches, these tiles are extracted as INFORMATIONAL ONLY:
+//     `url` is always null. The UI still shows every size and which one
+//     is selected; clicking a non-selected tile just can't re-fetch it.
+//   - #pdp-product-price / #old-price (data-testid="new-price" /
+//     "old-price", each with a numeric `data-value`/`value` attribute) —
+//     confirms two of the PRICE_SELECTORS/MRP_SELECTORS guesses were
+//     exactly right. Text scan remains as the fallback for pages where
+//     they aren't present.
+//
+// !! HEAD-vs-BODY MISMATCH (important, capture 1) !!
+// In the vacuum capture, <title>/og:title/meta-description described a
 // DIFFERENT product ("ambrane MiniVac 01 …") while the body and og:image
 // were the AGARO product. Could be a stale cached head, could be a
-// fetcher artifact — unknown. Either way head-derived fields can't be
-// trusted blindly here, so:
+// fetcher artifact — unknown, and not reproduced in capture 2. Either
+// way head-derived fields can't be trusted blindly here, so:
 //   - Title comes from the body (h1, else gallery alt), never og:title.
 //   - JSON-LD is only accepted if it matches this product (id or title).
 //   - parsers.ts should list 'croma' in SKIP_STRUCTURED_FALLBACK so the
 //     generic JSON-LD/OG merge can't write a wrong-product price/title.
 //   - A warning is emitted when og:title disagrees with the body title.
 //
-// PRICE (UNCONFIRMED — the biggest gap): no price text appeared anywhere
-// in the static capture; it looks client-hydrated. Order of attempts:
+// PRICE: order of attempts, unchanged in shape now that (2) is confirmed
+// rather than guessed:
 //   1. guarded JSON-LD Product.offers.price
-//   2. guessed selectors (#pdp-product-price, …)
+//   2. confirmed selectors (#pdp-product-price, #old-price) — capture 2
 //   3. heuristic scan for a leaf element whose whole text is "₹1,234",
 //      skipping EMI/offer/carousel/compare ancestors; first non-strike
 //      is the price, first strikethrough is the MRP.
-// (3) sets a warning so a reviewer knows the price was inferred.
-// This is why parsers.ts routes Croma through the render tier when the
-// static HTML has no visible ₹ amount (hasHydratedCromaMarkup).
+// (3) still sets a warning so a reviewer knows the price was inferred,
+// on pages that don't use the confirmed ids.
 //
-// NOT HANDLED: variant pickers (this product had none), per-tile stock,
-// bank offers, delivery/pincode estimates. Currency is hardcoded INR.
+// STILL NOT HANDLED: per-tile stock (radios carry no visible OOS state
+// in this capture), bank offers, delivery/pincode estimates. Currency is
+// hardcoded INR.
 // ---------------------------------------------------------------------
 
 export const SITE_ID = 'croma' as const
 
-// Variant pickers unseen. Price hydration is handled by the STATIC content
-// check in parsers.ts, not by this flag.
+// The confirmed variant picker (see header) is present in this same
+// static/rendered HTML dump that already carries the hydrated price —
+// Croma is already forced through the render tier for price reasons
+// (see RENDER_FALLBACK_HOSTS/STATIC_CONTENT_SUFFICIENT in parsers.ts),
+// so variant data rides along with that regardless of this flag's value.
 export const REQUIRES_RENDER_FOR_VARIANTS = false
 
 export type CromaSpec = { name: string; value: string }
@@ -87,6 +118,12 @@ export type CromaParsed = {
   discountPercentage?: number | null
   legalInfo?: CromaSpec[] | null
   manualUrl?: string | null
+  /** Size/color/etc picker — see header's VARIANT PICKER note. Every
+   * option's `url` is null (informational only); `selected` reflects the
+   * radio's `checked` attribute. Undefined (not just empty) when the
+   * page has no variant-info-item rows at all, matching how the other
+   * optional array fields on this type behave. */
+  variants?: AmazonVariantDimension[] | null
   _cromaWarning?: string
   _cromaUnavailable?: boolean
 }
@@ -219,6 +256,50 @@ export function extractCromaKeyFeatures($: CheerioAPI): string[] {
     if (items.length > best.length) best = items
   }
   return best
+}
+
+// ---------- Variant picker (CONFIRMED — capture 2, e.g. Screen Size) ----------
+//
+// Structure: li.variant-info-item > p.variant-info-title (dimension name)
+// + div.cp-radio > div.cp-radio-item.typ-label per option, each holding a
+// bare <input type="radio"> immediately followed by its <label> (option
+// text). No href/data-url anywhere in this markup — see header's GAP
+// note — so every option's `url` is deliberately always null.
+export function extractCromaVariants($: CheerioAPI): AmazonVariantDimension[] {
+  const dims: AmazonVariantDimension[] = []
+
+  $('li.variant-info-item, li[class*="variant-info-item"]').each((_, li) => {
+    const $li = $(li) as Cheerio<Element>
+    const dimension = cleanText($li.find('.variant-info-title, p').first())
+    if (!dimension) return
+
+    const options: AmazonVariantDimension['options'] = []
+    $li.find('input[type="radio"]').each((_, input) => {
+      const $input = $(input) as Cheerio<Element>
+      // Label is the input's own next sibling within the same
+      // cp-radio-item wrapper — CONFIRMED shape, not id-selector-based,
+      // so it doesn't care that some real ids contain spaces
+      // (e.g. id="43Screen Size in Inches").
+      let $label = $input.siblings('label').first()
+      if (!$label.length) $label = $input.next('label')
+      const label = cleanText($label.length ? $label : $input.parent())
+      if (!label) return
+
+      options.push({
+        label,
+        price: null,
+        currencyCode: null,
+        image: null,
+        url: null,
+        selected: $input.attr('checked') !== undefined,
+        outOfStock: $input.attr('disabled') !== undefined,
+      })
+    })
+
+    if (options.length) dims.push({ dimension, options })
+  })
+
+  return dims
 }
 
 // ---------- Specifications ----------
@@ -387,9 +468,10 @@ export function extractCromaImages($: CheerioAPI, productId: string | null): str
 
 const RUPEE_TEXT_RE = /^(?:₹|rs\.?|inr)\s?\d[\d,]*(?:\.\d+)?$/i
 
-// UNCONFIRMED guesses — first hit wins. Harmless if absent.
-const PRICE_SELECTORS = ['#pdp-product-price', '[data-testid="pdp-price"]', '.pdp-price .amount']
-const MRP_SELECTORS = ['#old-price', '.old-price', '.pdp-mrp']
+// CONFIRMED by capture 2 (#pdp-product-price / #old-price); the rest stay
+// as guesses tried first in case a different template uses them instead.
+const PRICE_SELECTORS = ['#pdp-product-price', '[data-testid="pdp-price"]', '[data-testid="new-price"]', '.pdp-price .amount']
+const MRP_SELECTORS = ['#old-price', '[data-testid="old-price"]', '.old-price', '.pdp-mrp']
 
 type PriceBlock = {
   price: string | null
@@ -499,12 +581,18 @@ export function extractCromaJsonLd($: CheerioAPI, productId: string | null, titl
   return result
 }
 
-// ---------- Rating (CONFIRMED text "Rating: 4.3") ----------
+// ---------- Rating ----------
+//
+// CONFIRMED (capture 1): plain text "Rating: 4.3". CONFIRMED (capture 2):
+// a DIFFERENT shape — a bare "4.3" next to a star <img>, with the review
+// count as a separate "(24 Ratings & 10 Reviews)" link nearby, not in the
+// same wrapper as the score. Both patterns are matched.
 
 export function extractCromaRating($: CheerioAPI): { rating: string | null; review_count: string | null } {
   let rating: string | null = null
   let review_count: string | null = null
 
+  // Pattern A (capture 1): "Rating: 4.3" as one element's whole text.
   $('div, span, p, li').each((_, el) => {
     if (rating) return false
     const $el = $(el) as Cheerio<Element>
@@ -513,20 +601,46 @@ export function extractCromaRating($: CheerioAPI): { rating: string | null; revi
     const m = t.match(/^rating:?\s*(\d(?:\.\d)?)$/i)
     if (!m) return
     rating = m[1]
-
-    // UNCONFIRMED: a "(1,234 ratings)" style count near the rating.
     const nearby = cleanText($el.parent()) ?? ''
     const c = nearby.length > 200 ? null : nearby.match(/([\d,]+)\s*(?:ratings?|reviews?)/i)
     if (c) review_count = c[1].replace(/,/g, '')
   })
+
+  // Pattern B (capture 2): a leaf element starting with "N.N " followed
+  // by a star image, e.g. <span>4.3 <img class="star-image" ...></span>.
+  if (!rating) {
+    $('span, div').each((_, el) => {
+      if (rating) return false
+      const $el = $(el) as Cheerio<Element>
+      if (!$el.find('img.star-image, img[alt*="star" i]').length && !$el.find('img').length) return
+      const own = ownText($el)
+      const m = own.match(/^(\d(?:\.\d)?)$/)
+      if (!m) return
+      rating = m[1]
+    })
+  }
+
+  if (!review_count) {
+    $('a, span').each((_, el) => {
+      if (review_count) return false
+      const t = cleanText($(el))
+      if (!t || t.length > 60) return
+      const m = t.match(/([\d,]+)\s*ratings?(?:\s*&\s*[\d,]+\s*reviews?)?/i)
+      if (m) review_count = m[1].replace(/,/g, '')
+    })
+  }
 
   return { rating, review_count }
 }
 
 // ---------- Availability ----------
 //
-// "Buy Now" / "Add to Cart" are plain text (CONFIRMED). Out-of-stock
-// wording is UNCONFIRMED — never seen on a real sold-out Croma page.
+// "Buy Now" / "Add to Cart" are plain text (CONFIRMED, both captures).
+// Out-of-stock wording is still UNCONFIRMED — never seen on a real
+// sold-out Croma page. Capture 2's disabled CTAs
+// ("disableBuyNow"/"disableCartBtn" classes with plain "Buy Now"/"Add to
+// Cart" text) are a pincode-serviceability gate, not a stock signal, so
+// they're deliberately NOT treated as out-of-stock here.
 
 const BUY_CTA_RE = /^(add to cart|buy now)$/i
 const OOS_RE = /^(out of stock|sold out|currently unavailable|notify me|coming soon)$/i
@@ -569,6 +683,7 @@ export function parseCroma($: CheerioAPI, url: string): CromaParsed {
   const domRating = extractCromaRating($)
   const { availability: ctaAvailability, unavailable } = extractCromaAvailability($)
   const images = extractCromaImages($, productId)
+  const variants = extractCromaVariants($)
   if (!images.length && productId) {
     // og:image was the RIGHT product even when og:title was wrong (see
     // header) — accept it only when its filename carries this product id.
@@ -604,6 +719,12 @@ export function parseCroma($: CheerioAPI, url: string): CromaParsed {
     warnings.push('Only one gallery image found — the remaining slides are lazy-loaded placeholders in static HTML.')
   }
 
+  if (variants.length) {
+    warnings.push(
+      `Found a "${variants[0].dimension}" picker, but Croma's markup carries no per-option link — tiles show the available options and which is selected, but can't be clicked to switch products.`,
+    )
+  }
+
   const result: CromaParsed = {
     title,
     brand: specValue(specs, /^brand$/i) ?? (title ? title.split(/\s+/)[0] : null),
@@ -629,6 +750,7 @@ export function parseCroma($: CheerioAPI, url: string): CromaParsed {
       return l.length ? l : null
     })(),
     manualUrl: extractCromaManualUrl($),
+    variants: variants.length ? variants : null,
   }
 
   if (unavailable) {
