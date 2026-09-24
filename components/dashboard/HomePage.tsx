@@ -270,11 +270,11 @@ function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
 }
 
 // Right-rail card showing real, clickable suggested stores. Its height is
-// made to match `targetHeight` (the left column's Hello + Buy-for-me
-// cards, measured live by the parent) by adding or removing whole rows
-// of tiles — NOT by picking a fixed tile count or hardcoding any pixel
-// value. This is the same "measure the real thing, don't guess a
-// constant" approach used for the header height elsewhere in this app:
+// made to match `targetHeight` (the ENTIRE left column — Hello + Buy for
+// me + My Orders — measured live by the parent) by adding or removing
+// whole rows of tiles — NOT by picking a fixed tile count or hardcoding
+// any pixel value. This is the same "measure the real thing, don't guess
+// a constant" approach used for the header height elsewhere in this app:
 // any future change to fonts, padding, tile size, or card copy is
 // automatically absorbed because the fit is recomputed from actual
 // rendered heights every time, rather than drifting out of sync with a
@@ -432,13 +432,15 @@ export default function HomePage({
   // re-hides Coupons/Points/Wallet together, rather than one eye per column.
   const [balancesVisible, setBalancesVisible] = useState(false)
 
-  // Measures the combined height of the "Hello" strip + "Buy for me" hero
-  // live, so "Stores for you" on the right can always match it exactly —
-  // including if either block's content, padding, or font size ever
-  // changes. Only relevant at the `lg` breakpoint and up, since that's the
-  // only place the Stores-for-you card renders at all — see its wrapper
-  // below. See SuggestedStoresCard for how that height is consumed.
-  const { ref: topLeftRef, height: topLeftHeight } = useElementHeight<HTMLDivElement>()
+  // Measures the height of the ENTIRE left column ("Hello" strip + "Buy
+  // for me" hero + "My Orders") live, so "Stores for you" on the right
+  // always spans it top to bottom — including if any block's content,
+  // padding, or font size ever changes (the hook observes resizes, so
+  // e.g. My Orders growing when an order loads is picked up too). Only
+  // relevant at the `lg` breakpoint and up, since that's the only place
+  // the Stores-for-you card renders at all — see its wrapper below. See
+  // SuggestedStoresCard for how that height is consumed.
+  const { ref: leftColumnRef, height: leftColumnHeight } = useElementHeight<HTMLDivElement>()
 
   const cancelPendingAutoSubmit = () => {
     if (autoSubmitTimerRef.current) {
@@ -535,31 +537,31 @@ export default function HomePage({
       {/*
         Layout notes:
 
-        Desktop (lg:) reading order via `lg:order-*`:
-          1. topLeft (Hello + Buy for me)
-          2. Stores for you
-          3. My Orders
-          4. Customer Service + rail rows
+        The page is a two-column grid at `lg:` with exactly two cells:
 
-        CSS Grid auto-placement then lays these out two-per-row:
-          row 1 = [topLeft, Stores for you]
-          row 2 = [My Orders, Customer Service group]
+          [ left column                    ][ Stores for you ]
+          [   Hello + Buy for me           ][                 ]
+          [   My Orders                    ][                 ]
 
-        Grid's default `align-items: stretch` equalizes the height of both
-        cells within each row automatically — so My Orders and the right
-        group always match each other's height without any JS measuring
-        (unlike the Stores-for-you card, which needs JS because it adds or
-        removes tiles rather than just stretching). That stretch-matching
-        is gated behind `lg:h-full` on both cards below, since it only
-        makes sense once they're actually siblings in the same 2-column
-        grid row — on mobile they're stacked, not adjacent, so each one
-        should just size to its own content instead.
+        The LEFT COLUMN is a single wrapper (leftColumnRef) that stacks
+        Hello + Buy for me on top of My Orders. That wrapper — not just
+        the top block — is what gets measured, so "Stores for you" spans
+        the full height of everything on the left.
 
-        Mobile (no lg:) uses a different `order-*` so it falls back to the
-        original single-column reading order: Hello/Buy-for-me → My Orders
-        → Customer Service/rail. "Stores for you" is hidden entirely on
-        mobile (see its wrapper below) rather than reflowed into this
-        order, since it's not needed there.
+        `lg:self-start` on the left wrapper is deliberate. Grid items
+        stretch to the row height by default, and the row height is the
+        taller of the two cells. If the left wrapper stretched, its
+        measured height would include any extra height forced on it by
+        the right card — so if the right card was ever taller than the
+        left (stale measurement, window resized narrower, etc.) the left
+        would stretch to match it, report that taller height back, and
+        the card would never be able to shrink. Sizing the wrapper to
+        its own content breaks that loop: the measurement is always the
+        left column's natural height.
+
+        Mobile (no lg:) is a single column: Hello/Buy-for-me → My Orders.
+        "Stores for you" is hidden entirely on mobile (see its wrapper
+        below) rather than reflowed, since it's not needed there.
 
         DESIGN PASS: the greeting + stat row is no longer its own bordered
         card — it now sits directly on the parchment as a plain strip, so
@@ -572,181 +574,116 @@ export default function HomePage({
         a generic dashboard tile.
       */}
       <div className="grid gap-3 gap-x-8 lg:grid-cols-[minmax(0,1fr)_330px] z-0">
-        {/* Hello + Buy for me */}
-        <div ref={topLeftRef} className="order-1 flex min-w-0 flex-col gap-5 lg:order-1">
-          <div className="motion-safe:[animation:fadeUp_0.35s_ease-out_both]">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="font-display text-2xl text-ink sm:text-3xl">
-                  Hello, {name?.trim() || 'there'}
-                </h1>
-                <p className="mt-1.5 text-sm font-semibold text-ink/55">
-                  Everything you need to shop, ship, and save — all in one place.
-                </p>
+        {/* Left column: Hello + Buy for me, then My Orders. Measured as a
+            whole so Stores for you can match its full height. */}
+        <div ref={leftColumnRef} className="flex min-w-0 flex-col gap-3 lg:self-start">
+          {/* Hello + Buy for me */}
+          <div className="order-1 flex min-w-0 flex-col gap-5 lg:order-1">
+            <div className="motion-safe:[animation:fadeUp_0.35s_ease-out_both]">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-2xl text-ink sm:text-3xl">
+                    Hello, {name?.trim() || 'there'}
+                  </h1>
+                </div>
+                <div className="flex shrink-0 items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setBalancesVisible((prev) => !prev)}
+                    aria-label={balancesVisible ? 'Hide balances' : 'Show balances'}
+                    className="rounded-lg hidden p-1.5 text-ink/35 transition-colors hover:text-ink/60"
+                  >
+                    {balancesVisible ? <EyeOff size={16} strokeWidth={1.8} /> : <Eye size={16} strokeWidth={1.8} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onViewProfile}
+                    className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-ink/55 hover:text-teal-deep"
+                  >
+                    My Profile <ChevronRight size={13} />
+                  </button>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setBalancesVisible((prev) => !prev)}
-                  aria-label={balancesVisible ? 'Hide balances' : 'Show balances'}
-                  className="rounded-lg p-1.5 text-ink/35 transition-colors hover:text-ink/60"
-                >
-                  {balancesVisible ? <EyeOff size={16} strokeWidth={1.8} /> : <Eye size={16} strokeWidth={1.8} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={onViewProfile}
-                  className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-ink/55 hover:text-teal-deep"
-                >
-                  My Profile <ChevronRight size={13} />
-                </button>
+
+              {/* Coupons / Points / Wallet are masked balances by default
+                  (shown as "***"); the eye button toggles all three visible
+                  at once. Gift Card is an icon-only shortcut with no value.
+                  Unboxed and separated by hairline dividers instead of a
+                  card edge, so it reads as part of the greeting rather than
+                  a fourth identical tile. */}
+              <div className="mt-6 flex hidden items-stretch justify-between divide-x divide-ink/10 border-y border-ink/10">
+                <MaskedStatColumn label="Coupons" value={couponsCount} visible={balancesVisible} onClick={onViewCoupons} />
+                <MaskedStatColumn label="Points" value={pointsBalance} visible={balancesVisible} onClick={onViewPoints} />
+                <MaskedStatColumn label="Wallet" value={walletBalance} visible={balancesVisible} onClick={onViewWallet} />
+                <IconOnlyColumn label="Gift Card" onClick={onViewGiftCard} icon={Gift} />
               </div>
             </div>
 
-            {/* Coupons / Points / Wallet are masked balances by default
-                (shown as "***"); the eye button toggles all three visible
-                at once. Gift Card is an icon-only shortcut with no value.
-                Unboxed and separated by hairline dividers instead of a
-                card edge, so it reads as part of the greeting rather than
-                a fourth identical tile. */}
-            <div className="mt-6 flex items-stretch justify-between divide-x divide-ink/10 border-y border-ink/10">
-              <MaskedStatColumn label="Coupons" value={couponsCount} visible={balancesVisible} onClick={onViewCoupons} />
-              <MaskedStatColumn label="Points" value={pointsBalance} visible={balancesVisible} onClick={onViewPoints} />
-              <MaskedStatColumn label="Wallet" value={walletBalance} visible={balancesVisible} onClick={onViewWallet} />
-              <IconOnlyColumn label="Gift Card" onClick={onViewGiftCard} icon={Gift} />
-            </div>
+            {/* Buy for me — the one hero moment on the page. Indigo instead
+                of the shared card white, a gold top edge instead of a
+                border, and a larger icon treatment, so it visibly outranks
+                the surrounding cards rather than matching their weight. */}
+            <form
+              ref={buyFormRef}
+              onSubmit={handleFormSubmit}
+              className="relative flex flex-col gap-5 overflow-hidden rounded-[28px] bg-indigo p-7 motion-safe:[animation:fadeUp_0.4s_ease-out_both] sm:p-8"
+              style={{ animationDelay: '120ms' }}
+            >
+              <div className="absolute inset-x-0 top-0 h-[3px] bg-gold" aria-hidden="true" />
+              <div className="flex items-start gap-4">
+                <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gold/15 text-gold" aria-hidden="true">
+                  <Package size={22} strokeWidth={1.8} />
+                </span>
+                <div>
+                  <p className="font-display text-lg text-white">Buy for me</p>
+                  <p className="mt-1 text-sm text-parchment/65">
+                    Paste a link to any product, from any store, and we&apos;ll buy, quality-check, and deliver it to you.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <textarea
+                  value={link}
+                  onChange={(event) => setLink(event.target.value.replace(/\n/g, ''))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault()
+                  }}
+                  placeholder="Paste product link here (e.g. https://example.com/item)"
+                  rows={1}
+                  wrap="off"
+                  className="h-[50px] flex-1 resize-none overflow-x-auto overflow-y-hidden whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-3.5 text-center text-sm leading-[1.2] text-white outline-none transition-all duration-200 placeholder:text-white/35 focus:border-gold/50 focus:bg-white/[0.1] focus:ring-2 focus:ring-gold/30 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                />
+                <button
+                  type="submit"
+                  disabled={!link.trim()}
+                  className="group flex items-center justify-center gap-2 rounded-xl bg-teal px-5 py-3.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-teal-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40 disabled:active:scale-100 sm:flex-none"
+                >
+                  <Plus size={18} className="transition-transform duration-200 group-hover:rotate-90" />
+                  Add request
+                </button>
+              </div>
+            </form>
           </div>
 
-          {/* Buy for me — the one hero moment on the page. Indigo instead
-              of the shared card white, a gold top edge instead of a
-              border, and a larger icon treatment, so it visibly outranks
-              the surrounding cards rather than matching their weight. */}
-          <form
-            ref={buyFormRef}
-            onSubmit={handleFormSubmit}
-            className="relative flex flex-col gap-5 overflow-hidden rounded-[28px] bg-indigo p-7 motion-safe:[animation:fadeUp_0.4s_ease-out_both] sm:p-8"
-            style={{ animationDelay: '120ms' }}
-          >
-            <div className="absolute inset-x-0 top-0 h-[3px] bg-gold" aria-hidden="true" />
-            <div className="flex items-start gap-4">
-              <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gold/15 text-gold" aria-hidden="true">
-                <Package size={22} strokeWidth={1.8} />
-              </span>
-              <div>
-                <p className="font-display text-lg text-white">Buy for me</p>
-                <p className="mt-1 text-sm text-parchment/65">
-                  Paste a link to any product, from any store, and we&apos;ll buy, quality-check, and deliver it to you.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <textarea
-                value={link}
-                onChange={(event) => setLink(event.target.value.replace(/\n/g, ''))}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.preventDefault()
-                }}
-                placeholder="Paste product link here (e.g. https://example.com/item)"
-                rows={1}
-                wrap="off"
-                className="h-[50px] flex-1 resize-none overflow-x-auto overflow-y-hidden whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-3.5 text-center text-sm leading-[1.2] text-white outline-none transition-all duration-200 placeholder:text-white/35 focus:border-gold/50 focus:bg-white/[0.1] focus:ring-2 focus:ring-gold/30 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              />
-              <button
-                type="submit"
-                disabled={!link.trim()}
-                className="group flex items-center justify-center gap-2 rounded-xl bg-teal px-5 py-3.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-teal-deep hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40 disabled:active:scale-100 sm:flex-none"
-              >
-                <Plus size={18} className="transition-transform duration-200 group-hover:rotate-90" />
-                Add request
-              </button>
-            </div>
-          </form>
+          {/* My Orders — now its own component (components/dashboard/MyOrdersCard.tsx).
+              See the comment on `latestOrder` above in HomePageProps if this
+              isn't showing an order: the caller of <HomePage /> must pass
+              the new `latestOrder` object, not the old `latestOrderStatus`
+              string. */}
+          <MyOrdersCard onViewOrders={onViewOrders} latestOrder={latestOrder} />
         </div>
 
         {/* Stores for you — hidden on mobile entirely (not just visually
             collapsed): its whole row-fitting logic depends on matching
-            topLeftHeight, which is a desktop-only concept, so there's
-            nothing useful for it to do below `lg`. Desktop: top-right,
-            next to Hello/Buy-for-me (lg:order-2). */}
+            leftColumnHeight, which is a desktop-only concept, so there's
+            nothing useful for it to do below `lg`. Desktop: right column,
+            spanning the full height of the left column (Hello + Buy for
+            me + My Orders). */}
         <div
           className="hidden min-w-0 motion-safe:[animation:fadeUp_0.4s_ease-out_both] lg:order-2 lg:block"
           style={{ animationDelay: '60ms' }}
         >
-          <SuggestedStoresCard targetHeight={topLeftHeight} onBrowseStores={onBrowseStores} />
-        </div>
-
-        {/* My Orders — now its own component (components/dashboard/MyOrdersCard.tsx).
-            See the comment on `latestOrder` above in HomePageProps if this
-            isn't showing an order: the caller of <HomePage /> must pass
-            the new `latestOrder` object, not the old `latestOrderStatus`
-            string. */}
-        <MyOrdersCard onViewOrders={onViewOrders} latestOrder={latestOrder} />
-
-        {/* Customer Service + Wishlist/Following/Recently Viewed —
-            mobile: last (order-5), sized to its own content; desktop:
-            bottom-right (lg:order-4), sharing a grid row with My Orders so
-            both stretch to the same height via lg:h-full.
-
-            DESIGN PASS: previously this was four separate bordered boxes
-            stacked on top of each other (Customer Service + three
-            identical rail-row cards) — the exact "repeated identical
-            card" pattern that reads as templated. They're now one
-            unified card: Customer Service actions up top, then the three
-            rail rows as a plain divided list below a single hairline,
-            rather than each getting its own border/radius/shadow. flex-1
-            on the list section absorbs any extra stretched height by
-            adding breathing room to each row instead of centering a
-            visually separate block. */}
-        <div className="order-5 flex min-w-0 flex-col lg:order-4 lg:h-full">
-          <div
-            className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-ink/10 bg-card motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
-            style={{ animationDelay: '80ms' }}
-          >
-            <div className="p-5">
-              <h3 className="font-display text-base text-ink">Customer Service</h3>
-              <div className="mt-3 flex gap-2">
-                <ServiceAction label="My Message" onClick={onViewMessages} icon={Mail} />
-                <ServiceAction label="Service Records" onClick={onViewServiceRecords} icon={FileEdit} />
-              </div>
-            </div>
-
-            <div className="flex flex-1 flex-col justify-center divide-y divide-ink/10 border-t border-ink/10">
-              <RailRow label="Wishlist" count={wishlistCount} onClick={onViewWishlist} icon={Heart} />
-              <RailRow label="Following" count={followingCount} onClick={onViewFollowing} icon={UserCheck} />
-              <RailRow label="Recently Viewed" moreLabel="More" onClick={onViewRecentlyViewed} icon={Clock} />
-            </div>
-          </div>
-        </div>
-
-        {/* Exclusive offers — hidden for now; order kept consistent with
-            the rest of the flow in case it's re-enabled later. Radius and
-            hover treatment brought in line with the rest of the page
-            (softer border tint, no oversized shadow) so it doesn't read
-            as a separate, mismatched card system when it comes back. */}
-        <h2 className="order-3 mt-11 hidden font-display text-2xl text-ink lg:order-5">
-          Exclusive offers
-        </h2>
-        <div className="order-3 mt-5 hidden grid-cols-1 gap-4 lg:order-5 lg:grid-cols-2">
-          {offers.map((offer, i) => (
-            <article
-              key={offer.title}
-              className="group overflow-hidden rounded-2xl border border-ink/8 bg-card transition-all duration-300 hover:-translate-y-1 hover:border-teal/25 hover:shadow-md hover:shadow-ink/5 motion-safe:[animation:fadeUp_0.4s_ease-out_both]"
-              style={{ animationDelay: `${320 + i * 60}ms` }}
-            >
-              <div className="w-full overflow-hidden rounded-t-2xl">
-                <Image
-                  src={offer.img}
-                  alt=""
-                  width={800}
-                  height={450}
-                  className="w-full h-auto object-cover transition-transform duration-500 ease-out group-hover:scale-105"
-                />
-              </div>
-              <span className="block px-3 py-3 text-xs font-semibold leading-snug text-ink transition-colors group-hover:text-teal-deep sm:px-4 sm:py-4 sm:text-sm">
-                {offer.title}
-              </span>
-            </article>
-          ))}
+          <SuggestedStoresCard targetHeight={leftColumnHeight} onBrowseStores={onBrowseStores} />
         </div>
       </div>
     </div>

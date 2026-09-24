@@ -289,18 +289,32 @@ export default function ChatPanel({
                 // side too, not just the admin's.
                 const orderTag = m.orderId ? allOrders.find((o) => o.dbId === m.orderId)?.id : null
                 const requestTag = m.requestId ? requestDisplayById.get(m.requestId) : null
+
+                // Reply button. Two things changed vs. the old version:
+                //  - `hidden [@media(hover:hover)]:flex` — on touch devices
+                //    (no hover) the button used to be opacity-0 but still
+                //    occupied ~24px of layout beside every bubble, which
+                //    squeezed the row and made the bubble sit unevenly
+                //    against the edges. Now it only exists in layout on
+                //    devices that can actually hover.
+                //  - It's rendered once, positioned before/after the
+                //    bubble via `order`, instead of two copies.
+                const replyButton = (
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text: m.text })}
+                    aria-label="Reply"
+                    className={`hidden flex-none self-center rounded-full p-1 text-ink/35 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:hover)]:flex ${
+                      isCustomer ? 'ml-1' : 'mr-1'
+                    }`}
+                  >
+                    <Reply size={12} />
+                  </button>
+                )
+
                 return (
                   <div key={m.id} className={`group flex ${isCustomer ? 'justify-end' : 'justify-start'} py-0.5`}>
-                    {!isCustomer && (
-                      <button
-                        type="button"
-                        onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text: m.text })}
-                        aria-label="Reply"
-                        className="mr-1 flex-none self-center rounded-full p-1 text-ink/35 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
-                      >
-                        <Reply size={12} />
-                      </button>
-                    )}
+                    {!isCustomer && replyButton}
                     {/*
                       min-w-0 is required here: this is a flex item inside
                       the `group flex` row above. Flex items default to
@@ -322,52 +336,54 @@ export default function ChatPanel({
                           {orderTag ?? requestTag}
                         </span>
                       )}
+                      {/*
+                        The bubble is itself a flex item (column flex parent
+                        above), so the same min-width: auto problem applies
+                        to it: an attachment's intrinsic width can force the
+                        bubble wider than the 80% wrapper, and because the
+                        row is right-aligned the overflow spills off the
+                        LEFT edge where overflow-x-hidden clips it.
+                        min-w-0 + max-w-full clamps the bubble to the wrapper,
+                        and overflow-hidden keeps the media inside the
+                        bubble's rounded corners.
+                      */}
                       <div
-                        className={`rounded-2xl px-3.5 py-2 font-body text-sm ${
+                        className={`min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2 font-body text-sm ${
                           isCustomer ? 'bg-teal-deep text-parchment' : 'bg-card text-ink border border-ink/10'
                         }`}
                       >
-                      {m.replyTo && (
-                        <div
-                          className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-xs break-words ${
-                            isCustomer ? 'border-parchment/50 bg-black/10 text-parchment/80' : 'border-teal-deep bg-ink/5 text-ink/60'
-                          }`}
-                        >
-                          {m.replyTo.text}
-                        </div>
-                      )}
-                      {m.attachment && (
-                        <div className="mb-1.5">
-                          <AttachmentMedia
-                            url={m.attachment.url}
-                            kind={m.attachment.kind}
-                            className="max-h-56 w-full rounded-lg object-cover"
-                          />
-                        </div>
-                      )}
-                      {/*
-                        break-words (overflow-wrap: break-word) lets long
-                        unbroken strings like pasted product URLs wrap
-                        inside the bubble instead of forcing it wider than
-                        max-w-[80%] and bleeding off the left edge under
-                        the message list's overflow-x-hidden.
-                      */}
-                      {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
-                      <p className={`mt-1 text-right text-[10px] ${isCustomer ? 'text-parchment/70' : 'text-ink/40'}`}>
-                        {formatTime(m.createdAt)}
-                      </p>
+                        {m.replyTo && (
+                          <div
+                            className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-xs break-words ${
+                              isCustomer ? 'border-parchment/50 bg-black/10 text-parchment/80' : 'border-teal-deep bg-ink/5 text-ink/60'
+                            }`}
+                          >
+                            {m.replyTo.text}
+                          </div>
+                        )}
+                        {m.attachment && (
+                          <div className="mb-1.5 min-w-0 max-w-full">
+                            <AttachmentMedia
+                              url={m.attachment.url}
+                              kind={m.attachment.kind}
+                              className="block max-h-56 w-full max-w-full rounded-lg object-cover"
+                            />
+                          </div>
+                        )}
+                        {/*
+                          break-words (overflow-wrap: break-word) lets long
+                          unbroken strings like pasted product URLs wrap
+                          inside the bubble instead of forcing it wider than
+                          max-w-[80%] and bleeding off the left edge under
+                          the message list's overflow-x-hidden.
+                        */}
+                        {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
+                        <p className={`mt-1 text-right text-[10px] ${isCustomer ? 'text-parchment/70' : 'text-ink/40'}`}>
+                          {formatTime(m.createdAt)}
+                        </p>
                       </div>
                     </div>
-                    {isCustomer && (
-                      <button
-                        type="button"
-                        onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text: m.text })}
-                        aria-label="Reply"
-                        className="ml-1 flex-none self-center rounded-full p-1 text-ink/35 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
-                      >
-                        <Reply size={12} />
-                      </button>
-                    )}
+                    {isCustomer && replyButton}
                   </div>
                 )
               })}
