@@ -105,7 +105,12 @@ export async function sendPushToUsers(
       try {
         await webpush.sendNotification(target, body, {
           TTL: payload.kind === 'chat' ? 60 * 60 * 24 : 60 * 60 * 24 * 3,
-          urgency: payload.kind === 'chat' ? 'high' : 'normal',
+          // 'high' = deliver now, even to an idle phone. With 'normal',
+          // Android holds the push while the phone sleeps (Doze) and only
+          // delivers when the screen comes on — it looked like
+          // notifications "only arrive when the app is open". Offers are
+          // the one kind that can wait.
+          urgency: payload.kind === 'offer' ? 'normal' : 'high',
           topic: payload.tag?.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined,
         })
         result.sent++
