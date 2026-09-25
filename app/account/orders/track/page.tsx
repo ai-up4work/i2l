@@ -354,8 +354,9 @@ function TrackOrderContent() {
             onSelect={(id) => router.push(`/account/orders/track?order=${id}`)}
           />
         )}
-
+        <div className="mb-16 border-t border-ink/10">
         <GoodHandsBanner />
+        </div>
       </div>
     </div>
   )
