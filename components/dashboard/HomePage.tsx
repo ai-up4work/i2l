@@ -283,6 +283,8 @@ function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
 // This card only ever renders at the `lg` breakpoint and up (see the
 // wrapper in HomePage below), since the row-fitting math is meaningless
 // on mobile — there's no left column to match on a single-column layout.
+// (Mobile gets its own lightweight horizontal-scroll strip instead — see
+// MobileStoresStrip below.)
 //
 // STORE SOURCE: "Stores for you" is specifically about sellers where
 // pricing is already pre-confirmed with us (see the "No link needed —
@@ -397,6 +399,134 @@ function SuggestedStoresCard({
         {loading ? 'Loading stores…' : `View all ${affiliatedOnly.length} stores`}
         <ChevronRight size={13} />
       </button>
+    </div>
+  )
+}
+
+// Mobile counterpart to SuggestedStoresCard. On small screens there's no
+// left column to match heights against (the whole point of the desktop
+// card's row-fitting logic), so instead of hiding "Stores for you"
+// entirely below `lg`, this renders the same store tiles as a compact,
+// horizontally-scrollable strip directly under My Orders — mirroring
+// where the right-rail card sits relative to the left column on desktop,
+// just collapsed into a single row instead of a grid. Reuses
+// SuggestedStoreTile/StoreTileSkeleton as-is so a tile looks identical
+// wherever it appears; only the container around it differs (a fixed
+// width per tile + overflow-x-auto instead of a 4-col grid).
+function MobileStoresStrip({ onBrowseStores }: { onBrowseStores?: () => void }) {
+  const { stores, loading } = useAffiliatedStores()
+
+  const affiliatedOnly = useMemo(
+    () => stores.filter((s) => s.storeType === 'local'),
+    [stores],
+  )
+
+  const orderedStores = useMemo<AffiliatedStore[]>(
+    () => [...affiliatedOnly.filter((s) => s.isNew), ...affiliatedOnly.filter((s) => !s.isNew)],
+    [affiliatedOnly],
+  )
+
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-card p-5 lg:hidden">
+      <div className="flex items-center justify-between">
+        <h3 className="font-display text-base text-ink">Stores for you</h3>
+        <button
+          type="button"
+          onClick={onBrowseStores}
+          disabled={loading}
+          className="flex items-center gap-1 text-xs font-semibold text-teal-deep disabled:opacity-50"
+        >
+          View all
+          <ChevronRight size={13} />
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-ink/55">No link needed — pricing already confirmed.</p>
+
+      <div className="mt-4 -mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {loading
+          ? Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="w-20 shrink-0">
+                <StoreTileSkeleton />
+              </div>
+            ))
+          : orderedStores.map((store) => (
+              <div key={store.platform} className="w-20 shrink-0">
+                <SuggestedStoreTile store={store} />
+              </div>
+            ))}
+      </div>
+    </div>
+  )
+}
+
+// Single-line text that scrolls (marquee) only when it's actually wider
+// than the space it's given — measured live via ResizeObserver against
+// both the text's natural width and its container's width, rather than
+// assumed from breakpoint. So on a wide desktop card where "Paste a link
+// to any product..." fits comfortably, it just sits still as normal
+// static text; on a narrow mobile "Buy for me" card where it doesn't,
+// it scrolls instead of wrapping onto a second/third line and inflating
+// the hero card's height. Renders the text twice back-to-back only while
+// scrolling, so the marquee loops seamlessly with no visible gap/jump at
+// the loop point; while idle it renders once, plainly.
+function MarqueeText({ text, className = '' }: { text: string; className?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const [isOverflowing, setIsOverflowing] = useState(false)
+  const [distance, setDistance] = useState(0)
+
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    const text = textRef.current
+    if (!container || !text) return
+
+    const measure = () => {
+      const overflowBy = text.scrollWidth - container.clientWidth
+      setIsOverflowing(overflowBy > 4)
+      setDistance(overflowBy > 4 ? overflowBy : 0)
+    }
+
+    measure()
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    observer.observe(text)
+    return () => observer.disconnect()
+  }, [text])
+
+  // Duration scales with distance so longer overflow doesn't scroll by
+  // faster/slower than shorter overflow — a steady, readable px/s pace
+  // rather than a fixed duration regardless of content length.
+  const durationMs = Math.max(3000, distance * 40)
+
+  return (
+    <div ref={containerRef} className={`overflow-hidden whitespace-nowrap ${className}`}>
+      <span
+        className="inline-flex"
+        style={
+          isOverflowing
+            ? {
+                animation: `marqueeScroll ${durationMs}ms linear infinite`,
+                animationDelay: '600ms',
+              }
+            : undefined
+        }
+      >
+        <span ref={textRef}>{text}</span>
+        {isOverflowing && (
+          <span aria-hidden="true" style={{ paddingLeft: 32 }}>
+            {text}
+          </span>
+        )}
+      </span>
+      {isOverflowing && (
+        <style>{`
+          @keyframes marqueeScroll {
+            from { transform: translateX(0); }
+            to { transform: translateX(-${distance + 32}px); }
+          }
+        `}</style>
+      )}
     </div>
   )
 }
@@ -559,9 +689,9 @@ export default function HomePage({
         its own content breaks that loop: the measurement is always the
         left column's natural height.
 
-        Mobile (no lg:) is a single column: Hello/Buy-for-me → My Orders.
-        "Stores for you" is hidden entirely on mobile (see its wrapper
-        below) rather than reflowed, since it's not needed there.
+        Mobile (no lg:) is a single column: Hello/Buy-for-me → My Orders
+        → Stores for you (as a horizontal-scroll strip, MobileStoresStrip,
+        rather than the height-matched right-rail card used on desktop).
 
         DESIGN PASS: the greeting + stat row is no longer its own bordered
         card — it now sits directly on the parchment as a plain strip, so
@@ -574,11 +704,12 @@ export default function HomePage({
         a generic dashboard tile.
       */}
       <div className="grid gap-3 gap-x-8 lg:grid-cols-[minmax(0,1fr)_330px] z-0 mt-8">
-        {/* Left column: Hello + Buy for me, then My Orders. Measured as a
-            whole so Stores for you can match its full height. */}
+        {/* Left column: Hello + Buy for me, then My Orders (+ the mobile
+            stores strip). Measured as a whole so Stores for you can match
+            its full height on desktop. */}
         <div ref={leftColumnRef} className="flex min-w-0 flex-col gap-3 lg:self-start">
           {/* Hello + Buy for me */}
-          <div className="order-1 flex min-w-0 flex-col gap-5 lg:order-1">
+          <div className="flex min-w-0 flex-col gap-5">
             <div className="motion-safe:[animation:fadeUp_0.35s_ease-out_both]">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -634,24 +765,39 @@ export default function HomePage({
                 <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gold/15 text-gold" aria-hidden="true">
                   <Package size={22} strokeWidth={1.8} />
                 </span>
-                <div>
+                <div className="min-w-0 flex-1 pr-1">
                   <p className="font-display text-lg text-white">Buy for me</p>
-                  <p className="mt-1 text-sm text-parchment/65">
-                    Paste a link to any product, from any store, and we&apos;ll buy, quality-check, and deliver it to you.
-                  </p>
+                  <MarqueeText
+                    text="Paste a link to any product, from any store, and we'll buy, quality-check, and deliver it to you."
+                    className="mt-1 text-sm text-parchment/65"
+                  />
                 </div>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row">
+                {/* FIX: this was previously `overflow-x-auto` + `text-center`
+                    with the scrollbar hidden, which shows whatever the
+                    textarea's current horizontal scroll position happens to
+                    land on and hard-clips the rest with no visual cue —
+                    that's the "cut off mid-word" look on narrow (mobile)
+                    widths. Swapped to `overflow-hidden` + `truncate` so long
+                    input always ends in a clean ellipsis, and to
+                    `text-left` so the visible text starts from the
+                    beginning rather than the middle. The placeholder is
+                    also shortened (dropped the "(e.g. https://...)" example)
+                    so it fits without truncating on small screens in the
+                    common, unfocused case. Browsers still auto-scroll the
+                    caret into view while actively typing, so this doesn't
+                    hurt real usage — it only changes how overflow *looks*. */}
                 <textarea
                   value={link}
                   onChange={(event) => setLink(event.target.value.replace(/\n/g, ''))}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.preventDefault()
                   }}
-                  placeholder="Paste product link here (e.g. https://example.com/item)"
+                  placeholder="Paste product link here"
                   rows={1}
                   wrap="off"
-                  className="h-[50px] flex-1 resize-none overflow-x-auto overflow-y-hidden whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-3.5 text-center text-sm leading-[1.2] text-white outline-none transition-all duration-200 placeholder:text-white/35 focus:border-gold/50 focus:bg-white/[0.1] focus:ring-2 focus:ring-gold/30 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="h-[50px] flex-1 resize-none overflow-hidden truncate whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-3.5 text-left text-sm leading-[1.2] text-white outline-none transition-all duration-200 placeholder:text-white/35 focus:border-gold/50 focus:bg-white/[0.1] focus:ring-2 focus:ring-gold/30"
                 />
                 <button
                   type="submit"
@@ -671,6 +817,15 @@ export default function HomePage({
               the new `latestOrder` object, not the old `latestOrderStatus`
               string. */}
           <MyOrdersCard onViewOrders={onViewOrders} latestOrder={latestOrder} />
+
+          {/* Mobile-only stores strip, directly under My Orders — this is
+              the mobile equivalent of the desktop "Stores for you" right
+              rail (see SuggestedStoresCard), collapsed into a single
+              horizontal-scroll row since there's no left column height to
+              match against below `lg`. Hidden at `lg:` and up, where the
+              full-height SuggestedStoresCard in the right column takes
+              over instead. */}
+          <MobileStoresStrip onBrowseStores={onBrowseStores} />
         </div>
 
         {/* Stores for you — hidden on mobile entirely (not just visually
