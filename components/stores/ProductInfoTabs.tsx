@@ -1,7 +1,7 @@
 // components/stores/ProductInfoTabs.tsx
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { normalizeDescription } from '@/lib/scrape/normalize-description'
 
 // Structural, not tied to StoreProduct — anything shaped like this
@@ -39,6 +39,20 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 // rects rather than fixed percentages, since the tab set here is
 // dynamic (only tabs with content render at all) and each has a
 // different label width.
+//
+// FIX: previously took `tabs` (a freshly-filtered array from the
+// caller, so a new reference on every render) directly as an effect
+// dependency, and called `setStyle` with a brand-new object every time
+// it ran. Reference-unstable deps meant the effect re-ran on every
+// single render regardless of whether anything actually changed, and
+// each run's unconditional setStyle() triggered another render — an
+// infinite ("Maximum update depth exceeded") loop. Two independent
+// fixes close it: the caller now memoizes `tabs` so its reference is
+// stable across renders where the underlying tab set hasn't changed,
+// and this hook now only calls setStyle when the computed left/width
+// actually differ from the last measurement, so even a spurious re-run
+// (new tabs reference, unrelated parent re-render, etc.) can't cause
+// another state update.
 function useSlidingIndicator(activeTab: InfoTab | null, tabs: readonly InfoTab[]) {
   const railRef = useRef<HTMLDivElement | null>(null)
   const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
@@ -50,7 +64,13 @@ function useSlidingIndicator(activeTab: InfoTab | null, tabs: readonly InfoTab[]
     if (!rail || !btn) return
     const railRect = rail.getBoundingClientRect()
     const btnRect = btn.getBoundingClientRect()
-    setStyle({ left: btnRect.left - railRect.left + rail.scrollLeft, width: btnRect.width })
+    const left = btnRect.left - railRect.left + rail.scrollLeft
+    const width = btnRect.width
+
+    setStyle((prev) => {
+      if (prev && prev.left === left && prev.width === width) return prev
+      return { left, width }
+    })
   }, [activeTab, tabs])
 
   return { railRef, btnRefs, style }
@@ -92,20 +112,40 @@ export default function ProductInfoTabs({ product }: { product: ProductInfoTabsD
   const hasSizeChart = !!p.sizeChart?.length
   const hasFaqs = extractedFaqs.length > 0
 
-  const tabs = ALL_TABS.filter((t) =>
-    t === 'Description'
-      ? hasDescription
-      : t === 'Details'
-        ? hasDetails
-        : t === 'Shipping & Returns'
-          ? hasShipping
-          : t === 'Size chart'
-            ? hasSizeChart
-            : hasFaqs
+  // FIX: memoized so this array keeps the SAME reference across renders
+  // where the underlying has* flags haven't changed. Previously this
+  // was recomputed with a bare `ALL_TABS.filter(...)` on every render,
+  // producing a new array every time — which fed straight into
+  // useSlidingIndicator's effect dependency array below and was the
+  // root cause of the infinite update loop (see that hook's comment).
+  const tabs = useMemo(
+    () =>
+      ALL_TABS.filter((t) =>
+        t === 'Description'
+          ? hasDescription
+          : t === 'Details'
+            ? hasDetails
+            : t === 'Shipping & Returns'
+              ? hasShipping
+              : t === 'Size chart'
+                ? hasSizeChart
+                : hasFaqs
+      ),
+    [hasDescription, hasDetails, hasShipping, hasSizeChart, hasFaqs]
   )
 
   const [activeTab, setActiveTab] = useState<InfoTab | null>(tabs[0] ?? null)
   const { railRef, btnRefs, style: indicatorStyle } = useSlidingIndicator(activeTab, tabs)
+
+  // Keep activeTab valid if the tab set changes underneath it (e.g. the
+  // description finishes normalizing after FAQs already picked an
+  // earlier active tab, or a prop update removes the currently active
+  // tab entirely) — falls back to the first available tab rather than
+  // rendering a panel for a tab that no longer exists.
+  useEffect(() => {
+    if (activeTab && tabs.includes(activeTab)) return
+    setActiveTab(tabs[0] ?? null)
+  }, [tabs, activeTab])
 
   if (!tabs.length || !activeTab) return null
 
