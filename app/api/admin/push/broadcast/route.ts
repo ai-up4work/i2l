@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'You have no devices with notifications on. Sign in to the customer site with this account on your phone or browser, turn notifications on in Account → Settings, then try again.',
+            'You have no devices with notifications on. Sign in to the customer site with this account on your phone or browser, turn notifications on in My Profile → Notifications, then try again.',
         },
         { status: 400 },
       )

@@ -22,6 +22,7 @@ import {
   Download,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import NotificationSettings from '@/components/pwa/NotificationSettings'
 import { createClient } from '@/lib/supabase/client'
 import { useImageUpload } from '@/lib/upload/useImageUpload'
 import { normalizeSriLankanMobile, friendlyPhoneAuthError } from '@/lib/phone'
@@ -695,6 +696,10 @@ export default function AccountProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* ---- Notifications: push on this device + offers opt-out.
+            See components/pwa/NotificationSettings.tsx. */}
+        <NotificationSettings className="mt-8 mb-8" />
 
          {/* <button
           type="button"

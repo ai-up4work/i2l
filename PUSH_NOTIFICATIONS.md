@@ -10,7 +10,7 @@ Two things send push notifications:
    from **Admin → Manager → Broadcasts** (`/admin/broadcasts`).
 
 Customers turn notifications on per device, from the prompt on
-*My Messages* or in **Account → Settings → Notifications**.
+*My Messages* or in **My Profile → Notifications**.
 
 ## One-time setup
 
@@ -98,7 +98,7 @@ staff sends message ─► chat_messages row (sender ≠ customer)
   on their phone/computer.
 - **Send test to my devices** pushes only to you. For it to work, sign in
   to the customer site with your staff email on your phone or browser and
-  turn notifications on in Account → Settings.
+  turn notifications on in My Profile → Notifications.
 - The same title + message can't be sent twice within 2 minutes (guards
   against double clicks). History and delivery counts are shown on the
   page and stored in `push_broadcasts`.
@@ -157,7 +157,7 @@ from net._http_response order by created desc limit 20;
 **"Push isn't set up yet"** on the Broadcasts page — the VAPID variables
 are missing on Vercel, or the site wasn't redeployed after adding them.
 
-**Settings says "Notifications aren't available yet"** — the site was built
+**My Profile says "Notifications aren't available yet"** — the site was built
 without `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (it's baked in at build time; add it
 and redeploy).
 
@@ -180,7 +180,7 @@ production builds. Use `npm run build && npm start`, or set
 | `app/admin/(protected)/(manager)/broadcasts/page.tsx` | Admin Broadcasts page |
 | `lib/pwa/push.ts` | Browser side: permission, subscribe, status hook |
 | `components/pwa/PushOptIn.tsx` | "Get notified when we reply" prompt on My Messages |
-| `components/pwa/NotificationSettings.tsx` | Notifications section in Account → Settings |
+| `components/pwa/NotificationSettings.tsx` | Notifications section on My Profile (`/account/profile`) |
 | `components/pwa/PushSync.tsx` | Re-links a device when a customer signs in |
 | `public/sw.js` | `push`, `notificationclick`, `pushsubscriptionchange` handlers |
 
