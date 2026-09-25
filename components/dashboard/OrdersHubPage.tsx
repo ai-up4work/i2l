@@ -311,11 +311,17 @@ function OrderCard({
     <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${statusAccent}`}>
       {/* ---------------------------------------------------------------
           Mobile / tablet layout — image stack stays full-width above
-          the qty/total row. fitActive is NOT passed here, so the stack
-          falls back to crop-to-fill mode: the active card fills whatever
-          width flex-grow gives it, cropping via background-size. This
-          is intentional on mobile — there's no room to let the stack's
-          own width vary, it must always fill the card's fixed width.
+          the qty/total row.
+
+          FIX: the wrapper below now carries an explicit width (w-40),
+          not just flex-none. AccordionGallery's root is `width: 100%`,
+          so it needs a parent with a *definite* width to resolve
+          against — flex-none alone doesn't provide one when the content
+          itself has no intrinsic width. Without a real width here, the
+          flex row has no free space to distribute via flexGrow, so
+          every rail (active or not) collapses down to railMinSize and
+          they all end up looking the same size, instead of the active
+          one dominating the row.
 
           NOTE: ItemImageStack's root div always sets `height: '100%'`
           as an inline style, which beats any height class passed in via
@@ -343,12 +349,13 @@ function OrderCard({
 
         {isMultiItem ? (
           <div className="mt-4 flex items-start gap-3">
-            {/* fitActive makes the stack's own width track the active
-                image's aspect ratio (plus small collapsed rails for the
-                others) instead of stretching to fill the row — so it
-                only takes the width it actually needs to fill h-24. */}
-            <div className="h-24 flex-none">
-              <ItemImageStack items={order.items} fitActive />
+            {/* fitActive makes the stack's active image dominate the row.
+                w-40 gives AccordionGallery's 100%-width root a real,
+                definite width to resolve against, so flexGrow on the
+                active panel has actual free space to expand into instead
+                of every rail sitting flat at railMinSize. */}
+            <div className="h-24 w-40 flex-none">
+              <ItemImageStack items={order.items} fitActive railMinSize={18} />
             </div>
             <div className="flex-1 pt-1 text-right">
               <div className="font-medium">
@@ -410,13 +417,26 @@ function OrderCard({
       {/* ---------------------------------------------------------------
           Desktop layout (lg+) — for multi-item orders, the stack is
           given fitActive so the rail's own width tracks whichever
-          image is active (never crops it), capped at max-w-[380px] so
-          it can't swallow the whole card. Single-item orders keep the
-          fixed w-44 hero rail as before.
+          image is active.
+
+          FIX: w-[380px] (a real width) replaces the old max-w-[380px]
+          (a ceiling only). max-width alone never gives a flex item a
+          definite width to lay out against — AccordionGallery's root
+          fills "100%" of whatever this wrapper resolves to, and with
+          only a max-width the wrapper shrinks to fit its (width-less)
+          content, so the gallery had no free space to distribute via
+          flexGrow and every rail sat at railMinSize. Single-item orders
+          keep the fixed w-44 hero rail as before.
           --------------------------------------------------------------- */}
       <div className="hidden gap-5 p-5 lg:flex">
         {isMultiItem ? (
-          <div className="h-40 max-w-[380px] flex-none">
+          // Height bumped from h-40 to h-56: at h-40 the active panel is
+          // ~280px wide but only 160px tall, so object-fit: cover has to
+          // crop a lot of vertical extent off a typically-portrait photo
+          // to fill that wide-short box (see AccordionGallery.tsx's
+          // .ag-panel__media). Taller reduces how aggressive that crop
+          // has to be, without needing to touch object-fit itself.
+          <div className="h-56 w-[380px] flex-none">
             <ItemImageStack items={order.items} className="h-full" fitActive />
           </div>
         ) : (
