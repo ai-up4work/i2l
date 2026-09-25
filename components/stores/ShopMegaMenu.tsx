@@ -207,6 +207,22 @@ function useIsDesktopNav() {
  * the outer pointer-events-none wrapper, which never receives mouse
  * events) so hovering the panel itself keeps cancelling that timer, the
  * same way hovering the trigger does.
+ *
+ * CLICK-BUBBLING FIX: this panel is portaled to document.body, but
+ * React's *synthetic* event system dispatches according to the React
+ * component tree, not the DOM tree — so a click on a StoreRow/category
+ * link here still bubbles (in React terms) up through this component's
+ * actual JSX parent in Header.tsx, which is the notch trigger div with
+ * `onClick={handleNotchClick}`. That handler calls `e.preventDefault()`
+ * (killing the link's navigation) and toggles `activeDesktopMenu` closed
+ * (since the menu was already open) — so clicking a store/category used
+ * to close the menu instead of navigating. `onClick={(e) =>
+ * e.stopPropagation()}` on the inner pointer-events-auto panel below
+ * stops the synthetic event right here, before it can reach
+ * handleNotchClick, while leaving the link's own native navigation (and
+ * the outside-click / Escape handling in Header.tsx, which reads real
+ * DOM containment via getElementById(SHOP_PANEL_ID) rather than React
+ * bubbling) completely unaffected.
  */
 export function ShopMegaMenuPanel({
   isActive,
@@ -245,6 +261,12 @@ export function ShopMegaMenuPanel({
       <div
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
+        // FIX: see the CLICK-BUBBLING FIX comment above this component
+        // — without this, clicking any link inside the panel bubbled (in
+        // React's synthetic-event tree) up to Header.tsx's notch
+        // onClick handler, which preventDefault()'d the navigation and
+        // toggled the menu shut instead.
+        onClick={(e) => e.stopPropagation()}
         className={`origin-top border-b border-teal/20 bg-parchment shadow-2xl shadow-ink/25 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isActive
             ? "pointer-events-auto visible [transform:rotateX(0deg)] opacity-100"
