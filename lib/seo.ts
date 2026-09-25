@@ -103,6 +103,8 @@ export const PWA_ICONS = {
   shortcutRequest: '/icons/shortcut-request-96.png',
   shortcutOrders: '/icons/shortcut-orders-96.png',
   shortcutCart: '/icons/shortcut-cart-96.png',
+  /** 96×96 white-on-transparent — Android status-bar icon for push notifications. */
+  badge: '/icons/badge-96.png',
 } as const
 
 export const PWA_SCREENSHOTS = {

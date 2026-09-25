@@ -894,3 +894,7 @@ create index on public.store_follows (platform_slug);
 alter table public.store_follows enable row level security;
 create policy "own store follows" on public.store_follows for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
+-- ─── Push notifications ─────────────────────────────────────────────────
+-- push_subscriptions, push_broadcasts, profiles.push_offers and the
+-- chat_messages push trigger are defined in
+-- data/wishdrop-push-notifications.sql — run that file after this one.

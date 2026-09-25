@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { ChevronRight, MessageCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
+import NotificationSettings from '@/components/pwa/NotificationSettings'
 
 // Same card/border/spacing language as components/dashboard/ProfilePage.tsx
 // and app/account/address-book/page.tsx — this page used to be a flat
@@ -250,6 +251,8 @@ export default function SettingsPage() {
           {passwordError && <p className="mt-2 text-xs font-semibold text-red-600">{passwordError}</p>}
         </SettingsCard>
       </div>
+
+      <NotificationSettings />
 
       {/*
         Delete Account / Download Your Information are real GDPR-style

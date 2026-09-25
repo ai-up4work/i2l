@@ -28,8 +28,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { sendTextMessage } from '@/lib/chat/whatsapp'
 import { e164ToWhatsAppDigits } from '@/lib/chat/phone'
+import { requireStaffRole } from '@/lib/supabase/admin-auth'
 
 export async function POST(req: NextRequest) {
+  // Only active staff may relay. Without this, anyone who obtained a
+  // thread id could make the business WhatsApp number message that
+  // customer. Both callers (admin inbox, sendAdminChatMessage) run in
+  // signed-in staff sessions, so this changes nothing for them.
+  const auth = await requireStaffRole()
+  if (!auth.ok) return auth.response
+
   let body: { threadId?: string; text?: string }
   try {
     body = await req.json()

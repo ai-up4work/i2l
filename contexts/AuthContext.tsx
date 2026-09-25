@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import type { User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/client"
 import { clearServiceWorkerCaches } from "@/components/pwa/ServiceWorkerRegister"
+import { releaseDeviceForSignOut } from "@/lib/pwa/push"
 
 export interface AuthUser {
   id: string
@@ -168,6 +169,13 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     // Clear the local view immediately so the header doesn't sit on the
     // old name/avatar while signOut() round-trips.
     applyUser(null)
+    // Unlink this device from push notifications while the session still
+    // exists (the API needs it), so a shared device stops receiving this
+    // customer's messages. Capped so a slow network never blocks sign-out.
+    await Promise.race([
+      releaseDeviceForSignOut().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ])
     await supabase.auth.signOut()
     // Drop any pages/images the service worker cached during this session
     // (see public/sw.js) so a shared device doesn't keep them around.

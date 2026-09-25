@@ -36,6 +36,7 @@ import {
   SlidersHorizontal,
   FileText,
   Lock,
+  Megaphone,
 } from "lucide-react"
 
 import { useAdminSidebar } from "@/contexts/AdminSidebarContext"
@@ -160,6 +161,7 @@ function getGroups(role: Role): Group[] {
       items: [
         { label: "Reports", href: "/admin/reports", icon: BarChart3, roles: ["manager"] },
         { label: "Staff", href: "/admin/staff", icon: UserCog, roles: ["manager"] },
+        { label: "Broadcasts", href: "/admin/broadcasts", icon: Megaphone, roles: ["manager"] },
       ],
     },
     {

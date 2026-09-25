@@ -12,6 +12,7 @@ import {
 import JsonLd, { organizationSchema, websiteSchema } from "@/components/seo/JsonLd";
 import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
+import PushSync from "@/components/pwa/PushSync";
 import AuthProvider from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/Cartcontext";
 import { WishlistProvider } from "@/contexts/Wishlistcontext";
@@ -151,6 +152,8 @@ export default function RootLayout({
         className={`${fraunces.variable} ${spaceGrotesk.variable} font-sans`}
       >
         <AuthProvider>
+          {/* Re-links this device for push when a customer signs in. */}
+          <PushSync />
           <CartProvider>
             <WishlistProvider>
               <LoyaltyProvider >

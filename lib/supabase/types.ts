@@ -37,6 +37,8 @@ export interface Database {
           created_at: string
           updated_at: string
           referral_code: string | null
+          /** Offers/promotional push opt-in — see data/wishdrop-push-notifications.sql. */
+          push_offers: boolean
         }
         Insert: {
           id: string
@@ -53,6 +55,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           referral_code?: string | null
+          push_offers?: boolean
         }
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>
         Relationships: []
@@ -1038,6 +1041,75 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['notifications']['Insert']>
+        Relationships: []
+      }
+      // See data/wishdrop-push-notifications.sql.
+      push_subscriptions: {
+        Row: {
+          id: string
+          user_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+          user_agent: string | null
+          created_at: string
+          last_seen_at: string
+          failure_count: number
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+          user_agent?: string | null
+          created_at?: string
+          last_seen_at?: string
+          failure_count?: number
+        }
+        Update: Partial<Database['public']['Tables']['push_subscriptions']['Insert']>
+        Relationships: []
+      }
+      push_broadcasts: {
+        Row: {
+          id: string
+          kind: 'announcement' | 'offer'
+          title: string
+          body: string
+          url: string
+          audience: Json
+          audience_label: string
+          created_by: string | null
+          created_by_name: string | null
+          status: 'sending' | 'sent' | 'failed'
+          recipient_count: number
+          device_count: number
+          push_sent: number
+          push_failed: number
+          error: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          kind: 'announcement' | 'offer'
+          title: string
+          body: string
+          url?: string
+          audience: Json
+          audience_label: string
+          created_by?: string | null
+          created_by_name?: string | null
+          status?: 'sending' | 'sent' | 'failed'
+          recipient_count?: number
+          device_count?: number
+          push_sent?: number
+          push_failed?: number
+          error?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['push_broadcasts']['Insert']>
         Relationships: []
       }
       sites: {

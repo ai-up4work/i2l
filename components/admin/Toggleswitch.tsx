@@ -25,7 +25,7 @@ export function ToggleSwitch({
       }`}
     >
       <span
-        className={`absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+        className={`absolute left-0 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
           checked ? 'translate-x-[22px]' : 'translate-x-0.5'
         }`}
       />

@@ -20,7 +20,7 @@
  * on activate. (App deploys don't need a bump — hashed assets handle that.)
  */
 
-const VERSION = 'v1'
+const VERSION = 'v2' // v2: push notifications
 const PRECACHE = `wishdrop-precache-${VERSION}`
 const PAGES = `wishdrop-pages-${VERSION}`
 const ASSETS = `wishdrop-assets-${VERSION}`
@@ -35,6 +35,7 @@ const PRECACHE_URLS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',
+  '/icons/badge-96.png',
 ]
 
 const PRIVATE_PREFIXES = ['/account', '/admin', '/seller', '/catalogue', '/demo', '/auth', '/api']
@@ -196,3 +197,81 @@ async function trimCache(cacheName, maxEntries) {
   if (keys.length <= maxEntries) return
   await Promise.all(keys.slice(0, keys.length - maxEntries).map((key) => cache.delete(key)))
 }
+
+// ─── Push notifications ─────────────────────────────────────────────────
+// Payload shape: see PushPayload in lib/push/server.ts.
+// Browsers REQUIRE a visible notification for every push (iOS revokes the
+// subscription otherwise), so every push shows one — even if the app is
+// open. In-app UI (chat, the bell) updates in real time on its own.
+
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    data = { body: event.data ? event.data.text() : '' }
+  }
+
+  const title = data.title || 'WishDrop'
+  const options = {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    // Android status-bar icon: must be white-on-transparent.
+    badge: '/icons/badge-96.png',
+    tag: data.tag || undefined,
+    // A new message in the same chat replaces the old notification but
+    // still buzzes the phone.
+    renotify: Boolean(data.tag),
+    data: { url: data.url || '/', kind: data.kind || 'announcement' },
+    ...(data.image ? { image: data.image } : {}),
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const target = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin)
+  // Only ever open pages on this site.
+  if (target.origin !== self.location.origin) return
+
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      // Reuse an open WishDrop window/tab rather than opening another.
+      for (const client of windows) {
+        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          await client.focus()
+          if ('navigate' in client && client.url !== target.href) {
+            try {
+              await client.navigate(target.href)
+            } catch {
+              /* navigate() fails for uncontrolled clients; focus is enough */
+            }
+          }
+          return
+        }
+      }
+      await self.clients.openWindow(target.href)
+    })(),
+  )
+})
+
+// The browser rotated this device's push subscription (rare, but happens):
+// re-subscribe with the same key and tell the server the new endpoint.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      const oldSub = event.oldSubscription
+      const key = oldSub && oldSub.options && oldSub.options.applicationServerKey
+      if (!key) return
+      const newSub = event.newSubscription || (await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }))
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSub.toJSON()),
+      })
+    })().catch(() => {}),
+  )
+})

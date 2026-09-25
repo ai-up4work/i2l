@@ -8,6 +8,7 @@ import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatCon
 import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
+import PushOptIn from '@/components/pwa/PushOptIn'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -180,6 +181,10 @@ export default function AccountMessagesPage() {
           <FaWhatsapp size={18} />
         </a>
       </div>
+
+      {/* Ask for notifications here, where "tell me when they reply" is
+          obviously useful. Renders nothing once on, blocked, or dismissed. */}
+      {!isLocked && <PushOptIn className="mt-4" />}
 
       {isLocked ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">

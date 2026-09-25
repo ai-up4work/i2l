@@ -1,5 +1,8 @@
 # WishDrop — SEO & PWA
 
+> Push notifications (chat messages and broadcasts) are documented in
+> **PUSH_NOTIFICATIONS.md**.
+
 Everything search engines, social apps, and "install app" prompts read is
 driven from one file: **`lib/seo.ts`**. Change site name, description,
 keywords, social profiles, colours, or image paths there — nowhere else.
@@ -31,6 +34,7 @@ harder — use the debuggers listed under "Testing" to force a refresh.
 | `public/icons/shortcut-request-96.png` | 96×96 | Long-press menu: Request a product | |
 | `public/icons/shortcut-orders-96.png` | 96×96 | Long-press menu: Track my orders | |
 | `public/icons/shortcut-cart-96.png` | 96×96 | Long-press menu: My cart | |
+| `public/icons/badge-96.png` | 96×96 | Android status-bar icon for push notifications | **White on transparent** — Android shows it as a silhouette |
 
 ### Search & social
 
