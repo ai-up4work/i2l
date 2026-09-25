@@ -1,9 +1,11 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/data-deletion',
   title: 'Data Deletion Instructions | WishDrop',
   description: 'How to request deletion of your personal data from WishDrop.',
-}
+})
 
 // Exists mainly because Meta's App Dashboard (Settings > Basic > User data
 // deletion) requires a real, live "Data deletion instructions URL" before

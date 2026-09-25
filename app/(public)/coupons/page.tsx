@@ -2,11 +2,13 @@ import { TicketPercent } from 'lucide-react'
 import DealCoupon, { discountToCoupon } from '@/components/shared/DealCoupon'
 import CopyCouponCode from '@/components/shared/CopyCouponCode'
 import { ADMIN_DISCOUNTS, getDiscountStatus } from '@/data/discounts/data'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/coupons',
   title: 'Coupons | WishDrop',
   description: 'Active coupon codes to save on shipping and shopping fees at WishDrop.',
-}
+})
 
 export default function CouponsPage() {
   // Only show customer-facing, code-based promotions that are currently live.

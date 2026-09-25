@@ -1,10 +1,12 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/terms',
   title: 'Terms of Use | WishDrop',
   description:
     'The terms that govern your use of WishDrop — requests, quotes, payment, shipping, customs, liability, and dispute resolution.',
-}
+})
 
 export default function TermsPage() {
   return (

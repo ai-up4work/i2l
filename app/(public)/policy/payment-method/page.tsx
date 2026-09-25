@@ -1,9 +1,11 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/policy/payment-method',
   title: 'Payment Methods | WishDrop',
   description: 'Accepted payment methods on WishDrop — cards, mobile wallets, and WishDrop wallet credit.',
-}
+})
 
 export default function PaymentMethodPage() {
   return (

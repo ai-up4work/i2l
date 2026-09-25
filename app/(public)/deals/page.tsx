@@ -2,11 +2,13 @@ import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import DealCoupon, { discountToCoupon } from '@/components/shared/DealCoupon'
 import { ADMIN_DISCOUNTS, getDiscountStatus, formatDiscountScope } from '@/data/discounts/data'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/deals',
   title: 'Deals & Promos | WishDrop',
   description: 'Current storewide, seller, and collection promotions on WishDrop.',
-}
+})
 
 export default function DealsPage() {
   const liveDeals = ADMIN_DISCOUNTS.filter((d) => getDiscountStatus(d) === 'active')

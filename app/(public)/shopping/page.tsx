@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { ArrowRight, Link2, Search, ShoppingBag, Sparkles } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/shopping',
   title: 'How Shopping Works | WishDrop',
   description:
     'Two ways to shop with WishDrop: browse affiliated stores directly, or send us a link to almost anything and let us buy it for you.',
-}
+})
 
 const paths = [
   {

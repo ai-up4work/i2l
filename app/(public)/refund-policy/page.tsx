@@ -1,10 +1,12 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/refund-policy',
   title: 'Refund & Cancellation Policy | WishDrop',
   description:
     'When WishDrop provides refunds or credits — cancellations, failed purchases, quality-check rejections, lost or damaged shipments, and delivery issues.',
-}
+})
 
 export default function RefundPolicyPage() {
   return (

@@ -1,10 +1,12 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/privacy',
   title: 'Privacy Policy | WishDrop',
   description:
     'How WishDrop collects, uses, shares, and protects your personal data across the buying, quality-check, and delivery journey.',
-}
+})
 
 export default function PrivacyPolicyPage() {
   return (

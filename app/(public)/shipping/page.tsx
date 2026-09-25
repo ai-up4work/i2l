@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { ArrowRight, PackageCheck, ShieldCheck, Truck, Clock } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/shipping',
   title: 'Shipping & Delivery | WishDrop',
   description:
     'How WishDrop ships your order from an affiliated store to your door in Sri Lanka — consolidation, customs, and delivery, explained.',
-}
+})
 
 const stages = [
   {

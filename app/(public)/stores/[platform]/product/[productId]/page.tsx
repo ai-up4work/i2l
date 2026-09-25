@@ -1,3 +1,5 @@
+import { cache } from 'react'
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
@@ -10,6 +12,8 @@ import ShareButton from '@/components/stores/ShareButton'
 import ProductInfoTabs from '@/components/stores/ProductInfoTabs'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import ViewTracker from './ViewTracker'
+import JsonLd, { breadcrumbSchema, productSchema } from '@/components/seo/JsonLd'
+import { clampDescription, pageMetadata } from '@/lib/seo'
 import type { StoreProduct } from '@/lib/store.types'
 
 // No generateStaticParams: live-feed stores (Shopify/WooCommerce) can add
@@ -112,6 +116,12 @@ import type { StoreProduct } from '@/lib/store.types'
 // try/catch below returns early on a failed fetch, so a broken upstream
 // load never gets recorded as a view.
 
+// SEO: generateMetadata and the page need the same store + product. Without
+// cache() each upstream (Shopify/WooCommerce/scraper) request ran twice per
+// page view — once for <head>, once for the body.
+const getStore = cache(fetchAffiliatedStore)
+const getProduct = cache(fetchStoreProduct)
+
 export async function generateMetadata({
   params,
 }: {
@@ -119,26 +129,26 @@ export async function generateMetadata({
 }) {
   const { platform, productId } = await params
 
-  const store = await fetchAffiliatedStore(platform)
-  if (!store) return {}
+  const store = await getStore(platform)
+  if (!store) return { title: 'Product not found', robots: { index: false, follow: true } }
 
   try {
-    const product = await fetchStoreProduct(platform, productId)
-    if (!product) return {}
+    const product = await getProduct(platform, productId)
+    if (!product) return { title: 'Product not found', robots: { index: false, follow: true } }
 
-    const description =
-      product.description?.slice(0, 155) ||
-      `Buy ${product.name} from ${store.name} on WishDrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
+    const description = product.description
+      ? clampDescription(product.description)
+      : `Buy ${product.name} from ${store.name} on WishDrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
 
-    return {
-      title: `${product.name} | ${store.name} | WishDrop`,
+    return pageMetadata({
+      title: `${product.name} — ${store.name}`,
       description,
-      openGraph: {
-        title: product.name,
-        description,
-        images: product.image ? [{ url: product.image }] : undefined,
-      },
-    }
+      // Canonical uses the route's own productId segment, which is the
+      // handle the page was requested with.
+      path: `/stores/${store.platform}/product/${productId}`,
+      image: product.image || undefined,
+      imageAlt: product.name,
+    })
   } catch {
     return {}
   }
@@ -151,12 +161,12 @@ export default async function ProductDetailPage({
 }) {
   const { platform, productId } = await params
 
-  const store = await fetchAffiliatedStore(platform)
+  const store = await getStore(platform)
   if (!store) notFound()
 
   let product
   try {
-    product = await fetchStoreProduct(platform, productId)
+    product = await getProduct(platform, productId)
   } catch (err) {
     // Upstream (Shopify/WooCommerce) request failed — show a soft error
     // instead of crashing the whole page into the nearest error boundary.
@@ -186,8 +196,36 @@ export default async function ProductDetailPage({
   // work-desk calculator.
   const dualPricing = getDualDeliveryPricing(product)
 
+  const productPath = `/stores/${store.platform}/product/${productId}`
+
   return (
     <DashboardProvider>
+      <JsonLd
+        data={[
+          productSchema({
+            name: product.name,
+            description: product.fullDescription || product.description,
+            images: product.images?.length ? product.images : [product.image],
+            path: productPath,
+            sku: product.sku,
+            brand: product.vendor || store.name,
+            category: product.category,
+            // The delivered Economy price is what this page shows first.
+            priceLKR: dualPricing.economy.priceLKR,
+            inStock: product.inStock,
+            condition: product.condition,
+            sellerName: store.name,
+            averageRating: product.averageRating,
+            reviewCount: product.reviewCount,
+          }),
+          breadcrumbSchema([
+            { name: 'Home', path: '/' },
+            { name: 'Stores', path: '/stores' },
+            { name: store.name, path: `/stores/${store.platform}` },
+            { name: product.name, path: productPath },
+          ]),
+        ]}
+      />
       <ViewTracker
         platform={store.platform}
         productId={productId}

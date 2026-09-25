@@ -1,10 +1,12 @@
 import { ShieldCheck, TrendingUp, Users } from 'lucide-react'
 import SellerApplyForm from '@/components/shared/SellerApplyForm'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/stores/apply',
   title: 'Sell on WishDrop',
   description: 'Apply to become an affiliated WishDrop seller and reach shoppers in Sri Lanka.',
-}
+})
 
 const perks = [
   { icon: Users, title: 'Reach Sri Lankan shoppers', text: "Get discovered by customers who couldn't buy from you directly before." },

@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { useRouter } from "next/navigation"
 import type { User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/client"
+import { clearServiceWorkerCaches } from "@/components/pwa/ServiceWorkerRegister"
 
 export interface AuthUser {
   id: string
@@ -168,6 +169,9 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     // old name/avatar while signOut() round-trips.
     applyUser(null)
     await supabase.auth.signOut()
+    // Drop any pages/images the service worker cached during this session
+    // (see public/sw.js) so a shared device doesn't keep them around.
+    clearServiceWorkerCaches()
     router.push("/")
   }
 

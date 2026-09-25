@@ -1,9 +1,11 @@
 import MarketplaceGuide from '@/components/shared/MarketplaceGuide'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/shopping/marketplaces/ebay',
   title: 'Buying from eBay | WishDrop',
   description: "A guide to sourcing eBay listings through WishDrop's concierge buying service.",
-}
+})
 
 export default function EbayGuidePage() {
   return (

@@ -1,9 +1,11 @@
 import MarketplaceGuide from '@/components/shared/MarketplaceGuide'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/shopping/marketplaces/mercari',
   title: 'Buying from Mercari | WishDrop',
   description: "A guide to sourcing Mercari listings through WishDrop's concierge buying service.",
-}
+})
 
 export default function MercariGuidePage() {
   return (

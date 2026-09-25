@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { AlertTriangle, CheckCircle2, Info } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/blog/categories/notices',
   title: 'Service Notices | WishDrop',
   description: 'Warehouse updates, delivery delays, and platform service alerts.',
-}
+})
 
 type Notice = {
   date: string

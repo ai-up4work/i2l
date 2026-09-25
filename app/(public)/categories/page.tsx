@@ -10,11 +10,13 @@ import {
   Smartphone,
   Sparkles,
 } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/categories',
   title: 'Shop by Category | WishDrop',
   description: 'Browse every product category WishDrop sources — electronics, fashion, beauty, home, and more.',
-}
+})
 
 const categories = [
   { name: 'Electronics', icon: Smartphone, blurb: 'Phones, audio, laptops, and accessories', href: '/stores/new?category=electronics' },

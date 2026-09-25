@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Plus, Minus, X, LogOut } from 'lucide-react'
 import BrandMark from '../shared/BrandMark'
 import { sidebarGroups } from './sidebar-data'
+import InstallAppButton from '../pwa/InstallAppButton'
 
 import type { View } from './types'
 
@@ -250,14 +251,11 @@ export default function Sidebar({
           </button>
         </nav>
 
-        {/* Download App */}
-        <div className="relative z-10 flex items-center gap-3 border-t border-ink/10 px-6 py-6 font-body text-sm font-semibold text-ink">
-          Download App (Soon)
-
-          <span className="ml-auto flex items-center gap-2.5">
-            <i className="sidebar__icon sidebar__icon--downloadApp_IOS_icon" aria-label="iOS" />
-            <i className="sidebar__icon sidebar__icon--downloadApp_Android_icon" aria-label="Android" />
-          </span>
+        {/* Install app — opens the native install dialog where the browser
+            allows it, otherwise per-browser instructions. See
+            components/pwa/InstallAppButton.tsx. */}
+        <div className="relative z-10 border-t border-ink/10 px-6 py-5">
+          <InstallAppButton />
         </div>
       </aside>
     </>

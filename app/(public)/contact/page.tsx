@@ -1,11 +1,13 @@
 import { Mail, MapPin, MessageCircle, Phone } from 'lucide-react'
 import ContactForm from '@/components/shared/ContactForm'
 import { buildWhatsAppLink } from '@/lib/chat/waLink'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/contact',
   title: 'Contact Us | WishDrop',
   description: 'Get in touch with WishDrop support — WhatsApp, email, phone, or send a message directly.',
-}
+})
 
 // Sri Lankan mobile number 0770774828 in the +CC-no-leading-zero shape
 // wa.me/tel: links need, kept in one place so the WhatsApp and Phone

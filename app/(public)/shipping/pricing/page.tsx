@@ -9,11 +9,13 @@ import {
   SIMPLE_EXTRA_MARGIN_FLAT_LKR,
   SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR,
 } from '@/lib/quote'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/shipping/pricing',
   title: 'Shipping Pricing | WishDrop',
   description: 'How WishDrop calculates freight, service fees, and delivery pricing by weight and delivery speed.',
-}
+})
 
 const expressRows = [
   { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },

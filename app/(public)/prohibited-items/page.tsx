@@ -1,9 +1,11 @@
 import { AlertCircle } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/prohibited-items',
   title: 'Prohibited Items | WishDrop',
   description: 'Products WishDrop cannot purchase, import, or ship on your behalf, by category.',
-}
+})
 
 type Item = {
   title: string

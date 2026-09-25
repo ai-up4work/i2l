@@ -1,10 +1,12 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/taxation',
   title: 'Taxation & Customs | WishDrop',
   description:
     'How Sri Lankan customs duty, PAL, SSCL, Cess, surcharge, and VAT are calculated into your WishDrop quote.',
-}
+})
 
 export default function TaxationPage() {
   return (

@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { ArrowRight, MapPin, PackageSearch, ScanEye, Truck } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/warehouses',
   title: 'Our Facilities | WishDrop',
   description: 'Where WishDrop receives, quality-checks, and consolidates your orders before they ship to Sri Lanka.',
-}
+})
 
 const facilities = [
   { region: 'India — National hub', role: 'Primary receiving & quality-check facility for affiliated Indian sellers.' },

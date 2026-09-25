@@ -1,10 +1,12 @@
 import LegalPageLayout from '@/components/shared/LegalPageLayout'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/shopping/protection',
   title: 'Shopping Protection Plan | WishDrop',
   description:
     'Optional buyer protection covering item-not-as-described and seller-side issues on the products WishDrop purchases for you.',
-}
+})
 
 export default function ShoppingProtectionPage() {
   return (

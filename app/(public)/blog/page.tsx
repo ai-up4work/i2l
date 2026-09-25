@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { ArrowRight, Bell, BookOpen, Megaphone, Tag } from 'lucide-react'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/blog',
   title: 'WishDrop Blog',
   description: 'Buying tips, shipping guides, and service notices from the WishDrop team.',
-}
+})
 
 const categories = [
   { name: 'Shopping guides', icon: BookOpen, href: '/shopping-guides', text: 'Store-by-store tips for buying with confidence.' },

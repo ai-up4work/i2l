@@ -3,11 +3,13 @@ import Image from 'next/image'
 import { Flame } from 'lucide-react'
 import { mockProducts } from '@/data/stores/data'
 import { formatPrice } from '@/lib/currency'
+import { pageMetadata } from '@/lib/seo'
 
-export const metadata = {
+export const metadata = pageMetadata({
+  path: '/community/discover/recommended',
   title: 'Trending Now | WishDrop',
   description: 'What other WishDrop shoppers are buying right now.',
-}
+})
 
 // Deterministic "trending" slice (every 7th product) rather than random,
 // so the page is stable across renders/server vs. client.

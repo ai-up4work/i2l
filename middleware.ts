@@ -231,7 +231,11 @@ export const config = {
      * work happens for those, and running the session refresh (and, for
      * protected paths, an extra staff/seller lookup) on every
      * font/image request would be pure overhead.
+     *
+     * Also skips the SEO/PWA files (service worker, manifest, robots,
+     * sitemap, icons) — they're public and cacheable, and the service
+     * worker in particular must not be delayed by a session round-trip.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|robots\\.txt|sitemap\\.xml|icons/|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml|webmanifest)$).*)',
   ],
 }
