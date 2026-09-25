@@ -654,7 +654,7 @@ export default function Home() {
           <Header />
 
           <Hero />
-          <Partners />
+          {/* <Partners /> */}
           <ShopByCategory />
           <WhyChooseWishdrop />
           <StatsBand />
