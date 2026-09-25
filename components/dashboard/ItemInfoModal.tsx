@@ -839,42 +839,88 @@ function SlowLoadNotice() {
   )
 }
 
-function ProductSkeleton() {
+// Renders while the listing is still loading. Deliberately mirrors
+// ChatListingView's actual markup below — same `max-w-6xl` container,
+// same named grid areas (mobile: info -> gallery -> rest; sm+: gallery
+// left spanning both rows, info top-right, rest bottom-right), same
+// square gallery frame, same title/price sizing, same qty-stepper +
+// full-width action-button row — rather than its own ad-hoc layout.
+// ChatListingView in turn mirrors AmazonProductView (see that
+// component's own doc comment), so matching ChatListingView here means
+// this also lines up with every branded platform view: whichever one
+// swaps in when `showLoading` flips false, nothing should visibly
+// reflow.
+//
+// When a fast OG-only preview (title/image) has already landed — see
+// DashboardContext's ogPreview/scrapeResultWithPreview, which is what
+// `result` carries during this window before the full scrape finishes —
+// that real image/title is shown in place, sized and positioned exactly
+// like the real gallery/h1 will be, instead of a grey pulsing box.
+// Everything the OG pass can't know yet (price, notice text, the real
+// CTA) stays skeletal either way. `previewImage`/`previewTitle` are both
+// optional; with neither set this is the same all-skeleton layout as
+// before, just now shaped like the real page.
+function ProductSkeleton({
+  previewImage,
+  previewTitle,
+}: {
+  previewImage?: string | null
+  previewTitle?: string | null
+}) {
   return (
-    <div
-      className="flex flex-col gap-6 pt-8 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
-      aria-hidden="true"
-    >
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className="aspect-square animate-pulse rounded-xl border border-ink/10 bg-ink/5" />
+    <div className="mx-auto max-w-6xl px-6 lg:px-10" aria-hidden="true">
+      <div className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
+        {/* Top of buy box: source pill + title — same [grid-area:info]
+            slot ChatListingView uses. */}
+        <div className="min-w-0 [grid-area:info]">
+          <div className="h-[22px] w-24 animate-pulse rounded-full bg-ink/10" />
 
-        <div className="flex flex-col gap-3">
-          <div className="h-5 w-24 animate-pulse rounded-full bg-ink/10" />
-          <div className="h-6 w-full animate-pulse rounded-md bg-ink/10" />
-          <div className="h-6 w-3/4 animate-pulse rounded-md bg-ink/10" />
-          <div className="mt-2 h-7 w-32 animate-pulse rounded-md bg-ink/10" />
+          {previewTitle ? (
+            <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink motion-safe:[animation:contentFadeIn_0.25s_ease-out_both] sm:text-3xl">
+              {previewTitle}
+            </h1>
+          ) : (
+            <div className="mt-2 flex flex-col gap-2">
+              <div className="h-7 w-full animate-pulse rounded-md bg-ink/10 sm:h-8" />
+              <div className="h-7 w-2/3 animate-pulse rounded-md bg-ink/10 sm:h-8" />
+            </div>
+          )}
+        </div>
 
-          <div className="mt-4 flex flex-col gap-2">
-            <div className="h-4 w-40 animate-pulse rounded-md bg-ink/10" />
-            <div className="h-4 w-28 animate-pulse rounded-md bg-ink/10" />
+        {/* Image column — same [grid-area:gallery] slot and same square
+            frame ProductGallery/the placeholder-image box render into. */}
+        <div className="min-w-0 [grid-area:gallery]">
+          {previewImage ? (
+            // Real OG image already known (fast stage landed before the
+            // full scrape finished) — shown at the exact frame the real
+            // ProductGallery will occupy. No skeleton pulse; it's real
+            // content, not a placeholder.
+            <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white motion-safe:[animation:contentFadeIn_0.25s_ease-out_both]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewImage} alt="" className="h-full w-full object-contain p-2" />
+            </div>
+          ) : (
+            <div className="aspect-square w-full animate-pulse rounded-xl border border-ink/10 bg-ink/5" />
+          )}
+        </div>
+
+        {/* Rest of buy box: price, notice, qty + CTA row — same
+            [grid-area:rest] slot, same text-3xl price sizing, same
+            bordered qty-stepper + full-width button shape. Always
+            skeletal regardless of preview state — price/notice/CTA all
+            need the full scrape. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="h-9 w-40 animate-pulse rounded-md bg-ink/10" />
+
+          <div className="mt-4 h-[52px] animate-pulse rounded-xl bg-ink/5" />
+
+          <div className="mt-6 flex min-w-0 flex-nowrap items-center gap-2">
+            <div className="h-[46px] w-[104px] flex-none animate-pulse rounded-xl border border-ink/10 bg-ink/5" />
+            <div className="h-[46px] flex-1 animate-pulse rounded-xl bg-ink/10" />
           </div>
 
-          <div className="mt-4 flex gap-2.5">
-            <div className="h-11 w-11 flex-none animate-pulse rounded-xl bg-ink/10" />
-            <div className="h-11 flex-1 animate-pulse rounded-xl bg-ink/10" />
-          </div>
+          <div className="mt-3 h-3 w-48 animate-pulse rounded-md bg-ink/10" />
         </div>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <div className="flex gap-4 border-b border-ink/10 pb-2">
-          <div className="h-4 w-20 animate-pulse rounded-md bg-ink/10" />
-          <div className="h-4 w-16 animate-pulse rounded-md bg-ink/10" />
-          <div className="h-4 w-20 animate-pulse rounded-md bg-ink/10" />
-        </div>
-        <div className="h-4 w-full animate-pulse rounded-md bg-ink/10" />
-        <div className="h-4 w-full animate-pulse rounded-md bg-ink/10" />
-        <div className="h-4 w-2/3 animate-pulse rounded-md bg-ink/10" />
       </div>
     </div>
   )
@@ -1270,10 +1316,18 @@ export default function ItemInfoModal({
             [&::-webkit-scrollbar-thumb]:bg-ink/20"
         >
           {showLoading ? (
-            <>
-              <ProductSkeleton />
+            // Same wrapper (`pt-8`, same fade-in) as both branches below,
+            // so ProductSkeleton — which now mirrors ChatListingView's
+            // own max-w-6xl/grid-area markup exactly — sits at the same
+            // vertical offset the real content will land at, instead of
+            // jumping down by pt-8 the instant the real view swaps in.
+            <div className="flex flex-col gap-6 pt-8 sm:gap-7 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
+              <ProductSkeleton
+                previewImage={result?.images?.[0] ?? null}
+                previewTitle={result?.title ?? null}
+              />
               <SlowLoadNotice />
-            </>
+            </div>
           ) : result!.error ? (
             // Same wrapper (same `pt-8`, same fade-in) as the success
             // branch below, so the failure screen lines up with it

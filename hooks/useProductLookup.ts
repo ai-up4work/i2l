@@ -93,6 +93,21 @@ export function useProductLookup() {
   const lookup = useCallback(async (url: string): Promise<ScrapeResult | null> => {
     setLoading(true)
     setError(null)
+    // FIX: previously left unset here, `result` (and therefore
+    // DashboardContext's scrapeResultWithPreview, and therefore
+    // ItemInfoModal's `result` prop) kept holding the PREVIOUS product's
+    // full real ScrapeResult all the way through this new lookup's
+    // loading phase — scrapeResultWithPreview's `if (scrapeResult)
+    // return scrapeResult` guard returns that stale-but-truthy object
+    // before it ever looks at the new lookup's own ogPreview, so the
+    // skeleton showed the OLD product's real image/title (looking like
+    // a wrong/previous OG preview) instead of either a blank skeleton or
+    // the NEW url's own preview. Clearing it here, at the same point
+    // loading/error are reset, means the skeleton correctly falls
+    // through to ogPreview (or plain pulsing placeholders) the instant a
+    // new lookup begins — for both beginRequestForUrl's fresh paste AND
+    // selectVariant's re-scrape, since both call this same lookup().
+    setResult(null)
 
     let attempt = await fetchProductLookup(url)
     if (!attempt.ok) {

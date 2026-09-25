@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type FormEvent } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { productImage } from '@/components/dashboard/data'
 import { pathForView } from '@/components/dashboard/routes'
@@ -367,6 +367,12 @@ function cleanSiteLabel(site: string): string {
  * Channel 3 request still gets a real product photo/title instead of a
  * blank card. Never throws; returns all-null metadata on any failure,
  * same as the API route itself.
+ *
+ * NEW — also reused by beginRequestForUrl below as the FAST stage of a
+ * two-stage lookup: it's the same cheap OG-tag fetch, just fired at the
+ * start of a fresh lookup (in parallel with the real scrape) rather than
+ * only as a Channel-3 fallback after the real scrape has already failed
+ * to price something.
  */
 async function fetchOgMetadataClient(url: string): Promise<OgMetadata> {
   try {
@@ -413,6 +419,27 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [autoFilled, setAutoFilled] = useState(false)
 
+  // NEW — fast OG-only preview (title/image), set immediately while the
+  // real scrape (useProductLookup's `lookup`, below) is still running.
+  // This exists ONLY to give ItemInfoModal's loading skeleton something
+  // real to show instead of grey boxes for the full scrape duration — it
+  // is never a substitute for the real result. See scrapeResultWithPreview
+  // further down: the real `scrapeResult` always wins the instant it
+  // exists, and this preview is only ever surfaced during the gap while
+  // lookupLoading is still true. It's also never read by
+  // applyScrapeResultToDraft or confirmRequest, so it can't affect
+  // pricing or what gets written to Supabase — those only ever consume
+  // the real useProductLookup result.
+  const [ogPreview, setOgPreview] = useState<{ url: string; title: string | null; image: string | null } | null>(
+    null,
+  )
+  // Tracks which url is the CURRENT in-flight lookup, so a slow OG
+  // response for a url the customer has already navigated away from
+  // (closed the modal, pasted a different link, re-scraped a variant via
+  // selectVariant) can't clobber a newer preview or get shown against
+  // the wrong product.
+  const latestUrlRef = useRef<string>('')
+
   const {
     loading: lookupLoading,
     error: lookupError,
@@ -434,9 +461,31 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const url = rawUrl.trim()
       if (!url) return
 
+      // NEW
+      latestUrlRef.current = url
       setAutoFilled(false)
       setDraft({ ...emptyDraft, url })
+      // NEW — clear any preview left over from a previous lookup before
+      // starting this one, so a stale image/title can't flash for the
+      // new url while its own fast fetch is still in flight.
+      setOgPreview(null)
       setModalOpen(true)
+
+      // NEW — fast stage: best-effort OG title/image, fired in parallel
+      // with the real scrape below (NOT awaited before it). Lets
+      // ItemInfoModal's skeleton show a real photo/title almost
+      // immediately instead of grey boxes for the whole scrape duration.
+      // Best-effort only — on failure, or if neither field comes back,
+      // this simply leaves ogPreview null and the skeleton falls back to
+      // its plain pulsing placeholders, same as before this existed.
+      fetchOgMetadataClient(url)
+        .then((og) => {
+          if (latestUrlRef.current !== url) return // stale — a newer lookup has since started
+          if (og.title || og.image) {
+            setOgPreview({ url, title: og.title, image: og.image })
+          }
+        })
+        .catch(() => {})
 
       const product = await lookup(url)
       if (!product || product.error) return
@@ -823,6 +872,31 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     [user, router],
   )
 
+  // NEW — the real scrapeResult (from useProductLookup) ALWAYS wins the
+  // moment it exists: `if (scrapeResult) return scrapeResult` short-
+  // circuits before ogPreview is even looked at. ogPreview only ever
+  // fills the gap on the very first render(s) after beginRequestForUrl
+  // starts, while lookupLoading is still true and the real scrape hasn't
+  // resolved yet — it is NOT a permanent stand-in and is never shown
+  // "instead of" real data once real data exists, only "until" it does.
+  // The object below is intentionally minimal (url/title/images only) —
+  // nothing downstream that matters (applyScrapeResultToDraft,
+  // confirmRequest, canBuildBreakdown/toPriceableItem in
+  // ItemInfoModal.tsx) ever reads this synthetic value; only
+  // ItemInfoModal's loading-state skeleton does, and only while
+  // `!result || loading` is still true.
+  const scrapeResultWithPreview = useMemo<ScrapeResult | null>(() => {
+    if (scrapeResult) return scrapeResult
+    if (ogPreview && (ogPreview.title || ogPreview.image)) {
+      return {
+        url: ogPreview.url,
+        title: ogPreview.title ?? undefined,
+        images: ogPreview.image ? [ogPreview.image] : [],
+      } as ScrapeResult
+    }
+    return null
+  }, [scrapeResult, ogPreview])
+
   const value = useMemo<DashboardContextValue>(
     () => ({
       draft,
@@ -838,7 +912,11 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       lookupLoading,
       lookupError,
       autoFilled,
-      scrapeResult,
+      // NEW — was `scrapeResult`; now the merged value so consumers
+      // (ItemInfoModal via app/page.tsx's HomeItemModal, and the
+      // /account equivalent) get the OG preview automatically during
+      // the loading window, with zero changes needed on their end.
+      scrapeResult: scrapeResultWithPreview,
       resetDraft,
       startItemInfo,
       beginRequestForUrl,
@@ -857,7 +935,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       lookupLoading,
       lookupError,
       autoFilled,
-      scrapeResult,
+      scrapeResultWithPreview,
       resetDraft,
       startItemInfo,
       beginRequestForUrl,
