@@ -13,12 +13,14 @@ type WelcomeBannerProps = {
   /** If true, content below snaps up to fill the space when closed.
    *  If false (default), the banner just fades out and its space stays reserved. */
   collapse?: boolean
-  /** Whether the fade/collapse is animated at all. Default true. */
+  /** Whether the fade/collapse (and marquee) is animated at all. Default true. */
   animated?: boolean
   /** Transition duration in ms. Ignored if animated=false. Default 300. */
   durationMs?: number
   /** Transition easing. Ignored if animated=false. Default 'ease-out'. */
   easing?: string
+  /** One loop of the mobile marquee, in seconds. Default 10. */
+  marqueeDurationS?: number
 }
 
 export default function WelcomeBanner({
@@ -29,8 +31,21 @@ export default function WelcomeBanner({
   animated = true,
   durationMs = 300,
   easing = 'ease-out',
+  marqueeDurationS = 10,
 }: WelcomeBannerProps) {
   const transitionDuration = animated ? `${durationMs}ms` : '0ms'
+
+  const messageText = (
+    <>
+      <span>
+        Welcome to <span className="font-semibold">WishDrop!</span>
+      </span>
+      <span className="text-ink/40">•</span>
+      <span className="text-ink/80">Verify your WhatsApp number and get</span>
+      <span className="font-bold text-gold-deep">LKR 1,000 off</span>
+      <span className="text-ink/80">your first order.</span>
+    </>
+  )
 
   const banner = (
     <div
@@ -47,24 +62,48 @@ export default function WelcomeBanner({
         <AlertCircle size={18} strokeWidth={1.8} className="text-gold-deep" />
       </div>
 
-      {/* Message */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 leading-5">
-        <span>
-          Welcome to <span className="font-semibold">WishDrop!</span>
+      {/* Message + Details */}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {/* Read once by screen readers, regardless of which visual layout is active */}
+        <span className="sr-only">
+          Welcome to WishDrop! Verify your WhatsApp number and get LKR 1,000 off your first order.
         </span>
 
-        <span className="hidden text-ink/40 sm:inline">•</span>
+        {/* Mobile (<sm): single-line marquee */}
+        <div
+          aria-hidden="true"
+          className="min-w-0 flex-1 overflow-hidden sm:hidden"
+          style={{
+            maskImage:
+              'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)',
+            WebkitMaskImage:
+              'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)',
+          }}
+        >
+          <div
+            className="animate-wishdrop-marquee flex w-max items-center whitespace-nowrap leading-5"
+            style={{
+              animationDuration: `${marqueeDurationS}s`,
+              animationPlayState: animated && open ? 'running' : 'paused',
+            }}
+          >
+            {/* Two copies back to back; pr-10 (not gap) bakes the trailing
+                space into each copy's own width so -50% lands exactly at
+                the seam with no jump. */}
+            <div className="flex items-center gap-2 pr-10">{messageText}</div>
+            <div className="flex items-center gap-2 pr-10">{messageText}</div>
+          </div>
+        </div>
 
-        <span className="text-ink/80">Verify your WhatsApp number and get</span>
-
-        <span className="font-bold text-gold-deep">LKR 1,000 off</span>
-
-        <span className="text-ink/80">your first order.</span>
+        {/* sm and up: original wrapping line */}
+        <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 leading-5 sm:flex">
+          {messageText}
+        </div>
 
         <button
           type="button"
           onClick={onDetails}
-          className="group inline-flex items-center gap-1 font-semibold text-gold-deep underline decoration-gold-deep/40 underline-offset-4 transition-colors hover:text-gold-deep/70 hover:decoration-gold-deep"
+          className="group inline-flex flex-none items-center gap-1 font-semibold text-gold-deep underline decoration-gold-deep/40 underline-offset-4 transition-colors hover:text-gold-deep/70 hover:decoration-gold-deep"
         >
           Details
           <ArrowRight size={14} strokeWidth={2} className="transition-transform group-hover:translate-x-0.5" />
@@ -80,16 +119,33 @@ export default function WelcomeBanner({
       >
         <X size={18} strokeWidth={1.8} />
       </button>
+
+      <style jsx>{`
+        @keyframes wishdrop-marquee {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(-50%);
+          }
+        }
+        .animate-wishdrop-marquee {
+          animation-name: wishdrop-marquee;
+          animation-timing-function: linear;
+          animation-iteration-count: infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-wishdrop-marquee {
+            animation: none !important;
+          }
+        }
+      `}</style>
     </div>
   )
 
   if (!collapse) {
     // No layout change at all: banner keeps its space, just fades.
-    return (
-      <div aria-hidden={!open}>
-        {banner}
-      </div>
-    )
+    return <div aria-hidden={!open}>{banner}</div>
   }
 
   // Opt-in collapse: content below snaps up.

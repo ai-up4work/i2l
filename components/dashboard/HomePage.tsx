@@ -703,7 +703,7 @@ export default function HomePage({
         up a thin gold top edge, echoing a ticket/receipt stub rather than
         a generic dashboard tile.
       */}
-      <div className="grid gap-3 gap-x-8 lg:grid-cols-[minmax(0,1fr)_330px] z-0 mt-8">
+      <div className="grid gap-3 gap-x-8 lg:grid-cols-[minmax(0,1fr)_330px] z-0 mt-2">
         {/* Left column: Hello + Buy for me, then My Orders (+ the mobile
             stores strip). Measured as a whole so Stores for you can match
             its full height on desktop. */}
