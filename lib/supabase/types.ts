@@ -1112,6 +1112,37 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['push_broadcasts']['Insert']>
         Relationships: []
       }
+      // See data/wishdrop-whatsapp-manual-verification.sql.
+      whatsapp_verification_requests: {
+        Row: {
+          id: string
+          user_id: string
+          phone: string
+          reference: string
+          status: 'pending' | 'verified' | 'rejected' | 'cancelled'
+          verified_phone: string | null
+          reject_reason: string | null
+          decided_by: string | null
+          decided_by_name: string | null
+          created_at: string
+          decided_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          phone: string
+          reference: string
+          status?: 'pending' | 'verified' | 'rejected' | 'cancelled'
+          verified_phone?: string | null
+          reject_reason?: string | null
+          decided_by?: string | null
+          decided_by_name?: string | null
+          created_at?: string
+          decided_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['whatsapp_verification_requests']['Insert']>
+        Relationships: []
+      }
       sites: {
         Row: {
           id: string

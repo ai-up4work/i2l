@@ -898,3 +898,7 @@ create policy "own store follows" on public.store_follows for all
 -- push_subscriptions, push_broadcasts, profiles.push_offers and the
 -- chat_messages push trigger are defined in
 -- data/wishdrop-push-notifications.sql — run that file after this one.
+
+-- ─── WhatsApp verification & unique chat handles ────────────────────────
+-- See data/wishdrop-whatsapp-manual-verification.sql and
+-- data/wishdrop-unique-chat-handles.sql — run both after this file.

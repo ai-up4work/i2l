@@ -20,6 +20,7 @@ interface Customer {
   name: string
   email: string
   phone: string | null
+  handle?: string | null
   pushEnabled: boolean
 }
 
@@ -283,7 +284,7 @@ export default function BroadcastsPage() {
                   checked={audienceType === 'customers'}
                   onSelect={() => setAudienceType('customers')}
                   label="Specific customers"
-                  hint="Search by name, email, phone or order number"
+                  hint="Search by name, @handle, email, phone or order number"
                 />
               </div>
               {audienceType === 'customers' && (
@@ -548,7 +549,7 @@ function CustomerPicker({ picked, onChange }: { picked: Customer[]; onChange: (c
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Name, email, phone or WD-10423"
+          placeholder="Name, @handle, email, phone or WD-10423"
           className={`${inputClass} pl-9`}
         />
         {loading && <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-ink/35" />}
@@ -558,7 +559,10 @@ function CustomerPicker({ picked, onChange }: { picked: Customer[]; onChange: (c
           {results.map((c) => (
             <li key={c.id} className="flex items-center justify-between gap-3 py-2">
               <div className="min-w-0 text-sm">
-                <div className="truncate font-semibold">{c.name || '(no name)'}</div>
+                <div className="truncate font-semibold">
+                  {c.name || '(no name)'}
+                  {c.handle && <span className="ml-1.5 font-normal text-ink/50">{c.handle}</span>}
+                </div>
                 <div className="truncate text-xs text-ink/55">
                   {c.email}
                   {c.phone ? `, ${c.phone}` : ''}

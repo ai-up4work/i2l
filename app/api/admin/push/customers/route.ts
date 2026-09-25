@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole } from '@/lib/supabase/admin-auth'
+import { formatHandle } from '@/lib/chat/waLink'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,8 @@ export async function GET(req: NextRequest) {
 
   // Strip characters that have meaning inside PostgREST's or() filter.
   const q = (req.nextUrl.searchParams.get('q') ?? '').replace(/[,()*%\\]/g, ' ').trim().slice(0, 80)
+  // "@kavindi2" → search the handle column without the "@".
+  const handleQ = q.replace(/^@+/, '')
   if (q.length < 2) return NextResponse.json({ customers: [] })
 
   const ids = new Set<string>()
@@ -23,7 +26,10 @@ export async function GET(req: NextRequest) {
   const { data: profiles, error } = await admin
     .from('profiles')
     .select('id')
-    .or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
+    .or(
+      `full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%` +
+        (handleQ.length >= 2 ? `,chat_handle.ilike.%${handleQ}%` : ''),
+    )
     .limit(10)
   if (error) {
     console.error('[push/customers] search failed', error)
@@ -42,7 +48,7 @@ export async function GET(req: NextRequest) {
   const idList = [...ids].slice(0, 10)
 
   const [{ data: rows }, { data: subs }, { data: staff }] = await Promise.all([
-    admin.from('profiles').select('id, full_name, email, phone').in('id', idList),
+    admin.from('profiles').select('id, full_name, email, phone, chat_handle').in('id', idList),
     admin.from('push_subscriptions').select('user_id').in('user_id', idList),
     admin.from('staff_accounts').select('user_id').in('user_id', idList),
   ])
@@ -57,6 +63,7 @@ export async function GET(req: NextRequest) {
         name: r.full_name,
         email: r.email,
         phone: r.phone,
+        handle: formatHandle(r.chat_handle),
         pushEnabled: withPush.has(r.id),
       })),
   })

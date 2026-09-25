@@ -17,15 +17,14 @@ import {
   Pencil,
   X,
   Check,
-  MessageCircle,
   Trash2,
   Download,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import NotificationSettings from '@/components/pwa/NotificationSettings'
+import WhatsAppVerification from '@/components/account/WhatsAppVerification'
 import { createClient } from '@/lib/supabase/client'
 import { useImageUpload } from '@/lib/upload/useImageUpload'
-import { normalizeSriLankanMobile, friendlyPhoneAuthError } from '@/lib/phone'
 
 // This route existed as a dead file for a while — `pathForView('profile')`
 // (see components/dashboard/routes.ts, wired to the header's "view
@@ -279,7 +278,7 @@ function QuietLinkRow({
 
 export default function AccountProfilePage() {
   const router = useRouter()
-  const { user, logout, loading, requestPhoneVerification, verifyPhone } = useAuth()
+  const { user, logout, loading } = useAuth()
   const { uploading, error: uploadError, upload } = useImageUpload()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const securityRef = useRef<HTMLDivElement>(null)
@@ -293,12 +292,6 @@ export default function AccountProfilePage() {
   const [nameDraft, setNameDraft] = useState(displayName)
 
   // ---- account-security state (formerly /account/settings) ----
-  const [phoneStep, setPhoneStep] = useState<'idle' | 'entering' | 'verifying'>('idle')
-  const [phoneInput, setPhoneInput] = useState('')
-  const [otpInput, setOtpInput] = useState('')
-  const [phoneError, setPhoneError] = useState<string | null>(null)
-  const [phoneBusy, setPhoneBusy] = useState(false)
-
   const [passwordStep, setPasswordStep] = useState<'idle' | 'entering'>('idle')
   const [newPassword, setNewPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
@@ -357,43 +350,6 @@ export default function AccountProfilePage() {
   function handleCancelEdit() {
     setNameDraft(displayName)
     setEditingName(false)
-  }
-
-  async function handleSendOtp() {
-    setPhoneError(null)
-    // Reject an obviously-invalid number locally, before it ever reaches
-    // Supabase's phone-auth endpoint — see lib/phone.ts's own comment
-    // for exactly why this didn't exist before.
-    const normalized = normalizeSriLankanMobile(phoneInput)
-    if (!normalized) {
-      setPhoneError('Enter a valid Sri Lankan mobile number, e.g. 077 123 4567.')
-      return
-    }
-    setPhoneBusy(true)
-    const { error } = await requestPhoneVerification(normalized)
-    setPhoneBusy(false)
-    if (error) {
-      setPhoneError(friendlyPhoneAuthError(error))
-      return
-    }
-    // Keep the field showing (and handleVerifyOtp sending) the exact
-    // normalized value Supabase was actually asked to text the code to
-    // — not whatever raw, differently-formatted text the customer typed.
-    setPhoneInput(normalized)
-    setPhoneStep('verifying')
-  }
-
-  async function handleVerifyOtp() {
-    setPhoneError(null)
-    setPhoneBusy(true)
-    const { error } = await verifyPhone(phoneInput.trim(), otpInput.trim())
-    setPhoneBusy(false)
-    if (error) {
-      setPhoneError(friendlyPhoneAuthError(error))
-      return
-    }
-    setPhoneStep('idle')
-    setOtpInput('')
   }
 
   async function handleChangePassword() {
@@ -572,64 +528,10 @@ export default function AccountProfilePage() {
                 time in a different (masked) format read as two sources of
                 truth for the same field rather than one page. */}
             <div className="divide-y divide-ink/10">
-              <SettingsCard
-                label={
-                  <>
-                    <MessageCircle size={17} strokeWidth={1.75} className="text-ink/40" />
-                    WhatsApp Number
-                  </>
-                }
-                action={
-                  phoneStep === 'idle' ? (
-                    user.phoneVerified ? (
-                      <span className="rounded-full bg-teal/12 px-2.5 py-1 text-[11px] font-semibold text-teal-deep">Verified</span>
-                    ) : (
-                      <OutlineButton onClick={() => setPhoneStep('entering')}>Add</OutlineButton>
-                    )
-                  ) : undefined
-                }
-              >
-                {phoneStep === 'idle' ? (
-                  user.phoneVerified ? (
-                    "We'll use this number to send order updates on WhatsApp and to verify it's really you in chat."
-                  ) : (
-                    "Add and verify your WhatsApp number so we can message you about your orders, and so our chat panel can confirm it's you."
-                  )
-                ) : phoneStep === 'entering' ? (
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      type="tel"
-                      placeholder="+94 7X XXX XXXX"
-                      value={phoneInput}
-                      onChange={(e) => setPhoneInput(e.target.value)}
-                      className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
-                    />
-                    <div className="flex gap-2">
-                      <SolidButton onClick={handleSendOtp} disabled={phoneBusy || !phoneInput.trim()}>
-                        {phoneBusy ? 'Sending…' : 'Send code'}
-                      </SolidButton>
-                      <OutlineButton onClick={() => setPhoneStep('idle')}>Cancel</OutlineButton>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      type="text"
-                      placeholder="Enter the code we sent you"
-                      value={otpInput}
-                      onChange={(e) => setOtpInput(e.target.value)}
-                      className="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
-                    />
-                    <div className="flex gap-2">
-                      <SolidButton onClick={handleVerifyOtp} disabled={phoneBusy || !otpInput.trim()}>
-                        {phoneBusy ? 'Verifying…' : 'Verify'}
-                      </SolidButton>
-                      <OutlineButton onClick={() => setPhoneStep('idle')}>Cancel</OutlineButton>
-                    </div>
-                  </div>
-                )}
-                {phoneError && <p className="mt-2 text-xs font-semibold text-red-600">{phoneError}</p>}
-              </SettingsCard>
+              {/* Staff-reviewed verification via a WhatsApp message — see
+                  components/account/WhatsAppVerification.tsx. Replaced the
+                  Meta-template OTP flow. */}
+              <WhatsAppVerification />
 
               <SettingsCard
                 label="Change Password"

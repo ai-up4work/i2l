@@ -26,7 +26,8 @@ export interface PushPayload {
   url: string
   /** Notifications with the same tag replace each other (e.g. one per chat thread). */
   tag?: string
-  kind: 'chat' | 'announcement' | 'offer' | 'test'
+  /** 'account' = one-off updates about the customer's own account (e.g. WhatsApp number verified). */
+  kind: 'chat' | 'announcement' | 'offer' | 'test' | 'account'
   /** Optional large image (Android/desktop only). */
   image?: string
 }

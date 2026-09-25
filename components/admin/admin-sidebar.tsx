@@ -4,7 +4,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import Image from "next/image"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import {
   LayoutDashboard,
@@ -37,6 +37,7 @@ import {
   FileText,
   Lock,
   Megaphone,
+  BadgeCheck,
 } from "lucide-react"
 
 import { useAdminSidebar } from "@/contexts/AdminSidebarContext"
@@ -124,6 +125,7 @@ function getTopItems(role: Role): NavItem[] {
     { label: "Requests", href: "/admin/requests", icon: ClipboardList, roles: ["manager", "sales"] },
     { label: "Orders", href: "/admin/orders", icon: ClipboardList, roles: ["manager", "sales", "warehouse"] },
     { label: "Customer chat", href: "/admin/chat", icon: MessageCircle, roles: ["manager", "sales"] },
+    { label: "WhatsApp verification", href: "/admin/whatsapp-verifications", icon: BadgeCheck, roles: ["manager", "sales"] },
     { label: "quote", href: "/admin/quote", icon: ClipboardList, roles: ["manager", "sales"] },
   ]
   return items.filter((item) => canSeeNavItem(item, role))
@@ -306,6 +308,26 @@ export function AdminSidebar() {
   } = useAdminData()
 
   const topItems = getTopItems(role)
+
+  // Waiting WhatsApp verification requests — not part of AdminDataContext,
+  // so fetched here. Refreshes every minute, and immediately when the
+  // verification page announces a decision.
+  const [waPending, setWaPending] = useState(0)
+  useEffect(() => {
+    if (!["manager", "sales", "super_admin"].includes(role)) return
+    const load = () =>
+      fetch("/api/admin/whatsapp-verifications?countOnly=1", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d && setWaPending(d.pending ?? 0))
+        .catch(() => {})
+    load()
+    const t = setInterval(load, 60_000)
+    window.addEventListener("wd:wa-verifications-changed", load)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener("wd:wa-verifications-changed", load)
+    }
+  }, [role])
   const groups = getGroups(role)
 
   /**
@@ -334,6 +356,8 @@ export function AdminSidebar() {
 
     counts["/admin/chat"] = chatThreads.filter((t) => t.unread).length
 
+    counts["/admin/whatsapp-verifications"] = waPending
+
     counts["/admin/purchases"] = visiblePurchaseLines.filter((l) => l.status === "needs_purchase").length
 
     counts["/admin/qc"] = visibleQcLines.filter((l) => l.status === "pending").length
@@ -357,6 +381,7 @@ export function AdminSidebar() {
     visibleOrders,
     requestLines,
     chatThreads,
+    waPending,
     visiblePurchaseLines,
     visibleQcLines,
     visiblePackLines,

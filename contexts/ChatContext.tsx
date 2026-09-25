@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrders, isLiveOrder, type Order } from '@/contexts/Ordercontexts'
 import { createClient } from '@/lib/supabase/client'
-import { buildWhatsAppLink, deriveHandle } from '@/lib/chat/waLink'
+import { buildWhatsAppLink, deriveHandle, formatHandle } from '@/lib/chat/waLink'
 import {
   type ChatMessageRow,
   type ChatSender,
@@ -178,7 +178,6 @@ const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
-  const handle = user ? user.chatHandle ?? deriveHandle(user.name) : null
   const { orders } = useOrders()
 
   const [isOpen, setIsOpen] = useState(false)
@@ -195,6 +194,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [activeOrder, setActiveOrder] = useState<OrderChatTag | null>(null)
 
   const supabaseRef = useRef(createClient())
+
+  // The customer's UNIQUE handle lives on their profile (assigned by the
+  // database — see data/wishdrop-unique-chat-handles.sql). Deriving it
+  // from the first name gave every Kavindi the same "@kavindi".
+  const [profileHandle, setProfileHandle] = useState<string | null>(null)
+  useEffect(() => {
+    setProfileHandle(null)
+    if (!user?.id) return
+    let cancelled = false
+    supabaseRef.current
+      .from('profiles')
+      .select('chat_handle')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setProfileHandle(formatHandle(data?.chat_handle))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+  const handle = user ? profileHandle ?? formatHandle(user.chatHandle) ?? deriveHandle(user.name) : null
 
   const liveOrders = useMemo(() => orders.filter((o) => o.dbId && isLiveOrder(o)), [orders])
 

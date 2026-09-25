@@ -51,6 +51,9 @@ interface AuthContextValue {
   requestPhoneVerification: (phone: string) => Promise<{ error: string | null }>
   /** Verifies the OTP and flips phoneVerified to true on success. */
   verifyPhone: (phone: string, token: string) => Promise<{ error: string | null }>
+  /** Re-reads the signed-in user from Supabase — e.g. after staff verify
+   *  their WhatsApp number (phoneVerified comes from auth.users). */
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -242,9 +245,15 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const refreshUser = async () => {
+    const { data } = await supabase.auth.getUser()
+    applyUser(toAuthUser(data.user))
+  }
+
   return (
     <AuthContext.Provider
       value={{
+        refreshUser,
         user,
         isAuthenticated: !!user,
         loading,

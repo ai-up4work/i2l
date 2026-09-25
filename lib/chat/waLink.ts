@@ -18,6 +18,15 @@
 
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94770774828' // fallback for dev
 
+/** Stored handles have no "@" (see data/wishdrop-unique-chat-handles.sql);
+ * this adds it for display, and tolerates one already being there. */
+export function formatHandle(stored: string | null | undefined): string | null {
+  const h = (stored ?? '').trim().replace(/^@+/, '')
+  return h ? `@${h}` : null
+}
+
+/** Fallback ONLY for a profile that has no stored handle yet (e.g. before
+ * the migration runs). Not unique — two Kavindis both get "@kavindi". */
 export function deriveHandle(name: string) {
   const first = name.trim().split(/\s+/)[0] ?? name
   return `@${first.toLowerCase()}`
