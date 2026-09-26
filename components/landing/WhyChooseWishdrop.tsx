@@ -133,7 +133,7 @@ export default function WhyChooseWishdrop() {
             </h2>
 
             <div className="mt-10">
-              <Image src="/why-choose-Wishdrop.png" alt="" width={600} height={400} className="w-full object-cover" />
+              <Image src="/why-choose-wishdrop.png" alt="" width={600} height={400} className="w-full object-cover" />
             </div>
           </div>
 
