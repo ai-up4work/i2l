@@ -60,7 +60,7 @@ export function sleep(ms: number) {
 // ---------------------------------------------------------------------------
 
 export const PROVIDER_LOGO: Record<StoreProviderType, string> = {
-  mock: '/manual.png',
+  mock: '/custom-made.png',
   shopify: '/shopify.png',
   woocommerce: '/woo.png',
   jsonapi: '/json.png',

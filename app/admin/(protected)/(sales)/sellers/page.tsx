@@ -28,7 +28,7 @@ const STORE_ICON = {
   woocommerce: "/woo.png",
   jsonapi: "/json.png",
   "html-scrape": "/custom.png",
-  mock: "/mock.png",
+  mock: "/custom-made.png",
 } as const
 
 const FEED_LABEL: Record<keyof typeof STORE_ICON, string> = {
