@@ -16,10 +16,10 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * AmazonProductView / FlipkartProductView / EbayProductView /
  * FirstCryProductView — gallery (shared ProductGallery component) +
  * buy box side by side (max-w-6xl), buy box ordered as platform/brand
- * badge -> title -> seller -> price -> variants -> stock -> commerce
- * actions, then a bottom-most full-width ProductInfoTabs section —
- * but restyled with a palette of its own rather than reusing another
- * platform's accent color:
+ * badge -> title -> selected-option badges -> seller -> price ->
+ * variants -> stock -> commerce actions, then a bottom-most full-width
+ * ProductInfoTabs section — but restyled with a palette of its own
+ * rather than reusing another platform's accent color:
  *   - near-black ink (#1c1c1c) for text/primary CTA, matching
  *     Westside's own minimalist black-and-white in-store branding
  *   - warm brass/gold (#a9812f) for selected states, in-stock text,
@@ -35,12 +35,22 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * into a 2-col/2-row layout at sm: (gallery spanning both rows on the
  * left, info/rest stacked on the right).
  *
+ * SELECTED-OPTION BADGES (this revision): right under the title, a
+ * row of small pill badges — one per variant dimension currently
+ * selected ("Color: Black", "Size: XS") — mirrors the real
+ * westside.com PDP, which shows the shopper's current picks as static
+ * text right below the title rather than making them infer the
+ * selection only from which swatch/pill is highlighted further down
+ * the page. Sourced straight from `selectedByDimension`, so it always
+ * reflects the live selection with no separate state to keep in sync.
+ *
  * Color and Size (or any other variant dimension) each render on their
- * own line — the outer container is a vertical stack (flex flex-col
- * gap-4), so Color's label+swatch row sits above Size's label+pill row
- * rather than the two competing for space side-by-side. Each
- * dimension's own inner row of swatches/pills still wraps internally
- * (flex flex-wrap) if it has many options.
+ * own line in the variants section further down — the outer container
+ * is a vertical stack (flex flex-col gap-4), so Color's label+swatch
+ * row sits above Size's label+pill row rather than the two competing
+ * for space side-by-side. Each dimension's own inner row of
+ * swatches/pills still wraps internally (flex flex-wrap) if it has
+ * many options.
  *
  * DATA SOURCE NOTE: Westside results come from scrapeWestsideProduct
  * in lib/scrape/parsers.ts, which is a thin wrapper around the real
@@ -95,6 +105,18 @@ function InfoPill({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Selected-option badge, e.g. "Color: Black" / "Size: XS" — shown
+ * under the title so the shopper always sees what's currently picked,
+ * matching the pill style Westside's own PDP uses right below the
+ * product name. */
+function SelectedOptionBadge({ dimension, value }: { dimension: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-[#ddd8c9] bg-white px-3 py-1 text-xs text-[#6b6558]">
+      {dimension}: <span className="font-semibold text-[#1c1c1c]">{value}</span>
+    </span>
+  )
+}
+
 /** Color/style swatch tile — square image chip. Matches Flipkart's
  * rounded-square treatment (fashion imagery reads better square than
  * as a small circle), recolored to the brass/gold accent. */
@@ -124,7 +146,7 @@ function WestsideSwatch({
         aria-label={label}
         disabled={!interactive}
         className={
-          'relative h-14 w-14 flex-none overflow-hidden rounded-lg border-[1.5px] bg-cover bg-center bg-[#f4f1ea] transition-all ' +
+          'relative h-18 w-18 flex-none overflow-hidden rounded-lg border-[1.5px] bg-cover bg-center bg-[#f4f1ea] transition-all ' +
           (selected
             ? 'border-[#a9812f] ring-1 ring-[#a9812f]'
             : outOfStock
@@ -527,20 +549,32 @@ export default function WestsideProductView({
         className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: platform logo + brand/gender context pills,
-            then title. Mobile: first (area "info"). Desktop:
-            top-right column. No rating row — Shopify-sourced results
-            never carry one (see file header). */}
+            then title, then selected-option badges. Mobile: first
+            (area "info"). Desktop: top-right column. No rating row —
+            Shopify-sourced results never carry one (see file
+            header). */}
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs">
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
               <Image src={SITE_LOGOS.westside!} alt="Westside" width={84} height={16} />
             </a>
-            
           </div>
 
           <h1 className="mt-2 text-2xl font-medium leading-snug tracking-tight text-[#1c1c1c] sm:text-3xl">
             {result.title ?? <span className="italic text-[#a39d8c]">No title found</span>}
           </h1>
+
+          {/* Selected-option badges — "Color: Black", "Size: XS" —
+              sourced live from selectedByDimension, so they always
+              match whatever swatch/pill is currently highlighted in
+              the variants section below. */}
+          {Object.keys(selectedByDimension).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {Object.entries(selectedByDimension).map(([dimension, value]) => (
+                <SelectedOptionBadge key={dimension} dimension={dimension} value={value} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Image gallery — shared component, Westside theme.

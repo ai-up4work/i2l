@@ -499,11 +499,11 @@ export default function FirstCryProductView({
                   <div key={dim.dimension}>
                     <div className="mb-1.5 flex items-center justify-between gap-4">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">{dim.dimension}</p>
-                      {isSize && (
+                      {/* {isSize && (
                         <button type="button" className="text-[11px] font-bold text-pink-600 hover:underline">
                           SIZE CHART
                         </button>
-                      )}
+                      )} */}
                     </div>
 
                     <div className={isColor ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>

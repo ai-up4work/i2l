@@ -233,14 +233,14 @@ function SizeChartSection({
   return (
     <div>
       <div className="flex items-center mt-4 justify-between">
-        <button
+        {/* <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-[#ff3f6c]"
         >
           Size Chart
           <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} strokeWidth={2.4} />
-        </button>
+        </button> */}
 
         {open && hasUnitToggle && (
           <div className="flex overflow-hidden rounded-full border border-[#d4d5d9]">

@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Star,
   PackageX,
@@ -50,6 +51,28 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  *   - If a re-scrape (e.g. color swatch with a url) brings new variants,
  *     the previous choice is kept when that label still exists and is in
  *     stock.
+ *
+ * Size chart modal (this revision):
+ *   - Previously a bare, borderless <table> with no header shading and
+ *     no link back to what the shopper actually has selected — it read
+ *     like debug output, not a designed panel.
+ *   - Now: a single bordered, rounded card holds the whole table (header
+ *     + body share one outline instead of floating separately), the
+ *     header row gets a tinted background and uppercase tracked labels,
+ *     body rows get comfortable padding and a hairline divider instead
+ *     of relying only on zebra tint, and the row matching the shopper's
+ *     current size selection is picked out (tinted + a small check) so
+ *     the chart doubles as a "here's where you are" reference, not just
+ *     a static lookup table.
+ *   - Always centered dead-center on screen (not a mobile bottom-sheet),
+ *     with a stronger full-viewport dim/blur, and rendered through a
+ *     React portal into document.body so a transformed/filtered/
+ *     contained ancestor further up the tree can never shrink the
+ *     `fixed inset-0` overlay down to that ancestor's box. Background
+ *     scroll is locked for as long as the modal is open, and the modal
+ *     body itself does not scroll vertically — it's sized to just fit
+ *     its content (only a wide table gets horizontal scroll, since that
+ *     reveals columns rather than scrolling the panel itself).
  */
 
 const AJIO_INK = '#2C4152'
@@ -197,11 +220,119 @@ function AjioColorSwatch({
   )
 }
 
-/** Size chart trigger + modal, fed by `result.sizeChart`. */
-function AjioSizeChart({ sizeChart }: { sizeChart: ScrapeResult['sizeChart'] }) {
+/** Size chart trigger + modal, fed by `result.sizeChart`. `selectedSize`
+ * (optional) picks out the shopper's current size in the table so the
+ * chart also reads as "here's where you are", not just a static lookup.
+ *
+ * Rendered via a portal into document.body: this is what makes the
+ * `fixed inset-0` overlay cover the true browser viewport instead of
+ * being clipped/scaled down to whatever ancestor box happens to
+ * establish a containing block (a transformed, filtered, or
+ * `will-change`d wrapper anywhere above this component in the tree).
+ *
+ * The modal body does not scroll vertically: it has no `overflow-y-auto`
+ * and no `max-h` clamp on the content area, so the panel simply grows to
+ * fit whatever the chart needs. Only the table wrapper keeps a horizontal
+ * scroll, since that reveals extra columns rather than scrolling the
+ * modal itself. */
+/** Size chart trigger + a simple full-screen overlay. */
+function AjioSizeChart({
+  sizeChart,
+  selectedSize,
+}: {
+  sizeChart: ScrapeResult['sizeChart']
+  selectedSize?: string | null
+}) {
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   if (!sizeChart || sizeChart.length === 0) return null
+
+  const overlay = (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 999,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+      }}
+      onClick={() => setOpen(false)}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: 'white',
+          borderRadius: '16px',
+          padding: '20px',
+          maxWidth: '90vw',
+        }}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-[#2c4152]">Size Chart</h3>
+          <button type="button" onClick={() => setOpen(false)} aria-label="Close size chart">
+            <X size={18} style={{ color: '#8a8a8a' }} />
+          </button>
+        </div>
+
+        {sizeChart.map((chart, ci) => (
+          <div key={ci} className="mb-4">
+            {'title' in chart && chart.title && (
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-[#8a8a8a]">{chart.title}</p>
+            )}
+            <table className="border-collapse text-xs">
+              <thead>
+                <tr style={{ backgroundColor: `${AJIO_INK}0a` }}>
+                  {'headers' in chart &&
+                    chart.headers.map((h) => (
+                      <th
+                        key={h}
+                        className="whitespace-nowrap px-3.5 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide"
+                        style={{ color: AJIO_INK }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                </tr>
+              </thead>
+              <tbody>
+                {chart.rows.map((row, ri) => {
+                  const cells = Array.isArray(row) ? row : [row]
+                  const rowLabel = String(cells[0] ?? '')
+                  const isSelectedRow =
+                    !!selectedSize && rowLabel.trim().toLowerCase() === selectedSize.trim().toLowerCase()
+                  return (
+                    <tr key={ri} style={isSelectedRow ? { backgroundColor: `${AJIO_INK}0d` } : undefined}>
+                      {cells.map((cell, cellI) => (
+                        <td
+                          key={cellI}
+                          className={`whitespace-nowrap px-3.5 py-2.5 ${isSelectedRow ? 'font-bold' : 'font-medium'}`}
+                          style={{ color: isSelectedRow ? AJIO_INK : '#484848' }}
+                        >
+                          {cell != null && typeof cell === 'object' ? Object.values(cell).map(String).join(' / ') : cell}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <>
@@ -215,69 +346,7 @@ function AjioSizeChart({ sizeChart }: { sizeChart: ScrapeResult['sizeChart'] }) 
         Size Chart
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-[#2c4152]">Size Chart</h3>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close size chart"
-                className="grid h-7 w-7 place-items-center rounded-full text-[#8a8a8a] hover:bg-[#fafafa] hover:text-[#2c4152]"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-5">
-              {sizeChart.map((chart, ci) => (
-                <div
-                  key={`${'title' in chart ? chart.title : undefined}-${ci}`}
-                  className="overflow-x-auto"
-                >
-                  {'title' in chart && chart.title && (
-                    <p className="mb-2 text-xs font-semibold text-[#767676]">{chart.title}</p>
-                  )}
-                  <table className="w-full border-collapse text-xs">
-                    <thead>
-                      <tr>
-                        {'headers' in chart && chart.headers.map((h) => (
-                          <th
-                            key={h}
-                            className="whitespace-nowrap border-b border-[#e6e6e6] px-2 py-1.5 text-left font-bold text-[#2c4152]"
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {chart.rows.map((row, ri) => (
-                        <tr key={ri} className={ri % 2 === 1 ? 'bg-[#fafafa]' : undefined}>
-                          {(Array.isArray(row) ? row : [row]).map((cell, cellI) => (
-                            <td key={cellI} className="whitespace-nowrap px-2 py-1.5 text-[#484848]">
-                              {cell != null && typeof cell === 'object'
-                                ? Object.values(cell).map(String).join(' / ')
-                                : cell}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {mounted && open ? createPortal(overlay, document.body) : null}
     </>
   )
 }
@@ -741,7 +810,7 @@ export default function AjioProductView({
                         <span className="font-semibold">{dim.dimension}</span>
                         {selectedLabel && <span className="text-[#767676]"> — {selectedLabel}</span>}
                       </p>
-                      {isSize && <AjioSizeChart sizeChart={result.sizeChart} />}
+                      {isSize && <AjioSizeChart sizeChart={result.sizeChart} selectedSize={selectedSize} />}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {dim.options.map((opt, i) => {

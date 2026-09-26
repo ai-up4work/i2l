@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check, ChevronLeft, ChevronRight } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check, ChevronLeft, ChevronRight, Ruler, X } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
@@ -35,11 +36,11 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * can't cross-contaminate with a different tile's price/mrp, same
  * safety property as the main buybox price extraction).
  *
- * COLOR/IMAGE VARIANT PAGINATION (new): a dimension with images
- * (colors) can have 60-100+ options on some listings. Rendering all of
- * them in one flex-wrap block (the old behavior) pushed the entire buy
- * box — price, stock, qty stepper, Add to Cart — off-screen below a
- * wall of swatches. Once an image-backed dimension has more than
+ * COLOR/IMAGE VARIANT PAGINATION: a dimension with images (colors) can
+ * have 60-100+ options on some listings. Rendering all of them in one
+ * flex-wrap block (the old behavior) pushed the entire buy box — price,
+ * stock, qty stepper, Add to Cart — off-screen below a wall of
+ * swatches. Once an image-backed dimension has more than
  * SWATCH_PAGE_SIZE options, it now renders through <PagedSwatchGrid>:
  * a fixed grid + "< 1 2 >" pagination, mirroring Amazon's own
  * "Color: X" swatch grid + page-number pattern. Small dimensions (Size,
@@ -48,6 +49,19 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * The initial page is derived from wherever the scrape reported the
  * selected option, so opening a listing already on, say, swatch #47
  * lands on the page that actually shows it selected, not page 1.
+ *
+ * SIZE CHART TRIGGER (this revision): when the scrape carries a real
+ * `sizeChart` AND the listing has a "Size" dimension, a small "Size
+ * Chart" link now renders right next to that dimension's label — same
+ * spot Amazon's own PDP puts it, and the same trigger pattern already
+ * used on the Ajio view. Clicking it opens a simple full-screen
+ * overlay (rendered through a portal into document.body, so it can't
+ * get clipped by any transformed/filtered ancestor in the page) with
+ * the exact same size-chart tables the Details tab already renders —
+ * no separate data source, just a second, more convenient place to see
+ * them without leaving the Size row. The Details tab keeps its own
+ * copy for anyone browsing tab-by-tab; this is purely an additional
+ * shortcut, not a replacement.
  *
  * Commerce actions row: the qty stepper, wishlist heart, and "ADD TO
  * CART" are grouped into their own nested `flex-nowrap` container, so
@@ -186,7 +200,7 @@ function DimensionSwatch({
 }
 
 /* ---------------------------------------------------------------------
- * PAGED SWATCH GRID — the new Amazon-style "Color: X" grid + pagination.
+ * PAGED SWATCH GRID — the Amazon-style "Color: X" grid + pagination.
  * Only mounted for an image-backed dimension once its option count
  * exceeds SWATCH_PAGE_SIZE (see pickOption's caller below). Owns its
  * own tile styling (square photo, price, struck-through mrp beneath,
@@ -340,6 +354,139 @@ function PagedSwatchGrid({
         </div>
       )}
     </div>
+  )
+}
+
+/* ---------------------------------------------------------------------
+ * SIZE CHART — a "Size Chart" trigger next to the Size dimension's
+ * label, opening a simple full-screen overlay with the real scraped
+ * chart(s). Rendered through a portal into document.body so a
+ * transformed/filtered ancestor elsewhere in the page can never clip
+ * or shrink the fixed overlay down to that ancestor's box.
+ * ------------------------------------------------------------------- */
+
+function AmazonSizeChart({
+  sizeChart,
+  selectedSize,
+}: {
+  sizeChart: ScrapeResult['sizeChart']
+  selectedSize?: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const original = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = original
+    }
+  }, [open])
+
+  if (!sizeChart || sizeChart.length === 0) return null
+
+  const overlay = (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 999,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+      }}
+      onClick={() => setOpen(false)}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: 'white',
+          borderRadius: '16px',
+          padding: '20px',
+          maxWidth: '90vw',
+          maxHeight: '85vh',
+          overflowY: 'auto',
+        }}
+      >
+        <div className="mb-4 flex items-center justify-between gap-6">
+          <h3 className="text-sm font-bold text-ink">Size Chart</h3>
+          <button type="button" onClick={() => setOpen(false)} aria-label="Close size chart">
+            <X size={18} className="text-ink/50" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {sizeChart.map((table, i) => (
+            <div key={i}>
+              {'title' in table && table.title && (
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-ink/45">{table.title}</p>
+              )}
+              {'columns' in table && (
+                <table className="w-full border-collapse text-left text-xs text-ink">
+                  <thead>
+                    <tr className="border-b border-ink/10">
+                      {table.columns.map((col) => (
+                        <th key={col} className="whitespace-nowrap py-1.5 pr-4 font-semibold">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {table.rows.map((row, r) => {
+                      const rowLabel = String((row as Record<string, unknown>)[table.columns[0]] ?? '')
+                      const isSelectedRow =
+                        !!selectedSize && rowLabel.trim().toLowerCase() === selectedSize.trim().toLowerCase()
+                      return (
+                        <tr
+                          key={r}
+                          className={`border-b border-ink/5 last:border-0 ${isSelectedRow ? 'bg-teal/5' : ''}`}
+                        >
+                          {table.columns.map((col) => (
+                            <td
+                              key={col}
+                              className={`whitespace-nowrap py-1.5 pr-4 ${isSelectedRow ? 'font-bold text-teal-deep' : ''}`}
+                            >
+                              {row[col]}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-teal-deep underline underline-offset-2"
+      >
+        <Ruler size={11} />
+        Size Chart
+      </button>
+
+      {mounted && open ? createPortal(overlay, document.body) : null}
+    </>
   )
 }
 
@@ -674,6 +821,8 @@ export default function AmazonProductView({
       ? /in stock|available/i.test(result.availability)
       : true
 
+  const hasRealSizeChart = !!result.sizeChart && result.sizeChart.length > 0
+
   return (
     <div className="mx-auto max-w-6xl px-6 lg:px-10">
       <div
@@ -738,17 +887,23 @@ export default function AmazonProductView({
                 // stays compact even at 15-20 options, so it keeps using
                 // the original flex-wrap layout below unconditionally.
                 const usesPagedGrid = hasImages && dim.options.length > SWATCH_PAGE_SIZE
+                const isSizeDimension = dim.dimension.toLowerCase() === 'size'
 
                 return (
                   <div key={dim.dimension} className={usesPagedGrid ? 'w-full' : undefined}>
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">
-                      {dim.dimension}
-                      {selectedLabel && (
-                        <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-ink/70">
-                          {selectedLabel}
-                        </span>
+                    <div className="mb-1.5 flex items-center justify-between gap-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">
+                        {dim.dimension}
+                        {selectedLabel && (
+                          <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-ink/70">
+                            {selectedLabel}
+                          </span>
+                        )}
+                      </p>
+                      {isSizeDimension && hasRealSizeChart && (
+                        <AmazonSizeChart sizeChart={result.sizeChart} selectedSize={selectedLabel} />
                       )}
-                    </p>
+                    </div>
 
                     {usesPagedGrid ? (
                       <PagedSwatchGrid

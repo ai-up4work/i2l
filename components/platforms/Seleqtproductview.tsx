@@ -344,7 +344,7 @@ export default function SeleqtProductView({
             )}
           </div>
 
-          <h1 className="mt-2 text-2xl font-medium leading-snug tracking-tight text-ink sm:text-3xl">
+          <h1 className="mt-2 text-2xl font-bold font-display leading-snug tracking-tight text-ink sm:text-3xl">
             {result.title ?? <span className="italic text-ink/35">No title found</span>}
           </h1>
         </div>

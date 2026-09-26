@@ -149,11 +149,11 @@ function VariantRow({
     <div>
       <div className="mb-1.5 flex items-center justify-between">
         <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">{dimension.dimension}</p>
-        {isSizeDimension && (
+        {/* {isSizeDimension && (
           <button type="button" className="flex items-center gap-0.5 text-xs font-bold text-purple-700 hover:underline">
             VIEW SIZE CHART <ChevronRight size={13} />
           </button>
-        )}
+        )} */}
       </div>
       <div className="flex flex-wrap gap-2">
         {dimension.options.map((opt) => (

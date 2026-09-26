@@ -14,29 +14,66 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * Renders a scrape result using the SAME structural layout as
  * AmazonProductView — gallery (shared ProductGallery component) + buy
  * box side by side (max-w-6xl), buy box ordered as platform/rating ->
- * title -> seller/hot-deal -> price -> variants -> stock -> original
- * listing link -> FlipkartCommerceActions, then a bottom-most
- * full-width ProductInfoTabs section — but restyled with Flipkart's
- * own visual language instead of Amazon's teal-deep tokens:
+ * title -> price -> variants -> stock -> FlipkartCommerceActions, then
+ * a bottom-most full-width ProductInfoTabs section — but restyled with
+ * Flipkart's own visual language instead of Amazon's teal-deep tokens:
  *   - blue (#2874F0) links/accents
- *   - green (#388E3C) rating pill + "Hot Deal" tag + in-stock text
+ *   - green (#388E3C) rating pill + in-stock text + discount badge
  *   - orange (#ff9f00 / #fb641b) commerce CTAs
- *   - "Sold by X" seller line, "-X%" discount, struck MRP
+ *   - "-X%" discount badge, struck MRP, bold final price — matching
+ *     Flipkart's own PDP price row shape (badge, strikethrough, price).
  *
  * LAYOUT ON MOBILE (<sm): the buy box's top segment (platform/rating
  * badge + title, area "info") is reordered ABOVE the gallery (area
- * "gallery"), which sits above the rest of the buy box —
- * seller/hot-deal, price, variants, stock, commerce actions (area
- * "rest") — via CSS grid-template-areas rather than plain flex
- * `order`, since three stacked items need to become a 2-col/2-row
- * layout at sm: (gallery spanning both rows on the left, info/rest
- * stacked on the right) — see the grid wrapper and the three
- * `[grid-area:*]` wrapper divs below.
+ * "gallery"), which sits above the rest of the buy box — price,
+ * variants, stock, commerce actions (area "rest") — via CSS
+ * grid-template-areas rather than plain flex `order`, since three
+ * stacked items need to become a 2-col/2-row layout at sm: (gallery
+ * spanning both rows on the left, info/rest stacked on the right) —
+ * see the grid wrapper and the three `[grid-area:*]` wrapper divs
+ * below.
+ *
+ * VARIANT DIMENSIONS (Color, Size, ...): each dimension now renders as
+ * its own full-width block, stacked vertically (Color block, then Size
+ * block below it) — matching Flipkart's own PDP, which never puts two
+ * dimensions side by side. Previously all dimensions shared one
+ * `flex-wrap` row, which could push Color and Size onto the same line
+ * on a wide-enough card. Color swatches are also sized up (was 56px,
+ * now 72px) to read closer to Flipkart's own thumbnail size instead of
+ * a small dot.
+ *
+ * VARIANT HEADER LABEL: matches Flipkart's real PDP copy. For an
+ * image-swatch dimension (Color, Style, ...) the header resolves to
+ * the current pick — "Selected Color: PINK" — as a bold, normal-case
+ * line (value upper-cased), same shape/weight as Flipkart's own page.
+ * For a text-pill dimension (Size, ...) Flipkart does NOT echo the
+ * pick in the header; it stays a static prompt — "Select Size" — so
+ * that's kept static here too rather than appending a selected value.
  *
  * Swatch/size tiles flagged `outOfStock` by the extractor render
  * disabled + muted with a small "Out of stock" label, same treatment
  * as a tile with no resolvable link.
  */
+
+/**
+ * Some extractors never flag any option `selected: true` for the
+ * dimension matching the page currently loaded (seen on real Flipkart
+ * scrapes where every Color option comes back `selected: false`). As a
+ * fallback, an option counts as the current one if its `url` points at
+ * the same product id (`pid` query param) as the page we're already
+ * on — this is how Flipkart's own variant URLs distinguish one swatch
+ * from another.
+ */
+function samePid(a?: string | null, b?: string | null) {
+  if (!a || !b) return false
+  try {
+    const pidA = new URL(a).searchParams.get('pid')
+    const pidB = new URL(b).searchParams.get('pid')
+    return !!pidA && pidA === pidB
+  } catch {
+    return a === b
+  }
+}
 
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
   const n = amount != null ? Number(amount) : NaN
@@ -63,8 +100,18 @@ function FlipkartRatingPill({ rating, count }: { rating: string | null | undefin
   )
 }
 
-/** Color/style swatch tile — square image chip, Amazon's rounded-full
- * swatch swapped for Flipkart's rounded-square thumbnail treatment. */
+/** Color/style swatch tile — bigger square image chip (72px). Label is
+ * NOT rendered as a visible caption: extractors sometimes only manage
+ * to pull a slug/filename for `opt.label` (e.g.
+ * "free-sleeveless-semi-stitched-42-n3052-lehenga-choli-..."), not a
+ * real color name, and printing that under every tile both looks
+ * broken and — since it's arbitrarily long — breaks the swatch row's
+ * wrap into one-tile-per-line instead of a compact inline grid. The
+ * label is still exposed via `title`/`aria-label` for anyone who wants
+ * it (tooltip, screen reader), and the swatch itself is given a fixed
+ * width so the row wraps evenly no matter what came back from the
+ * scrape.
+ */
 function FlipkartSwatch({
   label,
   imageUrl,
@@ -86,18 +133,18 @@ function FlipkartSwatch({
 }) {
   const interactive = !!onClick && !outOfStock
   return (
-    <span className="inline-flex flex-col items-center gap-1">
+    <span className="inline-flex w-[72px] flex-none flex-col items-center gap-1.5">
       <button
         type="button"
         onClick={interactive ? onClick : undefined}
-        title={outOfStock ? 'Out of stock' : disabledTitle}
+        title={outOfStock ? 'Out of stock' : (disabledTitle ?? label)}
         aria-pressed={selected}
         aria-label={label}
         disabled={!interactive}
         className={
-          'relative h-14 w-14 flex-none overflow-hidden rounded-xl border-[1.5px] bg-cover bg-center bg-[#f5f5f5] transition-all ' +
+          'relative h-[72px] w-[72px] flex-none overflow-hidden rounded-xl border-2 bg-cover bg-center bg-[#f5f5f5] transition-all ' +
           (selected
-            ? 'border-[#2874F0] ring-1 ring-[#2874F0]'
+            ? 'border-[#2874F0] ring-2 ring-[#2874F0]/30'
             : outOfStock
               ? 'cursor-not-allowed border-[#e8e8e8]'
               : interactive
@@ -107,19 +154,19 @@ function FlipkartSwatch({
         style={imageUrl ? { backgroundImage: `url(${imageUrl})` } : undefined}
       >
         {!imageUrl && (
-          <span className="grid h-full w-full place-items-center text-[9px] font-bold uppercase tracking-tight text-[#a0a0a0]">
+          <span className="grid h-full w-full place-items-center text-xs font-bold uppercase tracking-tight text-[#a0a0a0]">
             {label.trim().slice(0, 2)}
           </span>
         )}
         {outOfStock && (
-          <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[7px] font-bold uppercase tracking-wide text-white">
+          <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[8px] font-bold uppercase tracking-wide text-white">
             Out of stock
           </span>
         )}
         {imageUrl && outOfStock && <span className="absolute inset-0 bg-white/40" />}
       </button>
 
-      {price && <span className="text-[10px] font-semibold text-[#212121]">{price}</span>}
+      {price && <span className="text-[11px] font-semibold text-[#212121]">{price}</span>}
       {originalPrice && <span className="text-[10px] font-normal text-[#a0a0a0] line-through">{originalPrice}</span>}
     </span>
   )
@@ -153,7 +200,7 @@ function FlipkartPill({
       aria-pressed={selected}
       disabled={!interactive}
       className={
-        'flex flex-col items-center rounded-lg border-[1.5px] px-2.5 py-1.5 text-xs font-medium transition-colors ' +
+        'flex flex-col items-center rounded-lg border-[1.5px] px-3.5 py-2 text-sm font-medium transition-colors ' +
         (selected
           ? 'border-[#2874F0] bg-[#eaf2ff] text-[#212121]'
           : outOfStock
@@ -452,7 +499,14 @@ export default function FlipkartProductView({
   useEffect(() => {
     const initial: Record<string, string> = {}
     for (const dim of result.variants ?? []) {
-      const selectedOpt = dim.options.find((o) => o.selected)
+      // Prefer an explicit `selected: true` flag from the extractor;
+      // fall back to matching the option's own product URL (pid)
+      // against the page we're currently on, since some scrapes never
+      // set `selected` on any option even though one of their URLs is
+      // in fact this exact page.
+      const selectedOpt =
+        dim.options.find((o) => o.selected) ??
+        dim.options.find((o) => samePid(o.url, result.url))
       if (selectedOpt) initial[dim.dimension] = selectedOpt.label
     }
     setSelectedByDimension(initial)
@@ -496,7 +550,7 @@ export default function FlipkartProductView({
             )}
           </div>
 
-          <h1 className="mt-2 text-2xl font-medium leading-snug tracking-tight text-[#212121] sm:text-3xl">
+          <h1 className="mt-2 text-2xl font-bold font-display leading-snug tracking-tight text-[#212121] sm:text-3xl">
             {result.title ?? <span className="italic text-[#a0a0a0]">No title found</span>}
           </h1>
         </div>
@@ -518,32 +572,85 @@ export default function FlipkartProductView({
           />
         </div>
 
-        {/* Rest of buy box: seller/hot-deal -> price -> variants -> stock
-            -> commerce actions. Mobile: third (area "rest"). Desktop:
-            bottom-right column. */}
+        {/* Rest of buy box: price -> variants -> stock -> commerce
+            actions. Mobile: third (area "rest"). Desktop: bottom-right
+            column. */}
         <div className="min-w-0 [grid-area:rest]">
-          <div className="mt-3 flex items-baseline gap-2.5">
-            {mrp && pctOff !== null && <span className="text-sm font-semibold text-[#388E3C]">↓{pctOff}%</span>}
+          {/* PRICE ROW — restyled to match Flipkart's own PDP shape:
+              a small green "-X%" badge, then the struck MRP, then the
+              bold final price, all on one baseline. Previously the
+              percentage was a plain inline "↓X%" text sitting flush
+              against the price with no visual separation; it's now a
+              pill-shaped badge with its own background so it reads as
+              a discount tag rather than part of the price number. */}
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            {mrp && pctOff !== null && (
+              <span className="inline-flex items-center rounded-md bg-[#388E3C]/10 px-1.5 py-0.5 text-sm font-bold text-[#388E3C]">
+                ↓{pctOff}%
+              </span>
+            )}
+            {mrp && <p className="text-base font-medium text-[#878787] line-through">{mrp}</p>}
             {price ? (
               <p className="text-3xl font-bold text-[#212121]">{price}</p>
             ) : (
               <p className="text-base font-semibold text-[#a0a0a0]">No price found</p>
             )}
-            {mrp && <p className="text-base font-semibold text-[#878787] line-through">{mrp}</p>}
           </div>
 
+          {/* VARIANT DIMENSIONS — each dimension (Color, Size, ...) is
+              its own full-width block, stacked vertically (flex-col)
+              instead of sharing one flex-wrap row. This is what keeps
+              Color and Size from ever landing side by side: Color
+              always renders as its own complete block, top to bottom,
+              before Size's block begins below it — matching
+              Flipkart's own PDP, which never puts two dimensions next
+              to each other regardless of card width.
+
+              HEADER LABEL: for an image-swatch dimension (Color,
+              Style, ...) Flipkart's real PDP shows the resolved pick
+              as its own bold line — "Selected Color: PINK" — not a
+              small uppercase label with an inline suffix. For a
+              text-pill dimension (Size, ...) Flipkart keeps a static
+              prompt — "Select Size" — and does NOT echo the chosen
+              value in the header (the selection is already visible
+              via the highlighted pill itself), so that's kept static
+              here to match. */}
           {!!result.variants?.length && (
-            <div className="mt-4 flex flex-wrap gap-6">
+            <div className="mt-5 flex flex-col gap-5">
               {result.variants.map((dim) => {
                 const hasImages = dim.options.some((o) => !!o.image)
+                // Raw matched option label — used only to decide which
+                // swatch/pill gets the highlighted border (must equal
+                // `opt.label` exactly, which for image dimensions is
+                // often just an image-filename slug, not a real name).
                 const selectedLabel = selectedByDimension[dim.dimension] ?? null
+                // Friendly display value for the "Selected Color: X"
+                // header — extractors that can't name a swatch (slug
+                // labels) still often surface the true selection
+                // separately as `result.options[dimension]` (e.g.
+                // "Orange"), so that's shown here in preference to the
+                // raw slug whenever it's available.
+                const friendlyLabel =
+                  (result as ScrapeResult & { options?: Record<string, string> }).options?.[dim.dimension] ??
+                  selectedLabel
 
                 return (
                   <div key={dim.dimension}>
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[#a0a0a0]">
-                      {dim.dimension}
-                    </p>
-                    <div className={hasImages ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>
+                    {hasImages ? (
+                      <p className="my-3 text-[15px] text-[#878787]">
+                        Selected {dim.dimension}
+                        {friendlyLabel && (
+                          <span className="ml-1 font-bold text-[#212121]">
+                            {friendlyLabel.charAt(0).toUpperCase() + friendlyLabel.slice(1).toLowerCase()}
+                          </span>
+                        )}
+                      </p>
+                    ) : (
+                      <p className="mb-2 text-base font-semibold text-[#212121]">
+                        Select {dim.dimension}
+                      </p>
+                    )}
+                    <div className={hasImages ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-2'}>
                       {dim.options.map((opt, i) => {
                         const optPrice = fmt(opt.price, opt.currencyCode)
                         const optOriginalPrice =
