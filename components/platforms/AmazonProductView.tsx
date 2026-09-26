@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
+import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
@@ -34,6 +34,20 @@ import { SITE_LOGOS } from '@/lib/platform-logos'
  * swatch tile's own `.a-text-price .a-offscreen`, scoped per-tile so it
  * can't cross-contaminate with a different tile's price/mrp, same
  * safety property as the main buybox price extraction).
+ *
+ * COLOR/IMAGE VARIANT PAGINATION (new): a dimension with images
+ * (colors) can have 60-100+ options on some listings. Rendering all of
+ * them in one flex-wrap block (the old behavior) pushed the entire buy
+ * box — price, stock, qty stepper, Add to Cart — off-screen below a
+ * wall of swatches. Once an image-backed dimension has more than
+ * SWATCH_PAGE_SIZE options, it now renders through <PagedSwatchGrid>:
+ * a fixed grid + "< 1 2 >" pagination, mirroring Amazon's own
+ * "Color: X" swatch grid + page-number pattern. Small dimensions (Size,
+ * or a short color list) are completely unaffected — they still render
+ * through the original flex-wrap DimensionChip/DimensionSwatch path.
+ * The initial page is derived from wherever the scrape reported the
+ * selected option, so opening a listing already on, say, swatch #47
+ * lands on the page that actually shows it selected, not page 1.
  *
  * Commerce actions row: the qty stepper, wishlist heart, and "ADD TO
  * CART" are grouped into their own nested `flex-nowrap` container, so
@@ -168,6 +182,164 @@ function DimensionSwatch({
       {price && <span className="text-[10px] font-semibold text-ink/70">{price}</span>}
       {originalPrice && <span className="text-[10px] font-normal text-ink/35 line-through">{originalPrice}</span>}
     </span>
+  )
+}
+
+/* ---------------------------------------------------------------------
+ * PAGED SWATCH GRID — the new Amazon-style "Color: X" grid + pagination.
+ * Only mounted for an image-backed dimension once its option count
+ * exceeds SWATCH_PAGE_SIZE (see pickOption's caller below). Owns its
+ * own tile styling (square photo, price, struck-through mrp beneath,
+ * selected = teal border + tint) separate from DimensionSwatch, since
+ * a page of these sits in a fixed grid rather than an inline pill row.
+ * ------------------------------------------------------------------- */
+
+// 2 rows worth on a typical desktop width (7 cols × 2 rows). On mobile
+// the same 15 just wrap into more, shorter rows — width is what changes
+// the column count (see the grid className below), not this number.
+const SWATCH_PAGE_SIZE = 15
+
+type VariantOption = {
+  label: string
+  price?: string | null
+  currencyCode?: string | null
+  mrp?: string | null
+  image?: string | null
+  url?: string | null
+  selected?: boolean
+}
+
+function PagedSwatchTile({
+  label,
+  imageUrl,
+  price,
+  originalPrice,
+  selected,
+  onClick,
+  disabledTitle,
+}: {
+  label: string
+  imageUrl?: string | null
+  price?: string | null
+  originalPrice?: string | null
+  selected: boolean
+  onClick?: () => void
+  disabledTitle?: string
+}) {
+  const interactive = !!onClick
+  return (
+    <button
+      type="button"
+      onClick={interactive ? onClick : undefined}
+      title={disabledTitle}
+      aria-pressed={selected}
+      aria-label={label}
+      className={
+        'flex min-w-0 flex-col items-center gap-1 rounded-lg border-2 p-1.5 text-center transition-colors ' +
+        (selected
+          ? 'border-teal-deep bg-teal/5'
+          : 'border-transparent' + (interactive ? ' hover:border-ink/15' : ''))
+      }
+    >
+      <span
+        className="relative grid h-14 w-14 flex-none place-items-center overflow-hidden rounded-md bg-cover bg-center ring-1 ring-ink/10 sm:h-16 sm:w-16"
+        style={imageUrl ? { backgroundImage: `url(${imageUrl})` } : { background: 'linear-gradient(135deg, #e5e0d8 0%, #cfc8ba 100%)' }}
+      >
+        {!imageUrl && (
+          <span className="text-[10px] font-bold uppercase tracking-tight text-ink/50">{label.trim().slice(0, 2)}</span>
+        )}
+      </span>
+      <span className={`w-full truncate text-[10px] font-medium ${selected ? 'text-teal-deep' : 'text-ink/60'}`}>
+        {label}
+      </span>
+      {price && <span className="text-[10px] font-semibold text-ink/70">{price}</span>}
+      {originalPrice && <span className="text-[10px] font-normal text-ink/35 line-through">{originalPrice}</span>}
+    </button>
+  )
+}
+
+function PagedSwatchGrid({
+  options,
+  selectedLabel,
+  onPick,
+  page,
+  onPageChange,
+}: {
+  options: VariantOption[]
+  selectedLabel: string | null
+  onPick: (label: string, url: string | null) => void
+  page: number
+  onPageChange: (page: number) => void
+}) {
+  const pageCount = Math.max(1, Math.ceil(options.length / SWATCH_PAGE_SIZE))
+  // Clamp defensively — e.g. if a re-scrape shrinks the option count
+  // while a later page was open, this keeps the view in range instead
+  // of rendering an empty page with dead prev/next arrows.
+  const safePage = Math.min(Math.max(0, page), pageCount - 1)
+  const pageOptions = options.slice(safePage * SWATCH_PAGE_SIZE, safePage * SWATCH_PAGE_SIZE + SWATCH_PAGE_SIZE)
+
+  return (
+    <div>
+      <div className="grid grid-cols-5 gap-x-2 gap-y-3 sm:grid-cols-6 lg:grid-cols-7">
+        {pageOptions.map((opt, i) => {
+          const optPrice = fmt(opt.price, opt.currencyCode)
+          const optOriginalPrice = opt.mrp && opt.mrp !== opt.price ? fmt(opt.mrp, opt.currencyCode) : null
+          return (
+            <PagedSwatchTile
+              key={`${opt.label}-${safePage}-${i}`}
+              label={opt.label}
+              imageUrl={opt.image}
+              price={optPrice}
+              originalPrice={optOriginalPrice}
+              selected={opt.label === selectedLabel}
+              onClick={() => onPick(opt.label, opt.url ?? null)}
+              disabledTitle={opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`}
+            />
+          )
+        })}
+      </div>
+
+      {pageCount > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-1.5">
+          <button
+            type="button"
+            aria-label="Previous colors"
+            onClick={() => onPageChange(Math.max(0, safePage - 1))}
+            disabled={safePage === 0}
+            className="grid h-7 w-7 flex-none place-items-center rounded-md border border-ink/15 text-ink/50 transition-colors hover:border-teal/30 hover:text-teal-deep disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            <ChevronLeft size={14} />
+          </button>
+
+          {Array.from({ length: pageCount }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Page ${i + 1}`}
+              aria-current={safePage === i}
+              onClick={() => onPageChange(i)}
+              className={`grid h-7 w-7 flex-none place-items-center rounded-md text-xs font-semibold transition-colors ${
+                safePage === i
+                  ? 'bg-teal-deep text-white'
+                  : 'border border-ink/15 text-ink/60 hover:border-teal/30 hover:text-teal-deep'
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            aria-label="More colors"
+            onClick={() => onPageChange(Math.min(pageCount - 1, safePage + 1))}
+            disabled={safePage === pageCount - 1}
+            className="grid h-7 w-7 flex-none place-items-center rounded-md border border-ink/15 text-ink/50 transition-colors hover:border-teal/30 hover:text-teal-deep disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -464,14 +636,28 @@ export default function AmazonProductView({
 }: PlatformViewProps) {
   const images = result.images ?? []
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
+  // Which page of the paginated grid each dimension is showing. Only
+  // dimensions that actually cross SWATCH_PAGE_SIZE render through
+  // PagedSwatchGrid at all, so this is empty/unused for a listing with
+  // only Size or a short color list.
+  const [pageByDimension, setPageByDimension] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    const initial: Record<string, string> = {}
+    const initialSelected: Record<string, string> = {}
+    const initialPage: Record<string, number> = {}
     for (const dim of result.variants ?? []) {
-      const selectedOpt = dim.options.find((o) => o.selected)
-      if (selectedOpt) initial[dim.dimension] = selectedOpt.label
+      const selectedIndex = dim.options.findIndex((o) => o.selected)
+      if (selectedIndex >= 0) {
+        initialSelected[dim.dimension] = dim.options[selectedIndex].label
+        // Land on whichever page actually contains the scrape's
+        // selected option, rather than always resetting to page 1 —
+        // e.g. a listing that opens already on swatch #47 shows that
+        // swatch, selected, on the page it's really on.
+        initialPage[dim.dimension] = Math.floor(selectedIndex / SWATCH_PAGE_SIZE)
+      }
     }
-    setSelectedByDimension(initial)
+    setSelectedByDimension(initialSelected)
+    setPageByDimension(initialPage)
   }, [result.url, result.variants])
 
   function pickOption(dimension: string, label: string, url: string | null) {
@@ -547,53 +733,76 @@ export default function AmazonProductView({
               {result.variants.map((dim) => {
                 const hasImages = dim.options.some((o) => !!o.image)
                 const selectedLabel = selectedByDimension[dim.dimension] ?? null
+                // Only image-backed dimensions (colors) ever grow large
+                // enough to need paging — a chip-only dimension (Size)
+                // stays compact even at 15-20 options, so it keeps using
+                // the original flex-wrap layout below unconditionally.
+                const usesPagedGrid = hasImages && dim.options.length > SWATCH_PAGE_SIZE
 
                 return (
-                  <div key={dim.dimension}>
+                  <div key={dim.dimension} className={usesPagedGrid ? 'w-full' : undefined}>
                     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">
                       {dim.dimension}
+                      {selectedLabel && (
+                        <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-ink/70">
+                          {selectedLabel}
+                        </span>
+                      )}
                     </p>
-                    <div className={hasImages ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>
-                      {dim.options.map((opt, i) => {
-                        const optPrice = fmt(opt.price, opt.currencyCode)
 
-                        // opt.mrp is populated directly by
-                        // extractAmazonAllVariants() in
-                        // lib/scrape/extractors/amazon.ts — each swatch
-                        // tile's own struck-through list price, scoped
-                        // per-tile (see that file's comments on
-                        // BUYBOX_PRICE_CONTAINERS for why cross-tile
-                        // contamination is the bug being avoided here).
-                        const optOriginalPrice =
-                          opt.mrp && opt.mrp !== opt.price ? fmt(opt.mrp, opt.currencyCode) : null
+                    {usesPagedGrid ? (
+                      <PagedSwatchGrid
+                        options={dim.options}
+                        selectedLabel={selectedLabel}
+                        onPick={(label, url) => pickOption(dim.dimension, label, url)}
+                        page={pageByDimension[dim.dimension] ?? 0}
+                        onPageChange={(page) =>
+                          setPageByDimension((prev) => ({ ...prev, [dim.dimension]: page }))
+                        }
+                      />
+                    ) : (
+                      <div className={hasImages ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-1.5'}>
+                        {dim.options.map((opt, i) => {
+                          const optPrice = fmt(opt.price, opt.currencyCode)
 
-                        const selected = opt.label === selectedLabel
-                        const disabledTitle = opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`
-                        const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
-                        return hasImages ? (
-                          <DimensionSwatch
-                            key={`${opt.label}-${i}`}
-                            label={opt.label}
-                            imageUrl={opt.image}
-                            price={optPrice}
-                            originalPrice={optOriginalPrice}
-                            selected={selected}
-                            onClick={onPick}
-                            disabledTitle={disabledTitle}
-                          />
-                        ) : (
-                          <DimensionChip
-                            key={opt.label}
-                            label={opt.label}
-                            price={optPrice}
-                            originalPrice={optOriginalPrice}
-                            selected={selected}
-                            onClick={onPick}
-                            disabledTitle={disabledTitle}
-                          />
-                        )
-                      })}
-                    </div>
+                          // opt.mrp is populated directly by
+                          // extractAmazonAllVariants() in
+                          // lib/scrape/extractors/amazon.ts — each swatch
+                          // tile's own struck-through list price, scoped
+                          // per-tile (see that file's comments on
+                          // BUYBOX_PRICE_CONTAINERS for why cross-tile
+                          // contamination is the bug being avoided here).
+                          const optOriginalPrice =
+                            opt.mrp && opt.mrp !== opt.price ? fmt(opt.mrp, opt.currencyCode) : null
+
+                          const selected = opt.label === selectedLabel
+                          const disabledTitle = opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`
+                          const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
+                          return hasImages ? (
+                            <DimensionSwatch
+                              key={`${opt.label}-${i}`}
+                              label={opt.label}
+                              imageUrl={opt.image}
+                              price={optPrice}
+                              originalPrice={optOriginalPrice}
+                              selected={selected}
+                              onClick={onPick}
+                              disabledTitle={disabledTitle}
+                            />
+                          ) : (
+                            <DimensionChip
+                              key={opt.label}
+                              label={opt.label}
+                              price={optPrice}
+                              originalPrice={optOriginalPrice}
+                              selected={selected}
+                              onClick={onPick}
+                              disabledTitle={disabledTitle}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })}
