@@ -489,6 +489,9 @@ export interface Database {
           last_order_id: string | null
           last_activity: string
           unread: boolean
+          // See data/wishdrop-chat-whatsapp-handoff.sql.
+          last_whatsapp_reminder_at?: string | null
+          last_whatsapp_reminder_by_name?: string | null
         }
         Insert: {
           id?: string
@@ -499,6 +502,8 @@ export interface Database {
           last_order_id?: string | null
           last_activity?: string
           unread?: boolean
+          last_whatsapp_reminder_at?: string | null
+          last_whatsapp_reminder_by_name?: string | null
         }
         Update: Partial<Database['public']['Tables']['chat_threads']['Insert']>
         Relationships: []
@@ -598,6 +603,19 @@ export interface Database {
           // from sent_via_whatsapp above, which specifically means
           // "staff manually used the wa.me deep-link button."
           channel: string | null
+          // Staff re-tag audit — see data/wishdrop-chat-message-retag.sql.
+          // Optional so rows built client-side before the migration (and
+          // optimistic inserts) still type-check.
+          tag_edited?: boolean
+          tag_edited_by?: string | null
+          tag_edited_by_name?: string | null
+          tag_edited_at?: string | null
+          original_order_id?: string | null
+          original_request_id?: string | null
+          // See data/wishdrop-chat-whatsapp-handoff.sql.
+          whatsapp_sent_by?: string | null
+          whatsapp_sent_by_name?: string | null
+          whatsapp_sent_at?: string | null
           created_at: string
         }
         Insert: {
@@ -612,6 +630,15 @@ export interface Database {
           sent_via_whatsapp?: boolean
           channel?: string | null
           created_at?: string
+          tag_edited?: boolean
+          tag_edited_by?: string | null
+          tag_edited_by_name?: string | null
+          tag_edited_at?: string | null
+          original_order_id?: string | null
+          original_request_id?: string | null
+          whatsapp_sent_by?: string | null
+          whatsapp_sent_by_name?: string | null
+          whatsapp_sent_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['chat_messages']['Insert']>
         Relationships: []
@@ -1141,6 +1168,35 @@ export interface Database {
           decided_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['whatsapp_verification_requests']['Insert']>
+        Relationships: []
+      }
+      // See data/wishdrop-chat-whatsapp-handoff.sql.
+      chat_whatsapp_handoffs: {
+        Row: {
+          id: string
+          thread_id: string
+          kind: 'messages' | 'reminder'
+          message_ids: string[]
+          phone: string
+          text: string
+          link: string | null
+          staff_id: string | null
+          staff_name: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          thread_id: string
+          kind: 'messages' | 'reminder'
+          message_ids?: string[]
+          phone: string
+          text: string
+          link?: string | null
+          staff_id?: string | null
+          staff_name?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['chat_whatsapp_handoffs']['Insert']>
         Relationships: []
       }
       sites: {

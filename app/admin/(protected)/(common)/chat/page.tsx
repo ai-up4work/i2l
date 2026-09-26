@@ -3,7 +3,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CheckCheck, ChevronDown, ChevronUp, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, X } from 'lucide-react'
+import { BellRing, CheckCheck, CheckSquare, ChevronDown, ChevronUp, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import {
@@ -23,6 +23,11 @@ import {
 } from '@/lib/supabase/chat'
 import { deriveHandle } from '@/contexts/ChatContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
+import RetagMessageDialog, { type RetagResult } from '@/components/admin/chat/RetagMessageDialog'
+import WhatsAppHandoffDialog, { type HandoffSent } from '@/components/admin/chat/WhatsAppHandoffDialog'
+import { defaultTargets, type Context, type LinkTarget } from '@/lib/chat/whatsapp-handoff'
+import { formatPhone } from '@/lib/whatsapp/verification'
+import { FaWhatsapp } from 'react-icons/fa'
 
 type ThreadRow = {
   id: string
@@ -384,6 +389,62 @@ function AdminChatPageInner() {
   // clears the other) rather than needing separate state to enforce
   // that. Resets whenever a different thread is opened.
   const [messageFilter, setMessageFilter] = useState<{ type: 'order' | 'request'; id: string } | null>(null)
+
+  // Message being re-tagged (opens RetagMessageDialog). Staff fix a
+  // customer's wrong or missing order/request tag here, so the message
+  // shows up in that order's/request's own chat panel.
+  const [retagTarget, setRetagTarget] = useState<ChatMessageRow | null>(null)
+
+  // ── WhatsApp hand-off (wa.me deep links, no Meta API) ──
+  // The customer's VERIFIED WhatsApp number + last reminder, per open
+  // conversation. null while loading / when nothing is open.
+  const [waInfo, setWaInfo] = useState<{
+    customer: { name: string; firstName: string | null; verifiedPhone: string | null }
+    lastReminder: { at: string; by: string | null } | null
+  } | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set())
+  const [handoff, setHandoff] = useState<{ kind: 'messages'; ids: string[] } | { kind: 'reminder' } | null>(null)
+  useEffect(() => {
+    setWaInfo(null)
+    setSelectMode(false)
+    setSelectedMsgIds(new Set())
+    setHandoff(null)
+    if (!selectedId) return
+    let cancelled = false
+    fetch(`/api/admin/chat/threads/${selectedId}/whatsapp`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => !cancelled && d && setWaInfo(d))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId])
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedMsgIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const onHandoffSent = useCallback((sent: HandoffSent) => {
+    const ids = new Set(sent.messageIds)
+    if (ids.size) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          ids.has(m.id)
+            ? { ...m, sent_via_whatsapp: true, whatsapp_sent_at: sent.at, whatsapp_sent_by_name: sent.by }
+            : m,
+        ),
+      )
+    }
+    setWaInfo((prev) => (prev ? { ...prev, lastReminder: { at: sent.at, by: sent.by } } : prev))
+    setSelectMode(false)
+    setSelectedMsgIds(new Set())
+  }, [])
   useEffect(() => {
     setMessageFilter(null)
   }, [selectedId])
@@ -408,6 +469,42 @@ function AdminChatPageInner() {
     if (foundOrders.length > 0) setOrderIdsInOpenThread((prev) => Array.from(new Set([...prev, ...foundOrders])))
     if (foundRequests.length > 0) setRequestIdsInOpenThread((prev) => Array.from(new Set([...prev, ...foundRequests])))
   }, [messages, messageFilter])
+
+  const onRetagged = useCallback(
+    (result: RetagResult) => {
+      const updated = result.message
+      if (result.displayId) {
+        if (updated.order_id) {
+          setOrderDisplayById((prev) => new Map(prev).set(updated.order_id!, result.displayId!))
+          setOrderIdsInOpenThread((prev) => (prev.includes(updated.order_id!) ? prev : [...prev, updated.order_id!]))
+        }
+        if (updated.request_id) {
+          setRequestDisplayById((prev) => new Map(prev).set(updated.request_id!, result.displayId!))
+          setRequestIdsInOpenThread((prev) => (prev.includes(updated.request_id!) ? prev : [...prev, updated.request_id!]))
+        }
+      }
+      setMessages((prev) =>
+        prev
+          .map((m) => (m.id === updated.id ? { ...m, ...updated } : m))
+          // While a filter is on, a message re-tagged away from it leaves the view.
+          .filter((m) =>
+            !messageFilter
+              ? true
+              : messageFilter.type === 'order'
+                ? m.order_id === messageFilter.id
+                : m.request_id === messageFilter.id,
+          ),
+      )
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === result.thread.id
+            ? { ...t, last_order_id: result.thread.last_order_id, last_request_id: result.thread.last_request_id }
+            : t,
+        ),
+      )
+    },
+    [messageFilter],
+  )
 
   const applyMessageFilter = useCallback(
     async (filter: { type: 'order' | 'request'; id: string } | null) => {
@@ -798,6 +895,64 @@ function AdminChatPageInner() {
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
+            {/* Conversation header: who, their WhatsApp status, and the
+                WhatsApp hand-off actions (select messages / remind). */}
+            <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-ink/10 bg-card px-4 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-ink">
+                  {selectedThread.profiles?.full_name || displayHandle(selectedThread.profiles)}
+                  <span className="ml-1.5 text-xs font-medium text-ink/45">{displayHandle(selectedThread.profiles)}</span>
+                </p>
+                <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink/50">
+                  {waInfo === null ? (
+                    'Checking WhatsApp…'
+                  ) : waInfo.customer.verifiedPhone ? (
+                    <span className="inline-flex items-center gap-1 text-teal-deep">
+                      <FaWhatsapp size={11} /> {formatPhone(waInfo.customer.verifiedPhone)} verified
+                    </span>
+                  ) : (
+                    <span>WhatsApp not verified — can’t send to WhatsApp</span>
+                  )}
+                  {waInfo?.lastReminder && (
+                    <span>
+                      · Last WhatsApp{' '}
+                      {new Date(waInfo.lastReminder.at).toLocaleString([], {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                      {waInfo.lastReminder.by ? ` by ${waInfo.lastReminder.by}` : ''}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex flex-none items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={!waInfo?.customer.verifiedPhone}
+                  onClick={() => {
+                    setSelectMode((v) => !v)
+                    setSelectedMsgIds(new Set())
+                  }}
+                  title={waInfo?.customer.verifiedPhone ? 'Pick your messages to send to WhatsApp' : 'Customer hasn’t verified WhatsApp'}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    selectMode ? 'border-teal-deep bg-teal-deep/10 text-teal-deep' : 'border-ink/15 text-ink/70 hover:border-ink/30'
+                  }`}
+                >
+                  <CheckSquare size={13} /> {selectMode ? 'Selecting' : 'Select'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!waInfo?.customer.verifiedPhone}
+                  onClick={() => setHandoff({ kind: 'reminder' })}
+                  title={waInfo?.customer.verifiedPhone ? 'Remind them on WhatsApp' : 'Customer hasn’t verified WhatsApp'}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <BellRing size={13} /> Remind on WhatsApp
+                </button>
+              </div>
+            </div>
             {(orderIdsInOpenThread.length > 0 || requestIdsInOpenThread.length > 0) && (
               <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-ink/10 bg-parchment px-4 py-2">
                 <span className="font-body text-[11px] font-medium text-ink/40">Filter:</span>
@@ -891,15 +1046,46 @@ function AdminChatPageInner() {
                       const requestTag = m.request_id ? requestDisplayById.get(m.request_id) : null
                       return (
                         <div key={m.id} className={`group my-0.5 flex items-center gap-1.5 ${isOps ? 'justify-end' : 'justify-start'}`}>
-                          {isOps && (
-                            <button
-                              type="button"
-                              onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
-                              aria-label="Reply"
-                              className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
-                            >
-                              <Reply size={14} />
-                            </button>
+                          {isOps && selectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedMsgIds.has(m.id)}
+                              onChange={() => toggleSelected(m.id)}
+                              aria-label="Select this message to send to WhatsApp"
+                              className="mr-auto size-4 flex-none accent-teal-deep"
+                            />
+                          )}
+                          {isOps && !selectMode && (
+                            <>
+                              {waInfo?.customer.verifiedPhone && (
+                                <button
+                                  type="button"
+                                  onClick={() => setHandoff({ kind: 'messages', ids: [m.id] })}
+                                  aria-label="Send this message to WhatsApp"
+                                  title="Send to WhatsApp"
+                                  className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 hover:text-[#0F7A3D] focus-visible:opacity-100 group-hover:opacity-100"
+                                >
+                                  <FaWhatsapp size={14} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setRetagTarget(m)}
+                                aria-label="Tag this message to an order or request"
+                                title="Tag to an order or request"
+                                className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100"
+                              >
+                                <Tag size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
+                                aria-label="Reply"
+                                className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
+                              >
+                                <Reply size={14} />
+                              </button>
+                            </>
                           )}
 
                           <div className={`flex max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
@@ -907,24 +1093,37 @@ function AdminChatPageInner() {
                             {isOps ? (m.sender_name || 'Staff') : displayHandle(selectedThread.profiles)}
                             {orderTag && (
                               <span
-                                title="This message was tagged to this order"
+                                title={
+                                  m.tag_edited
+                                    ? `Re-tagged to this order${m.tag_edited_by_name ? ` by ${m.tag_edited_by_name}` : ''}`
+                                    : 'This message was tagged to this order'
+                                }
                                 className="rounded-full bg-teal/12 px-1.5 py-[1px] text-[9.5px] font-semibold text-teal-deep"
                               >
                                 {orderTag}
+                                {m.tag_edited && <span aria-label="re-tagged by staff"> ✎</span>}
                               </span>
                             )}
                             {requestTag && (
                               <span
-                                title="This message was tagged to this request"
+                                title={
+                                  m.tag_edited
+                                    ? `Re-tagged to this request${m.tag_edited_by_name ? ` by ${m.tag_edited_by_name}` : ''}`
+                                    : 'This message was tagged to this request'
+                                }
                                 className="rounded-full bg-gold/15 px-1.5 py-[1px] text-[9.5px] font-semibold text-gold-deep"
                               >
                                 {requestTag}
+                                {m.tag_edited && <span aria-label="re-tagged by staff"> ✎</span>}
                               </span>
                             )}
                           </span>
                           <div
+                            onClick={isOps && selectMode ? () => toggleSelected(m.id) : undefined}
                             className={`w-full rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
                               isOps ? 'bg-teal-deep text-white' : 'bg-card text-ink'
+                            } ${isOps && selectMode ? 'cursor-pointer' : ''} ${
+                              isOps && selectMode && selectedMsgIds.has(m.id) ? 'ring-2 ring-gold ring-offset-1' : ''
                             }`}
                           >
                             {quoted && (
@@ -956,6 +1155,16 @@ function AdminChatPageInner() {
                               {text && <p className="whitespace-pre-wrap break-words">{text}</p>}
                               <span className={`ml-auto flex flex-none items-center gap-0.5 pb-[1px] text-[11px] ${isOps ? 'text-white/75' : 'text-ink/50'}`}>
                                 {formatTime(m.created_at)}
+                                {isOps && m.sent_via_whatsapp && (
+                                  <span
+                                    title={`Opened in WhatsApp${m.whatsapp_sent_by_name ? ` by ${m.whatsapp_sent_by_name}` : ''}${
+                                      m.whatsapp_sent_at ? ` · ${new Date(m.whatsapp_sent_at).toLocaleString()}` : ''
+                                    }`}
+                                    aria-label="Sent to WhatsApp"
+                                  >
+                                    <FaWhatsapp size={11} className="text-white/80" />
+                                  </span>
+                                )}
                                 {isOps && <CheckCheck size={14} className="text-gold" />}
                               </span>
                             </div>
@@ -963,14 +1172,29 @@ function AdminChatPageInner() {
                           </div>
 
                           {!isOps && (
-                            <button
-                              type="button"
-                              onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
-                              aria-label="Reply"
-                              className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
-                            >
-                              <Reply size={14} />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
+                                aria-label="Reply"
+                                className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
+                              >
+                                <Reply size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRetagTarget(m)}
+                                aria-label="Tag this message to an order or request"
+                                title="Tag to an order or request"
+                                className={`flex-none rounded-full p-1.5 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100 ${
+                                  // Untagged customer messages keep a faint tag icon so
+                                  // staff can spot what still needs sorting.
+                                  !m.order_id && !m.request_id ? 'text-ink/30 opacity-60' : 'text-ink/50 opacity-0'
+                                }`}
+                              >
+                                <Tag size={14} />
+                              </button>
+                            </>
                           )}
                         </div>
                       )
@@ -980,6 +1204,33 @@ function AdminChatPageInner() {
                 </>
               )}
             </div>
+
+            {selectMode && (
+              <div className="flex flex-none items-center gap-3 border-t border-ink/10 bg-card px-4 py-2.5">
+                <span className="text-sm font-semibold text-ink">
+                  {selectedMsgIds.size} selected
+                  <span className="ml-1.5 text-xs font-normal text-ink/50">— tap your messages to pick them</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectMode(false)
+                    setSelectedMsgIds(new Set())
+                  }}
+                  className="ml-auto text-xs font-semibold text-ink/55 hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedMsgIds.size === 0}
+                  onClick={() => setHandoff({ kind: 'messages', ids: [...selectedMsgIds] })}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FaWhatsapp size={13} /> Send to WhatsApp
+                </button>
+              </div>
+            )}
 
             {pendingFiles.length > 0 && (
               <div className="flex flex-none gap-2 overflow-x-auto bg-parchment px-3 pt-3">
@@ -1062,6 +1313,69 @@ function AdminChatPageInner() {
           </div>
         )}
       </div>
+
+      {handoff && selectedThread && waInfo?.customer.verifiedPhone && (() => {
+        // Staff messages after the customer's last message = what's waiting for them.
+        const lastCustomerIdx = messages.map((m) => m.sender).lastIndexOf('customer')
+        const waiting = messages.slice(lastCustomerIdx + 1).filter((m) => m.sender !== 'customer')
+        const chosen =
+          handoff.kind === 'messages'
+            ? messages
+                .filter((m) => handoff.ids.includes(m.id))
+                .sort((a, b) => a.created_at.localeCompare(b.created_at))
+            : waiting
+        const tagsOf = (list: ChatMessageRow[]) =>
+          list.map((m) => ({
+            orderDisplayId: m.order_id ? orderDisplayById.get(m.order_id) ?? null : null,
+            requestDisplayId: m.request_id ? requestDisplayById.get(m.request_id) ?? null : null,
+          }))
+        let { context, link }: { context: Context; link: LinkTarget } = defaultTargets(tagsOf(chosen))
+        // Reminder with nothing tagged: fall back to the conversation's latest order.
+        if (handoff.kind === 'reminder' && !context && selectedThread.last_order_id) {
+          const d = orderDisplayById.get(selectedThread.last_order_id)
+          if (d) {
+            context = { kind: 'order', displayId: d }
+            link = { kind: 'order', displayId: d }
+          }
+        }
+        const orderOptions = Array.from(
+          new Set(orderIdsInOpenThread.map((id) => orderDisplayById.get(id)).filter((d): d is string => Boolean(d))),
+        )
+        const common = {
+          threadId: selectedThread.id,
+          customer: { ...waInfo.customer, verifiedPhone: waInfo.customer.verifiedPhone },
+          orderOptions,
+          defaultContext: context,
+          defaultLink: link,
+          lastReminder: waInfo.lastReminder,
+          onClose: () => setHandoff(null),
+          onSent: onHandoffSent,
+        }
+        return handoff.kind === 'messages' ? (
+          <WhatsAppHandoffDialog
+            {...common}
+            kind="messages"
+            messages={chosen.map((m) => ({ id: m.id, text: m.text, attachmentUrl: m.attachment_url }))}
+          />
+        ) : (
+          <WhatsAppHandoffDialog {...common} kind="reminder" waitingCount={waiting.length} />
+        )
+      })()}
+
+      {retagTarget && (
+        <RetagMessageDialog
+          message={retagTarget}
+          senderLabel={
+            retagTarget.sender === 'ops'
+              ? retagTarget.sender_name || 'Staff'
+              : selectedThread
+                ? displayHandle(selectedThread.profiles)
+                : 'Customer'
+          }
+          onClose={() => setRetagTarget(null)}
+          onSaved={onRetagged}
+        />
+      )}
     </div>
   )
 }

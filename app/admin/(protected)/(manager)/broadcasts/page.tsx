@@ -201,7 +201,7 @@ export default function BroadcastsPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
+      <div className="mx-auto max-w-6xl px-6 pb-24 pt-10 lg:px-10">
         <div className="flex items-center gap-3">
           <span className="grid size-10 place-items-center rounded-full bg-indigo text-parchment">
             <Megaphone size={18} />
