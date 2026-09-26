@@ -94,7 +94,7 @@ export default function ChatOrderContextBar({ className = 'mx-3 mt-2.5' }: { cla
 
   if (orderChoicePending) {
     return (
-      <div className={`relative ${className} rounded-xl border border-gold/40 bg-gold/[0.08] px-3 py-2.5`}>
+      <div className={`relative ${className} rounded-xl border border-gold/40 bg-gold/[0.08] px-3 py-2.5 mb-2`}>
         <p className="font-body text-xs font-semibold text-ink/70">Which order is this about?</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {pendingOrderChoices.map((o) => (
@@ -125,7 +125,7 @@ export default function ChatOrderContextBar({ className = 'mx-3 mt-2.5' }: { cla
 
   return (
     <div className={`relative ${className}`}>
-      <div className="flex items-center justify-between rounded-full border border-ink/10 bg-ink/[0.03] py-1 pl-3 pr-1">
+      <div className="flex items-center justify-between rounded-full border mb-2 border-ink/10 bg-ink/[0.03] py-1 pl-3 pr-1">
         <span
           {...hoverHandlers(activeOrderFull?.dbId)}
           className={`font-body text-xs font-semibold text-ink/60 ${activeOrderFull ? 'cursor-default' : ''}`}
