@@ -176,7 +176,7 @@ export function ProviderPicker({
               type="button"
               onClick={() => onChange(opt.value)}
               aria-pressed={isActive}
-              className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all ${
+              className={`flex flex-col items-center justify-start gap-2 rounded-xl border px-3 py-3 text-center transition-all ${
                 isActive
                   ? 'border-teal-deep bg-teal-deep text-white shadow-[0_8px_20px_-10px_rgba(11,114,128,0.6)]'
                   : 'border-ink/12 bg-white text-ink/55 hover:border-ink/25 hover:text-ink'
@@ -204,7 +204,6 @@ export function ProviderPicker({
     </div>
   )
 }
-
 
 // ---------------------------------------------------------------------------
 // Section chrome & form fields
