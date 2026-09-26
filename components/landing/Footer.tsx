@@ -2,15 +2,16 @@ import { Globe, Link2, Smartphone, Star } from 'lucide-react'
 import Image from 'next/image'
 import BrandMark from '@/components/shared/BrandMark'
 import AirmailStripe from '../shared/AirmailStripe'
+import { FaFacebook, FaInstagram } from 'react-icons/fa'
 
 const socialLinks = [
-  { label: 'WishDROP Sri Lanka', icon: Link2, href: '#' },
-  { label: 'wishdrop.goodies', icon: Star, href: '#' },
+  { label: 'Wishdrop Sri Lanka', icon: FaFacebook, href: 'https://www.facebook.com/profile.php?id=61594274796466&mibextid=wwXIfr' },
+  { label: 'wishdrop.goodies', icon: FaInstagram, href: 'https://www.instagram.com/wishdrop.shop?stkn=cGo2bG4yNjhzYWtz&utm_source=qr' },
 ]
 
 const columns = [
   {
-    heading: 'About WishDROP',
+    heading: 'About Wishdrop',
     links: [{label: 'About us', href: '/about'}, {label: 'Privacy policy', href: '/privacy'}, {label: 'Taxation', href: '/taxation'}],
   },
   {
@@ -82,7 +83,7 @@ export default function Footer() {
         </div>
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-ink/10 pt-6 font-body text-xs text-ink/40">
-          <span>&copy; 2026 WishDROP Limited</span>
+          <span>&copy; 2026 Wishdrop Limited</span>
           <a href="/terms" className="transition-colors hover:text-ink">
             Terms of Use
           </a>

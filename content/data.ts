@@ -219,12 +219,12 @@ export const statsBandItems = [
 ]
 
 export const footerSocialLinks = [
-  { label: 'WishDrop Sri Lanka', icon: Link2, href: '#' },
-  { label: 'wishdrop.goodies', icon: Star, href: '#' },
+  { label: 'Wishdrop Sri Lanka', icon: Link2, href: 'https://www.facebook.com/profile.php?id=61594274796466&mibextid=wwXIfr' },
+  { label: 'wishdrop.goodies', icon: Star, href: 'https://www.instagram.com/wishdrop.shop?stkn=cGo2bG4yNjhzYWtz&utm_source=qr' },
 ]
 
 export const footerColumns = [
-  { heading: 'About WishDrop', links: ['About us', 'Join us'] },
+  { heading: 'About Wishdrop', links: ['About us', 'Join us'] },
   { heading: 'Shipping supports', links: ['Overseas warehouses', 'Prohibited items', 'Tutorials'] },
   { heading: 'Help', links: ['Beginner tips', 'Contact us'] },
 ]
