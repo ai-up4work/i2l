@@ -1,156 +1,106 @@
 // app/api/admin/wishdrop-mall/products/route.ts
 //
-// POST -> add a product to Wishdrop Mall.
-//   {
-//     draft: MallDraft,        // from /api/admin/wishdrop-mall/preview
-//     priceLKR: number,        // the selling price, set by staff, in LKR
-//     compareAtLKR?: number,   // optional "was" price, must be higher
-//     name?, category?,        // staff edits from the preview
-//     active?: boolean,        // default true — live immediately
-//     allowDuplicate?: boolean // skip the "already imported" check
-//   }
+// POST -> create a Wishdrop Mall product from the product editor.
+//   Body: MallProductInput (lib/wishdrop-mall.ts) + { allowDuplicate? }.
+//   Works the same whether staff typed everything by hand or the editor
+//   was pre-filled from a link / another store — either way the editor's
+//   final content is what gets saved.
 //
-// Mall pricing is deliberately simple: the LKR price staff set is exactly
-// what the shopper pays, plus the flat delivery fee added at checkout
-// (lib/pricing.ts). No margin %, no import formula, no tax. What Wishdrop
-// pays at the source is kept separately in source_price/source_currency
-// for reference and re-checking.
+// Pricing is LKR, set by staff; shoppers pay it + the flat delivery fee.
+// Every field is validated server-side in cleanMallInput; the opening
+// stock is logged. Image links are saved as they are: an external image
+// stays a link to the supplier's site, and only photos staff upload from
+// their computer (via /api/upload) live in our own Storage.
 //
-// All options (sizes/colours) share the product's price; variant.price is
-// left null so it inherits.
+// Super admin only.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth'
 import {
   MALL_PRODUCT_COLUMNS,
-  compareAtOrNull,
+  cleanMallInput,
   findMallDuplicate,
   getMallStore,
-  toLKR,
+  resolveMallCategory,
+  logManualStockChanges,
+  syncMallVariants,
 } from '@/lib/wishdrop-mall/admin'
-import { MALL_CURRENCY, mallHandle, type MallDraft } from '@/lib/wishdrop-mall'
-
-const MAX_IMAGES = 20
-const MAX_VARIANTS = 250
+import { mallHandle, type MallProductInput } from '@/lib/wishdrop-mall'
 
 export async function POST(req: NextRequest) {
   const auth = await requireStaffRole(SUPER_ADMIN_ONLY)
   if (!auth.ok) return auth.response
   const { admin } = auth
 
-  const body = (await req.json().catch(() => ({}))) as {
-    draft?: MallDraft
-    priceLKR?: number
-    compareAtLKR?: number | null
-    name?: string
-    category?: string
-    active?: boolean
-    allowDuplicate?: boolean
-  }
-
-  const draft = body.draft
-  if (!draft || typeof draft !== 'object' || !draft.source) {
-    return NextResponse.json({ error: 'Missing product draft — preview the product first.' }, { status: 400 })
-  }
-
-  const price = toLKR(body.priceLKR)
-  if (price == null) return NextResponse.json({ error: 'Enter the selling price in LKR.' }, { status: 400 })
-
-  const name = String(body.name ?? draft.name ?? '').trim().slice(0, 200)
-  if (!name) return NextResponse.json({ error: 'Product name is required.' }, { status: 400 })
-  const category = String(body.category ?? draft.category ?? 'General').trim().slice(0, 80) || 'General'
+  const body = (await req.json().catch(() => ({}))) as Partial<MallProductInput> & { allowDuplicate?: boolean }
+  const cleaned = cleanMallInput(body)
+  if ('error' in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 })
+  const { fields, variants } = cleaned
 
   try {
     const store = await getMallStore(admin)
     if (!store) return NextResponse.json({ error: 'Set up Wishdrop Mall first.' }, { status: 404 })
 
-    if (!body.allowDuplicate) {
-      const dup = await findMallDuplicate(admin, store.id, draft.source)
+    if (!body.allowDuplicate && (fields.source_handle || fields.source_url)) {
+      const dup = await findMallDuplicate(admin, store.id, {
+        platform: fields.source_platform ?? '',
+        handle: fields.source_handle,
+        url: fields.source_url,
+      })
       if (dup) {
         return NextResponse.json({ error: `Already in Wishdrop Mall as "${dup.name}".`, duplicateOf: dup }, { status: 409 })
       }
     }
 
+    const categoryError = await resolveMallCategory(admin, cleaned.fields)
+    if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
+
     const now = new Date().toISOString()
-    const sourcePrice =
-      typeof draft.costPrice === 'number' && Number.isFinite(draft.costPrice) && draft.costPrice > 0 ? draft.costPrice : null
-
-    const baseInsert = {
-      seller_id: store.id,
-      name,
-      description: (draft.description ?? '').slice(0, 5000) || null,
-      full_description: draft.fullDescription ? draft.fullDescription.slice(0, 20000) : null,
-      category,
-      condition: 'New',
-      tags: Array.isArray(draft.tags) ? draft.tags.slice(0, 30).map(String) : [],
-      gender: draft.gender === 'men' || draft.gender === 'women' || draft.gender === 'unisex' ? draft.gender : null,
-      sku: draft.sku ?? null,
-      cost_price: null,
-      margin_percent: null,
-      price,
-      compare_at_price: compareAtOrNull(body.compareAtLKR, price),
-      currency: MALL_CURRENCY,
-      weight_kg: typeof draft.weightKg === 'number' ? draft.weightKg : null,
-      images: (Array.isArray(draft.images) ? draft.images : [])
-        .filter((u) => typeof u === 'string' && u)
-        .slice(0, MAX_IMAGES),
-      stock_count: typeof draft.stockCount === 'number' ? draft.stockCount : null,
-      active: body.active ?? true,
-      source_platform: String(draft.source.platform ?? '').slice(0, 120) || null,
-      source_handle: draft.source.handle ? String(draft.source.handle).slice(0, 300) : null,
-      source_url: draft.source.url ? String(draft.source.url).slice(0, 2000) : null,
-      source_price: sourcePrice,
-      source_currency: draft.currency ?? null,
-      source_synced_at: now,
-      created_at: now,
-      updated_at: now,
-    }
-
+    let productId: string | null = null
     // Handle carries a random suffix; retry once on the rare collision.
-    let inserted: { id: string } | null = null
-    for (let attempt = 0; attempt < 2 && !inserted; attempt++) {
+    for (let attempt = 0; attempt < 2 && !productId; attempt++) {
       const { data, error } = await admin
         .from('products')
-        .insert({ ...baseInsert, handle: mallHandle(name) })
+        .insert({
+          ...fields,
+          seller_id: store.id,
+          handle: mallHandle(fields.name),
+          condition: 'New',
+          source_synced_at: fields.source_url || fields.source_handle ? now : null,
+          created_at: now,
+          updated_at: now,
+        })
         .select('id')
         .single()
       if (error) {
         if (error.code === '23505' && attempt === 0) continue
         throw error
       }
-      inserted = data as { id: string }
+      productId = (data as { id: string }).id
     }
-    if (!inserted) throw new Error('Could not create the product.')
+    if (!productId) throw new Error('Could not create the product.')
 
-    const variants = (Array.isArray(draft.variants) ? draft.variants : []).slice(0, MAX_VARIANTS)
-    if (variants.length > 0) {
-      const rows = variants.map((v) => ({
-        product_id: inserted!.id,
-        label: String(v.label || 'Default').slice(0, 200),
-        sku: v.sku ?? null,
-        options: v.options && typeof v.options === 'object' ? v.options : {},
-        price: null, // inherits the product's LKR price
-        compare_at_price: null,
-        cost_price: null,
-        available: v.available !== false,
-        image_url: v.imageUrl ?? null,
-      }))
-      const { error: variantError } = await admin.from('product_variants').insert(rows)
-      if (variantError) {
-        // Don't leave a half-imported product behind.
-        await admin.from('products').delete().eq('id', inserted.id)
-        throw variantError
-      }
+    try {
+      await syncMallVariants(admin, productId, variants)
+    } catch (variantError) {
+      // Don't leave a half-saved product behind.
+      await admin.from('products').delete().eq('id', productId)
+      throw variantError
     }
+
+    await logManualStockChanges(admin, productId, null)
 
     const { data: product, error: readError } = await admin
       .from('products')
       .select(MALL_PRODUCT_COLUMNS)
-      .eq('id', inserted.id)
+      .eq('id', productId)
       .single()
     if (readError) throw readError
 
-    return NextResponse.json({ product: { ...(product as object), variant_count: variants.length } }, { status: 201 })
+    return NextResponse.json(
+      { product: { ...(product as object), variant_count: variants.length } },
+      { status: 201 },
+    )
   } catch (err) {
     const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? 'Unknown error'
     console.error('[wishdrop-mall/products POST]', msg)

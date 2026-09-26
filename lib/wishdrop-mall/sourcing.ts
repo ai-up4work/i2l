@@ -12,10 +12,10 @@
 //   2. draftFromLink(url) — any pasted product URL. If the link belongs
 //      to one of our own affiliated sellers we resolve it through that
 //      seller's feed (same short-circuit /api/product-lookup does);
-//      otherwise it goes through the external scraper (lib/scrape/parsers).
-//      Scraped links carry no per-variant pricing, so they're saved as a
-//      single-price product — staff can check price/currency in the
-//      preview before saving.
+//      otherwise it goes through the external scraper (lib/scrape/parsers)
+//      with variants on, so Amazon-style pages bring brand, key features,
+//      specifications and every colour/size with its own link, price and
+//      image. Staff review and edit all of it in the product editor.
 //
 // Also used by the "Refresh from source" action to re-price an existing
 // Mall product against its source.
@@ -26,6 +26,7 @@ import { matchAffiliatedSellerUrl, getSellerAndConfig } from '@/lib/store-config
 import { scrapeProduct } from '@/lib/scrape/parsers'
 import { looksLikeShortlink, resolveFinalUrl } from '@/lib/scrape/resolve-redirect'
 import type { StoreProduct } from '@/lib/store.types'
+import type { AmazonVariantDimension } from '@/lib/scrape/extractors/amazon'
 import { WISHDROP_MALL_SLUG, type MallDraft, type MallDraftVariant } from '@/lib/wishdrop-mall'
 
 export class SourcingError extends Error {
@@ -56,7 +57,7 @@ function hostnameOf(url: string): string {
   }
 }
 
-function storeProductToDraft(p: StoreProduct, source: MallDraft['source']): MallDraft {
+export function storeProductToDraft(p: StoreProduct, source: MallDraft['source']): MallDraft {
   const axisNames = (p.options ?? []).map((o) => o.name)
 
   const variants: MallDraftVariant[] =
@@ -75,16 +76,38 @@ function storeProductToDraft(p: StoreProduct, source: MallDraft['source']): Mall
             available: v.available,
             imageUrl: v.fullImage ?? v.image ?? null,
             sku: null,
+            sourceUrl: null,
           }
         })
       : []
 
+  // Gallery: the product's own photos plus every variant's photo. Some
+  // stores (e.g. Anishka Creation) give the product only the FIRST
+  // design's photo and attach each other design's photo to its variant.
+  const gallery = Array.from(
+    new Set(
+      [
+        ...(p.images?.length ? p.images : [p.image]),
+        ...(p.variants ?? []).map((v) => v.fullImage ?? v.image),
+      ].filter((u): u is string => !!u),
+    ),
+  )
+
+  // Sizes the store lists but doesn't model as a variant option.
+  const suggestedOptions: Record<string, string[]> = {}
+  if (p.sizes?.length && !axisNames.some((n) => n.toLowerCase() === 'size')) {
+    suggestedOptions.Size = p.sizes
+  }
+
   return {
     name: p.name,
+    brand: p.vendor && p.vendor !== p.seller ? p.vendor : null,
     description: p.description ?? '',
+    highlights: [],
+    specs: [],
     fullDescription: p.fullDescription ?? null,
     category: p.category || 'General',
-    images: (p.images?.length ? p.images : [p.image]).filter(Boolean),
+    images: gallery,
     costPrice: Number.isFinite(p.price) && p.price > 0 ? p.price : null,
     compareAtCost: p.compareAtPrice ?? null,
     currency: p.currency || 'INR',
@@ -95,6 +118,7 @@ function storeProductToDraft(p: StoreProduct, source: MallDraft['source']): Mall
     stockCount: p.stockCount ?? null,
     inStock: p.inStock,
     variants,
+    suggestedOptions: Object.keys(suggestedOptions).length ? suggestedOptions : undefined,
     source,
   }
 }
@@ -148,7 +172,7 @@ export async function draftFromLink(rawUrl: string, signal?: AbortSignal): Promi
     }
   }
 
-  const result = await scrapeProduct(url, { needVariants: false, signal })
+  const result = await scrapeProduct(url, { needVariants: true, signal })
   if (result.error && !result.title) {
     throw new SourcingError(`Couldn't read that product page: ${result.error}`, 422)
   }
@@ -160,22 +184,34 @@ export async function draftFromLink(rawUrl: string, signal?: AbortSignal): Promi
   const mrp = parseMoney(result.mrp)
   const host = hostnameOf(result.url || url)
 
+  const categoryLeaf = result.categoryPath
+    ?.split(/[›>/|]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .pop()
+
   return {
     name: result.title,
+    brand: result.brand?.trim() || null,
     description: result.description ?? '',
+    highlights: (result.keyFeatures ?? []).map((f) => f.trim()).filter(Boolean).slice(0, 20),
+    specs: (result.itemSpecifics ?? [])
+      .map((r) => ({ name: String(r.name ?? '').trim(), value: String(r.value ?? '').trim() }))
+      .filter((r) => r.name && r.value)
+      .slice(0, 50),
     fullDescription: null,
-    category: 'General',
+    category: categoryLeaf || 'General',
     images: (result.images ?? []).filter(Boolean),
     costPrice: price,
     compareAtCost: mrp && price && mrp > price ? mrp : null,
     currency: result.currencyCode || 'INR',
-    tags: result.brand ? [result.brand] : [],
+    tags: [],
     gender: null,
-    sku: null,
+    sku: result.mpn ?? null,
     weightKg: null,
     stockCount: result.quantityAvailable ?? null,
     inStock: !result.unavailable,
-    variants: [],
+    variants: variantsFromDimensions(result.variants ?? []),
     source: {
       platform: result.site ?? host,
       handle: null,
@@ -183,4 +219,61 @@ export async function draftFromLink(rawUrl: string, signal?: AbortSignal): Promi
       name: host,
     },
   }
+}
+
+/**
+ * Amazon-style variant GROUPS -> purchasable variants.
+ *
+ * The scraper returns each dimension separately — e.g. Color: [Red, Blue]
+ * and Size: [S, M, L] — with a link/price/image per option, not per
+ * combination. One dimension maps 1:1. Several dimensions become every
+ * combination (capped), taking link/price/image from the first option in
+ * the combination that has one (on Amazon that's usually the colour).
+ * Staff can prune or edit the rows in the editor.
+ */
+const MAX_GENERATED_VARIANTS = 100
+
+export function variantsFromDimensions(dims: AmazonVariantDimension[]): MallDraftVariant[] {
+  const usable = dims
+    .filter((d) => d.dimension && d.options?.length)
+    .slice(0, 3)
+    .map((d) => ({ name: d.dimension.replace(/:$/, '').trim(), options: d.options.filter((o) => o.label?.trim()) }))
+    .filter((d) => d.options.length > 0)
+  if (usable.length === 0) return []
+
+  type Opt = (typeof usable)[number]['options'][number]
+  let combos: { name: string; opt: Opt }[][] = [[]]
+  for (const dim of usable) {
+    const next: typeof combos = []
+    for (const combo of combos) {
+      for (const opt of dim.options) {
+        next.push([...combo, { name: dim.name, opt }])
+        if (next.length >= MAX_GENERATED_VARIANTS) break
+      }
+      if (next.length >= MAX_GENERATED_VARIANTS) break
+    }
+    combos = next
+  }
+
+  return combos.map((combo) => {
+    const options: Record<string, string> = {}
+    for (const { name, opt } of combo) options[name] = opt.label.trim()
+    const first = <T,>(pick: (o: Opt) => T | null | undefined) => {
+      for (const { opt } of combo) {
+        const v = pick(opt)
+        if (v != null && v !== '') return v
+      }
+      return null
+    }
+    return {
+      label: Object.values(options).join(' / '),
+      options,
+      costPrice: parseMoney(first((o) => o.price)),
+      compareAtCost: parseMoney(first((o) => o.mrp ?? null)),
+      available: !combo.some(({ opt }) => opt.outOfStock),
+      imageUrl: first((o) => o.image),
+      sku: null,
+      sourceUrl: first((o) => o.url),
+    }
+  })
 }

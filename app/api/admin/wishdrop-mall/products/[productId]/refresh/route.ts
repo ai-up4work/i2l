@@ -1,14 +1,14 @@
 // app/api/admin/wishdrop-mall/products/[productId]/refresh/route.ts
 //
-// POST -> re-check the product at its source: records the source's
-//         current price, stock, and which options (sizes/colours) are
-//         still offered.
+// POST -> "Check supplier": re-reads the product at the place it was
+//         bought from and records the supplier's CURRENT price (product
+//         and per variant) and variant buy links — handy before
+//         reordering stock.
 //
-// It NEVER changes the Mall's selling price — that's set by staff in LKR.
-// If the source price moved, the response says so, so staff can decide
-// whether to re-price. Options the source dropped are marked unavailable
-// and new ones are added (inheriting the product's price). A sold-out
-// source is reported as a warning, not auto-hidden.
+// The Mall sells stock Wishdrop already holds, so this NEVER changes
+// anything shoppers see: not your price, not your quantities, not which
+// variants are for sale. Differences (supplier sold out, options added or
+// dropped) come back as notes for staff.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth'
@@ -18,7 +18,7 @@ import { draftFromLink, draftFromStore, SourcingError } from '@/lib/wishdrop-mal
 export const maxDuration = 300
 
 type Params = { params: Promise<{ productId: string }> }
-type VariantRow = { id: string; label: string; available: boolean }
+type VariantRow = { id: string; label: string }
 
 export async function POST(req: NextRequest, { params }: Params) {
   const auth = await requireStaffRole(SUPER_ADMIN_ONLY)
@@ -42,13 +42,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     const warnings: string[] = []
-    if (!draft.inStock) warnings.push('The source shows this product as out of stock.')
+    if (!draft.inStock) warnings.push('The supplier currently shows it as sold out.')
 
     const now = new Date().toISOString()
     const { data: product, error } = await admin
       .from('products')
       .update({
-        stock_count: draft.stockCount,
         // Keep the last known price if the source didn't show one this time.
         source_price: draft.costPrice ?? existing.source_price,
         source_currency: draft.currency || existing.source_currency,
@@ -60,48 +59,33 @@ export async function POST(req: NextRequest, { params }: Params) {
       .single()
     if (error) throw error
 
-    // ── Options (sizes/colours): availability only, price is inherited ──
+    // ── Variants: supplier price + link only (never stock/availability) ──
     if (draft.variants.length > 0) {
       const { data: current, error: vErr } = await admin
         .from('product_variants')
-        .select('id, label, available')
+        .select('id, label')
         .eq('product_id', productId)
       if (vErr) throw vErr
       const rows = (current ?? []) as unknown as VariantRow[]
       const byLabel = new Map(rows.map((v) => [v.label, v]))
-      const seen = new Set<string>()
+      const supplierLabels = new Set(draft.variants.map((v) => v.label))
 
       for (const v of draft.variants) {
         const match = byLabel.get(v.label)
-        if (match) {
-          seen.add(match.id)
-          if (match.available !== v.available) {
-            const { error: uErr } = await admin.from('product_variants').update({ available: v.available }).eq('id', match.id)
-            if (uErr) throw uErr
-          }
-        } else {
-          const { error: iErr } = await admin.from('product_variants').insert({
-            product_id: productId,
-            label: v.label,
-            options: v.options,
-            image_url: v.imageUrl,
-            sku: v.sku,
-            price: null,
-            available: v.available,
-          })
-          if (iErr) throw iErr
+        if (!match) continue
+        const patch = {
+          ...(v.costPrice != null ? { source_price: v.costPrice } : {}),
+          ...(v.sourceUrl ? { source_url: v.sourceUrl } : {}),
         }
+        if (Object.keys(patch).length === 0) continue
+        const { error: uErr } = await admin.from('product_variants').update(patch).eq('id', match.id)
+        if (uErr) throw uErr
       }
 
-      const gone = rows.filter((v) => !seen.has(v.id) && v.available)
-      if (gone.length > 0) {
-        const { error: gErr } = await admin
-          .from('product_variants')
-          .update({ available: false })
-          .in('id', gone.map((v) => v.id))
-        if (gErr) throw gErr
-        warnings.push(`${gone.length} option(s) no longer offered by the source were marked unavailable.`)
-      }
+      const newAtSupplier = draft.variants.filter((v) => !byLabel.has(v.label)).map((v) => v.label)
+      const goneAtSupplier = rows.filter((v) => !supplierLabels.has(v.label)).map((v) => v.label)
+      if (newAtSupplier.length) warnings.push(`Supplier also offers: ${newAtSupplier.slice(0, 5).join(', ')}${newAtSupplier.length > 5 ? '…' : ''}.`)
+      if (goneAtSupplier.length) warnings.push(`Supplier no longer lists: ${goneAtSupplier.slice(0, 5).join(', ')}${goneAtSupplier.length > 5 ? '…' : ''}.`)
     }
 
     const before = existing.source_price

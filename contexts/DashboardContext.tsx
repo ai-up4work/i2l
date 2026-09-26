@@ -493,6 +493,28 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           addressId = addressRow.id as string
         }
 
+        // Wishdrop Mall sells stock Wishdrop holds: make sure there's
+        // enough on hand BEFORE creating the order (read-only check).
+        const mallLines = lines.filter((line) => line.url?.startsWith('wishdrop-mall:'))
+        if (mallLines.length > 0) {
+          const res = await fetch('/api/mall/stock/check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: mallLines.map((line) => ({ url: line.url, qty: line.qty })) }),
+          })
+          const body = (await res.json().catch(() => ({}))) as { problems?: { name: string; available: number }[] }
+          const problem = body.problems?.[0]
+          if (problem) {
+            return {
+              ok: false,
+              error:
+                problem.available > 0
+                  ? `Only ${problem.available} left of ${problem.name}. Please lower the quantity.`
+                  : `${problem.name} is sold out. Please remove it from your order.`,
+            }
+          }
+        }
+
         const threadId = await getOrCreateGeneralThread(supabase, user.id)
 
         const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
@@ -542,6 +564,16 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
         const { error: itemsError } = await supabase.from('order_items').insert(itemRows)
         if (itemsError) throw itemsError
+
+        // Deduct Wishdrop Mall stock. The server reads this order's own
+        // rows (never quantities from here) and can't deduct twice. A
+        // failure here must not fail an order that's already placed —
+        // staff see any mismatch in the stock history.
+        if (mallLines.length > 0) {
+          await fetch(`/api/mall/orders/${orderId}/stock`, { method: 'POST' }).catch((err) =>
+            console.error('[dashboard] mall stock deduction failed', err),
+          )
+        }
 
         setActiveTab('Requested')
         return { ok: true }

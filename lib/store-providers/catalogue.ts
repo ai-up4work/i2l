@@ -26,9 +26,44 @@ import type { StoreProduct, StoreProductOption, StoreProductVariant } from '@/li
 import type { ProviderFetchParams, ProviderFetchResult } from './types'
 import { extractColors, extractSizes } from './types'
 import { fetchMockProduct, fetchMockProducts } from './mock'
+import { WISHDROP_MALL_SLUG, categorySlug } from '@/lib/wishdrop-mall'
+
+/** Wishdrop Mall category by its storefront handle (slug), or by name for
+ *  older links. Null if there's no such active category. */
+async function findMallCategoryId(handle: string): Promise<string | null> {
+  const supabase = createServiceRoleClient()
+  const bySlug = await supabase
+    .from('mall_categories')
+    .select('id')
+    .eq('active', true)
+    .eq('slug', categorySlug(handle))
+    .limit(1)
+    .maybeSingle()
+  if (bySlug.data) return (bySlug.data as { id: string }).id
+  const byName = await supabase
+    .from('mall_categories')
+    .select('id')
+    .eq('active', true)
+    .eq('name', handle.trim())
+    .limit(1)
+    .maybeSingle()
+  return (byName.data as { id: string } | null)?.id ?? null
+}
 
 const PUBLIC_PRODUCT_COLUMNS =
-  'id, handle, name, description, full_description, category, condition, tags, gender, sku, price, compare_at_price, currency, weight_kg, images, stock_count, average_rating, review_count, created_at'
+  'id, handle, name, brand, description, full_description, highlights, specs, category, condition, tags, gender, sku, price, compare_at_price, currency, weight_kg, images, stock_count, average_rating, review_count, created_at'
+
+// Same list without the Mall-editor columns (brand/highlights/specs),
+// used if the database hasn't had data/wishdrop-mall.sql re-run yet —
+// so a pending migration degrades to "no highlights/specs" instead of
+// breaking every catalogue store page (Mall AND custom sellers).
+const LEGACY_PRODUCT_COLUMNS = PUBLIC_PRODUCT_COLUMNS.replace('brand, ', '').replace('highlights, specs, ', '')
+let productColumns = PUBLIC_PRODUCT_COLUMNS
+
+/** Postgres "column does not exist". */
+function isMissingColumn(error: { code?: string } | null): boolean {
+  return error?.code === '42703'
+}
 
 const PUBLIC_VARIANT_COLUMNS = 'id, label, options, price, compare_at_price, stock, image_url, available'
 
@@ -36,8 +71,11 @@ type PublicProductRow = {
   id: string
   handle: string
   name: string
+  brand: string | null
   description: string | null
   full_description: string | null
+  highlights: string[] | null
+  specs: { name: string; value: string }[] | null
   category: string | null
   condition: string | null
   tags: string[] | null
@@ -97,6 +135,8 @@ function sanitizeSearch(q: string): string {
 function buildVariants(
   rows: PublicVariantRow[],
   parentPrice: number,
+  /** Product tracks inventory (stock_count not null) — Wishdrop Mall. */
+  stockTracked = false,
 ): { options: StoreProductOption[]; variants: StoreProductVariant[] } | null {
   if (rows.length === 0) return null
 
@@ -122,15 +162,51 @@ function buildVariants(
       title: r.label,
       price,
       compareAtPrice: r.compare_at_price != null && r.compare_at_price > price ? r.compare_at_price : undefined,
-      // `stock` defaults to 0 in the schema and sourced products don't track
-      // real stock, so availability is driven by the `available` flag only.
-      available: r.available,
+      // Tracked inventory (Wishdrop Mall): sellable only while there's
+      // stock. Untracked products: the `available` flag alone.
+      available: r.available && (!stockTracked || (r.stock ?? 0) > 0),
       options: axisNames.map((name) => r.options?.[name] ?? null),
       image: r.image_url ?? undefined,
     }
   })
 
   return { options, variants }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Builds the product page's description HTML from the structured fields
+ * the Mall editor saves: prose paragraphs, an "About this item" bullet
+ * list (highlights) and a specifications <table>. ProductInfoTabs runs
+ * this through normalizeDescription, which lifts the table rows into its
+ * Details section — the same treatment a Shopify spec table gets.
+ * Everything is escaped: these are staff-typed / scraped strings.
+ */
+export function composeDescriptionHtml(row: PublicProductRow): string | undefined {
+  const parts: string[] = []
+  if (row.full_description) parts.push(row.full_description)
+  else if (row.description) {
+    for (const para of row.description.split(/\n\s*\n/)) {
+      const t = para.trim()
+      if (t) parts.push(`<p>${escapeHtml(t).replace(/\n/g, '<br>')}</p>`)
+    }
+  }
+  const highlights = (row.highlights ?? []).filter(Boolean)
+  if (highlights.length) {
+    parts.push(`<h3>About this item</h3><ul>${highlights.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul>`)
+  }
+  const specs = (Array.isArray(row.specs) ? row.specs : []).filter((r) => r?.name && r?.value)
+  if (specs.length) {
+    parts.push(
+      `<table><tbody>${specs
+        .map((r) => `<tr><th>${escapeHtml(r.name)}</th><td>${escapeHtml(r.value)}</td></tr>`)
+        .join('')}</tbody></table>`,
+    )
+  }
+  return parts.length ? parts.join('') : undefined
 }
 
 function rowToStoreProduct(
@@ -140,7 +216,7 @@ function rowToStoreProduct(
   sellerName: string,
 ): StoreProduct {
   const images = (row.images ?? []).filter(Boolean)
-  const built = buildVariants(variantRows, row.price)
+  const built = buildVariants(variantRows, row.price, row.stock_count != null)
   const onSale = row.compare_at_price != null && row.compare_at_price > row.price
   const anyVariantAvailable = built ? built.variants.some((v) => v.available) : true
   const inStock = (row.stock_count == null || row.stock_count > 0) && anyVariantAvailable
@@ -162,12 +238,12 @@ function rowToStoreProduct(
     condition: row.condition ?? 'New',
     description: row.description ?? '',
     seller: sellerName,
-    vendor: sellerName,
+    vendor: row.brand || sellerName,
     tags: row.tags ?? undefined,
     gender: row.gender ?? undefined,
     sku: row.sku ?? undefined,
     weightKg: row.weight_kg ?? undefined,
-    fullDescription: row.full_description ?? undefined,
+    fullDescription: composeDescriptionHtml(row),
     averageRating: row.average_rating ?? undefined,
     reviewCount: row.review_count ?? undefined,
     // NOTE: `url` is deliberately never set. For every other store it
@@ -214,24 +290,41 @@ export async function fetchCatalogueProducts(
   if (!(await hasOwnProducts(sellerId))) return fetchMockProducts(platform, params)
 
   const supabase = createServiceRoleClient()
-  let query = supabase
-    .from('products')
-    .select(PUBLIC_PRODUCT_COLUMNS, { count: 'exact' })
-    .eq('seller_id', sellerId)
-    .eq('active', true)
-
-  if (params.category) query = query.eq('category', params.category)
-
-  const q = sanitizeSearch(params.search)
-  if (q) query = query.or(`name.ilike.%${q}%,category.ilike.%${q}%,description.ilike.%${q}%`)
-
-  if (params.sort === 'price-asc') query = query.order('price', { ascending: true })
-  else if (params.sort === 'price-desc') query = query.order('price', { ascending: false })
-  else if (params.sort === 'sale') query = query.order('compare_at_price', { ascending: false, nullsFirst: false })
-  else query = query.order('created_at', { ascending: false })
-
   const from = (params.page - 1) * params.perPage
-  const { data, error, count } = await query.range(from, from + params.perPage - 1)
+  const q = sanitizeSearch(params.search)
+
+  // Wishdrop Mall filters by its managed categories (the filter value is
+  // the category's slug); other catalogue stores by the category text.
+  let mallCategoryId: string | null = null
+  if (platform === WISHDROP_MALL_SLUG && params.category) {
+    mallCategoryId = await findMallCategoryId(params.category)
+    if (!mallCategoryId) return { products: [], total: 0, totalPages: 1, totalIsExact: true }
+  }
+
+  const run = (columns: string) => {
+    let query = supabase
+      .from('products')
+      .select(columns, { count: 'exact' })
+      .eq('seller_id', sellerId)
+      .eq('active', true)
+
+    if (mallCategoryId) query = query.eq('mall_category_id', mallCategoryId)
+    else if (params.category) query = query.eq('category', params.category)
+    if (q) query = query.or(`name.ilike.%${q}%,category.ilike.%${q}%,description.ilike.%${q}%`)
+
+    if (params.sort === 'price-asc') query = query.order('price', { ascending: true })
+    else if (params.sort === 'price-desc') query = query.order('price', { ascending: false })
+    else if (params.sort === 'sale') query = query.order('compare_at_price', { ascending: false, nullsFirst: false })
+    else query = query.order('created_at', { ascending: false })
+
+    return query.range(from, from + params.perPage - 1)
+  }
+
+  let { data, error, count } = await run(productColumns)
+  if (isMissingColumn(error) && productColumns !== LEGACY_PRODUCT_COLUMNS) {
+    productColumns = LEGACY_PRODUCT_COLUMNS
+    ;({ data, error, count } = await run(productColumns))
+  }
   if (error) throw error
 
   const rows = (data ?? []) as unknown as PublicProductRow[]
@@ -260,13 +353,20 @@ export async function fetchCatalogueProduct(
   const supabase = createServiceRoleClient()
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(handle)
 
-  const { data, error } = await supabase
-    .from('products')
-    .select(PUBLIC_PRODUCT_COLUMNS)
-    .eq('seller_id', sellerId)
-    .eq('active', true)
-    .eq(isUuid ? 'id' : 'handle', handle)
-    .maybeSingle()
+  const run = (columns: string) =>
+    supabase
+      .from('products')
+      .select(columns)
+      .eq('seller_id', sellerId)
+      .eq('active', true)
+      .eq(isUuid ? 'id' : 'handle', handle)
+      .maybeSingle()
+
+  let { data, error } = await run(productColumns)
+  if (isMissingColumn(error) && productColumns !== LEGACY_PRODUCT_COLUMNS) {
+    productColumns = LEGACY_PRODUCT_COLUMNS
+    ;({ data, error } = await run(productColumns))
+  }
   if (error) throw error
   if (!data) {
     // Demo products (see DEMO FALLBACK above) — only while the seller has
@@ -284,6 +384,21 @@ export async function fetchCatalogueProduct(
 export async function fetchCatalogueCategories(platform: string): Promise<{ handle: string; title: string }[]> {
   const sellerId = await resolveSellerId(platform)
   if (!sellerId) return []
+  const supabase = createServiceRoleClient()
+
+  if (platform === WISHDROP_MALL_SLUG) {
+    // Managed categories, in the order staff set, showing only ones that
+    // have at least one live product (an empty category would just lead
+    // shoppers to a blank page).
+    const [{ data: cats }, { data: live }] = await Promise.all([
+      supabase.from('mall_categories').select('id, slug, name').eq('active', true).order('sort_order').order('name'),
+      supabase.from('products').select('mall_category_id').eq('seller_id', sellerId).eq('active', true).not('mall_category_id', 'is', null),
+    ])
+    const withProducts = new Set(((live ?? []) as { mall_category_id: string }[]).map((r) => r.mall_category_id))
+    return ((cats ?? []) as { id: string; slug: string; name: string }[])
+      .filter((c) => withProducts.has(c.id))
+      .map((c) => ({ handle: c.slug, title: c.name }))
+  }
 
   if (!(await hasOwnProducts(sellerId))) {
     // Demo fallback — categories of the demo products.
@@ -293,7 +408,6 @@ export async function fetchCatalogueCategories(platform: string): Promise<{ hand
       .map((title) => ({ handle: title, title }))
   }
 
-  const supabase = createServiceRoleClient()
   const { data, error } = await supabase
     .from('products')
     .select('category')

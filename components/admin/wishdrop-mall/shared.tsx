@@ -73,6 +73,7 @@ export function Dialog({
   children,
   footer,
   wide,
+  xwide,
 }: {
   title: string
   subtitle?: string
@@ -80,6 +81,8 @@ export function Dialog({
   children: React.ReactNode
   footer?: React.ReactNode
   wide?: boolean
+  /** Near full-width, for the product editor. */
+  xwide?: boolean
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -87,16 +90,33 @@ export function Dialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Critical sizing/scrolling is set with inline styles, not only
+  // Tailwind classes: if a stale dev build is missing a class (e.g. an
+  // arbitrary value used nowhere else), the dialog must still fit the
+  // screen and scroll instead of growing past it.
+  const maxWidth = xwide ? 1152 : wide ? 768 : 512
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', justifyContent: 'center' }}
+      onClick={onClose}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl ${wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'}`}
+        className="flex w-full flex-col overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+          maxWidth,
+          maxHeight: 'min(92vh, 92dvh)',
+          overflow: 'hidden',
+        }}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-ink/10 px-6 py-4">
+        <div className="flex flex-none items-start justify-between gap-4 border-b border-ink/10 px-6 py-4" style={{ flexShrink: 0 }}>
           <div>
             <h2 className="font-display text-xl font-semibold text-ink">{title}</h2>
             {subtitle && <p className="mt-0.5 text-sm text-ink/55">{subtitle}</p>}
@@ -105,8 +125,19 @@ export function Dialog({
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <div className="border-t border-ink/10 bg-parchment/60 px-6 py-4">{footer}</div>}
+        {/* minHeight 0: a flex child's min-height defaults to its content
+            height, so without it this area grows instead of scrolling. */}
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain px-6 py-5"
+          style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain' }}
+        >
+          {children}
+        </div>
+        {footer && (
+          <div className="border-t border-ink/10 bg-parchment/60 px-6 py-4" style={{ flexShrink: 0 }}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -181,6 +181,10 @@ export interface Database {
           source_price: number | null
           source_currency: string | null
           source_synced_at: string | null
+          brand: string | null
+          highlights: string[]
+          specs: { name: string; value: string }[]
+          mall_category_id: string | null
         }
         Insert: {
           id?: string
@@ -213,6 +217,10 @@ export interface Database {
           source_price?: number | null
           source_currency?: string | null
           source_synced_at?: string | null
+          brand?: string | null
+          highlights?: string[]
+          specs?: { name: string; value: string }[]
+          mall_category_id?: string | null
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
         Relationships: []
@@ -230,6 +238,8 @@ export interface Database {
           image_url: string | null
           available: boolean
           cost_price: number | null
+          source_url: string | null
+          source_price: number | null
         }
         Insert: {
           id?: string
@@ -243,6 +253,8 @@ export interface Database {
           image_url?: string | null
           available?: boolean
           cost_price?: number | null
+          source_url?: string | null
+          source_price?: number | null
         }
         Update: Partial<Database['public']['Tables']['product_variants']['Insert']>
         Relationships: []
@@ -1476,6 +1488,60 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['personal_coupons']['Insert']>
         Relationships: []
       }
+      mall_categories: {
+        Row: {
+          id: string
+          name: string
+          slug: string
+          description: string | null
+          image_url: string | null
+          sort_order: number
+          active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          slug: string
+          description?: string | null
+          image_url?: string | null
+          sort_order?: number
+          active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['mall_categories']['Insert']>
+        Relationships: []
+      }
+      mall_stock_movements: {
+        Row: {
+          id: string
+          product_id: string
+          variant_id: string | null
+          order_id: string | null
+          order_item_id: string | null
+          quantity_change: number
+          stock_after: number | null
+          shortage: number
+          reason: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id: string
+          variant_id?: string | null
+          order_id?: string | null
+          order_item_id?: string | null
+          quantity_change: number
+          stock_after?: number | null
+          shortage?: number
+          reason: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['mall_stock_movements']['Insert']>
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: {
@@ -1489,6 +1555,17 @@ export interface Database {
       seller_follower_count: {
         Args: { p_platform_slug: string }
         Returns: number
+      }
+      // Wishdrop Mall inventory — data/wishdrop-mall.sql. Service role only.
+      mall_deduct_stock: {
+        Args: {
+          p_product_id: string
+          p_variant_id: string | null
+          p_quantity: number
+          p_order_id: string
+          p_order_item_id: string
+        }
+        Returns: { applied: boolean; stock_after: number | null; shortage: number }[]
       }
     }
     Enums: Record<string, never>

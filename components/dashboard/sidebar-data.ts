@@ -99,7 +99,6 @@ export const sidebarGroups: SidebarGroup[] = [
     label: 'Other Services',
     items: [
   //     { type: 'view', label: 'Shopping Community', view: 'shoppingCommunity' },
-      { type: 'view', label: 'Wishdrop Mall', view: 'wishdropMall' },
       { type: 'view', label: 'Affiliated Stores', view: 'affiliatedStores' },
   //     // { type: 'link', label: 'Contact Preferences', href: '/account/contact-preferences' },
     ],

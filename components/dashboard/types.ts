@@ -96,7 +96,6 @@ export type View =
   | 'AddressBook'
   | 'trackingOrders'
   | 'myFollowing'
-  | 'wishdropMall'
   | 'cart'
   | 'boards'
   | '/messages/serviceRecords'

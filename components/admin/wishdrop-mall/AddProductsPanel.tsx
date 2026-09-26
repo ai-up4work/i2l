@@ -1,45 +1,44 @@
 // components/admin/wishdrop-mall/AddProductsPanel.tsx
 //
-// The "Add products" side of /admin/wishdrop-mall. Two ways to source:
+// The "Add products" side of the Wishdrop Mall page. Three ways in:
+//   - Add manually: an empty product editor — type everything yourself.
 //   - Browse a store: pick any affiliated seller with a live feed, search
 //     its catalogue (via the same public /api/stores/[platform] route the
 //     storefront uses) and click Add on a product.
 //   - Paste a link: any product URL — our own sellers resolve through
 //     their feed, anything else goes through the scraper.
-// Either way opens ImportDialog, which previews the product server-side,
-// lets staff set the name, category and the LKR selling price, and saves it.
+// Browse/link first load the product through the same extractors the
+// storefront's product pages use (preview route), then open the full
+// ProductEditor pre-filled with everything found — all of it editable.
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Link2, Loader2, Plus, Search, Store } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Link2, Loader2, PenLine, Plus, Search, Store } from 'lucide-react'
 import type { StoreProduct } from '@/lib/store.types'
-import { MALL_DELIVERY_FEE_LKR, approxLKR, type MallDraft, type MallProductRow } from '@/lib/wishdrop-mall'
-import { getDualDeliveryPricing } from '@/lib/pricing'
-import {
-  Dialog,
-  INPUT,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-  Thumb,
-  formatMoney,
-  mallApi,
-} from './shared'
+import type { MallCategory, MallDraft, MallProductRow } from '@/lib/wishdrop-mall'
+import { Dialog, INPUT, PRIMARY_BUTTON, SECONDARY_BUTTON, formatMoney, mallApi } from './shared'
+import ProductEditor, { draftToForm, emptyForm, type ProductForm } from './ProductEditor'
 
 type Source = { platform: string; name: string; logo: string }
-type ImportTarget = { platform: string; handle: string; label: string } | { url: string; label: string }
+type ImportTarget =
+  | { platform: string; handle: string; label: string }
+  | { url: string; label: string }
+  | { manual: true; label: string }
 
 const PER_PAGE = 24
 
 export default function AddProductsPanel({
   existing,
   categories,
+  onCategoryCreated,
   onAdded,
 }: {
   existing: MallProductRow[]
-  categories: string[]
-  onAdded: (product: MallProductRow) => void
+  categories: MallCategory[]
+  onCategoryCreated: (category: MallCategory) => void
+  onAdded: (product: MallProductRow, warnings: string[]) => void
 }) {
-  const [mode, setMode] = useState<'browse' | 'link'>('browse')
+  const [mode, setMode] = useState<'manual' | 'browse' | 'link'>('browse')
   const [target, setTarget] = useState<ImportTarget | null>(null)
 
   // `platform::handle` of everything already imported, so browse results
@@ -57,6 +56,7 @@ export default function AddProductsPanel({
           [
             { key: 'browse', label: 'Browse a store', icon: Store },
             { key: 'link', label: 'Paste a link', icon: Link2 },
+            { key: 'manual', label: 'Add manually', icon: PenLine },
           ] as const
         ).map(({ key, label, icon: Icon }) => (
           <button
@@ -78,18 +78,21 @@ export default function AddProductsPanel({
       <div className="mt-5">
         {mode === 'browse' ? (
           <BrowseStore imported={imported} onPick={setTarget} />
-        ) : (
+        ) : mode === 'link' ? (
           <PasteLink onPick={setTarget} />
+        ) : (
+          <ManualStart onStart={() => setTarget({ manual: true, label: 'New product' })} />
         )}
       </div>
 
       {target && (
-        <ImportDialog
+        <ImportFlow
           target={target}
           categories={categories}
+          onCategoryCreated={onCategoryCreated}
           onClose={() => setTarget(null)}
-          onAdded={(p) => {
-            onAdded(p)
+          onAdded={(p, warnings) => {
+            onAdded(p, warnings)
             setTarget(null)
           }}
         />
@@ -309,253 +312,118 @@ function PasteLink({ onPick }: { onPick: (t: ImportTarget) => void }) {
   )
 }
 
-// ─── Import dialog ──────────────────────────────────────────────────────
+// ─── Add manually ───────────────────────────────────────────────────────
 
-function lkr(n: number | null | undefined): string {
-  return n == null ? '—' : formatMoney(n, 'Rs')
+function ManualStart({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-card p-6">
+      <p className="text-sm font-semibold text-ink">Create a product from scratch</p>
+      <p className="mt-1 max-w-xl text-xs leading-relaxed text-ink/55">
+        Title, brand, photos, price, description, highlights, specifications and variants (each with its own
+        image and buy link). Good for products you source offline or from a site the scraper can&rsquo;t read.
+      </p>
+      <button type="button" onClick={onStart} className={`${PRIMARY_BUTTON} mt-4`}>
+        <Plus size={14} /> New product
+      </button>
+    </div>
+  )
 }
 
-function ImportDialog({
+// ─── Import flow: load via extractors, then open the editor ────────────
+
+function ImportFlow({
   target,
   categories,
+  onCategoryCreated,
   onClose,
   onAdded,
 }: {
   target: ImportTarget
-  categories: string[]
+  categories: MallCategory[]
+  onCategoryCreated: (category: MallCategory) => void
   onClose: () => void
-  onAdded: (p: MallProductRow) => void
+  onAdded: (p: MallProductRow, warnings: string[]) => void
 }) {
-  const [draft, setDraft] = useState<MallDraft | null>(null)
-  const [duplicateOf, setDuplicateOf] = useState<{ id: string; name: string } | null>(null)
+  const isManual = 'manual' in target
+  const [form, setForm] = useState<ProductForm | null>(isManual ? emptyForm() : null)
+  const [meta, setMeta] = useState<{ duplicateOf: { id: string; name: string } | null; warning: string | null; from: string }>({
+    duplicateOf: null,
+    warning: null,
+    from: '',
+  })
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [name, setName] = useState('')
-  const [category, setCategory] = useState('')
-  const [price, setPrice] = useState('')
-  const [wasPrice, setWasPrice] = useState('')
-  const [publish, setPublish] = useState(true)
-  const [allowDuplicate, setAllowDuplicate] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-
   const load = useCallback(() => {
+    if ('manual' in target) return
     setLoadError(null)
-    setDraft(null)
+    setForm(null)
     const body = 'url' in target ? { url: target.url } : { platform: target.platform, handle: target.handle }
     mallApi<{ draft: MallDraft; duplicateOf: { id: string; name: string } | null }>('/api/admin/wishdrop-mall/preview', {
       method: 'POST',
       body: JSON.stringify(body),
     })
-      .then(({ draft: d, duplicateOf: dup }) => {
-        setDraft(d)
-        setDuplicateOf(dup)
-        setName(d.name)
-        setCategory(d.category)
+      .then(({ draft, duplicateOf }) => {
+        setMeta({
+          duplicateOf,
+          warning: draft.inStock ? null : 'The source shows this as sold out — you may not be able to fulfil orders.',
+          from: `Pulled from ${draft.source.name}${
+            draft.costPrice != null ? ` · ${formatMoney(draft.costPrice, draft.currency)} there` : ''
+          } — check everything, set your rupee price, then save.`,
+        })
+        setForm(draftToForm(draft, categories))
       })
       .catch((e: Error) => setLoadError(e.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per target, not when categories change
   }, [target])
 
   useEffect(load, [load])
 
-  // Reference numbers for staff while they choose the price.
-  const reference = useMemo(() => {
-    if (!draft || draft.costPrice == null) return null
-    const sourceLKR = approxLKR(draft.costPrice, draft.currency)
-    // What a shopper would pay for this same item through Wishdrop's
-    // normal import channel (Express — Economy is locked sitewide).
-    const normal = getDualDeliveryPricing({ price: draft.costPrice, currency: draft.currency, weightKg: draft.weightKg })
-    return { sourceLKR, normalTotal: Math.round(normal.express.actualTotalLKR) }
-  }, [draft])
-
-  const priceNum = Math.round(parseFloat(price))
-  const priceValid = Number.isFinite(priceNum) && priceNum > 0
-  const wasNum = Math.round(parseFloat(wasPrice))
-  const wasValid = wasPrice.trim() === '' || (Number.isFinite(wasNum) && priceValid && wasNum > priceNum)
-
-  const save = async () => {
-    if (!draft || !priceValid || !wasValid) return
-    setSaving(true)
-    setSaveError(null)
-    try {
-      const { product } = await mallApi<{ product: MallProductRow }>('/api/admin/wishdrop-mall/products', {
-        method: 'POST',
-        body: JSON.stringify({
-          draft,
-          name,
-          category,
-          priceLKR: priceNum,
-          compareAtLKR: wasPrice.trim() ? wasNum : null,
-          active: publish,
-          allowDuplicate,
-        }),
-      })
-      onAdded({ ...product, images: product.images ?? [] })
-    } catch (e) {
-      setSaveError((e as Error).message)
-      setSaving(false)
-    }
+  if (form) {
+    return (
+      <ProductEditor
+        initial={form}
+        duplicateOf={meta.duplicateOf}
+        sourceWarning={meta.warning}
+        subtitle={isManual ? 'Fill in the details. Title, price and quantity are required.' : meta.from}
+        categories={categories}
+        onCategoryCreated={onCategoryCreated}
+        onClose={onClose}
+        onSaved={onAdded}
+      />
+    )
   }
 
-  const isLink = 'url' in target
-
   return (
-    <Dialog
-      title="Add to Wishdrop Mall"
-      subtitle={draft ? `From ${draft.source.name}` : undefined}
-      onClose={onClose}
-      wide
-      footer={
-        draft ? (
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="flex items-center gap-2 text-sm text-ink/70">
-              <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} className="accent-teal-deep" />
-              Show to shoppers right away
-            </label>
-            <div className="flex gap-2">
-              <button type="button" className={SECONDARY_BUTTON} onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={PRIMARY_BUTTON}
-                onClick={save}
-                disabled={saving || !priceValid || !wasValid || !name.trim() || (!!duplicateOf && !allowDuplicate)}
-              >
-                {saving && <Loader2 size={14} className="animate-spin" />}
-                Add to Mall
-              </button>
-            </div>
-          </div>
-        ) : undefined
-      }
-    >
+    <Dialog title="Add to Wishdrop Mall" onClose={onClose}>
       {loadError ? (
         <div className="py-8 text-center">
           <AlertTriangle size={22} className="mx-auto text-rose-600" />
           <p className="mt-3 text-sm font-semibold text-rose-700">{loadError}</p>
-          <button type="button" className={`${SECONDARY_BUTTON} mt-4`} onClick={load}>
-            Try again
-          </button>
-        </div>
-      ) : !draft ? (
-        <div className="flex flex-col items-center gap-3 py-12 text-ink/50">
-          <Loader2 size={22} className="animate-spin" />
-          <p className="text-sm">{isLink ? 'Reading the product page — some stores take up to a minute…' : 'Loading product…'}</p>
+          <div className="mt-4 flex justify-center gap-2">
+            <button type="button" className={SECONDARY_BUTTON} onClick={load}>
+              Try again
+            </button>
+            <button
+              type="button"
+              className={PRIMARY_BUTTON}
+              onClick={() => {
+                // Couldn't read the page — start a manual product with the
+                // link already filled in as the buy link.
+                const f = emptyForm()
+                if ('url' in target) f.source.url = target.url
+                setForm(f)
+              }}
+            >
+              Enter details manually
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="space-y-5">
-          {duplicateOf && (
-            <div className="rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-ink/80">
-              <p className="font-semibold">Already in Wishdrop Mall as &ldquo;{duplicateOf.name}&rdquo;.</p>
-              <label className="mt-1.5 flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={allowDuplicate} onChange={(e) => setAllowDuplicate(e.target.checked)} className="accent-teal-deep" />
-                Add a second copy anyway
-              </label>
-            </div>
-          )}
-          {!draft.inStock && (
-            <p className="flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-800">
-              <AlertTriangle size={14} /> The source shows this as sold out — you may not be able to fulfil orders.
-            </p>
-          )}
-
-          {draft.images.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {draft.images.slice(0, 8).map((src) => (
-                <Thumb key={src} src={src} alt="" size={72} />
-              ))}
-            </div>
-          )}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block sm:col-span-2">
-              <span className="text-xs font-semibold text-ink/60">Name shoppers see</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} className={`${INPUT} mt-1`} />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-ink/60">Category</span>
-              <input value={category} onChange={(e) => setCategory(e.target.value)} list="mall-categories" className={`${INPUT} mt-1`} />
-              <datalist id="mall-categories">
-                {categories.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </label>
-          </div>
-
-          {/* ── Price (LKR) ── */}
-          <div className="rounded-xl border border-ink/10 bg-parchment/60 p-4">
-            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-              <label className="block w-40">
-                <span className="text-xs font-semibold text-ink/60">Price (Rs)</span>
-                <input
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-                  inputMode="numeric"
-                  placeholder="e.g. 4500"
-                  autoFocus
-                  className={`${INPUT} mt-1 font-display text-lg`}
-                />
-              </label>
-              <label className="block w-36">
-                <span className="text-xs font-semibold text-ink/60">Was price (optional)</span>
-                <input
-                  value={wasPrice}
-                  onChange={(e) => setWasPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-                  inputMode="numeric"
-                  className={`${INPUT} mt-1`}
-                />
-              </label>
-              <div className="pb-1 text-sm text-ink/70">
-                {priceValid ? (
-                  <>
-                    Customer pays <strong className="text-ink">{lkr(priceNum)}</strong> + {lkr(MALL_DELIVERY_FEE_LKR)} delivery
-                  </>
-                ) : (
-                  <span className="text-ink/45">+ {lkr(MALL_DELIVERY_FEE_LKR)} delivery. No tax or other charges.</span>
-                )}
-              </div>
-            </div>
-            {!wasValid && <p className="mt-2 text-xs font-semibold text-rose-700">The &ldquo;was&rdquo; price must be higher than the price.</p>}
-
-            <div className="mt-4 grid gap-2 border-t border-ink/10 pt-3 text-xs text-ink/60 sm:grid-cols-2">
-              <p>
-                Source price:{' '}
-                <span className="font-semibold text-ink/80">{formatMoney(draft.costPrice, draft.currency)}</span>
-                {reference?.sourceLKR != null && draft.currency !== 'LKR' && <> (≈ {lkr(reference.sourceLKR)} today)</>}
-              </p>
-              {reference && (
-                <p>
-                  Same item via normal import:{' '}
-                  <span className="font-semibold text-ink/80">{lkr(reference.normalTotal)}</span> total to the customer
-                  {priceValid && (
-                    <span className={priceNum + MALL_DELIVERY_FEE_LKR <= reference.normalTotal ? ' text-teal-deep' : ' text-gold-deep'}>
-                      {' '}(Mall: {lkr(priceNum + MALL_DELIVERY_FEE_LKR)})
-                    </span>
-                  )}
-                </p>
-              )}
-            </div>
-            {isLink && (
-              <p className="mt-2 text-xs text-ink/45">Source price was read from the page, so treat it as a guide.</p>
-            )}
-          </div>
-
-          <div className="text-xs leading-relaxed text-ink/50">
-            {draft.variants.length > 0 ? `${draft.variants.length} options (sizes/colours) will be imported at this same price. ` : ''}
-            Source:{' '}
-            {draft.source.url ? (
-              <a href={draft.source.url} target="_blank" rel="noreferrer" className="text-teal-deep underline decoration-dotted underline-offset-4">
-                {draft.source.name}
-              </a>
-            ) : (
-              draft.source.name
-            )}{' '}
-            — only staff can see this.
-          </div>
-
-          {saveError && <p className="text-sm font-semibold text-rose-700">{saveError}</p>}
+        <div className="flex flex-col items-center gap-3 py-12 text-ink/50">
+          <Loader2 size={22} className="animate-spin" />
+          <p className="text-sm">
+            {'url' in target ? 'Reading the product page — some stores take up to a minute…' : 'Loading product…'}
+          </p>
         </div>
       )}
     </Dialog>
