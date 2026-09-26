@@ -24,7 +24,24 @@ import {
 } from 'lucide-react'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import { destinations, partners, testimonials } from '@/content/data'
-import Header from '@/components/shared/Header'
+// FIX: also import the two header-height constants. ItemInfoModal's
+// FloatingCloseButton positions itself via
+// `top: calc(var(--account-header-h-mobile, 0px) + 1.25rem)` (and the
+// lg: desktop equivalent) — those CSS custom properties are what keep
+// the floating close button below the site header instead of
+// overlapping it. app/account/layout.tsx's AccountShell already defines
+// both vars (using these exact same constants) on its own <main>, which
+// is why the close button behaves correctly there. This page never
+// defined them at all, so the button fell back to `0px` and rendered
+// up inside the header bar itself, visually merging with the header's
+// own icons instead of floating clear of them. Setting the same vars
+// here, from the same source constants, brings this page in line with
+// AccountShell/ProductRequestOverlay — the only other two mount points
+// for this same modal.
+import Header, {
+  HEADER_BAR_HEIGHT_MOBILE,
+  HEADER_BAR_HEIGHT_DESKTOP,
+} from '@/components/shared/Header'
 import Hero from '@/components/landing/Landing-Hero'
 import HowItWorks from '@/components/landing/HowItWorks'
 import Footer from '@/components/landing/Footer'
@@ -325,7 +342,7 @@ function Testimonials() {
           })}
         </div>
 
-        {/* <a
+        {/* 
           href="#"
           className="mt-10 inline-flex items-center gap-2 font-body font-semibold text-gold transition-colors hover:text-gold-deep"
         >
@@ -444,7 +461,7 @@ function ShopByCategory() {
             Save more with top deals
           </h2>
         </div>
-        <a
+        
           href="/deals"
           className="hidden rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment sm:inline-flex"
         >
@@ -461,7 +478,7 @@ function ShopByCategory() {
       </div>
 
       <div className="mt-6 flex justify-center sm:hidden">
-        <a
+        
           href="/deals"
           className="rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment"
         >
@@ -630,7 +647,26 @@ function HomeItemModal() {
 export default function HomePageClient() {
   return (
     <DashboardProvider>
-      <main className="bg-parchment">
+      {/* FIX: this <main> now defines --account-header-h-mobile and
+          --account-header-h-desktop, the same two CSS vars
+          AccountShell's <main> defines in app/account/layout.tsx, using
+          the same HEADER_BAR_HEIGHT_MOBILE/_DESKTOP constants Header.tsx
+          exports (identical values — Header's rendered height doesn't
+          change based on its `variant` prop). ItemInfoModal's
+          FloatingCloseButton reads these vars to position itself just
+          below the page's actual header; without them it fell back to
+          `0px` and rendered up inside the header bar, visually merging
+          with the header's own icons instead of floating clear of it —
+          which is why the close button appeared to be "missing" here
+          specifically, even though the exact same ItemInfoModal (with
+          the exact same onClose) is used on /account. */}
+      <main
+        className="bg-parchment"
+        style={{
+          ['--account-header-h-mobile' as string]: `${HEADER_BAR_HEIGHT_MOBILE}px`,
+          ['--account-header-h-desktop' as string]: `${HEADER_BAR_HEIGHT_DESKTOP}px`,
+        }}
+      >
           <style>{`
             @keyframes float-slow {
               0%, 100% { transform: translateY(0); }
