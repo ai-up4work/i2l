@@ -57,21 +57,34 @@ export default function RefundPolicyPage() {
           id: 'return-exchange-policy',
           heading: 'Return & Exchange Policy',
           body: (
-            <ul>
-              <li>
-                <strong>Color & Fabric Differences(Garments):</strong> Returns are not accepted for minor
-                variations in color or the feel of the material.
-              </li>
-              <li>
-                <strong>Damaged or Wrong Items:</strong> If you receive the wrong or a damaged
-                item, please send us a continuous, uncut parcel-opening video on WhatsApp at{' '}
-                <a href="https://wa.me/94770774828">+94 77 077 4828</a>.
-              </li>
-              <li>
-                <strong>Exchanges:</strong> You can easily exchange your item for other products.
-                If you are returning a wrong or damaged item, we will cover the courier cost.
-              </li>
-            </ul>
+            <>
+              <h3>Product Responsibility & Our Role</h3>
+              <ul>
+                <li>
+                  <strong>Customer Responsibility:</strong> You are fully responsible for
+                  choosing the right item color, design, material, and ensuring it meets your
+                  needs.
+                </li>
+                <li>
+                  <strong>Our Role:</strong> Wishdrop acts as your purchasing and logistics
+                  partner. We only assist you with purchasing the item, managing international
+                  shipping, handling customs clearance, and delivering it safely to your
+                  doorstep.
+                </li>
+              </ul>
+              <ul>
+                <li>
+                  <strong>Damaged or Wrong Items:</strong> If you receive the wrong or a damaged
+                  item, please send us a continuous, uncut parcel-opening video on WhatsApp at{' '}
+                  <a href="https://wa.me/94770774828">+94 77 077 4828</a>.
+                </li>
+                <li>
+                  <strong>Exchanges:</strong> You can easily exchange your item for other
+                  products. If you are returning a wrong or damaged item, we will cover the
+                  courier cost.
+                </li>
+              </ul>
+            </>
           ),
         },
         {
