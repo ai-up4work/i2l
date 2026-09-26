@@ -38,6 +38,7 @@ import {
   Lock,
   Megaphone,
   BadgeCheck,
+  Store,
 } from "lucide-react"
 
 import { useAdminSidebar } from "@/contexts/AdminSidebarContext"
@@ -139,6 +140,10 @@ function getGroups(role: Role): Group[] {
       label: "Sourcing",
       items: [
         { label: "Sellers", href: "/admin/sellers", icon: Users, roles: ["manager", "sales"] },
+        // Products custom sellers add themselves in the seller portal —
+        // app/admin/(protected)/(sales)/catalogues. BookOpen was already
+        // imported for this and never used.
+        { label: "Catalogues", href: "/admin/catalogues", icon: BookOpen, roles: ["manager", "sales"] },
         { label: "Scrape health", href: "/admin/scrape-health", icon: ClipboardList, roles: ["super_admin"] },
       ],
     },
@@ -178,6 +183,9 @@ function getGroups(role: Role): Group[] {
       // the full roster, every role included.
       label: "Super Admin",
       items: [
+        // Wishdrop's own store — run by the super admin. See
+        // app/admin/(protected)/super-admin/wishdrop-mall/page.tsx.
+        { label: "Wishdrop Mall", href: "/admin/super-admin/wishdrop-mall", icon: Store, roles: ["super_admin"] },
         { label: "Analytics", href: "/admin/super-admin/analytics", icon: LineChart, roles: ["super_admin"] },
         { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"], locked: true },
         { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },

@@ -118,6 +118,7 @@ export const EXTRACTOR_TYPE_LABEL: Record<StoreProviderType, string> = {
   woocommerce: 'WooCommerce',
   jsonapi: 'Custom \u2014 JSON backend',
   'html-scrape': 'Custom \u2014 HTML scraping',
+  catalogue: 'Wishdrop Mall \u2014 own catalogue',
 }
 
 /** Every local (third-party affiliated) seller, joined across the real sources. */

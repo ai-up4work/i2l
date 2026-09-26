@@ -1,9 +1,17 @@
 // app/seller/(dashboard)/products/page.tsx
+//
+// A custom seller's own product list. All reads/writes go through
+// /api/seller/products (server-side, scoped to this seller) rather than
+// straight to Supabase from the browser — that used to let a seller send
+// any price they liked, and hid their own hidden products from them
+// (RLS only lets the browser read active products). The seller enters
+// their COST; Wishdrop's markup and the selling price are applied on the
+// server. Products show on the seller's store page (/stores/<slug>) as
+// soon as they're saved and active.
 'use client'
 
 import { useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import {
   Dialog,
   DialogContent,
@@ -24,6 +32,7 @@ type ProductRow = {
   currency: string
   stock_count: number | null
   images: string[]
+  weight_kg: number | null
   active: boolean
 }
 
@@ -33,13 +42,18 @@ const emptyForm = {
   category: '',
   costPrice: '',
   stockCount: '',
-  imageUrl: '',
+  weightKg: '',
+  imageUrls: '',
+}
+
+async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error ?? 'Something went wrong')
+  return body as T
 }
 
 export default function SellerProductsPage() {
-  const supabase = createClient()
-
-  const [sellerId, setSellerId] = useState<string | null>(null)
   const [defaultMargin, setDefaultMargin] = useState(25)
   const [products, setProducts] = useState<ProductRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,44 +66,14 @@ export default function SellerProductsPage() {
   const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: seller, error: sellerError } = await supabase
-        .from('sellers')
-        .select('id, default_margin_percent')
-        .eq('owner_user_id', user.id)
-        .maybeSingle()
-      if (cancelled) return
-      if (sellerError || !seller) {
-        setError(sellerError?.message ?? 'No seller linked to this login.')
-        setLoading(false)
-        return
-      }
-      setSellerId(seller.id)
-      setDefaultMargin(Number(seller.default_margin_percent ?? 25))
-
-      const { data: rows, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .eq('seller_id', seller.id)
-        .order('created_at', { ascending: false })
-      if (cancelled) return
-      if (productsError) {
-        setError(productsError.message)
-      } else {
-        setProducts(rows as ProductRow[])
-      }
-      setLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    api<{ products: ProductRow[]; defaultMarginPercent: number }>('/api/seller/products')
+      .then((body) => {
+        setProducts(body.products)
+        setDefaultMargin(body.defaultMarginPercent)
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
 
   function openAddDialog() {
     setEditingId(null)
@@ -106,7 +90,8 @@ export default function SellerProductsPage() {
       category: p.category ?? '',
       costPrice: String(p.cost_price ?? ''),
       stockCount: p.stock_count != null ? String(p.stock_count) : '',
-      imageUrl: p.images?.[0] ?? '',
+      weightKg: p.weight_kg != null ? String(p.weight_kg) : '',
+      imageUrls: (p.images ?? []).join('\n'),
     })
     setFormError(null)
     setDialogOpen(true)
@@ -114,8 +99,6 @@ export default function SellerProductsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!sellerId) return
-
     const cost = Number(form.costPrice)
     if (!form.name.trim()) return setFormError('Product name is required.')
     if (!Number.isFinite(cost) || cost <= 0) return setFormError('Enter a valid cost price.')
@@ -123,47 +106,33 @@ export default function SellerProductsPage() {
     setSaving(true)
     setFormError(null)
     try {
-      // margin_percent is Wishdrop's own markup, not the seller's to set —
-      // applied automatically from the seller's default. price is derived
-      // here client-side for immediate display; it's recomputed the same
-      // way anywhere else it's edited (e.g. admin Catalogues) so the two
-      // never drift apart.
-      const margin = defaultMargin
-      const price = Math.round(cost * (1 + margin / 100) * 100) / 100
-
+      // Only the seller's own fields — the server applies Wishdrop's
+      // margin and works out the selling price.
       const payload = {
         name: form.name.trim(),
         description: form.description.trim() || null,
         category: form.category.trim() || null,
-        cost_price: cost,
-        margin_percent: margin,
-        price,
-        stock_count: form.stockCount.trim() ? Number(form.stockCount) : null,
-        images: form.imageUrl.trim() ? [form.imageUrl.trim()] : [],
+        costPrice: cost,
+        stockCount: form.stockCount.trim() || null,
+        weightKg: form.weightKg.trim() || null,
+        images: form.imageUrls
+          .split(/\s+/)
+          .map((u) => u.trim())
+          .filter(Boolean),
       }
 
       if (editingId) {
-        const { data, error: updateError } = await supabase
-          .from('products')
-          .update(payload)
-          .eq('id', editingId)
-          .select()
-          .single()
-        if (updateError) throw updateError
-        setProducts((prev) => prev.map((p) => (p.id === editingId ? (data as ProductRow) : p)))
+        const { product } = await api<{ product: ProductRow }>(`/api/seller/products/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        setProducts((prev) => prev.map((p) => (p.id === editingId ? product : p)))
       } else {
-        const handle = form.name
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/(^-|-$)/g, '')
-        const { data, error: insertError } = await supabase
-          .from('products')
-          .insert({ ...payload, seller_id: sellerId, handle, currency: 'INR', active: true })
-          .select()
-          .single()
-        if (insertError) throw insertError
-        setProducts((prev) => [data as ProductRow, ...prev])
+        const { product } = await api<{ product: ProductRow }>('/api/seller/products', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setProducts((prev) => [product, ...prev])
       }
       setDialogOpen(false)
     } catch (err) {
@@ -173,23 +142,26 @@ export default function SellerProductsPage() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(p: ProductRow) {
+    if (!window.confirm(`Delete "${p.name}"? To stop selling it for now, click its status to hide it instead.`)) return
     const previous = products
-    setProducts((prev) => prev.filter((p) => p.id !== id))
-    const { error: deleteError } = await supabase.from('products').delete().eq('id', id)
-    if (deleteError) {
+    setProducts((prev) => prev.filter((row) => row.id !== p.id))
+    try {
+      await api(`/api/seller/products/${p.id}`, { method: 'DELETE' })
+    } catch (err) {
       setProducts(previous)
-      setError(deleteError.message)
+      setError((err as Error).message)
     }
   }
 
   async function handleToggleActive(p: ProductRow) {
     const previous = products
     setProducts((prev) => prev.map((row) => (row.id === p.id ? { ...row, active: !row.active } : row)))
-    const { error: updateError } = await supabase.from('products').update({ active: !p.active }).eq('id', p.id)
-    if (updateError) {
+    try {
+      await api(`/api/seller/products/${p.id}`, { method: 'PATCH', body: JSON.stringify({ active: !p.active }) })
+    } catch (err) {
       setProducts(previous)
-      setError(updateError.message)
+      setError((err as Error).message)
     }
   }
 
@@ -208,8 +180,8 @@ export default function SellerProductsPage() {
         <div>
           <h2 className="font-display text-2xl text-ink">My products</h2>
           <p className="mt-1 text-sm text-ink/55">
-            Add your cost price — Wishdrop's {defaultMargin}% markup is applied automatically. No
-            approval needed; changes go live right away.
+            Add your cost price — Wishdrop&rsquo;s {defaultMargin}% markup is applied automatically. No
+            approval needed; active products show on your store page right away.
           </p>
         </div>
         <button
@@ -270,7 +242,7 @@ export default function SellerProductsPage() {
                     <button onClick={() => openEditDialog(p)} className="mr-3 text-ink/50 hover:text-teal-deep">
                       <Pencil size={15} />
                     </button>
-                    <button onClick={() => handleDelete(p.id)} className="text-ink/50 hover:text-red-600">
+                    <button onClick={() => handleDelete(p)} className="text-ink/50 hover:text-red-600">
                       <Trash2 size={15} />
                     </button>
                   </td>
@@ -328,9 +300,19 @@ export default function SellerProductsPage() {
               />
             </div>
             <input
-              placeholder="Image URL (optional)"
-              value={form.imageUrl}
-              onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Weight in kg (e.g. 0.4) — used for shipping"
+              value={form.weightKg}
+              onChange={(e) => setForm((f) => ({ ...f, weightKg: e.target.value }))}
+              className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+            />
+            <textarea
+              placeholder="Photo links, one per line (https://…) — first one is the main photo"
+              value={form.imageUrls}
+              onChange={(e) => setForm((f) => ({ ...f, imageUrls: e.target.value }))}
+              rows={3}
               className="rounded-xl border border-ink/15 px-3.5 py-2.5 text-sm outline-none focus:border-teal"
             />
 

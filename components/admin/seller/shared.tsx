@@ -65,6 +65,7 @@ export const PROVIDER_LOGO: Record<StoreProviderType, string> = {
   woocommerce: '/woo.png',
   jsonapi: '/json.png',
   'html-scrape': '/custom.png',
+  catalogue: '/custom-made.png',
 }
 
 export const EXTRACTOR_OPTIONS: {

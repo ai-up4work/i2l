@@ -197,25 +197,31 @@ export default function ProductPurchasePanel({
       <div className="flex h-full min-w-0 flex-col">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
           <span className="inline-flex items-center gap-2">
-            <Link
-              href={`/demo/quote?${new URLSearchParams({
-                mode: 'simple',
-                // Economy locked — the breakdown link should reflect the
-                // only delivery method actually bookable right now. See
-                // economyLocked's own doc comment above.
-                delivery: economyLocked ? 'express' : 'economy',
-                pcs: '1',
-                value: String(effectivePrice),
-                currency: product.currency,
-                ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
-              }).toString()}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="See price breakdown"
-              className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
-            >
-              <img src={storeLogo} alt="" className="h-full w-full object-cover" />
-            </Link>
+            {dualPricing.fixedPrice ? (
+              <span className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card">
+                <img src={storeLogo} alt="" className="h-full w-full object-cover" />
+              </span>
+            ) : (
+              <Link
+                href={`/demo/quote?${new URLSearchParams({
+                  mode: 'simple',
+                  // Economy locked — the breakdown link should reflect the
+                  // only delivery method actually bookable right now. See
+                  // economyLocked's own doc comment above.
+                  delivery: economyLocked ? 'express' : 'economy',
+                  pcs: '1',
+                  value: String(effectivePrice),
+                  currency: product.currency,
+                  ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
+                }).toString()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="See price breakdown"
+                className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
+              >
+                <img src={storeLogo} alt="" className="h-full w-full object-cover" />
+              </Link>
+            )}
             {storeName} · {product.condition}
           </span>
           {product.averageRating != null && (
@@ -230,104 +236,130 @@ export default function ProductPurchasePanel({
           {product.name}
         </h1>
 
-        {/* Economy vs Express delivery-price comparison, styled like a
-            two-part shipping slip: a ticket-stub perforation separates
-            the options instead of a plain divider.
-            economyLocked=false (old/default behavior): both rows keep
-            their own full-opacity accent color (teal / gold), Economy
-            keeps the larger price treatment as the storefront default.
-            economyLocked=true: Express takes over as the full-opacity,
-            "recommended" row with the larger price treatment; Economy is
-            muted (grey icon/text, no accent background) and shows
-            "Coming soon" instead of a real price — same treatment as the
-            cart page's own locked Economy button, just in this card's
-            layout instead of a toggle. */}
-        <div className="mt-3 rounded-3xl border border-ink/15 bg-card shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">
-          <div
-            className={`flex items-center gap-3 rounded-t-[calc(1.5rem-1px)] px-5 py-4 ${
-              economyLocked ? 'bg-ink/[0.02]' : 'bg-teal/[0.05]'
-            }`}
-          >
-            <Package
-              size={18}
-              strokeWidth={1.75}
-              className={`shrink-0 ${economyLocked ? 'text-ink/25' : 'text-teal-deep'}`}
-            />
-            <div className="min-w-0 flex-1">
-              <p className={`text-sm font-semibold ${economyLocked ? 'text-ink/40' : 'text-ink'}`}>
-                Economy
-                {!economyLocked && <span className="font-normal text-teal-deep"> · recommended</span>}
-              </p>
-              <p className={`text-xs italic ${economyLocked ? 'text-ink/30' : 'text-ink/45 not-italic'}`}>
-                {economyLocked ? 'Coming soon' : 'Delivery arrives in 3–4 weeks'}
-              </p>
-            </div>
-            <div className="shrink-0 text-right">
-              {economyLocked ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-ink/10 bg-ink/[0.04] px-2.5 py-1 text-[11px] font-semibold text-ink/35">
-                  <Clock size={11} strokeWidth={2} />
-                  Coming soon
-                </span>
-              ) : (
-                <>
-                  <p className="font-display text-2xl font-bold tabular-nums text-teal-deep sm:text-[28px]">
-                    {dualPricing.economy.formattedPrice}
-                  </p>
-                  {dualPricing.economy.formattedCompareAtPrice != null && (
-                    <p className="text-xs text-ink/35">
-                      <span className="line-through">{dualPricing.economy.formattedCompareAtPrice}</span>
-                      {dualPricing.economy.discountPercent != null && (
-                        <span className="ml-1.5 text-teal-deep">{dualPricing.economy.discountPercent}% less</span>
-                      )}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Perforation seam — notches are page-background-colored
-              circles punched into the card's side edges at the seam
-              height. */}
-          <div className="relative">
-            <div className="border-t border-dashed border-ink/15" />
-            <span className="absolute left-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
-            <span className="absolute right-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
-          </div>
-
-          <div className="flex items-center gap-3 rounded-b-[calc(1.5rem-1px)] bg-gold/[0.06] px-5 py-4">
-            <Zap size={18} strokeWidth={1.75} className="shrink-0 text-gold-deep" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-ink">
-                Express
-                {economyLocked && <span className="font-normal text-gold-deep"> · recommended</span>}
-              </p>
-              <p className="text-xs text-ink/45">
-                Delivery arrives in 12 - 15 days
-                {!economyLocked && dualPricing.formattedExpressPremium != null && (
-                  <> · {dualPricing.formattedExpressPremium} more</>
-                )}
-              </p>
-            </div>
-            <div className="shrink-0 text-right">
-              <p
-                className={`font-display font-bold tabular-nums text-gold-deep ${
-                  economyLocked ? 'text-2xl sm:text-[28px]' : 'text-xl sm:text-2xl'
-                }`}
-              >
+        {dualPricing.fixedPrice ? (
+          // Fixed-price store (Wishdrop Mall): the price is set in LKR and
+          // already covers everything, so there's no delivery-method
+          // comparison — just the price and the flat delivery fee.
+          <div className="mt-3 rounded-3xl border border-ink/15 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="font-display text-2xl font-extrabold tabular-nums text-ink sm:text-[28px]">
                 {dualPricing.express.formattedPrice}
-              </p>
+              </span>
               {dualPricing.express.formattedCompareAtPrice != null && (
-                <p className="text-xs text-ink/35">
+                <span className="text-sm text-ink/45">
                   <span className="line-through">{dualPricing.express.formattedCompareAtPrice}</span>
                   {dualPricing.express.discountPercent != null && (
-                    <span className="ml-1.5 text-gold-deep">{dualPricing.express.discountPercent}% less</span>
+                    <span className="ml-1.5 font-semibold text-teal-deep">{dualPricing.express.discountPercent}% less</span>
                   )}
-                </p>
+                </span>
               )}
             </div>
+            <p className="mt-1 text-xs text-ink/55">
+              + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
+            </p>
           </div>
-        </div>
+        ) : (
+          <>
+          {/* Economy vs Express delivery-price comparison, styled like a
+              two-part shipping slip: a ticket-stub perforation separates
+              the options instead of a plain divider.
+              economyLocked=false (old/default behavior): both rows keep
+              their own full-opacity accent color (teal / gold), Economy
+              keeps the larger price treatment as the storefront default.
+              economyLocked=true: Express takes over as the full-opacity,
+              "recommended" row with the larger price treatment; Economy is
+              muted (grey icon/text, no accent background) and shows
+              "Coming soon" instead of a real price — same treatment as the
+              cart page's own locked Economy button, just in this card's
+              layout instead of a toggle. */}
+          <div className="mt-3 rounded-3xl border border-ink/15 bg-card shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">
+            <div
+              className={`flex items-center gap-3 rounded-t-[calc(1.5rem-1px)] px-5 py-4 ${
+                economyLocked ? 'bg-ink/[0.02]' : 'bg-teal/[0.05]'
+              }`}
+            >
+              <Package
+                size={18}
+                strokeWidth={1.75}
+                className={`shrink-0 ${economyLocked ? 'text-ink/25' : 'text-teal-deep'}`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className={`text-sm font-semibold ${economyLocked ? 'text-ink/40' : 'text-ink'}`}>
+                  Economy
+                  {!economyLocked && <span className="font-normal text-teal-deep"> · recommended</span>}
+                </p>
+                <p className={`text-xs italic ${economyLocked ? 'text-ink/30' : 'text-ink/45 not-italic'}`}>
+                  {economyLocked ? 'Coming soon' : 'Delivery arrives in 3–4 weeks'}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                {economyLocked ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-ink/10 bg-ink/[0.04] px-2.5 py-1 text-[11px] font-semibold text-ink/35">
+                    <Clock size={11} strokeWidth={2} />
+                    Coming soon
+                  </span>
+                ) : (
+                  <>
+                    <p className="font-display text-2xl font-bold tabular-nums text-teal-deep sm:text-[28px]">
+                      {dualPricing.economy.formattedPrice}
+                    </p>
+                    {dualPricing.economy.formattedCompareAtPrice != null && (
+                      <p className="text-xs text-ink/35">
+                        <span className="line-through">{dualPricing.economy.formattedCompareAtPrice}</span>
+                        {dualPricing.economy.discountPercent != null && (
+                          <span className="ml-1.5 text-teal-deep">{dualPricing.economy.discountPercent}% less</span>
+                        )}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Perforation seam — notches are page-background-colored
+                circles punched into the card's side edges at the seam
+                height. */}
+            <div className="relative">
+              <div className="border-t border-dashed border-ink/15" />
+              <span className="absolute left-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
+              <span className="absolute right-[-13px] top-1/2 h-6 w-6 -translate-y-1/2 rounded-full bg-parchment" />
+            </div>
+
+            <div className="flex items-center gap-3 rounded-b-[calc(1.5rem-1px)] bg-gold/[0.06] px-5 py-4">
+              <Zap size={18} strokeWidth={1.75} className="shrink-0 text-gold-deep" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-ink">
+                  Express
+                  {economyLocked && <span className="font-normal text-gold-deep"> · recommended</span>}
+                </p>
+                <p className="text-xs text-ink/45">
+                  Delivery arrives in 12 - 15 days
+                  {!economyLocked && dualPricing.formattedExpressPremium != null && (
+                    <> · {dualPricing.formattedExpressPremium} more</>
+                  )}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p
+                  className={`font-display font-bold tabular-nums text-gold-deep ${
+                    economyLocked ? 'text-2xl sm:text-[28px]' : 'text-xl sm:text-2xl'
+                  }`}
+                >
+                  {dualPricing.express.formattedPrice}
+                </p>
+                {dualPricing.express.formattedCompareAtPrice != null && (
+                  <p className="text-xs text-ink/35">
+                    <span className="line-through">{dualPricing.express.formattedCompareAtPrice}</span>
+                    {dualPricing.express.discountPercent != null && (
+                      <span className="ml-1.5 text-gold-deep">{dualPricing.express.discountPercent}% less</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+          </>
+        )}
 
         <p className="mt-3 text-xs text-ink/45">Sold by {product.seller}</p>
 

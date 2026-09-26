@@ -16,6 +16,7 @@ import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyProducts } from '@/lib/store-providers/shopify';
 import { fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
 import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
+import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue';
 import { fetchAnishkaCreationProducts } from '@/lib/store-providers/sellers/anishka-creation';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 
@@ -66,6 +67,8 @@ export async function GET(
         ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
         : config.type === 'html-scrape'
         ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
+        : config.type === 'catalogue'
+        ? await fetchCatalogueProducts(platform, seller.name, fetchParams)
         : await fetchMockProducts(platform, fetchParams);
 
     // Admin live-count callers only need the totals, not the actual

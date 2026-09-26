@@ -29,6 +29,7 @@ const STORE_ICON = {
   jsonapi: "/json.png",
   "html-scrape": "/custom.png",
   mock: "/custom-made.png",
+  catalogue: "/custom-made.png",
 } as const
 
 const FEED_LABEL: Record<keyof typeof STORE_ICON, string> = {
@@ -37,6 +38,7 @@ const FEED_LABEL: Record<keyof typeof STORE_ICON, string> = {
   jsonapi: "JSON API",
   "html-scrape": "Custom (HTML)",
   mock: "Mock",
+  catalogue: "Wishdrop Mall",
 }
 
 type StatusFilter = "all" | SellerStatus

@@ -3,7 +3,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BellRing, CheckCheck, CheckSquare, ChevronLeft, ChevronRight, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
+import { BellRing, CheckCheck, CheckSquare, ChevronDown, ChevronUp, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import {
@@ -134,7 +134,7 @@ function Avatar({
         src={avatarUrl ?? undefined}
         alt={name}
         onError={() => setBroken(true)}
-        className={`flex-none rounded-full object-cover ring-1 ring-ink/5 ${sizeClass}`}
+        className={`flex-none rounded-full object-cover ${sizeClass}`}
       />
     )
   }
@@ -740,61 +740,32 @@ function AdminChatPageInner() {
   const dateGroups = useMemo(() => groupByDate(messages), [messages])
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-parchment text-ink">
-      {/* ───────────────────────── Sidebar: thread list ───────────────────────── */}
-      <aside
-        className={`flex flex-none flex-col overflow-hidden border-r border-ink/10 bg-card transition-[width] duration-200 ${
-          listCollapsed ? 'w-0' : 'w-[336px]'
-        }`}
-      >
-        <div className="flex-none px-4 pb-3 pt-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <p className="text-lg font-semibold tracking-tight text-ink">Chats</p>
-              {totalUnread > 0 && (
-                <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-teal-deep px-1.5 text-[11px] font-bold text-card">
-                  {totalUnread > 9 ? '9+' : totalUnread}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                aria-label="Refresh conversations"
-                title="Refresh conversations"
-                className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink disabled:opacity-50"
-              >
-                <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setListCollapsed(true)}
-                aria-label="Collapse conversation list"
-                title="Collapse conversation list"
-                className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink"
-              >
-                <ChevronLeft size={16} />
-              </button>
-            </div>
+    <div className="flex h-full w-full flex-col overflow-hidden text-ink">
+      <div className="flex-none bg-parchment">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-ink/10">
+          <div className="flex items-center gap-2">
+            <p className="text-lg font-medium text-ink">Chats</p>
+            {totalUnread > 0 && (
+              <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-teal-deep px-1.5 text-[11px] font-bold text-card">
+                {totalUnread > 9 ? '9+' : totalUnread}
+              </span>
+            )}
           </div>
 
-          <div className="mt-3 flex items-center gap-2 rounded-lg border border-ink/10 bg-parchment/70 px-3 py-2">
-            <Search size={14} className="flex-none text-ink/40" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search chats or order ID"
-              className="w-full bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none"
-            />
-          </div>
-
-          <div className="mt-2.5 flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 rounded-lg bg-parchment/70 px-3 py-1.5">
+              <Search size={14} className="text-ink/45" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search chats or order ID"
+                className="w-36 bg-transparent text-sm text-ink placeholder:text-ink/50 focus:outline-none"
+              />
+            </div>
             <button
               type="button"
               onClick={() => setTab('all')}
-              className={`rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${
+              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
                 tab === 'all' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
               }`}
             >
@@ -803,33 +774,50 @@ function AdminChatPageInner() {
             <button
               type="button"
               onClick={() => setTab('unread')}
-              className={`rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${
+              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
                 tab === 'unread' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
               }`}
             >
-              Unread{totalUnread > 0 ? ` ${totalUnread}` : ''}
+              Unread {totalUnread > 0 ? totalUnread : ''}
             </button>
             <button
               type="button"
               onClick={() => setTab('order')}
               title="Threads whose most recent tagged message was about an order"
-              className={`rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${
+              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
                 tab === 'order' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
               }`}
             >
               Has order
             </button>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              aria-label="Refresh conversations"
+              title="Refresh conversations"
+              className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setListCollapsed((prev) => !prev)}
+              aria-label={listCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
+              title={listCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
+              className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink"
+            >
+              {listCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            </button>
           </div>
         </div>
 
-        <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto border-t border-ink/10 px-2 py-2">
+        {!listCollapsed && (
+        <div className="scrollbar-none flex gap-2 overflow-x-auto px-4 pb-2 border-b border-ink/10 mt-2">
           {threadsLoading ? (
-            <p className="px-2 py-3 text-sm text-ink/40">Loading conversations…</p>
+            <p className="px-1 py-2 text-sm text-ink/40">Loading conversations…</p>
           ) : rows.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-              <MessageSquare size={22} className="text-ink/15" strokeWidth={1.4} />
-              <p className="text-sm text-ink/40">No conversations found.</p>
-            </div>
+            <p className="px-1 py-2 text-sm text-ink/40">No conversations yet.</p>
           ) : (
             rows.map((t, i) => {
               const isSelected = t.id === selectedId
@@ -845,14 +833,13 @@ function AdminChatPageInner() {
                 (t.profiles?.chat_handle ? `@${t.profiles.chat_handle.replace(/^@/, '')}` : 'Customer')
               const preview = t.lastMessage ? parseReplyBody(t.lastMessage.text ?? '').text || (t.lastMessage.attachment_url ? '📷 Attachment' : '') : ''
               const orderDisplayId = t.last_order_id ? orderDisplayById.get(t.last_order_id) : null
-              const handle = displayHandle(t.profiles)
               return (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => handleSelect(t.id)}
-                  className={`mb-1 flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2.5 text-left transition-colors ${
-                    isSelected ? 'bg-teal-deep/10 ring-1 ring-inset ring-teal-deep/30' : 'hover:bg-parchment/70'
+                  className={`flex w-60 flex-none items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                    isSelected ? 'border-teal-deep bg-teal/10' : 'border-ink/10 bg-parchment/50 hover:bg-parchment/70'
                   }`}
                 >
                   <Avatar
@@ -864,39 +851,35 @@ function AdminChatPageInner() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
-                      <p className={`truncate text-[13.5px] ${t.unread ? 'font-semibold text-ink' : 'font-medium text-ink'}`}>
-                        {name}
-                      </p>
-                      {t.lastMessage && (
-                        <span className={`flex-none text-[10.5px] ${t.unread ? 'font-semibold text-teal-deep' : 'text-ink/40'}`}>
-                          {formatTime(t.lastMessage.created_at)}
-                        </span>
-                      )}
-                    </div>
-                    {(handle !== name || orderDisplayId) && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <p className="truncate text-[13px] font-medium text-ink">{name}</p>
                         {/* Skipped when `name` already IS the handle (see
                             its own fallback above) — otherwise this would
                             render the identical @handle twice in a row. */}
-                        {handle !== name && (
-                          <span className="rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
-                            {handle}
+                        {displayHandle(t.profiles) !== name && (
+                          <span className="flex-none rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
+                            {displayHandle(t.profiles)}
                           </span>
                         )}
                         {orderDisplayId && (
                           <span
                             title="Most recent tagged message in this thread was about this order"
-                            className="rounded-full bg-teal/12 px-1.5 py-[1px] text-[10px] font-semibold text-teal-deep"
+                            className="flex-none rounded-full bg-teal/12 px-1.5 py-[1px] text-[10px] font-semibold text-teal-deep"
                           >
                             {orderDisplayId}
                           </span>
                         )}
                       </div>
-                    )}
-                    <div className="mt-0.5 flex items-center justify-between gap-1.5">
-                      <p className="truncate text-[12px] text-ink/50">
+                      {t.lastMessage && (
+                        <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>
+                          {formatTime(t.lastMessage.created_at)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-1.5">
+                      <p className="truncate text-[11.5px] text-ink/50">
                         {t.lastMessage?.sender === 'ops' ? 'You: ' : ''}
-                        {preview || '\u00A0'}
+                        {preview}
                       </p>
                       {t.unread && <span className="h-2 w-2 flex-none rounded-full bg-teal-deep" />}
                     </div>
@@ -906,40 +889,21 @@ function AdminChatPageInner() {
             })
           )}
         </div>
-      </aside>
+        )}
+      </div>
 
-      {listCollapsed && (
-        <button
-          type="button"
-          onClick={() => setListCollapsed(false)}
-          aria-label="Expand conversation list"
-          title="Expand conversation list"
-          className="flex w-7 flex-none items-start justify-center border-r border-ink/10 bg-card pt-4 text-ink/40 transition-colors hover:bg-parchment/70 hover:text-ink"
-        >
-          <ChevronRight size={15} />
-        </button>
-      )}
-
-      {/* ───────────────────────── Main: conversation panel ───────────────────────── */}
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
             {/* Conversation header: who, their WhatsApp status, and the
                 WhatsApp hand-off actions (select messages / remind). */}
-            <div className="flex flex-none items-center gap-x-3 border-b border-ink/10 bg-card px-4 py-2 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
-              <Avatar
-                name={selectedThread.profiles?.full_name || displayHandle(selectedThread.profiles)}
-                avatarUrl={selectedThread.profiles?.avatar_url}
-                colorClass="bg-teal-deep"
-                sizeClass="h-8 w-8"
-                textClass="text-[12px]"
-              />
+            <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-ink/10 bg-card px-4 py-2.5">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-semibold text-ink">
+                <p className="truncate text-sm font-semibold text-ink">
                   {selectedThread.profiles?.full_name || displayHandle(selectedThread.profiles)}
-                  <span className="ml-1.5 text-[11px] font-medium text-ink/45">{displayHandle(selectedThread.profiles)}</span>
+                  <span className="ml-1.5 text-xs font-medium text-ink/45">{displayHandle(selectedThread.profiles)}</span>
                 </p>
-                <p className="flex flex-wrap items-center gap-x-2 text-[10.5px] leading-tight text-ink/50">
+                <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink/50">
                   {waInfo === null ? (
                     'Checking WhatsApp…'
                   ) : waInfo.customer.verifiedPhone ? (
@@ -972,31 +936,30 @@ function AdminChatPageInner() {
                     setSelectedMsgIds(new Set())
                   }}
                   title={waInfo?.customer.verifiedPhone ? 'Pick your messages to send to WhatsApp' : 'Customer hasn’t verified WhatsApp'}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     selectMode ? 'border-teal-deep bg-teal-deep/10 text-teal-deep' : 'border-ink/15 text-ink/70 hover:border-ink/30'
                   }`}
                 >
-                  <CheckSquare size={12} /> {selectMode ? 'Selecting' : 'Select'}
+                  <CheckSquare size={13} /> {selectMode ? 'Selecting' : 'Select'}
                 </button>
                 <button
                   type="button"
                   disabled={!waInfo?.customer.verifiedPhone}
                   onClick={() => setHandoff({ kind: 'reminder' })}
                   title={waInfo?.customer.verifiedPhone ? 'Remind them on WhatsApp' : 'Customer hasn’t verified WhatsApp'}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <BellRing size={12} /> Remind
+                  <BellRing size={13} /> Remind on WhatsApp
                 </button>
               </div>
             </div>
-
             {(orderIdsInOpenThread.length > 0 || requestIdsInOpenThread.length > 0) && (
-              <div className="scrollbar-none flex flex-none items-center gap-1.5 overflow-x-auto whitespace-nowrap border-b border-ink/10 bg-card/60 px-4 py-1.5">
-                <span className="flex-none font-body text-[10.5px] font-medium text-ink/40">Filter:</span>
+              <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-ink/10 bg-parchment px-4 py-2">
+                <span className="font-body text-[11px] font-medium text-ink/40">Filter:</span>
                 <button
                   type="button"
                   onClick={() => applyMessageFilter(null)}
-                  className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] font-semibold transition-colors ${
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                     messageFilter === null ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/50 hover:bg-ink/5'
                   }`}
                 >
@@ -1007,7 +970,7 @@ function AdminChatPageInner() {
                     key={`order-${orderId}`}
                     type="button"
                     onClick={() => applyMessageFilter({ type: 'order', id: orderId })}
-                    className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] font-semibold transition-colors ${
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                       messageFilter?.type === 'order' && messageFilter.id === orderId
                         ? 'bg-teal-deep/15 text-teal-deep'
                         : 'text-ink/50 hover:bg-ink/5'
@@ -1021,7 +984,7 @@ function AdminChatPageInner() {
                     key={`request-${requestId}`}
                     type="button"
                     onClick={() => applyMessageFilter({ type: 'request', id: requestId })}
-                    className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] font-semibold transition-colors ${
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                       messageFilter?.type === 'request' && messageFilter.id === requestId
                         ? 'bg-gold/20 text-gold-deep'
                         : 'text-ink/50 hover:bg-ink/5'
@@ -1032,14 +995,13 @@ function AdminChatPageInner() {
                 ))}
               </div>
             )}
-
             <div
               ref={scrollRef}
               onScroll={(e) => {
                 if (!hasMoreMessages || loadingMoreMessages) return
                 if (e.currentTarget.scrollTop < 40) loadOlderMessages()
               }}
-              className="scrollbar-none min-h-0 flex-1 space-y-0.5 overflow-y-auto px-5 py-2"
+              className="scrollbar-none min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4"
               style={{
                 backgroundImage: 'radial-gradient(rgba(32,36,43,0.045) 1px, transparent 1px)',
                 backgroundSize: '18px 18px',
@@ -1074,183 +1036,177 @@ function AdminChatPageInner() {
                   {dateGroups.map((group) => (
                     <div key={group.label}>
                       <div className="my-3 flex justify-center">
-                        <span className="rounded-full bg-card px-3 py-1 text-[11px] font-medium text-ink/50 shadow-sm">
-                          {group.label}
-                        </span>
+                        <span className="rounded-lg bg-card px-3 py-1 text-xs text-ink/50 shadow">{group.label}</span>
                       </div>
                       {group.messages.map((m) => {
-                        const isOps = m.sender === 'ops'
-                        const { quoted, text } = parseReplyBody(m.text ?? '')
-                        const attachmentKind = m.attachment_url ? inferAttachmentKind(m.attachment_url) : null
-                        const orderTag = m.order_id ? orderDisplayById.get(m.order_id) : null
-                        const requestTag = m.request_id ? requestDisplayById.get(m.request_id) : null
-                        return (
-                          <div key={m.id} className={`group my-1 flex items-center gap-1 ${isOps ? 'justify-end' : 'justify-start'}`}>
-                            {isOps && selectMode && (
-                              <input
-                                type="checkbox"
-                                checked={selectedMsgIds.has(m.id)}
-                                onChange={() => toggleSelected(m.id)}
-                                aria-label="Select this message to send to WhatsApp"
-                                className="mr-auto size-4 flex-none accent-teal-deep"
-                              />
+                      const isOps = m.sender === 'ops'
+                      const { quoted, text } = parseReplyBody(m.text ?? '')
+                      const attachmentKind = m.attachment_url ? inferAttachmentKind(m.attachment_url) : null
+                      const orderTag = m.order_id ? orderDisplayById.get(m.order_id) : null
+                      const requestTag = m.request_id ? requestDisplayById.get(m.request_id) : null
+                      return (
+                        <div key={m.id} className={`group my-0.5 flex items-center gap-1.5 ${isOps ? 'justify-end' : 'justify-start'}`}>
+                          {isOps && selectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedMsgIds.has(m.id)}
+                              onChange={() => toggleSelected(m.id)}
+                              aria-label="Select this message to send to WhatsApp"
+                              className="mr-auto size-4 flex-none accent-teal-deep"
+                            />
+                          )}
+                          {isOps && !selectMode && (
+                            <>
+                              {waInfo?.customer.verifiedPhone && (
+                                <button
+                                  type="button"
+                                  onClick={() => setHandoff({ kind: 'messages', ids: [m.id] })}
+                                  aria-label="Send this message to WhatsApp"
+                                  title="Send to WhatsApp"
+                                  className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 hover:text-[#0F7A3D] focus-visible:opacity-100 group-hover:opacity-100"
+                                >
+                                  <FaWhatsapp size={14} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setRetagTarget(m)}
+                                aria-label="Tag this message to an order or request"
+                                title="Tag to an order or request"
+                                className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100"
+                              >
+                                <Tag size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
+                                aria-label="Reply"
+                                className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
+                              >
+                                <Reply size={14} />
+                              </button>
+                            </>
+                          )}
+
+                          <div className={`flex max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
+                          <span className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-ink/45">
+                            {isOps ? (m.sender_name || 'Staff') : displayHandle(selectedThread.profiles)}
+                            {orderTag && (
+                              <span
+                                title={
+                                  m.tag_edited
+                                    ? `Re-tagged to this order${m.tag_edited_by_name ? ` by ${m.tag_edited_by_name}` : ''}`
+                                    : 'This message was tagged to this order'
+                                }
+                                className="rounded-full bg-teal/12 px-1.5 py-[1px] text-[9.5px] font-semibold text-teal-deep"
+                              >
+                                {orderTag}
+                                {m.tag_edited && <span aria-label="re-tagged by staff"> ✎</span>}
+                              </span>
                             )}
-                            {isOps && !selectMode && (
-                              <>
-                                {waInfo?.customer.verifiedPhone && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setHandoff({ kind: 'messages', ids: [m.id] })}
-                                    aria-label="Send this message to WhatsApp"
-                                    title="Send to WhatsApp"
-                                    className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 hover:text-[#0F7A3D] focus-visible:opacity-100 group-hover:opacity-100"
-                                  >
-                                    <FaWhatsapp size={14} />
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => setRetagTarget(m)}
-                                  aria-label="Tag this message to an order or request"
-                                  title="Tag to an order or request"
-                                  className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100"
-                                >
-                                  <Tag size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
-                                  aria-label="Reply"
-                                  className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
-                                >
-                                  <Reply size={14} />
-                                </button>
-                              </>
+                            {requestTag && (
+                              <span
+                                title={
+                                  m.tag_edited
+                                    ? `Re-tagged to this request${m.tag_edited_by_name ? ` by ${m.tag_edited_by_name}` : ''}`
+                                    : 'This message was tagged to this request'
+                                }
+                                className="rounded-full bg-gold/15 px-1.5 py-[1px] text-[9.5px] font-semibold text-gold-deep"
+                              >
+                                {requestTag}
+                                {m.tag_edited && <span aria-label="re-tagged by staff"> ✎</span>}
+                              </span>
+                            )}
+                          </span>
+                          <div
+                            onClick={isOps && selectMode ? () => toggleSelected(m.id) : undefined}
+                            className={`w-full rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
+                              isOps ? 'bg-teal-deep text-white' : 'bg-card text-ink'
+                            } ${isOps && selectMode ? 'cursor-pointer' : ''} ${
+                              isOps && selectMode && selectedMsgIds.has(m.id) ? 'ring-2 ring-gold ring-offset-1' : ''
+                            }`}
+                          >
+                            {quoted && (
+                              <div className="mb-1 rounded border-l-[3px] border-teal-deep bg-ink/5 px-2 py-1 text-[12.5px] text-ink/60">
+                                {quoted}
+                              </div>
                             )}
 
-                            <div className={`flex max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
-                              <span className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-ink/45">
-                                {isOps ? (m.sender_name || 'Staff') : displayHandle(selectedThread.profiles)}
-                                {orderTag && (
+                            {attachmentKind && m.attachment_url && (
+                              <div className="group/attachment relative mb-1">
+                                <AttachmentMedia
+                                  url={m.attachment_url}
+                                  kind={attachmentKind}
+                                  className="max-h-64 w-full rounded-md object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAttachment(m.id)}
+                                  aria-label="Delete attachment"
+                                  title="Delete attachment"
+                                  className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover/attachment:opacity-100"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
+                            )}
+
+                            <div className="flex items-end gap-1.5">
+                              {text && <p className="whitespace-pre-wrap break-words">{text}</p>}
+                              <span className={`ml-auto flex flex-none items-center gap-0.5 pb-[1px] text-[11px] ${isOps ? 'text-white/75' : 'text-ink/50'}`}>
+                                {formatTime(m.created_at)}
+                                {isOps && m.sent_via_whatsapp && (
                                   <span
-                                    title={
-                                      m.tag_edited
-                                        ? `Re-tagged to this order${m.tag_edited_by_name ? ` by ${m.tag_edited_by_name}` : ''}`
-                                        : 'This message was tagged to this order'
-                                    }
-                                    className="rounded-full bg-teal/12 px-1.5 py-[1px] text-[9.5px] font-semibold text-teal-deep"
+                                    title={`Opened in WhatsApp${m.whatsapp_sent_by_name ? ` by ${m.whatsapp_sent_by_name}` : ''}${
+                                      m.whatsapp_sent_at ? ` · ${new Date(m.whatsapp_sent_at).toLocaleString()}` : ''
+                                    }`}
+                                    aria-label="Sent to WhatsApp"
                                   >
-                                    {orderTag}
-                                    {m.tag_edited && <span aria-label="re-tagged by staff"> ✎</span>}
+                                    <FaWhatsapp size={11} className="text-white/80" />
                                   </span>
                                 )}
-                                {requestTag && (
-                                  <span
-                                    title={
-                                      m.tag_edited
-                                        ? `Re-tagged to this request${m.tag_edited_by_name ? ` by ${m.tag_edited_by_name}` : ''}`
-                                        : 'This message was tagged to this request'
-                                    }
-                                    className="rounded-full bg-gold/15 px-1.5 py-[1px] text-[9.5px] font-semibold text-gold-deep"
-                                  >
-                                    {requestTag}
-                                    {m.tag_edited && <span aria-label="re-tagged by staff"> ✎</span>}
-                                  </span>
-                                )}
+                                {isOps && <CheckCheck size={14} className="text-gold" />}
                               </span>
-                              <div
-                                onClick={isOps && selectMode ? () => toggleSelected(m.id) : undefined}
-                                className={`w-full rounded-2xl px-3 py-2 text-[14.2px] shadow-sm ${
-                                  isOps ? 'rounded-br-sm bg-teal-deep text-white' : 'rounded-bl-sm bg-card text-ink'
-                                } ${isOps && selectMode ? 'cursor-pointer' : ''} ${
-                                  isOps && selectMode && selectedMsgIds.has(m.id) ? 'ring-2 ring-gold ring-offset-1' : ''
+                            </div>
+                          </div>
+                          </div>
+
+                          {!isOps && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
+                                aria-label="Reply"
+                                className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
+                              >
+                                <Reply size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRetagTarget(m)}
+                                aria-label="Tag this message to an order or request"
+                                title="Tag to an order or request"
+                                className={`flex-none rounded-full p-1.5 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100 ${
+                                  // Untagged customer messages keep a faint tag icon so
+                                  // staff can spot what still needs sorting.
+                                  !m.order_id && !m.request_id ? 'text-ink/30 opacity-60' : 'text-ink/50 opacity-0'
                                 }`}
                               >
-                                {quoted && (
-                                  <div
-                                    className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-[12.5px] ${
-                                      isOps ? 'border-white/50 bg-white/10 text-white/75' : 'border-teal-deep bg-ink/5 text-ink/60'
-                                    }`}
-                                  >
-                                    {quoted}
-                                  </div>
-                                )}
-
-                                {attachmentKind && m.attachment_url && (
-                                  <div className="group/attachment relative mb-1.5">
-                                    <AttachmentMedia
-                                      url={m.attachment_url}
-                                      kind={attachmentKind}
-                                      className="max-h-64 w-full rounded-lg object-cover"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteAttachment(m.id)}
-                                      aria-label="Delete attachment"
-                                      title="Delete attachment"
-                                      className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover/attachment:opacity-100"
-                                    >
-                                      <X size={13} />
-                                    </button>
-                                  </div>
-                                )}
-
-                                <div className="flex items-end gap-1.5">
-                                  {text && <p className="whitespace-pre-wrap break-words">{text}</p>}
-                                  <span className={`ml-auto flex flex-none items-center gap-0.5 pb-[1px] text-[11px] ${isOps ? 'text-white/75' : 'text-ink/50'}`}>
-                                    {formatTime(m.created_at)}
-                                    {isOps && m.sent_via_whatsapp && (
-                                      <span
-                                        title={`Opened in WhatsApp${m.whatsapp_sent_by_name ? ` by ${m.whatsapp_sent_by_name}` : ''}${
-                                          m.whatsapp_sent_at ? ` · ${new Date(m.whatsapp_sent_at).toLocaleString()}` : ''
-                                        }`}
-                                        aria-label="Sent to WhatsApp"
-                                      >
-                                        <FaWhatsapp size={11} className="text-white/80" />
-                                      </span>
-                                    )}
-                                    {isOps && <CheckCheck size={14} className="text-gold" />}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {!isOps && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
-                                  aria-label="Reply"
-                                  className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
-                                >
-                                  <Reply size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setRetagTarget(m)}
-                                  aria-label="Tag this message to an order or request"
-                                  title="Tag to an order or request"
-                                  className={`flex-none rounded-full p-1.5 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100 ${
-                                    // Untagged customer messages keep a faint tag icon so
-                                    // staff can spot what still needs sorting.
-                                    !m.order_id && !m.request_id ? 'text-ink/30 opacity-60' : 'text-ink/50 opacity-0'
-                                  }`}
-                                >
-                                  <Tag size={14} />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))}
+                                <Tag size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
                 </>
               )}
             </div>
 
             {selectMode && (
-              <div className="flex flex-none items-center gap-3 border-t border-ink/10 bg-card px-5 py-2.5">
+              <div className="flex flex-none items-center gap-3 border-t border-ink/10 bg-card px-4 py-2.5">
                 <span className="text-sm font-semibold text-ink">
                   {selectedMsgIds.size} selected
                   <span className="ml-1.5 text-xs font-normal text-ink/50">— tap your messages to pick them</span>
@@ -1277,7 +1233,7 @@ function AdminChatPageInner() {
             )}
 
             {pendingFiles.length > 0 && (
-              <div className="flex flex-none gap-2 overflow-x-auto bg-card px-4 pt-3">
+              <div className="flex flex-none gap-2 overflow-x-auto bg-parchment px-3 pt-3">
                 {pendingFiles.map((f, i) => (
                   <div key={`${f.name}-${i}`} className="relative flex-none">
                     <div className="grid h-16 w-16 place-items-center rounded-lg border border-ink/10 bg-parchment text-[10px] text-ink/50">
@@ -1295,10 +1251,10 @@ function AdminChatPageInner() {
                 ))}
               </div>
             )}
-            {fileError && <p className="flex-none bg-card px-4 pt-2 text-xs text-red-600">{fileError}</p>}
+            {fileError && <p className="flex-none bg-parchment px-3 pt-2 text-xs text-red-600">{fileError}</p>}
 
             {replyingTo && (
-              <div className="flex flex-none items-center gap-2 bg-card px-4 pt-3">
+              <div className="flex flex-none items-center gap-2 bg-parchment px-3 pt-3">
                 <div className="flex-1 rounded-lg border-l-[3px] border-teal-deep bg-ink/5 px-3 py-1.5">
                   <p className="text-[12.5px] font-medium text-teal-deep">
                     Replying to {replyingTo.sender === 'ops' ? 'yourself' : 'customer'}
@@ -1316,7 +1272,7 @@ function AdminChatPageInner() {
               </div>
             )}
 
-            <div className="flex flex-none items-center gap-2.5 border-t border-ink/10 bg-card px-4 py-3">
+            <div className="flex flex-none items-center gap-3 bg-parchment px-4 py-2.5">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1331,7 +1287,7 @@ function AdminChatPageInner() {
                 aria-label="Attach image or video"
                 className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/50 transition-colors hover:bg-ink/5 hover:text-ink"
               >
-                <Paperclip size={19} className="rotate-[-45deg]" />
+                <Paperclip size={20} className="rotate-[-45deg]" />
               </button>
               <input
                 value={draft}
@@ -1352,9 +1308,8 @@ function AdminChatPageInner() {
             </div>
           </>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-ink/50">
-            <MessageSquare size={32} className="text-ink/15" strokeWidth={1.4} />
-            <p className="text-sm">{threadsLoading ? 'Loading…' : 'Select a conversation'}</p>
+          <div className="flex flex-1 items-center justify-center text-ink/50">
+            {threadsLoading ? 'Loading…' : 'Select a conversation'}
           </div>
         )}
       </div>

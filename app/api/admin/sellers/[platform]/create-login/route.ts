@@ -6,14 +6,26 @@
 // yet — this is the whole provisioning story for now: admin clicks
 // "Create seller login", gets a password to share, done.
 //
+// { reset: true } on a seller that already has a login issues a NEW
+// temporary password for that same account (seller forgot theirs). The
+// seller can then change it themselves at /seller/account.
+//
 // Gated via requireStaffRole(SOURCING_ROLES) — see lib/supabase/admin-auth.ts.
 
+import { randomInt } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
+// No look-alike characters (0/O, 1/l/I), so it can be read out or typed
+// from a WhatsApp message without mistakes.
+const PASSWORD_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
+
 function generateTempPassword(): string {
-  // Readable-ish, still high entropy: e.g. "wd-7f3k9d2q"
-  return `wd-${Math.random().toString(36).slice(2, 6)}${Math.random().toString(36).slice(2, 6)}`
+  // Cryptographically random (was Math.random, which isn't meant for
+  // secrets). 12 chars from 31 symbols ≈ 59 bits, e.g. "wd-k7m2x9qp4tra".
+  let out = ''
+  for (let i = 0; i < 12; i++) out += PASSWORD_ALPHABET[randomInt(PASSWORD_ALPHABET.length)]
+  return `wd-${out}`
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
@@ -22,8 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pla
   const { admin } = authCheck
 
   const { platform } = await params
-  const { email } = await req.json()
-  if (!email) return NextResponse.json({ error: 'email is required' }, { status: 400 })
+  const { email, reset } = (await req.json().catch(() => ({}))) as { email?: string; reset?: boolean }
 
   const { data: seller, error: sellerError } = await admin
     .from('sellers')
@@ -33,8 +44,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pla
   if (sellerError) return NextResponse.json({ error: sellerError.message }, { status: 500 })
   if (!seller) return NextResponse.json({ error: 'Seller not found' }, { status: 404 })
   if (seller.owner_user_id) {
-    return NextResponse.json({ error: 'This seller already has a login.' }, { status: 409 })
+    if (!reset) return NextResponse.json({ error: 'This seller already has a login.' }, { status: 409 })
+
+    const newPassword = generateTempPassword()
+    const { data: updated, error: resetError } = await admin.auth.admin.updateUserById(seller.owner_user_id, {
+      password: newPassword,
+    })
+    if (resetError) return NextResponse.json({ error: resetError.message }, { status: 500 })
+    return NextResponse.json({ email: updated.user.email ?? '', tempPassword: newPassword, reset: true })
   }
+
+  if (!email) return NextResponse.json({ error: 'email is required' }, { status: 400 })
 
   const tempPassword = generateTempPassword()
   const { data: created, error: createError } = await admin.auth.admin.createUser({

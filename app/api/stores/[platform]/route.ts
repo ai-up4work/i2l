@@ -6,6 +6,7 @@ import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
 import { fetchWooCommerceCategories, fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
 import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
+import { fetchCatalogueCategories, fetchCatalogueProducts } from '@/lib/store-providers/catalogue';
 import { fetchAnishkaCreationProducts, ANISHKA_BASE_URL, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreApiResponse, StoreApiError } from '@/lib/store.types';
@@ -97,6 +98,10 @@ export async function GET(
           if (!seen.has(slug)) seen.set(slug, p.category);
         }
         collections = Array.from(seen, ([handle, title]) => ({ handle, title }));
+      } else if (config.type === 'catalogue') {
+        // Our own DB-backed store (Wishdrop Mall) — distinct categories of
+        // its live products.
+        collections = await fetchCatalogueCategories(platform);
       } else if (config.type === 'html-scrape') {
         // Real category browsing now works when the seller's config has
         // a categoryMap (see HtmlScrapeProviderConfig in store-config.ts)
@@ -144,6 +149,8 @@ export async function GET(
         ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
         : config.type === 'html-scrape'
         ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
+        : config.type === 'catalogue'
+        ? await fetchCatalogueProducts(platform, seller.name, fetchParams)
         : await fetchMockProducts(platform, fetchParams);
 
     return NextResponse.json(
@@ -158,7 +165,13 @@ export async function GET(
       },
       {
         headers: {
-          'Cache-Control': 's-maxage=86400, stale-while-revalidate=3600',
+          // Our own catalogue (Wishdrop Mall) changes whenever staff add a
+          // product or edit a margin — a 24h CDN cache would hide those
+          // edits for a day. Third-party feeds keep the long cache.
+          'Cache-Control':
+            config.type === 'catalogue'
+              ? 's-maxage=60, stale-while-revalidate=60'
+              : 's-maxage=86400, stale-while-revalidate=3600',
         },
       }
     );

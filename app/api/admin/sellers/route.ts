@@ -23,7 +23,15 @@ export async function GET() {
   if (!authCheck.ok) return authCheck.response
   const { admin } = authCheck
 
-  const { data, error } = await admin.from('sellers').select('*').order('created_at', { ascending: false })
+  // Wishdrop Mall (our own store, provider_type 'catalogue') is managed
+  // from /admin/wishdrop-mall, not the seller wizard — keep it out of this
+  // list so nobody edits it as if it were a third-party feed. `or` rather
+  // than `neq` so rows with a NULL provider_type aren't dropped too.
+  const { data, error } = await admin
+    .from('sellers')
+    .select('*')
+    .or('provider_type.is.null,provider_type.neq.catalogue')
+    .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ sellers: data })

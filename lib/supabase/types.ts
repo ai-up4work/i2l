@@ -174,6 +174,13 @@ export interface Database {
           active: boolean
           created_at: string
           updated_at: string
+          // Wishdrop Mall sourcing — see data/wishdrop-mall.sql
+          source_platform: string | null
+          source_handle: string | null
+          source_url: string | null
+          source_price: number | null
+          source_currency: string | null
+          source_synced_at: string | null
         }
         Insert: {
           id?: string
@@ -200,6 +207,12 @@ export interface Database {
           active?: boolean
           created_at?: string
           updated_at?: string
+          source_platform?: string | null
+          source_handle?: string | null
+          source_url?: string | null
+          source_price?: number | null
+          source_currency?: string | null
+          source_synced_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
         Relationships: []
@@ -216,6 +229,7 @@ export interface Database {
           stock: number
           image_url: string | null
           available: boolean
+          cost_price: number | null
         }
         Insert: {
           id?: string
@@ -228,6 +242,7 @@ export interface Database {
           stock?: number
           image_url?: string | null
           available?: boolean
+          cost_price?: number | null
         }
         Update: Partial<Database['public']['Tables']['product_variants']['Insert']>
         Relationships: []

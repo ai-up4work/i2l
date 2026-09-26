@@ -6,6 +6,7 @@ import { fetchShopifyProduct, fetchShopifyProductRestOnly } from './shopify';
 import { fetchWooCommerceProduct } from './woocommerce';
 import { fetchHtmlScrapeProduct } from './html-scrape';
 import { fetchAnishkaCreationProduct } from './sellers/anishka-creation';
+import { fetchCatalogueProduct } from './catalogue';
 
 export async function fetchStoreProduct(platform: string, handle: string): Promise<StoreProduct | null> {
   const seller = await getSellerAndConfig(platform);
@@ -21,6 +22,9 @@ export async function fetchStoreProduct(platform: string, handle: string): Promi
 
   const config = seller.config;
 
+  if (config.type === 'catalogue') {
+    return fetchCatalogueProduct(platform, seller.name, handle);
+  }
   if (config.type === 'shopify') {
     return fetchShopifyProduct(platform, config, seller.name, handle);
   }
@@ -54,6 +58,9 @@ export async function fetchStoreProductForRedirectCheck(platform: string, handle
 
   const config = seller.config;
 
+  if (config.type === 'catalogue') {
+    return fetchCatalogueProduct(platform, seller.name, handle);
+  }
   if (config.type === 'shopify') {
     return fetchShopifyProductRestOnly(platform, config, seller.name, handle);
   }

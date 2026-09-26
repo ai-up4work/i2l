@@ -18,6 +18,8 @@ function toPriceableItem(line: CartLineItem): ProductPriceableItem {
     price: line.product.sourcePrice != null ? Number(line.product.sourcePrice) : 0,
     currency: line.product.currencyCode ?? 'USD',
     weightKg: line.product.weightKg ?? undefined,
+    // Fixed-price stores (Wishdrop Mall) skip the import formula — see lib/pricing.ts.
+    storeSlug: line.product.site ?? null,
   }
 }
 

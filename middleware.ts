@@ -30,9 +30,10 @@
 //      - app/seller/(dashboard)/layout.tsx was the one area already
 //        doing this right (a real server-side getCurrentSeller() check
 //        with a redirect) — this middleware adds the same protection
-//        one layer earlier, and also covers the old, otherwise-orphaned
-//        app/(seller)/catalogue routes at /catalogue, which share the
-//        same seller-auth requirement but sit outside /seller/**.
+//        one layer earlier. (The old app/(seller)/catalogue pages that
+//        used to be served at /catalogue were really the ADMIN catalogue
+//        overview — they now live at /admin/catalogues behind the staff
+//        check, so /catalogue is no longer a seller path.)
 //      - app/demo/** (scraper-qa, chat, discount, discount-customizer,
 //        loyalty, quote) had no protection at all — anyone with the
 //        URL could open internal QA/prototype tools, including
@@ -95,7 +96,7 @@ function redirectTo(request: NextRequest, path: string, preserveReturnTo = false
   return NextResponse.redirect(target)
 }
 
-const SELLER_PROTECTED_PREFIXES = ['/seller', '/catalogue']
+const SELLER_PROTECTED_PREFIXES = ['/seller']
 const SELLER_PUBLIC_PATHS = ['/seller/login']
 
 const ADMIN_PUBLIC_PATHS = ['/admin/login', '/admin/register', '/admin/set-password', '/admin/invite']

@@ -1,3 +1,5 @@
+> **Update:** the move described below never actually happened in this codebase — the pages were still in `app/(seller)/catalogue/` behind the seller login. They now really live at `app/admin/(protected)/(sales)/catalogues/` and read through a staff-only API. See CUSTOM_SELLERS.md.
+
 # Catalogues route — now wired to your real schema
 
 ## What was actually wrong

@@ -19,6 +19,12 @@ export default async function SellerLayout({ children }: { children: React.React
           <Link href="/seller/products" className="hover:text-ink">
             My products
           </Link>
+          <a href={`/stores/${seller.platform}`} target="_blank" rel="noreferrer" className="hover:text-ink">
+            View my store
+          </a>
+          <Link href="/seller/account" className="hover:text-ink">
+            Account
+          </Link>
           <SellerSignOutButton />
         </nav>
       </header>

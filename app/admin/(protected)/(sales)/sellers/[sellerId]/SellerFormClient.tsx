@@ -369,6 +369,30 @@ export default function SellerFormClient({
   // only place it's ever visible.
   const [createdLogin, setCreatedLogin] = useState<{ email: string; tempPassword: string } | null>(null)
 
+  // Seller forgot their password: issue a new temporary one for the same
+  // account (create-login with { reset: true }).
+  const [resettingLogin, setResettingLogin] = useState(false)
+  const handleResetLogin = async () => {
+    if (!seller) return
+    if (!window.confirm('Give this seller a new temporary password? Their current password will stop working.')) return
+    setResettingLogin(true)
+    setLoginError(null)
+    try {
+      const res = await fetch(`/api/admin/sellers/${seller.platform}/create-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to reset password')
+      setCreatedLogin({ email: body.email, tempPassword: body.tempPassword })
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Failed to reset password')
+    } finally {
+      setResettingLogin(false)
+    }
+  }
+
   const handleCreateLogin = async () => {
     if (!seller || !loginEmail.trim()) return
     setCreatingLogin(true)
@@ -393,7 +417,7 @@ export default function SellerFormClient({
   // ---- Method state ----
   const cfg = seller?.providerConfig
   const [providerType, setProviderType] = useState<StoreProviderType>(cfg?.type ?? 'mock')
-  const [baseUrl, setBaseUrl] = useState(cfg && cfg.type !== 'mock' ? cfg.baseUrl : '')
+  const [baseUrl, setBaseUrl] = useState(cfg && cfg.type !== 'mock' && cfg.type !== 'catalogue' ? cfg.baseUrl : '')
   const [baseUrlTouched, setBaseUrlTouched] = useState(!isNew)
   const [currency, setCurrency] = useState(cfg?.currency ?? '')
 
@@ -2465,12 +2489,10 @@ export default function SellerFormClient({
                 subtitle="Lets this seller sign in at /seller/login and add/manage their own products directly, instead of ops doing it on their behalf."
               />
 
-              {hasLogin ? (
-                <div className="flex items-center gap-2 text-sm font-semibold text-teal-deep">
-                  <Check size={15} />
-                  This seller already has a login.
-                </div>
-              ) : createdLogin ? (
+              {/* createdLogin is checked FIRST: creating a login also flips
+                  hasLogin to true, and checking hasLogin first meant the
+                  one-time password was never shown at all. */}
+              {createdLogin ? (
                 <div className={`flex flex-col gap-3 p-4 ${groupClass} border-teal-deep/25`}>
                   <p className="text-sm font-semibold text-teal-deep">
                     Login created \u2014 share these with the seller now. The password won&rsquo;t be shown again.
@@ -2486,9 +2508,25 @@ export default function SellerFormClient({
                     </div>
                   </div>
                   <p className="text-xs text-ink/45">
-                    They can sign in at <span className="font-mono">/seller/login</span> now. There&rsquo;s no forced
-                    password-change flow yet, so ask them to change it once they&rsquo;re in.
+                    They can sign in at <span className="font-mono">/seller/login</span> now, then change the password
+                    under <span className="font-mono">Account</span> in the seller portal.
                   </p>
+                </div>
+              ) : hasLogin ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-teal-deep">
+                    <Check size={15} />
+                    This seller has a login.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetLogin}
+                    disabled={resettingLogin}
+                    className="flex-none rounded-xl border border-ink/15 bg-card px-4 py-2 text-sm font-semibold text-ink/70 transition-colors hover:border-ink/30 hover:text-ink disabled:opacity-50"
+                  >
+                    {resettingLogin ? 'Resetting\u2026' : 'Reset password'}
+                  </button>
+                  {loginError && <p className="text-xs font-semibold text-red-700 sm:basis-full">{loginError}</p>}
                 </div>
               ) : (
                 <>

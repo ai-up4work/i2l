@@ -13,18 +13,26 @@
 //           hard-delete (if ever needed) is Manager/Super Admin territory
 //           and isn't exposed in this UI.
 //
-// Same caveat as app/api/admin/sellers/**: authenticated-only for now, not
-// yet gated on staff role (Manager vs Sales & Purchase vs Warehouse).
+// Gated to SOURCING_ROLES (Super Admin / Manager / Sales & Purchase).
+// Previously this only checked "someone is logged in" while writing with
+// the service role — so any customer or seller account could change any
+// product's margin or hide it. Wishdrop Mall products are excluded: they
+// have their own LKR pricing, managed at /admin/wishdrop-mall.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
+import { WISHDROP_MALL_SLUG } from '@/lib/wishdrop-mall'
 
-async function requireAuthedUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user
+type AdminClient = Extract<Awaited<ReturnType<typeof requireStaffRole>>, { ok: true }>['admin']
+
+/** 400 response if this product belongs to Wishdrop Mall, else null. */
+async function rejectMallProduct(admin: AdminClient, productId: string) {
+  const { data } = await admin.from('products').select('seller_id, sellers(platform_slug)').eq('id', productId).maybeSingle()
+  const slug = (data as unknown as { sellers: { platform_slug: string } | null } | null)?.sellers?.platform_slug
+  if (slug === WISHDROP_MALL_SLUG) {
+    return NextResponse.json({ error: 'Wishdrop Mall products are managed on the Wishdrop Mall page.' }, { status: 400 })
+  }
+  return null
 }
 
 const PRODUCT_SELECT = '*, sellers(name, platform_slug)'
@@ -34,11 +42,11 @@ function round2(value: number): number {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const auth = await requireStaffRole(SOURCING_ROLES)
+  if (!auth.ok) return auth.response
+  const { admin } = auth
 
   const { catalogueId } = await params
-  const admin = createServiceRoleClient()
   const { data, error } = await admin.from('products').select(PRODUCT_SELECT).eq('id', catalogueId).maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -47,10 +55,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cat
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const auth = await requireStaffRole(SOURCING_ROLES)
+  if (!auth.ok) return auth.response
+  const { admin } = auth
 
   const { catalogueId } = await params
+  const mallRejection = await rejectMallProduct(admin, catalogueId)
+  if (mallRejection) return mallRejection
   const body = await req.json()
   const { marginPercent, active } = body as { marginPercent?: number; active?: boolean }
 
@@ -61,7 +72,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ca
     return NextResponse.json({ error: 'marginPercent must be a non-negative number' }, { status: 400 })
   }
 
-  const admin = createServiceRoleClient()
   const patch: {
     active?: boolean
     margin_percent?: number
@@ -103,11 +113,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ca
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {
-  const user = await requireAuthedUser()
-  if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const auth = await requireStaffRole(SOURCING_ROLES)
+  if (!auth.ok) return auth.response
+  const { admin } = auth
 
   const { catalogueId } = await params
-  const admin = createServiceRoleClient()
+  const mallRejection = await rejectMallProduct(admin, catalogueId)
+  if (mallRejection) return mallRejection
   const { data, error } = await admin
     .from('products')
     .update({ active: false, updated_at: new Date().toISOString() })

@@ -73,6 +73,9 @@ function toPriceableItem(product: CartProduct): ProductPriceableItem {
     price: product.sourcePrice != null ? Number(product.sourcePrice) : 0,
     currency: product.currencyCode ?? 'USD',
     weightKg: product.weightKg ?? undefined,
+    // Lets lib/pricing.ts recognise fixed-price stores (Wishdrop Mall:
+    // price as set + delivery only, no import charges).
+    storeSlug: product.site ?? null,
   }
 }
 

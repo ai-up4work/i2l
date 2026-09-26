@@ -72,12 +72,27 @@ function rowToResolvedSeller(data: {
   name: string
   outbound_url: string | null
   provider_config: unknown
+  type?: string | null
 }): ResolvedSeller {
   // provider_config was seeded/saved as the full StoreProviderConfig
   // object (type, baseUrl, currency, etc, plus a non-standard `display`
   // key for storefront-only fields — see scripts/seed-sellers.mjs).
   // Strip `display` before treating this as a StoreProviderConfig.
-  const { display: _display, ...config } = (data.provider_config ?? { type: 'mock' }) as Record<string, unknown>
+  const { display: _display, ...rawConfig } = (data.provider_config ?? { type: 'mock' }) as Record<string, unknown>
+  let config = rawConfig
+
+  // Custom (manual) sellers — no feed; they add products themselves in the
+  // seller portal (/seller/products), which writes to our `products`
+  // table. Their provider_config is 'mock', which only ever served the
+  // hardcoded demo products in data/stores/data.ts, so nothing a seller
+  // added ever reached their store page. Serve them from the DB instead
+  // (lib/store-providers/catalogue.ts, which still falls back to the demo
+  // products for a seller that hasn't added any of their own yet).
+  // anishka-creation is 'mock' too but has its own hardcoded extractor,
+  // dispatched before any provider type is looked at — leave it alone.
+  if (data.type === 'manual' && rawConfig.type === 'mock' && data.platform_slug !== 'anishka-creation') {
+    config = { ...rawConfig, type: 'catalogue', currency: (rawConfig.currency as string | undefined) ?? 'INR' }
+  }
 
   return {
     platform: data.platform_slug,
@@ -92,7 +107,7 @@ export async function getSellerAndConfig(platform: string): Promise<ResolvedSell
     const supabase = await createClient()
     const { data, error } = await supabase
       .from('sellers')
-      .select('platform_slug, name, outbound_url, provider_type, provider_config, status')
+      .select('platform_slug, name, outbound_url, provider_type, provider_config, status, type')
       .eq('platform_slug', platform)
       .eq('status', 'active')
       .maybeSingle()
@@ -129,7 +144,7 @@ export async function getSellerAndConfigForAdmin(platform: string): Promise<Reso
     const supabase = createServiceRoleClient()
     const { data, error } = await supabase
       .from('sellers')
-      .select('platform_slug, name, outbound_url, provider_type, provider_config, status')
+      .select('platform_slug, name, outbound_url, provider_type, provider_config, status, type')
       .eq('platform_slug', platform)
       .maybeSingle()
 

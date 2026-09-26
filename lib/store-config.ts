@@ -2,7 +2,7 @@
 
 import { userAgent } from "next/server";
 
-export type StoreProviderType = 'mock' | 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape';
+export type StoreProviderType = 'mock' | 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape' | 'catalogue';
 
 interface BaseProviderConfig {
   type: StoreProviderType;
@@ -12,6 +12,17 @@ interface BaseProviderConfig {
 
 export interface MockProviderConfig extends BaseProviderConfig {
   type: 'mock';
+}
+
+/**
+ * Wishdrop's OWN house store (Wishdrop Mall — see lib/wishdrop-mall.ts).
+ * Products live in our own `products` table, curated by staff from the
+ * admin panel (/admin/wishdrop-mall) — usually imported from another
+ * store's feed or a pasted product link — rather than fetched live from
+ * a third-party feed. Served by lib/store-providers/catalogue.ts.
+ */
+export interface CatalogueProviderConfig extends BaseProviderConfig {
+  type: 'catalogue';
 }
 
 export interface ShopifyProviderConfig extends BaseProviderConfig {
@@ -221,6 +232,7 @@ export interface JsonApiProviderConfig extends BaseProviderConfig {
 
 export type StoreProviderConfig =
   | MockProviderConfig
+  | CatalogueProviderConfig
   | ShopifyProviderConfig
   | WooCommerceProviderConfig
   | JsonApiProviderConfig
