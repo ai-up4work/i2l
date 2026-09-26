@@ -555,6 +555,51 @@ export function subscribeToThreadMessages(
   )
 }
 
+/**
+ * Every message TAGGED to an order, from any of the customer's threads.
+ *
+ * The tag (chat_messages.order_id) is the source of truth for "this
+ * message is about this order". Filtering by thread as well used to hide
+ * correctly-tagged messages whenever a customer had more than one thread
+ * (their chat widget writes to the most recent one, which isn't always
+ * the one stored on the order). Backs the order page's chat drawer.
+ */
+export async function fetchMessagesTaggedToOrder(
+  supabase: SupabaseClient,
+  orderId: string,
+): Promise<ChatMessageRow[]> {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+/** Live INSERTs of messages tagged to one order (any thread) — the
+ * realtime companion to fetchMessagesTaggedToOrder. */
+export function subscribeToOrderMessages(
+  supabase: SupabaseClient,
+  orderId: string,
+  onInsert: (row: ChatMessageRow) => void,
+  onStatus?: (status: RealtimeStatus) => void,
+): () => void {
+  return subscribeWithDiagnostics(
+    supabase,
+    `order:${orderId}`,
+    () => {
+      const topic = `chat_messages:order:${orderId}:${Math.random().toString(36).slice(2)}`
+      return supabase.channel(topic).on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `order_id=eq.${orderId}` },
+        (payload) => onInsert(payload.new as ChatMessageRow),
+      )
+    },
+    onStatus,
+  )
+}
+
 /** Inbox-wide realtime subscription (staff only) — unfiltered INSERT on
  * chat_messages, used to keep the admin thread strip's preview/ordering
  * live for threads that aren't currently open. Requires an RLS SELECT

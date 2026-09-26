@@ -25,7 +25,7 @@
 // place that translation happens.
 
 import { createClient } from '@/lib/supabase/client'
-import { sendChatMessage as realSendChatMessage, markThreadRead as realMarkThreadRead, fetchOrderMessages as realFetchOrderMessages, fetchRequestMessages as realFetchRequestMessages } from '@/lib/supabase/chat'
+import { sendChatMessage as realSendChatMessage, markThreadRead as realMarkThreadRead, fetchMessagesTaggedToOrder, fetchRequestMessages as realFetchRequestMessages } from '@/lib/supabase/chat'
 import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import type { RequestStatus, ChatSender as MockChatSender } from '@/types/admin'
 
@@ -658,9 +658,12 @@ export async function fetchRequestMessagesReal(threadId: string, requestId: stri
  * for the actual query and why this only ever sees messages sent after
  * chat_messages.order_id existed.
  */
-export async function fetchOrderMessagesReal(threadId: string, orderId: string) {
+/** Messages tagged to an order, across ALL of the customer's threads —
+ * see fetchMessagesTaggedToOrder for why the thread no longer filters.
+ * `_threadId` is kept so existing callers don't need to change. */
+export async function fetchOrderMessagesReal(_threadId: string | null | undefined, orderId: string) {
   const supabase = createClient()
-  return realFetchOrderMessages(supabase, threadId, orderId)
+  return fetchMessagesTaggedToOrder(supabase, orderId)
 }
 
 export async function sendAdminChatMessage(

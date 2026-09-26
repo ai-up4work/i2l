@@ -861,7 +861,14 @@ function AdminChatPageInner() {
                             {displayHandle(t.profiles)}
                           </span>
                         )}
-                        
+                        {orderDisplayId && (
+                          <span
+                            title="Most recent tagged message in this thread was about this order"
+                            className="flex-none rounded-full bg-teal/12 px-1.5 py-[1px] text-[10px] font-semibold text-teal-deep"
+                          >
+                            {orderDisplayId}
+                          </span>
+                        )}
                       </div>
                       {t.lastMessage && (
                         <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>

@@ -58,8 +58,34 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
 
       <Footer />
-      <ChatButton />
-      <ChatPanel />
+
+      {/* FIX: positionClassName now matches AccountShell's exactly
+          (`bottom-24 right-6 lg:bottom-8` — see app/account/layout.tsx),
+          instead of being left unset and falling back to ChatPanel's own
+          default of `'bottom-24 right-6'` with no `lg:` override. Two
+          reasons this needs to match, not just look similar:
+
+          1. Consistency — the bubble/panel sat at a different height on
+             desktop here than in the account area, for no functional
+             reason; same widget, same product, should anchor the same
+             way everywhere it appears.
+
+          2. Correctness — ChatPanel's own `max-h-[calc(100vh-7rem)]
+             lg:max-h-[calc(100vh-4rem)]` (see that file) is a height
+             BUDGET computed from a specific assumed bottom offset at
+             each breakpoint: 6rem base, 2rem at `lg:` — i.e. exactly
+             `bottom-24` / `lg:bottom-8`. If this layout kept the panel
+             pinned at `bottom-24` all the way through `lg:` while the
+             max-height budget assumed the tighter `lg:bottom-8` gap, the
+             cap would be too generous for the actual (larger) offset in
+             use here — the panel could grow tall enough that its TOP
+             edge pushes back off the top of the viewport at `lg:` sizes,
+             reintroducing the exact overflow bug the max-h change was
+             meant to fix, just on this layout instead of the account
+             one. Passing the identical positionClassName keeps the two
+             fixes in lockstep. */}
+      <ChatButton positionClassName="bottom-24 right-6 lg:bottom-8" />
+      <ChatPanel positionClassName="bottom-24 right-6 lg:bottom-8" />
     </div>
   )
 }

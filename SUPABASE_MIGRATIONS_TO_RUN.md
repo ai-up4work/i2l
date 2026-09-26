@@ -10,6 +10,7 @@ more than once.
 | 3 | `data/wishdrop-whatsapp-manual-verification.sql` | Staff-reviewed WhatsApp number verification | Optional `NEXT_PUBLIC_WHATSAPP_VERIFY_NUMBER` — see WHATSAPP_VERIFICATION.md |
 | 4 | `data/wishdrop-chat-message-retag.sql` | Staff re-tagging of chat messages | — |
 | 5 | `data/wishdrop-chat-whatsapp-handoff.sql` | Send chat messages / reminders to WhatsApp | Business number on WhatsApp Web — see CHAT_WHATSAPP_HANDOFF.md |
+| 6 | `data/wishdrop-orders-chat-thread-backfill.sql` | One-time: links every order that has no chat conversation (fixes "No chat thread linked" on the order page) | — |
 
 Still open (not done in this work): the database rules on chat messages,
 chat threads, orders, order items and QC issues allow ANY signed-in user,

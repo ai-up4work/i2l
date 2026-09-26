@@ -13,7 +13,7 @@ import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCar
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 import QcIssueBanner from "@/components/shared/QcIssueBanner"
 import { createClient } from "@/lib/supabase/client"
-import { subscribeToThreadMessages, type ChatMessageRow } from "@/lib/supabase/chat"
+import { subscribeToOrderMessages, type ChatMessageRow } from "@/lib/supabase/chat"
 import { useImageUpload } from "@/lib/upload/useImageUpload"
 
 /* ---------- tokens ---------- */
@@ -244,14 +244,42 @@ export default function OrderDetailPage() {
   const [chatOpen, setChatOpen] = useState(false)
   const { uploading: uploadingAttachment, upload: uploadMessageAttachment } = useImageUpload()
 
+  // The conversation this order's messages are sent into. Normally
+  // order.chatThreadId; if the order was never linked (older orders, and
+  // "paste a link → confirm" orders before that was fixed), the drawer
+  // repairs the link itself via /api/admin/orders/[id]/chat-thread
+  // instead of dead-ending.
+  const [healedThreadId, setHealedThreadId] = useState<string | null>(null)
+  const [threadLinkError, setThreadLinkError] = useState<string | null>(null)
+  const threadId = order?.chatThreadId ?? healedThreadId
   useEffect(() => {
-    if (!order?.chatThreadId) {
+    setHealedThreadId(null)
+    setThreadLinkError(null)
+    if (!order || order.chatThreadId) return
+    let cancelled = false
+    fetch(`/api/admin/orders/${encodeURIComponent(order.id)}/chat-thread`, { method: "POST" })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(d.error || "Could not link this order to the customer’s chat.")
+        if (!cancelled) setHealedThreadId(d.threadId)
+      })
+      .catch((err) => !cancelled && setThreadLinkError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [order?.id, order?.chatThreadId])
+
+  // Messages are loaded by their ORDER TAG, from any of the customer's
+  // threads — not only the one linked above — so a correctly tagged
+  // message always shows here.
+  useEffect(() => {
+    if (!order) {
       setLoadingMessages(false)
       return
     }
     let cancelled = false
     setLoadingMessages(true)
-    fetchMessagesForOrder(order.id, order.chatThreadId).then((rows) => {
+    fetchMessagesForOrder(order.id, threadId ?? "").then((rows) => {
       if (!cancelled) {
         setOrderMessages(rows)
         setLoadingMessages(false)
@@ -260,24 +288,21 @@ export default function OrderDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [order?.id, order?.chatThreadId, fetchMessagesForOrder])
+    // threadId deliberately not a dependency: loading doesn't use it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id, fetchMessagesForOrder])
 
-  // Live-receive: subscribeToThreadMessages fires for EVERY new message
-  // on the thread (it can only filter by thread_id at the realtime
-  // layer — Postgres changefeeds don't support arbitrary column
-  // filters cheaply), so this filters client-side down to messages
-  // actually tagged to this order before appending.
+  // Live: new messages tagged to this order, from any thread.
   useEffect(() => {
-    if (!order?.chatThreadId) return
+    if (!order) return
     const realOrderId = resolveOrderId(order.id)
     if (!realOrderId) return
     const supabase = createClient()
-    const unsubscribe = subscribeToThreadMessages(supabase, order.chatThreadId, (row) => {
-      if (row.order_id !== realOrderId) return
+    const unsubscribe = subscribeToOrderMessages(supabase, realOrderId, (row) => {
       setOrderMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
     })
     return unsubscribe
-  }, [order?.id, order?.chatThreadId, resolveOrderId])
+  }, [order?.id, resolveOrderId])
 
   // Keep the panel scrolled to the newest message (also on open, since the
   // drawer's list only mounts while it's open).
@@ -296,9 +321,9 @@ export default function OrderDetailPage() {
   }
 
   const handleSendOrderMessage = async () => {
-    if (!order?.chatThreadId || (!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage) return
+    if (!order || !threadId || (!messageDraft.trim() && !messageAttachmentUrl) || sendingMessage) return
     setSendingMessage(true)
-    const res = await sendChatMessage(order.chatThreadId, messageDraft, messageAttachmentUrl ?? undefined, order.id)
+    const res = await sendChatMessage(threadId, messageDraft, messageAttachmentUrl ?? undefined, order.id)
     if (res.ok) {
       const sentAttachment = messageAttachmentUrl
       setMessageDraft("")
@@ -310,7 +335,7 @@ export default function OrderDetailPage() {
         ...prev,
         {
           id: `optimistic-${Date.now()}`,
-          thread_id: order.chatThreadId!,
+          thread_id: threadId,
           sender: "ops",
           sender_name: currentUser.name,
           text: messageDraft || null,
@@ -807,12 +832,13 @@ export default function OrderDetailPage() {
               </button>
             </header>
 
-            {!order.chatThreadId ? (
+            {!threadId ? (
               <div className="flex flex-1 items-center justify-center px-5 text-center">
-                <p className="text-sm text-ink/45">
-                  No chat thread linked to this order yet — this can happen on orders placed before every order
-                  started getting one automatically at checkout.
-                </p>
+                {threadLinkError ? (
+                  <p className="text-sm font-semibold text-red-600">{threadLinkError}</p>
+                ) : (
+                  <p className="text-sm text-ink/45">Linking this order to the customer’s chat…</p>
+                )}
               </div>
             ) : (
               <>

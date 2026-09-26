@@ -592,11 +592,19 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           price: null,
         })
         const defaultSiteId = await fetchDefaultSiteId(supabase)
+        // FIX: this path (paste a link → priced → confirm) never linked
+        // the order to the customer's chat thread, unlike cart checkout
+        // below and Channel 3's confirmRequestReal — so the admin order
+        // page's chat drawer showed "No chat thread linked" and every
+        // "review before send" customer message for the order silently
+        // skipped. Same getOrCreateGeneralThread call cart checkout uses.
+        const threadId = await getOrCreateGeneralThread(supabase, user.id)
         const orderId = await createOrderWithRetry(supabase, {
           user_id: user.id,
           channel: 2,
           currency: 'LKR',
           total_value: finalUnitPriceLKR * draft.qty,
+          chat_thread_id: threadId,
           site_id: defaultSiteId,
         })
         const { error: itemError } = await supabase.from('order_items').insert({
