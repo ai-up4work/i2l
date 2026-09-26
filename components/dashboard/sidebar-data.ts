@@ -108,7 +108,6 @@ export const sidebarGroups: SidebarGroup[] = [
     label: 'Policy',
     items: [
       { type: 'link', label: 'Shipping Info', href: '/policy/shipping-info' },
-      { type: 'link', label: 'Return Policy', href: '/policy/returns' },
       { type: 'link', label: 'Refund', href: '/policy/refund' },
       { type: 'link', label: 'Payment Method', href: '/policy/payment-method' },
       { type: 'link', label: 'Terms & Conditions', href: '/policy/terms' },

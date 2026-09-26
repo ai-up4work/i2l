@@ -33,7 +33,7 @@ export default function LegalPageLayout({
   note,
 }: LegalPageLayoutProps) {
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16 lg:px-10 lg:py-24">
+    <main className="mx-auto max-w-7xl px-6 py-10 lg:px-10 lg:py-18">
       <Link
         href="/account"
         className="inline-flex items-center gap-2 font-body text-sm font-medium text-ink/50 transition-colors hover:text-ink"

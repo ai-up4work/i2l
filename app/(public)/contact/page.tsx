@@ -47,7 +47,7 @@ const channels = [
 
 export default function ContactPage() {
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-24">
+    <main className="mx-auto max-w-7xl px-6 py-10 lg:px-10 lg:py-18">
       <div className="max-w-2xl">
         <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
           We're here to help
