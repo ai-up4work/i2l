@@ -76,6 +76,27 @@ import { useImageUpload } from '@/lib/upload/useImageUpload'
 // welcome band — hairline dividers do the grouping work everywhere
 // else. Handlers, state, and data flow are unchanged from before; only
 // markup/classNames changed.
+//
+// VISUAL PASS 4: a few small aesthetic refinements on top of pass 3 —
+// a touch more depth on the welcome band (a soft ring + shadow instead
+// of a flat hairline border, so it reads as a raised surface rather
+// than just a tinted rectangle), slightly larger avatar ring glow, and
+// a tighter/more confident type scale on the name. None of this touches
+// state or handlers, only markup/classNames.
+//
+// ADDRESS ROW FIX (this revision): the address row previously used the
+// same `ContactRow` component as email/phone, which returns `null`
+// whenever its `value` is falsy — correct for email/phone (nothing to
+// show, so hide the row), but wrong for address, because it meant a
+// user with no saved address (the common case for anyone who hasn't
+// placed an order yet, or while the Supabase fetch is still in flight)
+// saw NO address row at all: no icon, no pencil, no link to
+// /account/address-book, nothing. `ContactRow` now takes an optional `onEdit` +
+// `emptyLabel`: rows with `onEdit` set (address) always render, and
+// fall back to `emptyLabel` ("Add an address") instead of vanishing
+// when there's nothing saved yet — mirroring the always-visible
+// name-edit control in the avatar section above. Rows without `onEdit`
+// (email, phone) keep the exact old hide-when-empty behavior.
 type IconComponent = React.ComponentType<{
   size?: number
   strokeWidth?: number
@@ -119,31 +140,64 @@ function SettingsRow({
 }
 
 // Read-only contact line (email/phone/address) — icon, value text. Not
-// a button: these aren't actions, just display rows, edited via the
-// name-edit affordance above instead.
+// a button by default: these aren't actions, just display rows. Pass
+// `onEdit` (address does) to turn the row into a clickable affordance
+// with a pencil that appears on hover, the same visual language as the
+// name-edit control above it in the welcome band.
+//
+// `onEdit` rows are ALWAYS rendered, even with no value — an address
+// row with nothing saved yet still needs to show up with a prompt to
+// add one, rather than silently disappearing (which is what happened
+// before this fix: this component bailed out on any falsy `value`, so
+// a user with zero saved addresses saw no address row and no way to
+// reach /account/address-book at all). Rows without `onEdit` (email, phone)
+// keep the old behavior of hiding when there's nothing to show.
 function ContactRow({
   icon: Icon,
   value,
   verified,
+  onEdit,
+  emptyLabel = 'Add',
 }: {
   icon: IconComponent
   value?: string
-  /** Shows a small "Verified" pill next to the value — used for the
-   *  WhatsApp number, which is confirmed via OTP in the account-security
-   *  section below, not just typed in. Omit for rows that don't have a
-   *  verification concept. */
   verified?: boolean
+  onEdit?: () => void
+  emptyLabel?: string
 }) {
-  if (!value) return null
-  return (
-    <div className="flex items-center gap-3 py-2.5 text-sm text-ink/70 first:pt-0">
+  if (!value && !onEdit) return null
+
+  const content = (
+    <>
       <Icon size={14} strokeWidth={1.8} className="flex-none text-ink/40" />
-      <span className="truncate">{value}</span>
+      <span className={`min-w-0 flex-1 truncate text-left ${!value ? 'text-ink/45' : ''}`}>
+        {value ?? emptyLabel}
+      </span>
       {verified && (
         <span className="flex-none rounded-full bg-teal/12 px-2 py-0.5 text-[10px] font-semibold text-teal-deep">Verified</span>
       )}
-    </div>
+      {onEdit && (
+        <Pencil
+          size={13}
+          className="flex-none text-ink/30 transition-colors duration-150 group-hover:text-teal-deep"
+        />
+      )}
+    </>
   )
+
+  if (onEdit) {
+    return (
+      <button
+        type="button"
+        onClick={onEdit}
+        className="group flex w-full items-center gap-3 rounded-lg py-2.5 text-sm text-ink/70 transition-colors duration-150 first:pt-0 hover:text-ink"
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return <div className="flex items-center gap-3 py-2.5 text-sm text-ink/70 first:pt-0">{content}</div>
 }
 
 // ---------- decorative: postmark stamp ----------
@@ -421,10 +475,11 @@ export default function AccountProfilePage() {
         {/* Welcome band: the one deliberately "designed" moment on the
             page — a postcard-style band with an airmail-stripe edge and
             a faint postmark, behind the avatar/name, so the page opens
-            with an identity, not a bare list. Everything below it
-            (settings rail, security section) stays flat and quiet by
-            comparison, on purpose. */}
-        <div className="relative overflow-hidden rounded-[2rem] border border-ink/[0.06] bg-parchment/50">
+            with an identity, not a bare list. Reads as a slightly raised
+            surface (soft ring + shadow) rather than a flat tinted
+            rectangle. Everything below it (settings rail, security
+            section) stays flat and quiet by comparison, on purpose. */}
+        <div className="relative overflow-hidden rounded-[2rem] bg-parchment/50 shadow-[0_1px_2px_rgba(28,28,28,0.04),0_12px_32px_-16px_rgba(28,28,28,0.12)] ring-1 ring-ink/[0.06]">
           <AirmailEdge />
           <div className="px-6 py-10 sm:px-10">
             <div className="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
@@ -432,7 +487,7 @@ export default function AccountProfilePage() {
                   components/dashboard/ProfilePage.tsx) ---- */}
               <div className="flex flex-col items-center gap-4 text-center motion-safe:[animation:fadeUp_0.35s_ease-out_both]">
                 <div className="relative">
-                  <span className="grid size-24 place-items-center overflow-hidden rounded-full border-2 border-white bg-parchment shadow-[0_0_0_3px_rgba(45,123,120,0.15)]">
+                  <span className="grid size-24 place-items-center overflow-hidden rounded-full border-2 border-white bg-parchment shadow-[0_0_0_4px_rgba(45,123,120,0.14),0_8px_20px_-8px_rgba(45,123,120,0.35)]">
                     {user.imageUrl ? (
                       <Image src={user.imageUrl} alt="" width={96} height={96} className="h-full w-full object-cover" />
                     ) : (
@@ -472,7 +527,7 @@ export default function AccountProfilePage() {
                   </div>
                 ) : (
                   <button type="button" onClick={() => setEditingName(true)} className="group flex items-center gap-2">
-                    <h1 className="font-display text-2xl text-ink">{displayName}</h1>
+                    <h1 className="font-display text-2xl tracking-tight text-ink">{displayName}</h1>
                     <Pencil size={14} className="text-ink/30 transition-colors group-hover:text-teal-deep" />
                   </button>
                 )}
@@ -490,7 +545,18 @@ export default function AccountProfilePage() {
                       value). Carried over unchanged; wire up a real phone
                       value if that was meant to show. */}
                   <ContactRow icon={Phone} value={undefined} verified={user.phoneVerified} />
-                  <ContactRow icon={MapPin} value={addressSummary} />
+                  {/* Address ALWAYS renders now (onEdit is set), even with
+                      no address saved yet — falls back to "Add an address"
+                      instead of vanishing, so there's always a visible,
+                      working link to /account/address-book. See ContactRow's
+                      comments above and the file-header note for why this
+                      previously disappeared entirely. */}
+                  <ContactRow
+                    icon={MapPin}
+                    value={addressSummary}
+                    onEdit={() => router.push('/account/address-book')}
+                    emptyLabel="Add an address"
+                  />
                 </div>
               </div>
             </div>
