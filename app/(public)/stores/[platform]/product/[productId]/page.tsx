@@ -83,6 +83,23 @@ import type { StoreProduct } from '@/lib/store.types'
 // continue to use the single-method getProductPricing/getDisplayPriceLKR
 // helpers) on what either method actually costs.
 //
+// ECONOMY LOCKED (temporary): Economy delivery is disabled sitewide for
+// now — see the cart page's own DeliveryModeToggle, which renders it
+// grayed-out with a "Coming soon" sub-label instead of "3–4 weeks", and
+// defaults deliveryChoice to 'express'. This page still computes BOTH
+// dualPricing.economy and dualPricing.express (the underlying math is
+// unaffected — Economy could be re-enabled at any time by simply
+// removing the lock, not by re-deriving pricing), but every value read
+// FROM dualPricing at this level — JSON-LD's price and ViewTracker's
+// recently-viewed price/discount — now uses .express instead of
+// .economy, since Economy's price isn't something a shopper can actually
+// act on right now. `economyLocked` is passed down to
+// ProductPurchasePanel so its own pricing card (the "ticket-stub"
+// Economy/Express split described below) can render Economy with the
+// same disabled/"Coming soon" treatment as the cart toggle, and default
+// its own internal selection to Express. Delete this flag (and switch
+// the two reads below back to .economy) when Economy comes back.
+//
 // PRICING BLOCK STYLE: styled like a two-part shipping/customs slip —
 // a ticket-stub perforation (two page-background-colored circles punched
 // into the card's side edges) separates Economy from Express, instead of
@@ -196,6 +213,13 @@ export default async function ProductDetailPage({
   // work-desk calculator.
   const dualPricing = getDualDeliveryPricing(product)
 
+  // Economy is temporarily locked sitewide (see the top-of-file comment)
+  // — only Express is actually bookable right now, so it's what gets fed
+  // into the two "primary price" call sites below (JSON-LD, ViewTracker),
+  // and it's what ProductPurchasePanel should default its own internal
+  // selection to once it reads `economyLocked`.
+  const economyLocked = true
+
   const productPath = `/stores/${store.platform}/product/${productId}`
 
   return (
@@ -210,8 +234,10 @@ export default async function ProductDetailPage({
             sku: product.sku,
             brand: product.vendor || store.name,
             category: product.category,
-            // The delivered Economy price is what this page shows first.
-            priceLKR: dualPricing.economy.priceLKR,
+            // Economy locked — Express is the only price a shopper can
+            // actually book right now (see economyLocked above), so
+            // that's what search engines/rich results should show.
+            priceLKR: dualPricing.express.priceLKR,
             inStock: product.inStock,
             condition: product.condition,
             sellerName: store.name,
@@ -230,8 +256,11 @@ export default async function ProductDetailPage({
         platform={store.platform}
         productId={productId}
         product={product}
-        formattedPrice={dualPricing.economy.formattedPrice}
-        discountPercent={dualPricing.economy.discountPercent}
+        // Economy locked — same reasoning as JSON-LD above: a recently-
+        // viewed card shouldn't show a price the shopper can't actually
+        // check out at.
+        formattedPrice={dualPricing.express.formattedPrice}
+        discountPercent={dualPricing.express.discountPercent}
       />
 
       {/* Sets --account-header-h the same way AccountLayout does for its
@@ -274,6 +303,7 @@ export default async function ProductDetailPage({
                 storeName={store.name}
                 storeLogo={store.logo}
                 isMarketplace={isMarketplace}
+                economyLocked={economyLocked}
               />
             </div>
 

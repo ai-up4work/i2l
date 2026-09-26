@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Space_Grotesk } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import {
   APPLE_STARTUP_IMAGES,
@@ -21,6 +22,13 @@ import { LoyaltyProvider } from "@/contexts/Loyaltycontext";
 import { ChatProvider } from "@/contexts/ChatContext";
 import { RecentlyViewedProvider } from "@/contexts/RecentlyViewedContext";
 import { OrdersProvider } from "@/contexts/Ordercontexts";
+
+// GA4 measurement id — G-GFSCP4JXH0. Hardcoded here rather than pulled
+// from an env var since this is a public, client-visible tracking id
+// anyway (it ships in the page source either way); pull it into
+// process.env.NEXT_PUBLIC_GA_ID later if multiple environments
+// (staging/prod) ever need different GA properties.
+const GA_MEASUREMENT_ID = "G-GFSCP4JXH0";
 
 const fraunces = Fraunces({
   variable: "--font-serif-display",
@@ -183,6 +191,30 @@ export default function RootLayout({
         <InstallPrompt />
         {/* Site-wide structured data: brand identity + site name. */}
         <JsonLd data={[organizationSchema(), websiteSchema()]} />
+
+        {/* Google tag (gtag.js) — GA4. Loaded with next/script's
+            "afterInteractive" strategy: fetched in parallel with the
+            page but executed only after the page becomes interactive,
+            so analytics never blocks First Contentful Paint / hydration
+            the way a plain synchronous <script> in <head> would. Two
+            separate <Script> tags rather than one, because next/script
+            executes each tag's own inline `children`/dangerouslySetInnerHTML
+            only after that same tag's `src` has loaded — putting the
+            gtag.js loader and the dataLayer/gtag() calls in one tag risks
+            the config call running before the library it depends on has
+            actually loaded. */}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="ga4-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_MEASUREMENT_ID}');
+          `}
+        </Script>
       </body>
     </html>
   );

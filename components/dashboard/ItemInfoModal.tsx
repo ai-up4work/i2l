@@ -74,6 +74,12 @@ import Image from 'next/image'
  * PlatformViewProps must include:
  *   onSelectionChange?: (selection: Record<string, string>) => void
  *   initialSelection?: Record<string, string> | null
+ *
+ * DELIVERY METHOD: Economy is temporarily disabled — only Express is
+ * bookable right now. Economy still renders (in the toggle and in the
+ * side-by-side comparison) so shoppers know it's coming, but it can't be
+ * selected: see DeliveryModeToggle's `disabled` option and the
+ * `deliveryChoice` state below, which now defaults to 'express'.
  */
 
 type ItemOverlayProps = {
@@ -208,6 +214,11 @@ function canBuildBreakdown(result: ScrapeResult): boolean {
   return !result.ogOnly && result.price != null && !Number.isNaN(Number(result.price)) && Number(result.price) > 0
 }
 
+// Economy is shown so shoppers know it's on the roadmap, but it can't be
+// selected yet — only Express is bookable for now. Clicking the Economy
+// tile is a no-op (onChange only ever fires for an enabled option), and
+// it carries a "Soon" badge plus muted/disabled styling instead of the
+// normal active/inactive treatment.
 function DeliveryModeToggle({
   value,
   onChange,
@@ -215,8 +226,8 @@ function DeliveryModeToggle({
   value: DeliveryChoice
   onChange: (value: DeliveryChoice) => void
 }) {
-  const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode }[] = [
-    { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={14} strokeWidth={1.8} /> },
+  const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode; disabled?: boolean }[] = [
+    { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={14} strokeWidth={1.8} />, disabled: true },
     { key: 'express', label: 'Express', sub: '12–15 days', icon: <Plane size={14} strokeWidth={1.8} /> },
   ]
   const activeIndex = options.findIndex((o) => o.key === value)
@@ -232,18 +243,38 @@ function DeliveryModeToggle({
       />
       {options.map((opt) => {
         const active = value === opt.key
+        const disabled = !!opt.disabled
         return (
           <button
             key={opt.key}
             type="button"
-            onClick={() => onChange(opt.key)}
+            onClick={() => {
+              if (disabled) return
+              onChange(opt.key)
+            }}
             aria-pressed={active}
-            className="relative z-10 flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors"
+            aria-disabled={disabled}
+            disabled={disabled}
+            title={disabled ? 'Economy delivery is coming soon' : undefined}
+            className={`relative z-10 flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
+              disabled ? 'cursor-not-allowed opacity-50' : ''
+            }`}
           >
-            <span className={active ? 'text-teal-deep' : 'text-ink/40'}>{opt.icon}</span>
+            <span className={active && !disabled ? 'text-teal-deep' : 'text-ink/40'}>{opt.icon}</span>
             <span className="min-w-0">
-              <span className={`block text-sm font-semibold transition-colors ${active ? 'text-teal-deep' : 'text-ink'}`}>
-                {opt.label}
+              <span className="flex items-center gap-1.5">
+                <span
+                  className={`block text-sm font-semibold transition-colors ${
+                    active && !disabled ? 'text-teal-deep' : 'text-ink'
+                  }`}
+                >
+                  {opt.label}
+                </span>
+                {disabled && (
+                  <span className="inline-flex items-center rounded-full bg-ink/10 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wide text-ink/45">
+                    Soon
+                  </span>
+                )}
               </span>
               <span className="block text-[11px] text-ink/40">{opt.sub}</span>
             </span>
@@ -279,14 +310,20 @@ function CompareColumn({
   qty,
   heading,
   active,
+  disabled,
 }: {
   option: DeliveryPriceOption
   qty: number
   heading: string
   active?: boolean
+  disabled?: boolean
 }) {
   return (
-    <div className={`rounded-xl transition-colors duration-300 ${active ? 'bg-teal/10' : 'bg-ink/[0.03]'} px-3 py-2.5`}>
+    <div
+      className={`rounded-xl transition-colors duration-300 ${
+        active ? 'bg-teal/10' : 'bg-ink/[0.03]'
+      } px-3 py-2.5 ${disabled ? 'opacity-50' : ''}`}
+    >
       <p className={`mb-1.5 text-xs font-semibold ${active ? 'text-teal-deep' : 'text-ink/50'}`}>{heading}</p>
       <BreakdownRows option={option} qty={qty} />
       <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-ink/[0.08] pt-2">
@@ -348,7 +385,7 @@ function QuotePricingBlock({
         </p>
         <div className="grid grid-cols-2 gap-2">
           <CompareColumn option={dual.express} qty={qty} heading="Express" active={deliveryChoice === 'express'} />
-          <CompareColumn option={dual.economy} qty={qty} heading="Economy" active={deliveryChoice === 'economy'} />
+          <CompareColumn option={dual.economy} qty={qty} heading="Economy · Soon" active={false} disabled />
         </div>
       </div>
     </div>
@@ -1018,7 +1055,9 @@ export default function ItemInfoModal({
   const router = useRouter()
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
-  const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
+  // Economy is temporarily unselectable (see DeliveryModeToggle), so the
+  // modal now opens on Express by default instead of Economy.
+  const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('express')
   // CHANNEL 3 ONLY — tracks the direct onSubmitRequest call from
   // GenericProductView/UnreadableListingFallback. Channel 1/2's Add to
   // Cart / QuoteModal path never touches these.
@@ -1072,7 +1111,9 @@ export default function ItemInfoModal({
     if (key && key !== lastResultKey.current) {
       lastResultKey.current = key
       setQuoteOpen(false)
-      setDeliveryChoice('economy')
+      // Reset back to Express (Economy stays disabled) whenever the
+      // listing changes.
+      setDeliveryChoice('express')
       setSubmitError(null)
     }
   }, [result])

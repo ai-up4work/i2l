@@ -212,7 +212,7 @@ function MiniCart({
   const lines = formatCartLinesForWhatsApp(items);
 
   const whatsappText = encodeURIComponent(
-    `Hi! I'd like to order from ${storeName}\n\n${lines}\n\nTotal: ${formatLKR(total)}\n\nPlease confirm availability and delivery. Thank you!`
+    `Hi! I want price for this: ${storeName}\n\n${lines}\n\nTotal: ${formatLKR(total)}\n\nPlease confirm availability and delivery. Thank you!`
   );
 
   return (

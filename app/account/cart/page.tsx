@@ -87,6 +87,11 @@ function cleanSiteLabel(site: string): string {
     .join(' ')
 }
 
+// Economy is temporarily disabled sitewide ("coming soon") — Express is
+// the only selectable mode for now. Kept as a data-driven `disabled` flag
+// per option (rather than hardcoding a two-button layout with one button
+// removed) so re-enabling Economy later is just deleting one flag here,
+// not restructuring the toggle.
 function DeliveryModeToggle({
   value,
   onChange,
@@ -94,8 +99,8 @@ function DeliveryModeToggle({
   value: DeliveryChoice
   onChange: (value: DeliveryChoice) => void
 }) {
-  const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode }[] = [
-    { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={15} strokeWidth={1.8} /> },
+  const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode; disabled?: boolean }[] = [
+    { key: 'economy', label: 'Economy', sub: 'Coming soon', icon: <Truck size={15} strokeWidth={1.8} />, disabled: true },
     { key: 'express', label: 'Express', sub: '12–15 days', icon: <Plane size={15} strokeWidth={1.8} /> },
   ]
   return (
@@ -106,18 +111,33 @@ function DeliveryModeToggle({
           <button
             key={opt.key}
             type="button"
-            onClick={() => onChange(opt.key)}
+            onClick={() => !opt.disabled && onChange(opt.key)}
+            disabled={opt.disabled}
             aria-pressed={active}
+            aria-disabled={opt.disabled || undefined}
+            title={opt.disabled ? 'Economy shipping is coming soon' : undefined}
             className={`flex flex-1 items-center gap-2 rounded-xl border px-3.5 py-2.5 text-left transition-colors ${
-              active ? 'border-teal/50 bg-teal/10' : 'border-ink/12 bg-transparent hover:bg-ink/[0.03]'
+              opt.disabled
+                ? 'cursor-not-allowed border-ink/10 bg-ink/[0.02] opacity-60'
+                : active
+                  ? 'border-teal/50 bg-teal/10'
+                  : 'border-ink/12 bg-transparent hover:bg-ink/[0.03]'
             }`}
           >
-            <span className={active ? 'text-teal-deep' : 'text-ink/40'}>{opt.icon}</span>
+            <span className={opt.disabled ? 'text-ink/25' : active ? 'text-teal-deep' : 'text-ink/40'}>
+              {opt.icon}
+            </span>
             <span className="min-w-0">
-              <span className={`block text-sm font-semibold ${active ? 'text-teal-deep' : 'text-ink'}`}>
+              <span
+                className={`block text-sm font-semibold ${
+                  opt.disabled ? 'text-ink/35' : active ? 'text-teal-deep' : 'text-ink'
+                }`}
+              >
                 {opt.label}
               </span>
-              <span className="block text-[11px] text-ink/40">{opt.sub}</span>
+              <span className={`block text-[11px] ${opt.disabled ? 'italic text-ink/30' : 'text-ink/40'}`}>
+                {opt.sub}
+              </span>
             </span>
           </button>
         )
@@ -440,7 +460,9 @@ function CartPageContent() {
   const loyalty = useLoyalty()
   const router = useRouter()
   const { user } = useAuth()
-  const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('economy')
+  // Economy is temporarily locked ("coming soon" — see DeliveryModeToggle),
+  // so Express is the only real choice right now and is the sane default.
+  const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('express')
   const [confirming, setConfirming] = useState(false)
   const [discountCode, setDiscountCode] = useState('')
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null)

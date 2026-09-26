@@ -42,7 +42,7 @@ export default function WelcomeBanner({
       </span>
       <span className="text-ink/40">•</span>
       <span className="text-ink/80">Verify your WhatsApp number and get</span>
-      <span className="font-bold text-gold-deep">LKR 1,000 off</span>
+      <span className="font-bold text-gold-deep">LKR 250 off</span>
       <span className="text-ink/80">your first order.</span>
     </>
   )
@@ -66,7 +66,7 @@ export default function WelcomeBanner({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {/* Read once by screen readers, regardless of which visual layout is active */}
         <span className="sr-only">
-          Welcome to Wishdrop! Verify your WhatsApp number and get LKR 1,000 off your first order.
+          Welcome to Wishdrop! Verify your WhatsApp number and get LKR 250 off your first order.
         </span>
 
         {/* Mobile (<sm): single-line marquee */}
