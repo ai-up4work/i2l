@@ -4,16 +4,16 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shipping',
-  title: 'Shipping & Delivery | WishDrop',
+  title: 'Shipping & Delivery | Wishdrop',
   description:
-    'How WishDrop ships your order from an affiliated store to your door in Sri Lanka — consolidation, customs, and delivery, explained.',
+    'How Wishdrop ships your order from an affiliated store to your door in Sri Lanka — consolidation, customs, and delivery, explained.',
 })
 
 const stages = [
   {
     icon: PackageCheck,
     title: 'Received & quality checked',
-    text: 'Your item arrives at a WishDrop facility, where we confirm it matches your order before it moves any further.',
+    text: 'Your item arrives at a Wishdrop facility, where we confirm it matches your order before it moves any further.',
   },
   {
     icon: Truck,
@@ -35,7 +35,7 @@ const stages = [
 const faqs = [
   {
     q: 'Do I need my own overseas address?',
-    a: "No. Unlike a package-forwarding service, WishDrop buys the item for you directly, so there's no warehouse address to manage, forward, or declare yourself.",
+    a: "No. Unlike a package-forwarding service, Wishdrop buys the item for you directly, so there's no warehouse address to manage, forward, or declare yourself.",
   },
   {
     q: 'How long does delivery take?',
@@ -62,7 +62,7 @@ export default function ShippingPage() {
           From the seller's shelf to your door
         </h1>
         <p className="mx-auto mt-5 max-w-xl font-body text-base leading-relaxed text-ink/65">
-          WishDrop handles the entire cross-border journey — you don't need to arrange a warehouse
+          Wishdrop handles the entire cross-border journey — you don't need to arrange a warehouse
           address, forward a parcel, or file customs paperwork yourself.
         </p>
       </section>
@@ -90,7 +90,7 @@ export default function ShippingPage() {
             What your delivery cost includes
           </h2>
           <p className="mt-3 font-body text-sm leading-relaxed text-ink/65">
-            The total shown on your quote bundles the product price, WishDrop's service fee,
+            The total shown on your quote bundles the product price, Wishdrop's service fee,
             freight, and applicable customs duties and taxes — see{' '}
             <Link href="/shipping/pricing" className="text-teal-deep underline underline-offset-2">
               how pricing is calculated

@@ -39,7 +39,7 @@ export interface SellerAdminMeta {
   ordersPending: number
   /** Whether sellers.owner_user_id is set — i.e. this seller has a real login. */
   hasLogin?: boolean
-  /** WishDrop's markup applied automatically on top of a seller's own cost price. */
+  /** Wishdrop's markup applied automatically on top of a seller's own cost price. */
   defaultMarginPercent?: number
 }
 

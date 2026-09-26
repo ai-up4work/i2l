@@ -69,7 +69,7 @@ async function handleInboundMessage(
     return
   }
   if (!profile) {
-    // No verified WishDrop account has this number on file — nothing
+    // No verified Wishdrop account has this number on file — nothing
     // to attach the message to. Logged, not stored: there's no "unknown
     // sender" holding area for this yet (a real gap if this turns out
     // to happen often — e.g. someone messaging from a different phone

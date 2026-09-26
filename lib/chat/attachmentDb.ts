@@ -1,6 +1,6 @@
 'use client'
 
-const DB_NAME = 'wishdrop_chat_attachments'
+const DB_NAME = 'Wishdrop_chat_attachments'
 const DB_VERSION = 1
 const STORE_NAME = 'attachments'
 

@@ -1,4 +1,4 @@
--- data/wishdrop-staff-self-registration.sql
+-- data/Wishdrop-staff-self-registration.sql
 --
 -- Adds self-service admin registration with Manager/Super Admin
 -- approval — a reliable alternative to the one-time invite-link flow,

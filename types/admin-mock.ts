@@ -1,6 +1,6 @@
 // types/admin-mock.ts
 // ============================================================================
-// WishDrop Mock DB — Types
+// Wishdrop Mock DB — Types
 // Mirrors every entity referenced in the requirements doc + route spec.
 // No real backend yet: this is the shape the real DB should eventually match.
 // ============================================================================

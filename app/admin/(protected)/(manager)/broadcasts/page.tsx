@@ -264,7 +264,7 @@ export default function BroadcastsPage() {
               />
             </Field>
 
-            <Field label="Opens" hint="The WishDrop page a tap opens, e.g. /deals or /stores/myntra">
+            <Field label="Opens" hint="The Wishdrop page a tap opens, e.g. /deals or /stores/myntra">
               <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="/" className={inputClass} />
             </Field>
 

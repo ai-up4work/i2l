@@ -4,8 +4,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping-guides',
-  title: 'Shopping Guides | WishDrop',
-  description: 'Practical, step-by-step guides for buying confidently from Indian and international stores through WishDrop.',
+  title: 'Shopping Guides | Wishdrop',
+  description: 'Practical, step-by-step guides for buying confidently from Indian and international stores through Wishdrop.',
 })
 
 const guides = [
@@ -22,7 +22,7 @@ const guides = [
   {
     icon: Wallet,
     title: 'Understanding your quote',
-    text: 'Every quote breaks down product price, service fee, freight, and estimated customs charges separately. See our Shipping Pricing and Taxation pages for exactly how each line is calculated.',
+    text: 'Every quote breaks down product price, service fee, freight, and estimated customs charges separately. See our Shipping Pricing page for exactly how each line is calculated.',
   },
   {
     icon: BookOpen,
@@ -47,7 +47,7 @@ export default function ShoppingGuidesPage() {
           Shop like you've done this before
         </h1>
         <p className="mx-auto mt-5 max-w-xl font-body text-base leading-relaxed text-ink/65">
-          A few practical tips to help your first — or fiftieth — WishDrop request go smoothly.
+          A few practical tips to help your first — or fiftieth — Wishdrop request go smoothly.
         </p>
       </section>
 
@@ -65,35 +65,6 @@ export default function ShoppingGuidesPage() {
             </div>
           ))}
         </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
-        <h2 className="font-display text-2xl font-semibold text-ink">Store-specific guides</h2>
-        <p className="mt-2 font-body text-sm text-ink/55">
-          Notes on shopping from specific marketplaces we regularly source from.
-        </p>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {marketplaces.map((m) => (
-            <Link
-              key={m.slug}
-              href={`/shopping/marketplaces/${m.slug}`}
-              className="group flex items-center justify-between rounded-2xl border border-ink/10 bg-card p-5 transition-colors hover:border-teal/40"
-            >
-              <div>
-                <h3 className="font-display text-base font-semibold text-ink group-hover:text-teal-deep">
-                  Buying from {m.name}
-                </h3>
-                <p className="mt-1 font-body text-xs text-ink/55">{m.blurb}</p>
-              </div>
-              <ArrowRight size={16} className="flex-none text-ink/30 transition-colors group-hover:text-teal-deep" />
-            </Link>
-          ))}
-        </div>
-        <p className="mt-4 font-body text-xs text-ink/45">
-          Looking for another store? Browse every affiliated store at{' '}
-          <Link href="/stores" className="text-teal-deep underline underline-offset-2">/stores</Link>, or
-          paste a link from any store via <Link href="/account/" className="text-teal-deep underline underline-offset-2">New Request</Link>.
-        </p>
       </section>
     </main>
   )

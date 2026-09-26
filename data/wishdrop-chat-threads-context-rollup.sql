@@ -1,4 +1,4 @@
--- data/wishdrop-chat-threads-context-rollup.sql
+-- data/Wishdrop-chat-threads-context-rollup.sql
 --
 -- WHY: chat_messages already carries request_id/order_id per message
 -- (see lib/supabase/chat.ts's sendChatMessage) — that's how the order

@@ -123,7 +123,7 @@ export default function SellerProductsPage() {
     setSaving(true)
     setFormError(null)
     try {
-      // margin_percent is WishDrop's own markup, not the seller's to set —
+      // margin_percent is Wishdrop's own markup, not the seller's to set —
       // applied automatically from the seller's default. price is derived
       // here client-side for immediate display; it's recomputed the same
       // way anywhere else it's edited (e.g. admin Catalogues) so the two
@@ -208,7 +208,7 @@ export default function SellerProductsPage() {
         <div>
           <h2 className="font-display text-2xl text-ink">My products</h2>
           <p className="mt-1 text-sm text-ink/55">
-            Add your cost price — WishDrop's {defaultMargin}% markup is applied automatically. No
+            Add your cost price — Wishdrop's {defaultMargin}% markup is applied automatically. No
             approval needed; changes go live right away.
           </p>
         </div>

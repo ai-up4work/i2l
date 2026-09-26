@@ -26,7 +26,7 @@ seller-facing feature.
      there's no approval step anymore.
    - `app/admin/(sales)/catalogues/[catalogueId]/page.tsx` — shows the
      full product record, and lets admin edit exactly one thing:
-     **margin %** (WishDrop's markup on top of the seller's cost price),
+     **margin %** (Wishdrop's markup on top of the seller's cost price),
      plus toggle active/hidden and hide-from-listings (soft delete).
 2. **Deleted** the now-empty `app/(seller)/catalogue/` folder and the
    dead mock file `data/catalogues/data.ts` (confirmed nothing else in

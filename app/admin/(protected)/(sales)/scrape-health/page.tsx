@@ -503,7 +503,7 @@ function CustomerLinksTab({
                         looks like, as opposed to the red Channel 3 list
                         below (a link that failed and had to fall back to
                         a manual request). See
-                        wishdrop-scrape-health-success-sample.sql for why
+                        Wishdrop-scrape-health-success-sample.sql for why
                         this is a single latest example, not a history. */}
                     {d.lastSuccessAt && (
                       <div className="mb-4 rounded-xl border border-teal/25 bg-teal/[0.05] px-3.5 py-3">
@@ -533,7 +533,7 @@ function CustomerLinksTab({
                         HTTP status, vendor-fingerprinted block-page
                         markers, per-key ScraperAPI errors, ...), not the
                         generic message a customer would ever see. See
-                        wishdrop-scrape-health-last-error.sql. Kept even
+                        Wishdrop-scrape-health-last-error.sql. Kept even
                         after a later success (doesn't get cleared) — a
                         flaky domain's last real failure is still worth
                         seeing even once it's working again. */}

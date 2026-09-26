@@ -1,4 +1,4 @@
--- data/wishdrop-orders-requests-unreplied-flag.sql
+-- data/Wishdrop-orders-requests-unreplied-flag.sql
 --
 -- WHY: chat_threads.unread already exists, but it's thread-wide — a
 -- single customer thread can carry many orders and requests over their

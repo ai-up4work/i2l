@@ -18,7 +18,7 @@
 
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '94770774828' // fallback for dev
 
-/** Stored handles have no "@" (see data/wishdrop-unique-chat-handles.sql);
+/** Stored handles have no "@" (see data/Wishdrop-unique-chat-handles.sql);
  * this adds it for display, and tolerates one already being there. */
 export function formatHandle(stored: string | null | undefined): string | null {
   const h = (stored ?? '').trim().replace(/^@+/, '')
@@ -36,7 +36,7 @@ export function buildWhatsAppLink(handle: string | null, prefillText?: string) {
   const text =
     prefillText ??
     (handle
-      ? `Hi, this is ${handle} continuing from the WishDrop chat.`
-      : `Hi, I'd like to talk to WishDrop support.`)
+      ? `Hi, this is ${handle} continuing from the Wishdrop chat.`
+      : `Hi, I'd like to talk to Wishdrop support.`)
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`
 }

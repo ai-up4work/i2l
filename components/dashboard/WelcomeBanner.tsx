@@ -38,7 +38,7 @@ export default function WelcomeBanner({
   const messageText = (
     <>
       <span>
-        Welcome to <span className="font-semibold">WishDrop!</span>
+        Welcome to <span className="font-semibold">Wishdrop!</span>
       </span>
       <span className="text-ink/40">•</span>
       <span className="text-ink/80">Verify your WhatsApp number and get</span>
@@ -66,7 +66,7 @@ export default function WelcomeBanner({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {/* Read once by screen readers, regardless of which visual layout is active */}
         <span className="sr-only">
-          Welcome to WishDrop! Verify your WhatsApp number and get LKR 1,000 off your first order.
+          Welcome to Wishdrop! Verify your WhatsApp number and get LKR 1,000 off your first order.
         </span>
 
         {/* Mobile (<sm): single-line marquee */}
@@ -81,7 +81,7 @@ export default function WelcomeBanner({
           }}
         >
           <div
-            className="animate-wishdrop-marquee flex w-max items-center whitespace-nowrap leading-5"
+            className="animate-Wishdrop-marquee flex w-max items-center whitespace-nowrap leading-5"
             style={{
               animationDuration: `${marqueeDurationS}s`,
               animationPlayState: animated && open ? 'running' : 'paused',
@@ -121,7 +121,7 @@ export default function WelcomeBanner({
       </button>
 
       <style jsx>{`
-        @keyframes wishdrop-marquee {
+        @keyframes Wishdrop-marquee {
           from {
             transform: translateX(0);
           }
@@ -129,13 +129,13 @@ export default function WelcomeBanner({
             transform: translateX(-50%);
           }
         }
-        .animate-wishdrop-marquee {
-          animation-name: wishdrop-marquee;
+        .animate-Wishdrop-marquee {
+          animation-name: Wishdrop-marquee;
           animation-timing-function: linear;
           animation-iteration-count: infinite;
         }
         @media (prefers-reduced-motion: reduce) {
-          .animate-wishdrop-marquee {
+          .animate-Wishdrop-marquee {
             animation: none !important;
           }
         }

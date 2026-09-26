@@ -84,13 +84,13 @@ export function composeMessagesText(opts: {
 
   const header =
     messages.length === 1
-      ? `${greeting(firstName)} a message from WishDrop${aboutPhrase(context)}:`
-      : `${greeting(firstName)} here's an update from WishDrop${aboutPhrase(context)}:`
+      ? `${greeting(firstName)} a message from Wishdrop${aboutPhrase(context)}:`
+      : `${greeting(firstName)} here's an update from Wishdrop${aboutPhrase(context)}:`
 
   const mediaLine =
     mediaCount > 0
       ? `We also sent you ${mediaCount === 1 ? 'a photo' : `${mediaCount} photos/videos`}${
-          tail ? ` — see ${mediaCount === 1 ? 'it' : 'them'} at the link below.` : ' in your WishDrop messages.'
+          tail ? ` — see ${mediaCount === 1 ? 'it' : 'them'} at the link below.` : ' in your Wishdrop messages.'
         }`
       : null
 
@@ -121,10 +121,10 @@ export function composeReminderText(opts: {
   const { firstName, waitingCount, context, link } = opts
   const what =
     waitingCount > 1
-      ? `you have ${waitingCount} new messages from WishDrop`
+      ? `you have ${waitingCount} new messages from Wishdrop`
       : waitingCount === 1
-        ? 'you have a new message from WishDrop'
-        : 'we have an update for you from WishDrop'
+        ? 'you have a new message from Wishdrop'
+        : 'we have an update for you from Wishdrop'
   const tail = linkLine(link)
   return [`${greeting(firstName)} ${what}${aboutPhrase(context)}.`, ...(tail ? ['', tail] : [])].join('\n')
 }

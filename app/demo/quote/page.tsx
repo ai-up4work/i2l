@@ -315,7 +315,7 @@ function QuoteDemoPage() {
           </h1>
           <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-[#1B2A4A]/70">
             Enter what a customer wants to buy and see the landed cost
-            breakdown WishDrop would quote them, step by step.
+            breakdown Wishdrop would quote them, step by step.
           </p>
 
           {cameFromProductPage && (

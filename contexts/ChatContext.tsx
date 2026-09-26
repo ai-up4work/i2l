@@ -83,7 +83,7 @@ function rowToMessage(row: ChatMessageRow): ChatMessage {
 // conversation itself — that's entirely server-side now. Losing this key
 // just means one stale unread badge on a new device, not lost messages.
 function lastReadKey(threadId: string) {
-  return `wishdrop:chat:lastReadAt:${threadId}`
+  return `Wishdrop:chat:lastReadAt:${threadId}`
 }
 
 function readLastReadAt(threadId: string): number {
@@ -196,7 +196,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const supabaseRef = useRef(createClient())
 
   // The customer's UNIQUE handle lives on their profile (assigned by the
-  // database — see data/wishdrop-unique-chat-handles.sql). Deriving it
+  // database — see data/Wishdrop-unique-chat-handles.sql). Deriving it
   // from the first name gave every Kavindi the same "@kavindi".
   const [profileHandle, setProfileHandle] = useState<string | null>(null)
   useEffect(() => {

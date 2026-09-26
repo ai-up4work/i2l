@@ -4,13 +4,13 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/stores/apply',
-  title: 'Sell on WishDrop',
-  description: 'Apply to become an affiliated WishDrop seller and reach shoppers in Sri Lanka.',
+  title: 'Sell on Wishdrop',
+  description: 'Apply to become an affiliated Wishdrop seller and reach shoppers in Sri Lanka.',
 })
 
 const perks = [
   { icon: Users, title: 'Reach Sri Lankan shoppers', text: "Get discovered by customers who couldn't buy from you directly before." },
-  { icon: ShieldCheck, title: 'Managed, trusted checkout', text: 'WishDrop handles payment, customs, and delivery — you just fulfil orders like normal.' },
+  { icon: ShieldCheck, title: 'Managed, trusted checkout', text: 'Wishdrop handles payment, customs, and delivery — you just fulfil orders like normal.' },
   { icon: TrendingUp, title: 'New products, more visibility', text: 'Featured placement for new arrivals and seasonal promotions across the platform.' },
 ]
 
@@ -19,13 +19,13 @@ export default function StoresApplyPage() {
     <main className="mx-auto max-w-5xl px-6 py-16 lg:px-10 lg:py-24">
       <div className="max-w-2xl">
         <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          Sell on WishDrop
+          Sell on Wishdrop
         </p>
         <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
           Open your store here
         </h1>
         <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-          WishDrop gives your store a managed channel into the Sri Lankan market — we verify every
+          Wishdrop gives your store a managed channel into the Sri Lankan market — we verify every
           seller before they go live, so applications take a little longer than an instant sign-up,
           but customers trust what they see.
         </p>

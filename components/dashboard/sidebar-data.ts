@@ -42,7 +42,7 @@ export const sidebarGroups: SidebarGroup[] = [
     label: 'My Account',
     defaultOpen: true,
     items: [
-      // { type: 'view', label: 'WishDrop VIP', view: 'wishdropVip' },
+      // { type: 'view', label: 'Wishdrop VIP', view: 'WishdropVip' },
       // "My Profile" now covers what used to be a separate "Manage My
       // Account" page too (WhatsApp verification, password, account
       // deletion/export) — see app/account/profile/page.tsx's doc

@@ -4,7 +4,7 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/blog/categories/notices',
-  title: 'Service Notices | WishDrop',
+  title: 'Service Notices | Wishdrop',
   description: 'Warehouse updates, delivery delays, and platform service alerts.',
 })
 

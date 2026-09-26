@@ -5,7 +5,7 @@ import type { ElementType } from 'react'
 import Image from 'next/image'
 
 /* ============================================================================
- * WHY CHOOSE WISHDROP
+ * WHY CHOOSE Wishdrop
  * Sits between <Destinations /> and <ShopByCategory /> on the landing page.
  * ==========================================================================*/
 
@@ -110,7 +110,7 @@ function ParcelIllustration() {
             fontSize="16"
             fill="#1B2A4A"
           >
-            wishdrop
+            Wishdrop
           </text>
         </svg>
       </div>
@@ -133,7 +133,7 @@ export default function WhyChooseWishdrop() {
             </h2>
 
             <div className="mt-10">
-              <Image src="/why-choose-wishdrop.png" alt="" width={600} height={400} className="w-full object-cover" />
+              <Image src="/why-choose-Wishdrop.png" alt="" width={600} height={400} className="w-full object-cover" />
             </div>
           </div>
 

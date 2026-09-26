@@ -148,7 +148,7 @@ export default function CataloguesPage() {
           <h1 className="font-display text-3xl text-ink">Catalogues</h1>
           <p className="mt-1 text-sm text-ink/55">
             Products from every manual-mode seller. Sellers add these directly from their own portal —
-            open one here to adjust WishDrop's margin.
+            open one here to adjust Wishdrop's margin.
           </p>
         </div>
         <button

@@ -92,7 +92,7 @@ export type View =
   | 'wishlist'
   | 'following'
   | 'recentlyViewed'
-  | 'wishdropVip'
+  | 'WishdropVip'
   | 'AddressBook'
   | 'trackingOrders'
   | 'myFollowing'

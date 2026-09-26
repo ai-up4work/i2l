@@ -68,7 +68,7 @@ export default function AdminRegisterPage() {
         <div className="w-full max-w-sm rounded-2xl border border-ink/10 bg-card p-8 text-center shadow-lg">
           <div className="flex items-center justify-center gap-2.5">
             <ShieldCheck size={22} className="text-teal-deep" />
-            <h1 className="font-display text-xl text-ink">WishDrop Admin</h1>
+            <h1 className="font-display text-xl text-ink">Wishdrop Admin</h1>
           </div>
           <p className="mt-4 text-sm leading-relaxed text-ink/60">
             Your request has been sent. A Manager or Super Admin needs to review and approve it before you can
@@ -91,7 +91,7 @@ export default function AdminRegisterPage() {
       <div className="w-full max-w-sm rounded-2xl border border-ink/10 bg-card p-8 shadow-lg">
         <div className="flex items-center gap-2.5">
           <ShieldCheck size={22} className="text-teal-deep" />
-          <h1 className="font-display text-xl text-ink">WishDrop Admin</h1>
+          <h1 className="font-display text-xl text-ink">Wishdrop Admin</h1>
         </div>
         <p className="mt-2 text-sm text-ink/55">Request staff access. A Manager or Super Admin approves every request.</p>
 
@@ -112,7 +112,7 @@ export default function AdminRegisterPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@wishdrop.shop"
+              placeholder="name@Wishdrop.shop"
               className="mt-1.5 w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50"
             />
           </div>

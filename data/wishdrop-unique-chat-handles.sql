@@ -1,4 +1,4 @@
--- data/wishdrop-unique-chat-handles.sql
+-- data/Wishdrop-unique-chat-handles.sql
 --
 -- Every customer gets a UNIQUE chat handle, stored in profiles.chat_handle
 -- (without the "@"). Before this, nothing ever set chat_handle, so the app
@@ -75,7 +75,7 @@ begin
   if new.chat_handle is null or btrim(new.chat_handle) = '' then
     -- Serialize handle picking so two sign-ups at the same instant can't
     -- both choose "kavindi2". Held only until this transaction ends.
-    perform pg_advisory_xact_lock(hashtext('wishdrop_chat_handle'));
+    perform pg_advisory_xact_lock(hashtext('Wishdrop_chat_handle'));
     new.chat_handle := public.generate_chat_handle(new.full_name, new.email);
   else
     new.chat_handle := public.chat_handle_key(new.chat_handle);
@@ -97,7 +97,7 @@ declare
   r record;
   wanted text;
 begin
-  perform pg_advisory_xact_lock(hashtext('wishdrop_chat_handle'));
+  perform pg_advisory_xact_lock(hashtext('Wishdrop_chat_handle'));
   for r in
     select id, chat_handle, created_at from public.profiles
     where chat_handle is not null and btrim(chat_handle) <> ''
@@ -127,7 +127,7 @@ do $$
 declare
   r record;
 begin
-  perform pg_advisory_xact_lock(hashtext('wishdrop_chat_handle'));
+  perform pg_advisory_xact_lock(hashtext('Wishdrop_chat_handle'));
   for r in
     select id, full_name, email from public.profiles
     where chat_handle is null or btrim(chat_handle) = ''

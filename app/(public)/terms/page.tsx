@@ -3,9 +3,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/terms',
-  title: 'Terms of Use | WishDrop',
+  title: 'Terms of Use | Wishdrop',
   description:
-    'The terms that govern your use of WishDrop — requests, quotes, payment, shipping, customs, liability, and dispute resolution.',
+    'The terms that govern your use of Wishdrop — requests, quotes, payment, shipping, customs, liability, and dispute resolution.',
 })
 
 export default function TermsPage() {
@@ -13,7 +13,7 @@ export default function TermsPage() {
     <LegalPageLayout
       eyebrow="Legal"
       title="Terms of Use"
-      intro="These Terms of Use (“Terms”) form a binding agreement between you and WishDrop Limited (“WishDrop”, “we”, “us”) governing your access to and use of the WishDrop website, app, and concierge buying and delivery service."
+      intro="These Terms of Use (“Terms”) form a binding agreement between you and Wishdrop Limited (“Wishdrop”, “we”, “us”) governing your access to and use of the Wishdrop website, app, and concierge buying and delivery service."
       lastUpdated="14 September 2026"
       note={
         <>
@@ -31,7 +31,7 @@ export default function TermsPage() {
           body: (
             <>
               <ul>
-                <li>You must be at least 18 years old and able to form a binding contract to use WishDrop.</li>
+                <li>You must be at least 18 years old and able to form a binding contract to use Wishdrop.</li>
                 <li>
                   You must provide accurate, current information when creating an account, and
                   keep it up to date, including your delivery address and WhatsApp number.
@@ -54,15 +54,15 @@ export default function TermsPage() {
           body: (
             <>
               <p>
-                WishDrop is a concierge shopping and delivery service. You either purchase
+                Wishdrop is a concierge shopping and delivery service. You either purchase
                 products directly from our affiliated store catalogue, or submit a request (by
-                pasting a product link or describing what you want) for WishDrop to source. Once
-                accepted, WishDrop purchases the item on your behalf, receives it at a WishDrop
+                pasting a product link or describing what you want) for Wishdrop to source. Once
+                accepted, Wishdrop purchases the item on your behalf, receives it at a Wishdrop
                 facility, performs a quality check, consolidates it for international shipment,
                 and delivers it to the address you provide in Sri Lanka.
               </p>
               <p>
-                WishDrop acts as your purchasing and delivery agent for accepted requests. We are
+                Wishdrop acts as your purchasing and delivery agent for accepted requests. We are
                 not the manufacturer or seller of third-party products, and we do not guarantee
                 that any specific product will be available, priced as shown at the time of your
                 request, or shippable to Sri Lanka.
@@ -88,7 +88,7 @@ export default function TermsPage() {
                 </li>
                 <li>
                   Your order is only confirmed once you accept the quote and payment is
-                  successfully processed. Until then, WishDrop is not obligated to purchase the
+                  successfully processed. Until then, Wishdrop is not obligated to purchase the
                   item, and prices are not locked.
                 </li>
                 <li>
@@ -112,16 +112,14 @@ export default function TermsPage() {
               <ul>
                 <li>
                   All prices are shown in the currency indicated on the platform and may include
-                  the product cost, WishDrop's service margin, freight, customs-related charges,
-                  and any applicable taxes, as explained further in our{' '}
-                  <a href="/taxation">Taxation</a> page.
+                  the product cost, Wishdrop's service margin, freight, customs-related charges.
                 </li>
                 <li>
                   Payment must be completed in full before we purchase an item on your behalf,
                   unless otherwise stated for a specific promotion or payment plan.
                 </li>
                 <li>
-                  Payments are processed by third-party, licensed payment gateways. WishDrop does
+                  Payments are processed by third-party, licensed payment gateways. Wishdrop does
                   not store your full card details.
                 </li>
                 <li>
@@ -143,7 +141,7 @@ export default function TermsPage() {
           body: (
             <p>
               You may cancel a request before it has been purchased from the seller, subject to
-              our <a href="/refund-policy">Refund Policy</a>. Once WishDrop has purchased an item
+              our <a href="/refund-policy">Refund Policy</a>. Once Wishdrop has purchased an item
               on your behalf, cancellation may not be possible, or may be subject to seller
               restocking fees and non-refundable service charges, because we have already
               committed funds to the seller. Address or product changes after purchase are not
@@ -158,7 +156,7 @@ export default function TermsPage() {
             <>
               <ul>
                 <li>
-                  Items are inspected at a WishDrop facility to confirm they match your order
+                  Items are inspected at a Wishdrop facility to confirm they match your order
                   before being consolidated and shipped internationally.
                 </li>
                 <li>
@@ -188,7 +186,7 @@ export default function TermsPage() {
               International shipments may be subject to import duties, taxes, and customs
               clearance procedures in Sri Lanka, as set out in our <a href="/taxation">Taxation</a>{' '}
               page. You are responsible for ensuring the items you request are lawful to import.
-              WishDrop will not purchase, ship, or attempt to import any item on the{' '}
+              Wishdrop will not purchase, ship, or attempt to import any item on the{' '}
               <a href="/prohibited-items">Prohibited Items</a> list or any item that is otherwise
               illegal to import into Sri Lanka, and reserves the right to seize, surrender to
               authorities, return to sender, or dispose of such items at your cost, without
@@ -201,10 +199,10 @@ export default function TermsPage() {
           heading: 'Prohibited conduct',
           body: (
             <>
-              <p>When using WishDrop, you agree not to:</p>
+              <p>When using Wishdrop, you agree not to:</p>
               <ul>
                 <li>Request, list, or attempt to import any prohibited, counterfeit, stolen, or illegal item.</li>
-                <li>Provide false information to WishDrop, a seller, a courier, or customs authorities.</li>
+                <li>Provide false information to Wishdrop, a seller, a courier, or customs authorities.</li>
                 <li>Use the service for commercial resale in a way that breaches import regulations, without disclosing this to us.</li>
                 <li>Attempt to interfere with, reverse-engineer, or gain unauthorised access to the platform or other users' accounts.</li>
                 <li>Use the service to launder money or disguise the origin of funds.</li>
@@ -223,7 +221,7 @@ export default function TermsPage() {
           body: (
             <>
               <p>
-                To the fullest extent permitted by law, WishDrop's total liability to you for any
+                To the fullest extent permitted by law, Wishdrop's total liability to you for any
                 claim arising from or related to a specific order is limited to the amount you
                 paid for that order. We are not liable for indirect, incidental, or consequential
                 losses, including loss of profit, business, or data, except where such limitation
@@ -242,8 +240,8 @@ export default function TermsPage() {
           heading: 'Intellectual property',
           body: (
             <p>
-              The WishDrop name, logo, website, and app content are owned by or licensed to
-              WishDrop Limited and are protected by intellectual-property law. You may not copy,
+              The Wishdrop name, logo, website, and app content are owned by or licensed to
+              Wishdrop Limited and are protected by intellectual-property law. You may not copy,
               modify, or use our branding or platform content without prior written permission.
               Product images and descriptions from affiliated stores remain the property of their
               respective owners.

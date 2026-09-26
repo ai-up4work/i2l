@@ -5,7 +5,7 @@
 // /admin/settings/profile, per the route spec's "notification
 // preference shortcuts" line). Keying off `id` here is also the exact
 // key stored in staff_accounts.notification_prefs — see
-// data/wishdrop-staff-notification-prefs.sql.
+// data/Wishdrop-staff-notification-prefs.sql.
 
 export type NotificationToggle = {
   id: string

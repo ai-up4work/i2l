@@ -75,7 +75,7 @@ export default function SellerApplyForm() {
 
       <label className="flex items-start gap-2.5 font-body text-xs text-ink/55">
         <input required type="checkbox" className="mt-0.5" />
-        I confirm the information provided is accurate and agree to WishDrop's{' '}
+        I confirm the information provided is accurate and agree to Wishdrop's{' '}
         <a href="/terms" className="text-teal-deep underline underline-offset-2">Terms of Use</a>.
       </label>
 

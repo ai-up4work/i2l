@@ -496,7 +496,7 @@ export default function AccountProfilePage() {
             </div>
           </div>
           <PostmarkStamp
-            topText="WISHDROP"
+            topText="Wishdrop"
             bottomText="AIR MAIL"
             className="pointer-events-none absolute right-6 top-6 hidden h-20 w-20 sm:block"
           />
@@ -587,13 +587,13 @@ export default function AccountProfilePage() {
                 label="Delete Account"
                 description="Account will not be recoverable once deleted. Contact support to request this."
                 icon={Trash2}
-                onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Delete%20my%20account')}
+                onClick={() => window.location.assign('mailto:support@Wishdrop.app?subject=Delete%20my%20account')}
               />
               <QuietLinkRow
                 label="Download Your Information"
                 description="To request a copy of your personal data, contact support — we'll verify your identity and send it to you."
                 icon={Download}
-                onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Data%20export%20request')}
+                onClick={() => window.location.assign('mailto:support@Wishdrop.app?subject=Data%20export%20request')}
               />
             </div>
           </div>

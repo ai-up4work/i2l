@@ -78,7 +78,7 @@ export const REFERRAL_REWARD_TIERS: ReferralRewardTier[] = [
   { friendCount: 10, label: '€75 credit + free shipping voucher', creditAmount: 75 },
 ]
 
-const REFERRAL_LINK_BASE = 'https://wishdrop.app'
+const REFERRAL_LINK_BASE = 'https://Wishdrop.app'
 
 export type GiftCardProduct = {
   id: string
@@ -90,9 +90,9 @@ export type GiftCardProduct = {
 }
 
 export const GIFT_CARD_CATALOG: GiftCardProduct[] = [
-  { id: 'gc-classic', name: 'WishDrop Classic', image: '', value: 100, price: 93, currency: '€' },
+  { id: 'gc-classic', name: 'Wishdrop Classic', image: '', value: 100, price: 93, currency: '€' },
   { id: 'gc-amazing', name: "You're Amazing", image: '', value: 100, price: 93, currency: '€' },
-  { id: 'gc-floral', name: 'WishDrop Floral', image: '', value: 100, price: 93, currency: '€' },
+  { id: 'gc-floral', name: 'Wishdrop Floral', image: '', value: 100, price: 93, currency: '€' },
   { id: 'gc-wishes', name: 'Best Wishes', image: '', value: 100, price: 93, currency: '€' },
   { id: 'gc-thanks', name: 'Thank You', image: '', value: 100, price: 93, currency: '€' },
 ]
@@ -283,7 +283,7 @@ function milestoneLabel(key: MilestoneKey): string {
 // working (if not very meaningful) loyalty experience, same as before.
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'wishdrop:loyalty'
+const STORAGE_KEY = 'Wishdrop:loyalty'
 
 const EMPTY_STATE: LoyaltyState = {
   points: 0,

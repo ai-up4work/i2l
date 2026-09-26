@@ -3,8 +3,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/prohibited-items',
-  title: 'Prohibited Items | WishDrop',
-  description: 'Products WishDrop cannot purchase, import, or ship on your behalf, by category.',
+  title: 'Prohibited Items | Wishdrop',
+  description: 'Products Wishdrop cannot purchase, import, or ship on your behalf, by category.',
 })
 
 type Item = {
@@ -20,23 +20,6 @@ type Category = {
 }
 
 const categories: Category[] = [
-  {
-    name: 'Food, agricultural products, and perishable goods',
-    items: [
-      {
-        title: 'Perishable foods, raw meat, and seafood',
-        description:
-          'Any perishable item requiring specific storage conditions (dairy, eggs, fresh produce, homemade food) and any raw meat or seafood products.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-perishable-goods.jpg',
-      },
-      {
-        title: 'Plant seeds, fertilizer, and soil',
-        description:
-          'Preserved or dried flowers, fresh plants, and seeds intended for planting (excluding edible seeds and cooking nuts). All types of fertilizer, soil, and powdered substances of unknown origin.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-living-plant-seed.jpg',
-      },
-    ],
-  },
   {
     name: 'Dangerous goods',
     items: [
@@ -82,39 +65,22 @@ const categories: Category[] = [
         description: 'All kinds of restricted knives, bows, blades, and similar controlled items.',
         image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-controlled-knives-bow.jpg',
       },
+      {
+        title: 'Alcohols',
+        description: 'All kinds of alcohol, including alcoholic beverages and perfumes.',
+        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-alcohols.jpg',
+      },
     ],
   },
   {
     name: 'Regulated consumer goods',
     items: [
       {
-        title: 'Perfume',
-        description: 'Perfumes, balms, reed diffusers, scented pens, room fragrances, and other scented products.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-fragrance.jpg',
-      },
-      {
-        title: 'Tickets, personal letters, cash, and cash equivalents',
+        title: 'Cash, and cash equivalents',
         description:
-          'Concert and admission tickets, letters (bank, bills, personal), cash and cash equivalents, and counterfeit items.',
+          'Concert and letters (bank, bills, personal), cash and cash equivalents, and counterfeit items.',
         image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-jp-ticket.jpg',
         badge: 'Latest',
-      },
-      {
-        title: 'Alcohols',
-        description: 'All kinds of alcohol, including alcoholic beverages and perfumes.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-alcohols.jpg',
-      },
-      {
-        title: 'Tobacco and smoking devices',
-        description:
-          'All cigarettes, tobacco products (including smokeless and e-cigarettes), and related accessories such as lighters, hookahs, tar solvents, and vaping devices.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-tobacco-and-smoking-devices.jpg',
-      },
-      {
-        title: 'Squalane',
-        description:
-          'Any product containing squalane, whether of animal or plant origin, including cosmetics, skincare, and personal care products.',
-        image: 'https://www.buyandship.today/contents/uploads/2026/03/squalane.png',
       },
     ],
   },
@@ -124,7 +90,7 @@ const categories: Category[] = [
       {
         title: 'Shipments prohibited by law or affected by law',
         description:
-          'Any import or export prohibited by law, dangerous goods restricted for air transport, or packages that are damp or leaking.',
+          'Shipments that are prohibited by law, restricted by regulations, or require prior approval, permits, or clearance from Customs or other relevant authorities may not be accepted or may be subject to additional clearance requrements..',
         image:
           'https://www.buyandship.today/contents/uploads/2024/03/Goods-restricted-by-law-or-that-may-impact-delivery.png',
         badge: 'Latest',

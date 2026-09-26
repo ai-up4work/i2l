@@ -35,7 +35,7 @@ export type StoreCommercePanelProps = {
 }
 
 /**
- * The WishDrop-specific commerce layer — estimated price, delivery/QC
+ * The Wishdrop-specific commerce layer — estimated price, delivery/QC
  * info, qty stepper + wishlist + add-to-cart + get-quote buttons, and
  * the Description/Details/Shipping tabs. Every platform view
  * (AmazonProductView, FlipkartProductView, ...) renders this directly
@@ -65,7 +65,7 @@ export default function StoreCommercePanel({
       {estimatedPrice && (
         <div className="rounded-xl bg-teal-deep/[0.06] px-4 py-4 sm:px-5">
           <span className="flex items-center gap-1.5 text-xs font-semibold text-ink/55">
-            Estimated WishDrop Price
+            Estimated Wishdrop Price
             <Info size={12} className="text-ink/35" />
           </span>
           <div

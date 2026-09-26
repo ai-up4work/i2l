@@ -14,8 +14,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/categories',
-  title: 'Shop by Category | WishDrop',
-  description: 'Browse every product category WishDrop sources — electronics, fashion, beauty, home, and more.',
+  title: 'Shop by Category | Wishdrop',
+  description: 'Browse every product category Wishdrop sources — electronics, fashion, beauty, home, and more.',
 })
 
 const categories = [

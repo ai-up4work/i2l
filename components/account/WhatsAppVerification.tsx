@@ -6,7 +6,7 @@
 // (no Meta API): the customer enters their number, sends a pre-written
 // message to our WhatsApp, and staff confirm it on
 // /admin/whatsapp-verifications. See
-// data/wishdrop-whatsapp-manual-verification.sql for the full flow.
+// data/Wishdrop-whatsapp-manual-verification.sql for the full flow.
 //
 // States: loading → (verified | pending | rejected | none), plus an
 // "editing" mode for entering or changing the number.

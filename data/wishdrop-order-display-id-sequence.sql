@@ -1,9 +1,9 @@
--- data/wishdrop-order-display-id-sequence.sql
+-- data/Wishdrop-order-display-id-sequence.sql
 --
 -- ROOT CAUSE of every real in-platform checkout failing outright:
 --
 -- public.orders.display_id is `text unique not null` with NO default
--- (see data/wishdrop-supabase-schema.sql, section 11). Channel 1/2
+-- (see data/Wishdrop-supabase-schema.sql, section 11). Channel 1/2
 -- checkout (contexts/DashboardContext.tsx's createOrderWithRetry) and
 -- Channel 3 order confirmation (lib/supabase/requests-admin.ts's
 -- confirmRequestReal) both insert into `orders` without supplying

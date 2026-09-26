@@ -92,7 +92,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!seller) return NextResponse.json({ error: 'Seller not found' }, { status: 404 })
 
   // Refuse to delete a seller that still has product listings — `products`
-  // cascade-deletes on seller_id (see wishdrop-supabase-schema.sql), so an
+  // cascade-deletes on seller_id (see Wishdrop-supabase-schema.sql), so an
   // unguarded delete would silently wipe out every one of this seller's
   // listings along with it. Deactivate the seller (or move/delete its
   // products first) if that's genuinely intended — this mirrors the same

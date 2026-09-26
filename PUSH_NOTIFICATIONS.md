@@ -1,4 +1,4 @@
-# WishDrop — Push notifications
+# Wishdrop — Push notifications
 
 Two things send push notifications:
 
@@ -26,7 +26,7 @@ npm run push:keys
 |---|---|
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | "Public Key" from the command above |
 | `VAPID_PRIVATE_KEY` | "Private Key" — keep secret, never commit |
-| `VAPID_SUBJECT` | `mailto:` + a real inbox, e.g. `mailto:support@wishdrop.shop` |
+| `VAPID_SUBJECT` | `mailto:` + a real inbox, e.g. `mailto:support@Wishdrop.shop` |
 | `PUSH_WEBHOOK_SECRET` | Any long random string, e.g. output of `openssl rand -hex 32` |
 
 Set them for **Production** (and Preview if you test there), then redeploy.
@@ -36,12 +36,12 @@ on again.
 
 ### 2. Database (Supabase → SQL editor)
 
-Run `data/wishdrop-push-notifications.sql`, then store two Vault secrets
+Run `data/Wishdrop-push-notifications.sql`, then store two Vault secrets
 (the second must equal `PUSH_WEBHOOK_SECRET`):
 
 ```sql
-select vault.create_secret('https://www.wishdrop.shop', 'wishdrop_app_url');
-select vault.create_secret('<same value as PUSH_WEBHOOK_SECRET>', 'wishdrop_push_webhook_secret');
+select vault.create_secret('https://www.Wishdrop.shop', 'Wishdrop_app_url');
+select vault.create_secret('<same value as PUSH_WEBHOOK_SECRET>', 'Wishdrop_push_webhook_secret');
 ```
 
 If `pg_net` isn't enabled yet: `create extension if not exists pg_net;`
@@ -122,7 +122,7 @@ staff sends message ─► chat_messages row (sender ≠ customer)
 | Mac — Safari | Yes (recent macOS) |
 | iPhone / iPad | Only after **Add to Home Screen** (iOS 16.4+), opened from the Home Screen icon. The settings page and the prompt explain this and link to the install steps. |
 
-Notifications arrive even when WishDrop is closed, as long as the browser
+Notifications arrive even when Wishdrop is closed, as long as the browser
 (or installed app) is allowed to run in the background — some Android
 battery savers delay them.
 
@@ -149,10 +149,10 @@ from net._http_response order by created desc limit 20;
 | You see | Means |
 |---|---|
 | No rows at all | Trigger not firing: Vault secrets missing, or the SQL file wasn't run |
-| `403` | `PUSH_WEBHOOK_SECRET` on Vercel ≠ Vault's `wishdrop_push_webhook_secret` |
+| `403` | `PUSH_WEBHOOK_SECRET` on Vercel ≠ Vault's `Wishdrop_push_webhook_secret` |
 | `200` with `"devices":0` | That customer has no device with notifications on |
 | `200` with `"sent":0,"failed":1` | Check Vercel function logs for `[push] send failed` |
-| Timeouts / connection errors | `wishdrop_app_url` is wrong or unreachable |
+| Timeouts / connection errors | `Wishdrop_app_url` is wrong or unreachable |
 
 **"Push isn't set up yet"** on the Broadcasts page — the VAPID variables
 are missing on Vercel, or the site wasn't redeployed after adding them.
@@ -169,7 +169,7 @@ production builds. Use `npm run build && npm start`, or set
 
 | File | Purpose |
 |---|---|
-| `data/wishdrop-push-notifications.sql` | Tables, `profiles.push_offers`, chat trigger |
+| `data/Wishdrop-push-notifications.sql` | Tables, `profiles.push_offers`, chat trigger |
 | `lib/push/server.ts` | Sends pushes (server only; holds the private key) |
 | `lib/push/audience.ts` | Broadcast audiences and how they're resolved |
 | `app/api/push/chat-message/route.ts` | Called by the trigger for each staff message |

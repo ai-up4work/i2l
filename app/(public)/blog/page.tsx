@@ -4,8 +4,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/blog',
-  title: 'WishDrop Blog',
-  description: 'Buying tips, shipping guides, and service notices from the WishDrop team.',
+  title: 'Wishdrop Blog',
+  description: 'Buying tips, shipping guides, and service notices from the Wishdrop team.',
 })
 
 const categories = [
@@ -34,7 +34,7 @@ const posts = [
     tag: 'Guide',
   },
   {
-    title: 'Buying from eBay through WishDrop',
+    title: 'Buying from eBay through Wishdrop',
     excerpt: 'Auctions, fixed-price listings, and what to check before requesting an eBay item.',
     href: '/shopping/marketplaces/ebay',
     tag: 'Store guide',
@@ -46,7 +46,7 @@ export default function BlogPage() {
     <main className="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-24">
       <div className="max-w-2xl">
         <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          WishDrop blog
+          Wishdrop blog
         </p>
         <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
           Shopping tips, guides & news

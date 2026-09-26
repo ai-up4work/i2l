@@ -1,4 +1,4 @@
-# WishDrop — Fixing chat message tags (admin)
+# Wishdrop — Fixing chat message tags (admin)
 
 Customers tag chat messages to an order as they chat. When they pick the
 wrong one — or none — the message doesn't show up in that order's chat
@@ -6,7 +6,7 @@ panel. Staff can now fix any message's tag from the main inbox.
 
 ## Setup
 
-Run `data/wishdrop-chat-message-retag.sql` in Supabase (safe to re-run).
+Run `data/Wishdrop-chat-message-retag.sql` in Supabase (safe to re-run).
 It only adds audit columns; existing tags are untouched.
 
 ## How to use it (Admin → Customer chat)
@@ -41,7 +41,7 @@ and put back.
 
 | File | Purpose |
 |---|---|
-| `data/wishdrop-chat-message-retag.sql` | Audit columns on `chat_messages` |
+| `data/Wishdrop-chat-message-retag.sql` | Audit columns on `chat_messages` |
 | `app/api/admin/chat/messages/[messageId]/tag/route.ts` | Options + suggestions (GET), save with ownership check and inbox rollup (PATCH) |
 | `components/admin/chat/RetagMessageDialog.tsx` | The dialog |
 | `app/admin/(protected)/(common)/chat/page.tsx` | Tag button on messages, ✎ marker, live update after saving |

@@ -9,7 +9,7 @@ import { fetchOpenQcIssuesWithContext, type QcIssueWithContext } from "@/lib/sup
 
 // QC Issues: items flagged faulty during Quality Check. Created automatically
 // when a QC line is flagged (see save() in the qc/[id] page) and resolved by
-// recording whether WishDrop got a real refund from the seller, then issuing a
+// recording whether Wishdrop got a real refund from the seller, then issuing a
 // compensation coupon, shipping the item as-is, or retrying with a new unit.
 // See lib/supabase/qc-issues.ts for the full reasoning.
 //

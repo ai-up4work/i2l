@@ -168,9 +168,9 @@ export async function fetchHtmlScrapeProducts(
   storeName: string,
   params: ProviderFetchParams
 ): Promise<ProviderFetchResult> {
-  // With selectors.pageParam set, each WishDrop page maps 1:1 to the
+  // With selectors.pageParam set, each Wishdrop page maps 1:1 to the
   // source site's own page N — params.perPage is then whatever that
-  // source page returns, not a WishDrop-side slice (see the total/
+  // source page returns, not a Wishdrop-side slice (see the total/
   // totalPages handling below, which prefers the source's own reported
   // count over counting cards on this one page). Without pageParam,
   // this fetches the listing page once and paginates client-side instead

@@ -44,7 +44,7 @@ type MobileBottomNavProps = {
    *  tab is tapped. */
   onOpenShop: () => void
   /** Opens AddRequestOverlay. Called instead of onNavigate when the
-   *  center + button is tapped — WishDrop's whole loop is "paste a link,
+   *  center + button is tapped — Wishdrop's whole loop is "paste a link,
    *  we buy it", so this gets an always-visible, unmissable slot rather
    *  than routing away from wherever the user currently is. */
   onOpenAddRequest: () => void

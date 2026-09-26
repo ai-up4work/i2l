@@ -522,7 +522,7 @@ function FinalCTA() {
               Your global shopping companion, always.
             </h2>
             <p className="mt-2 font-body text-sm text-ink/70">
-              Paste a product link and let WishDrop handle the rest.
+              Paste a product link and let Wishdrop handle the rest.
             </p>
           </div>
 

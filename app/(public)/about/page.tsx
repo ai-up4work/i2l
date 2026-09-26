@@ -4,9 +4,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/about',
-  title: 'About WishDrop',
+  title: 'About Wishdrop',
   description:
-    'WishDrop is a concierge shopping and cross-border delivery platform helping Sri Lankan customers buy from Indian and international stores, worry-free.',
+    'Wishdrop is a concierge shopping and cross-border delivery platform helping Sri Lankan customers buy from Indian and international stores, worry-free.',
 })
 
 const values = [
@@ -35,8 +35,8 @@ const values = [
 const journey = [
   { step: '01', title: 'Discover', text: 'Browse affiliated stores and products, or submit a link to something you found elsewhere.' },
   { step: '02', title: 'Quote', text: 'See the product price, service fee, freight, duties, and estimated total, clearly, before you commit.' },
-  { step: '03', title: 'We buy it for you', text: 'WishDrop purchases the item directly from the seller on your behalf.' },
-  { step: '04', title: 'Quality check', text: 'Your item is received and inspected at a WishDrop facility before it travels onward.' },
+  { step: '03', title: 'We buy it for you', text: 'Wishdrop purchases the item directly from the seller on your behalf.' },
+  { step: '04', title: 'Quality check', text: 'Your item is received and inspected at a Wishdrop facility before it travels onward.' },
   { step: '05', title: 'Ship & deliver', text: 'We consolidate and ship to Sri Lanka, and hand it to you at your door.' },
 ]
 
@@ -45,13 +45,13 @@ export default function AboutPage() {
     <main>
       <section className="mx-auto max-w-5xl px-6 pb-16 pt-20 text-center lg:px-10 lg:pt-28">
         <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          About WishDrop
+          About Wishdrop
         </p>
         <h1 className="mx-auto mt-4 max-w-3xl font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl lg:text-6xl">
           Wish it. We'll drop it.
         </h1>
         <p className="mx-auto mt-6 max-w-2xl font-body text-base leading-relaxed text-ink/65 sm:text-lg">
-          WishDrop is a concierge shopping and cross-border delivery platform that helps customers
+          Wishdrop is a concierge shopping and cross-border delivery platform that helps customers
           in Sri Lanka buy products from affiliated Indian stores, or request products from almost
           any online store, without handling international purchasing, warehousing, customs, or
           shipping themselves.
@@ -61,13 +61,13 @@ export default function AboutPage() {
       <section className="mx-auto max-w-5xl px-6 pb-16 lg:px-10">
         <div className="rounded-3xl border border-ink/10 bg-card p-8 sm:p-12">
           <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">
-            Why WishDrop exists
+            Why Wishdrop exists
           </h2>
           <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
             Many of the products people want simply aren't sold locally. But buying from another
             country directly is full of friction: stores that won't ship to Sri Lanka, confusing
             currency conversion, no clear sense of the full landed cost, and no easy way to track a
-            parcel once it's in someone else's hands. WishDrop turns that into one guided journey —
+            parcel once it's in someone else's hands. Wishdrop turns that into one guided journey —
             choose what you want, understand the cost, pay through the platform, and receive the
             item at your door.
           </p>
@@ -93,7 +93,7 @@ export default function AboutPage() {
 
       <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
         <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">
-          How a WishDrop order moves
+          How a Wishdrop order moves
         </h2>
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {journey.map(({ step, title, text }) => (

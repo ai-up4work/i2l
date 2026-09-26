@@ -1,7 +1,7 @@
 // app/api/account/whatsapp/verification-request/route.ts
 //
 // Customer side of staff-reviewed WhatsApp verification
-// (data/wishdrop-whatsapp-manual-verification.sql).
+// (data/Wishdrop-whatsapp-manual-verification.sql).
 //
 // GET    — current state: verified number (if any), latest request, and a
 //          suggested number (from their most recent delivery address).
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
   if (owner) {
     return NextResponse.json(
-      { error: 'This number is already linked to another WishDrop account. Contact support if it’s yours.' },
+      { error: 'This number is already linked to another Wishdrop account. Contact support if it’s yours.' },
       { status: 409 },
     )
   }

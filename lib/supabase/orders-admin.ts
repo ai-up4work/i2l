@@ -6,7 +6,7 @@
 // /admin/warehouse-dashboard, /admin/purchases(+detail), /admin/sales-dashboard.
 //
 // STAGE VOCABULARY — CORRECTED: `orders.stage` is a real Postgres enum
-// (see data/wishdrop-supabase-schema.sql, `order_stage`), not a free-text
+// (see data/Wishdrop-supabase-schema.sql, `order_stage`), not a free-text
 // column. It has exactly 5 values: 'ordered', 'quality_check', 'shipped',
 // 'delivered', 'cancelled'. An earlier version of this file invented a
 // richer 7-value vocabulary ('qc_passed', 'packed', 'in_transit' as
@@ -168,7 +168,7 @@ export async function setWarehouseSubstage(
  * (setWarehouseSubstage above is order-wide, by design, for the
  * later packed/in_transit markers), which silently made every OTHER
  * item on that order read as "passed" too — including ones nobody had
- * actually inspected yet. See data/wishdrop-qc-per-item-pass.sql.
+ * actually inspected yet. See data/Wishdrop-qc-per-item-pass.sql.
  *
  * Deliberately does NOT call setWarehouseSubstage itself — the caller
  * (AdminDataContext.tsx's submitQcResult) checks whether every item on
@@ -300,7 +300,7 @@ export interface AdminOrder {
   chatThreadId: string | null
   /** True when the last message tagged to THIS order was from the
    * customer with no ops reply after it — see
-   * data/wishdrop-orders-requests-unreplied-flag.sql. Powers the
+   * data/Wishdrop-orders-requests-unreplied-flag.sql. Powers the
    * attention indicator on the orders queue and this order's own page. */
   hasUnrepliedMessage: boolean
   recipient?: { id: string; name: string; addressLine1: string; addressLine2?: string; city: string; country: string }
@@ -314,7 +314,7 @@ export interface AdminOrder {
 // No dedicated fallback-image field on product_snapshots — mirrors the
 // same placeholder contexts/Ordercontexts.tsx falls back to, so an item
 // with no captured photo still shows *something* here instead of a blank
-// box. Swap for a real WishDrop-branded placeholder asset when there is one.
+// box. Swap for a real Wishdrop-branded placeholder asset when there is one.
 const FALLBACK_ITEM_IMAGE = 'https://loremflickr.com/200/200/package?lock=0'
 
 type OrderRow = {
@@ -349,7 +349,7 @@ type OrderRow = {
     request_link: string | null
     screenshot_url: string | null
     // Real, per-item QC-passed signal — see
-    // data/wishdrop-qc-per-item-pass.sql for the bug this fixes
+    // data/Wishdrop-qc-per-item-pass.sql for the bug this fixes
     // (marking ONE item passed used to flip the whole ORDER's substage
     // to 'qc_passed', silently marking every sibling item as passed too,
     // inspected or not).
@@ -417,7 +417,7 @@ function mapRowToAdminOrder(
       // past it to the hardcoded placeholder, since product_snapshots
       // is never populated for Channel 3. product_image_url (the
       // admin's own manually-entered photo — see
-      // wishdrop-requests-manual-product-details.sql) now sits ahead of
+      // Wishdrop-requests-manual-product-details.sql) now sits ahead of
       // the customer's raw screenshot in this chain: a curated product
       // photo the admin picked is a better "real image" for the order
       // to show than whatever the customer happened to screenshot.

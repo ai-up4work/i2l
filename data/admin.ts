@@ -13,11 +13,11 @@ export const seedData: MockDbShape = {
   ],
 
   staff: [
-    { id: "staff_manager1", name: "Nadia Perera", email: "nadia@wishdrop.shop", role: "manager", status: "active", lastLogin: iso(-2 * 60 * 60 * 1000) },
-    { id: "staff_sales1", name: "Ruwan Silva", email: "ruwan@wishdrop.shop", role: "sales", status: "active", lastLogin: iso(-30 * 60 * 1000) },
-    { id: "staff_sales2", name: "Ishara Fonseka", email: "ishara@wishdrop.shop", role: "sales", status: "active", lastLogin: iso(-5 * DAY) },
-    { id: "staff_wh1", name: "Kavi Raman", email: "kavi@wishdrop.shop", role: "warehouse", siteId: "site_chennai", status: "active", lastLogin: iso(-1 * 60 * 60 * 1000) },
-    { id: "staff_wh2", name: "Divya Nair", email: "divya@wishdrop.shop", role: "warehouse", siteId: "site_chennai", status: "deactivated", lastLogin: iso(-40 * DAY) },
+    { id: "staff_manager1", name: "Nadia Perera", email: "nadia@Wishdrop.shop", role: "manager", status: "active", lastLogin: iso(-2 * 60 * 60 * 1000) },
+    { id: "staff_sales1", name: "Ruwan Silva", email: "ruwan@Wishdrop.shop", role: "sales", status: "active", lastLogin: iso(-30 * 60 * 1000) },
+    { id: "staff_sales2", name: "Ishara Fonseka", email: "ishara@Wishdrop.shop", role: "sales", status: "active", lastLogin: iso(-5 * DAY) },
+    { id: "staff_wh1", name: "Kavi Raman", email: "kavi@Wishdrop.shop", role: "warehouse", siteId: "site_chennai", status: "active", lastLogin: iso(-1 * 60 * 60 * 1000) },
+    { id: "staff_wh2", name: "Divya Nair", email: "divya@Wishdrop.shop", role: "warehouse", siteId: "site_chennai", status: "deactivated", lastLogin: iso(-40 * DAY) },
   ],
 
   sellers: [
@@ -325,7 +325,7 @@ export const seedData: MockDbShape = {
       id: "pur4",
       orderId: "ord_1004",
       channel: 1,
-      sourceStore: "WishDrop Manual Catalogue",
+      sourceStore: "Wishdrop Manual Catalogue",
       amount: 0,
       status: "failed",
       failReason: "Seller ran out of stock after order confirmation — customer notified, refund issued.",

@@ -13,7 +13,7 @@
 // requireStaffRole() resolves the current Supabase session to an ACTIVE
 // staff_accounts row and its role. requireStaffRole(allowedRoles) additionally
 // 403s if that role isn't in the allowed list — used to enforce the
-// permission matrix in wishdrop-admin-roles-and-policy.md, e.g. Warehouse
+// permission matrix in Wishdrop-admin-roles-and-policy.md, e.g. Warehouse
 // has no access to sourcing/catalogue at all, and hard-deleting a seller
 // is Manager/Super Admin only.
 

@@ -1,6 +1,6 @@
 // lib/quote.ts
 //
-// Landed cost / quote calculation for WishDrop.
+// Landed cost / quote calculation for Wishdrop.
 // All rates/constants below are hardcoded placeholders — replace with real
 // values (freight rate, HS code duty schedule) as they change. They can
 // also be overridden per-call (see the `*Override` fields on QuoteInput /
@@ -30,7 +30,7 @@ export const DEFAULT_WEIGHT_KG = 0.5;
 export const SIMPLE_PROFIT_PERCENT = 30;
 
 export const SIMPLE_FREIGHT_RATE_PER_KG = 2380;
-export const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG = 3500;
+export const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG = 2000;
 
 // Freight & customs clearance are priced per 0.5kg "block" and scale
 // proportionally with weight: e.g. 1kg pays double the 0.5kg rate,
@@ -49,7 +49,7 @@ export const SIMPLE_EXTRA_MARGIN_FLAT_LKR = 250;
 // Clearance + flat Delivery Fee with a single "Postal Charges" line
 // (weight x rate/kg), and has no flat delivery fee. The flat Extra
 // Margin still applies on top, same as Express.
-export const SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR = 1100;
+export const SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR = 3500;
 
 // Which delivery method a Simple-markup quote uses. Express = the
 // original freight + customs-clearance + delivery-fee model. Economy =

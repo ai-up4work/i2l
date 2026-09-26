@@ -215,12 +215,12 @@ export const promoStripItems = [
 export const statsBandItems = [
   { value: '90%', label: 'Max savings on shopping abroad' },
   { value: '50%', label: 'Orders are hard-to-find products' },
-  { value: '12M+', label: 'Shipments handled by WishDrop' },
+  { value: '12M+', label: 'Shipments handled by Wishdrop' },
 ]
 
 export const footerSocialLinks = [
   { label: 'Wishdrop Sri Lanka', icon: Link2, href: 'https://www.facebook.com/profile.php?id=61594274796466&mibextid=wwXIfr' },
-  { label: 'wishdrop.goodies', icon: Star, href: 'https://www.instagram.com/wishdrop.shop?stkn=cGo2bG4yNjhzYWtz&utm_source=qr' },
+  { label: 'Wishdrop.goodies', icon: Star, href: 'https://www.instagram.com/Wishdrop.shop?stkn=cGo2bG4yNjhzYWtz&utm_source=qr' },
 ]
 
 export const footerColumns = [

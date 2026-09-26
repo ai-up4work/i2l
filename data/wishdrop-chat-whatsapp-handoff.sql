@@ -1,4 +1,4 @@
--- data/wishdrop-chat-whatsapp-handoff.sql
+-- data/Wishdrop-chat-whatsapp-handoff.sql
 --
 -- "Send to WhatsApp" from the admin inbox (/admin/chat), without the Meta
 -- API: staff open a wa.me link that pre-fills the customer's verified
@@ -10,7 +10,7 @@
 -- Idempotent — safe to run more than once.
 
 -- Per message: marks staff messages that were forwarded to WhatsApp.
--- (sent_via_whatsapp already exists — see wishdrop-supabase-schema.sql.)
+-- (sent_via_whatsapp already exists — see Wishdrop-supabase-schema.sql.)
 alter table public.chat_messages
   add column if not exists whatsapp_sent_by uuid references public.staff_accounts(id) on delete set null,
   add column if not exists whatsapp_sent_by_name text,

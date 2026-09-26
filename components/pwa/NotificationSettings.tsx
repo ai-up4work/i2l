@@ -84,7 +84,7 @@ export default function NotificationSettings({ className = '' }: { className?: s
       deviceDescription =
         status === 'on'
           ? 'You’ll get a notification on this device when we reply or your order moves.'
-          : 'Get a notification on this device when we reply or your order moves, even when WishDrop is closed.'
+          : 'Get a notification on this device when we reply or your order moves, even when Wishdrop is closed.'
       deviceAction = (
         <ToggleSwitch
           checked={status === 'on'}
@@ -96,10 +96,10 @@ export default function NotificationSettings({ className = '' }: { className?: s
       break
     case 'denied':
       deviceDescription =
-        'Notifications are blocked for WishDrop in this browser. To allow them, open the site settings (the icon next to the address), set Notifications to Allow, then reload this page.'
+        'Notifications are blocked for Wishdrop in this browser. To allow them, open the site settings (the icon next to the address), set Notifications to Allow, then reload this page.'
       break
     case 'needs-install':
-      deviceDescription = 'On iPhone and iPad, notifications work once WishDrop is added to your Home Screen.'
+      deviceDescription = 'On iPhone and iPad, notifications work once Wishdrop is added to your Home Screen.'
       deviceAction = (
         <button
           type="button"

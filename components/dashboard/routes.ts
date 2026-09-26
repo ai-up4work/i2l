@@ -39,7 +39,7 @@ export const viewRoutes: Record<View, string> = {
   serviceRecords: '/account/messages/serviceRecords',
   wishlist: '/account/wishlist',
   following: '/account/following',
-  wishdropVip: '/account/wishdrop-vip',
+  WishdropVip: '/account/Wishdrop-vip',
   AddressBook: '/account/address-book',
   trackingOrders: '/account/orders/track',
   recentlyViewed: '/account/recently-viewed',

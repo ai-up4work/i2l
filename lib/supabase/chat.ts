@@ -298,7 +298,7 @@ export async function fetchRequestMessages(
  * the thread regardless of which order (or request, or neither) it was
  * about — a thread carries a customer's whole history, but this order's
  * own panel should only ever show what's actually about it. See
- * wishdrop-chat-messages-order-id.sql for why this only sees messages
+ * Wishdrop-chat-messages-order-id.sql for why this only sees messages
  * sent after that column existed.
  */
 export async function fetchOrderMessages(
@@ -326,7 +326,7 @@ export async function sendChatMessage(
     senderName: string
     text: string
     attachmentUrl?: string | null
-    /** Tags this message to a Channel 3 request (chat_messages.request_id) — shown as a visible tag in the admin chat view (see wishdrop-admin-route-specs.md's /admin/chat spec). Used for the initial message a request is created with, and for any staff/customer follow-up while that request is still open. */
+    /** Tags this message to a Channel 3 request (chat_messages.request_id) — shown as a visible tag in the admin chat view (see Wishdrop-admin-route-specs.md's /admin/chat spec). Used for the initial message a request is created with, and for any staff/customer follow-up while that request is still open. */
     requestId?: string | null
     /** Tags this message to an order (chat_messages.order_id) — backs the
      * order detail page's own small chat panel (see fetchOrderMessages
@@ -337,7 +337,7 @@ export async function sendChatMessage(
     orderId?: string | null
     /** 'whatsapp' when this message arrived via (or is being relayed
      * out through) the Cloud API webhook — see
-     * data/wishdrop-chat-messages-channel.sql. Omitted/undefined for
+     * data/Wishdrop-chat-messages-channel.sql. Omitted/undefined for
      * the normal in-app case, same "omit rather than pass null"
      * convention requestId/orderId already use above. */
     channel?: string | null
@@ -376,7 +376,7 @@ export async function sendChatMessage(
   // Supabase's generic Update<T> field types to `never`.
   //
   // last_request_id/last_order_id: rollup of "what did this thread most
-  // recently touch" — see wishdrop-chat-threads-context-rollup.sql for
+  // recently touch" — see Wishdrop-chat-threads-context-rollup.sql for
   // why the admin inbox needs this at the thread level even though the
   // real per-message tags already exist. Only overwritten when THIS
   // message carries a tag, so an untagged general follow-up doesn't
@@ -400,7 +400,7 @@ export async function sendChatMessage(
   if (threadUpdateError) {
     // DEBUG: this update previously had NO error check at all — a
     // missing last_order_id/last_request_id column (see
-    // wishdrop-chat-threads-context-rollup.sql) would fail completely
+    // Wishdrop-chat-threads-context-rollup.sql) would fail completely
     // silently here, with zero visibility anywhere. Not thrown, same
     // reasoning as the orders/requests flag update below: the message
     // itself already sent successfully by this point, and failing the
@@ -410,7 +410,7 @@ export async function sendChatMessage(
   }
 
   // Per-record "needs a reply" flag — see
-  // data/wishdrop-orders-requests-unreplied-flag.sql. True the moment a
+  // data/Wishdrop-orders-requests-unreplied-flag.sql. True the moment a
   // CUSTOMER message tagged to this order/request lands, false the
   // moment an OPS message tagged to it goes out — same on/off pattern
   // as chat_threads.unread above, just scoped to one order/request
@@ -449,7 +449,7 @@ export async function sendChatMessage(
 /** Staff-only moderation: clears one message's attachment. Just nulls
  * the column — doesn't delete the underlying Storage object here.
  * That's intentional: the weekly DB-side sweep
- * (data/wishdrop-storage-reconciliation-views.sql, run entirely via
+ * (data/Wishdrop-storage-reconciliation-views.sql, run entirely via
  * pg_cron/pg_net) reads exactly this column to decide what's still
  * referenced, so the moment this goes null the file naturally shows up
  * as orphaned on the next scheduled run and gets cleaned up there —

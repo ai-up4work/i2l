@@ -1,4 +1,4 @@
-# WishDrop — Requirements & Discussion Summary
+# Wishdrop — Requirements & Discussion Summary
 
 *Paste this whole doc into a new chat to continue where this conversation left off.*
 
@@ -6,7 +6,7 @@
 
 ## 1. Platform overview
 
-WishDrop is a concierge shopping and cross-border delivery platform helping customers in Sri Lanka buy from affiliated Indian stores, or request products from other online stores, without handling international purchasing, warehousing, customs, or shipping themselves.
+Wishdrop is a concierge shopping and cross-border delivery platform helping customers in Sri Lanka buy from affiliated Indian stores, or request products from other online stores, without handling international purchasing, warehousing, customs, or shipping themselves.
 
 **Core journey:** Discover → Request → Quote → Purchase → Quality check → Ship → Track → Support.
 
@@ -60,8 +60,8 @@ WishDrop is a concierge shopping and cross-border delivery platform helping cust
 - Referral/community features are already scoped — cross-border shopping in Sri Lanka is word-of-mouth driven; worth prioritizing.
 
 **Threats**
-- Local proxy-buying competitors and generic global forwarders both compete on price; WishDrop competes on trust/convenience, so any visibly manual/janky step undermines positioning faster than it would for a bare-bones competitor.
-- Currency/customs volatility outside WishDrop's control can break the "believable total" promise if quotes aren't kept current.
+- Local proxy-buying competitors and generic global forwarders both compete on price; Wishdrop competes on trust/convenience, so any visibly manual/janky step undermines positioning faster than it would for a bare-bones competitor.
+- Currency/customs volatility outside Wishdrop's control can break the "believable total" promise if quotes aren't kept current.
 - Dependency on affiliated stores' own feeds (Shopify/WooCommerce APIs) — feed downtime or delisted products directly erodes the "reliable" success criterion.
 
 ---
@@ -82,7 +82,7 @@ Replaced the old desktop hover-dropdown + mobile bottom-sheet split in `Header.t
 Browse catalog → product detail page → add to bag → real in-platform checkout (`app/account/cart/page.tsx`) → order created → tracked through `Ordered → Quality check → Shipped → Delivered`.
 
 ### Channel 2 — Scrapeable link *(planned)*
-Customer pastes a URL from a store WishDrop has an extractor for (Shopify, Amazon, Flipkart, etc.) → scraper/extractor pulls structured data (title, price, images, variants) → customer is redirected into a PDP-style page to select variants → flows into cart the same way as Channel 1.
+Customer pastes a URL from a store Wishdrop has an extractor for (Shopify, Amazon, Flipkart, etc.) → scraper/extractor pulls structured data (title, price, images, variants) → customer is redirected into a PDP-style page to select variants → flows into cart the same way as Channel 1.
 
 ### Channel 3 — Unscrapeable link *(planned, design agreed)*
 For links with no extractor (e.g. Instagram product posts, small boutique sites):
@@ -104,7 +104,7 @@ For links with no extractor (e.g. Instagram product posts, small boutique sites)
 ## 5. WhatsApp Business API cost research (findings, Sept 2026)
 
 - **Platform/API access itself is free** — no subscription fee to use Meta's WhatsApp Business Platform / Cloud API.
-- **Business-initiated messages are not free.** They require a pre-approved template and are billed per message by category (Marketing / Utility / Authentication) and recipient country. WishDrop's "platform message → push to WhatsApp" design counts as business-initiated (the customer isn't the one opening the conversation), so this would not be free under true API automation.
+- **Business-initiated messages are not free.** They require a pre-approved template and are billed per message by category (Marketing / Utility / Authentication) and recipient country. Wishdrop's "platform message → push to WhatsApp" design counts as business-initiated (the customer isn't the one opening the conversation), so this would not be free under true API automation.
 - **Free-form replies inside the 24-hour customer-service window are currently free** (as are utility templates sent inside that window) — **but this free tier is scheduled to end October 1, 2026**, after which even in-window service replies become chargeable. (Today's date at time of this discussion: Sept 8, 2026 — this change is imminent.)
 - Routing through a Business Solution Provider (Twilio, Gupshup, 360dialog, AiSensy, etc.) is typically required for real API integration, and BSPs may add their own fees on top of Meta's per-message rate.
 - **Decision made:** do not build Cloud API integration yet. Use the manual-send `wa.me` deep-link approach (Section 4) instead — genuinely $0, no approval process, fits the fact that a dedicated person is already handling Channel 3 manually. Revisit true API automation only once manual-send volume becomes a real bottleneck for ops — by then Meta's post-Oct-1 pricing will be settled and utility-category volume-tier rates should be knowable.
@@ -117,7 +117,7 @@ The admin sidebar (`components/admin/admin-sidebar.tsx`) has separate top-level 
 
 - **Sellers** — the vendor accounts. Two distinct seller types live under this one list:
   - **Feed-integrated sellers**: have a real Shopify/WooCommerce connection. Their product data is pulled automatically; nothing is authored by hand.
-  - **Manual-mode sellers**: have no external store at all — WishDrop *is* their storefront. Someone (ops or the seller, if given a login) has to create every product record by hand: title, price, images, variants, stock.
+  - **Manual-mode sellers**: have no external store at all — Wishdrop *is* their storefront. Someone (ops or the seller, if given a login) has to create every product record by hand: title, price, images, variants, stock.
   - **Decision:** both seller types are listed together under **Sellers**, tagged by type. Clicking a feed-integrated seller opens a read-only synced product list; clicking a manual-mode seller opens their **Catalogue** — a full product CRUD screen (forms, image upload, variant builder). This keeps "which sellers do I check where" from becoming a memorization problem — a seller is a seller at the list level, and the detail view branches based on type.
   - **Open question, not yet resolved:** is a Catalogue always 1:1 with exactly one manual-mode seller, or can a catalogue be decoupled from any single seller (e.g. products authored before being assigned, or one catalogue feeding multiple manual sellers)? If 1:1, Catalogues should probably live as a nested route under a seller rather than fully top-level. If decoupled, top-level is correct as currently built. **Needs a decision before the nav is finalized** — for now, Catalogues stays top-level since the manual-authoring workflow is confirmed real and currently built that way.
 - **Collections** — curated, cross-seller merchandising groupings ("Diwali Picks," "New This Week," a homepage shelf). Independent of sourcing; can mix products from any seller (feed-integrated or manual) into one shelf. Kept as its own top-level page since it's a real, currently-used feature.

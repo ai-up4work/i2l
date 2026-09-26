@@ -1,6 +1,6 @@
 // lib/supabase/types.ts
 //
-// Hand-written from the schema dump in the "wishdrop schema" reference
+// Hand-written from the schema dump in the "Wishdrop schema" reference
 // (public.* tables only — auth.users is Supabase-managed and not
 // redeclared here). This is NOT a substitute for the generated version —
 // USER-DEFINED enum columns are typed as `string` below because the dump
@@ -37,7 +37,7 @@ export interface Database {
           created_at: string
           updated_at: string
           referral_code: string | null
-          /** Offers/promotional push opt-in — see data/wishdrop-push-notifications.sql. */
+          /** Offers/promotional push opt-in — see data/Wishdrop-push-notifications.sql. */
           push_offers: boolean
         }
         Insert: {
@@ -479,7 +479,7 @@ export interface Database {
           request_id: string | null
           order_id: string | null
           // Rollup of the most recent TAGGED message in this thread —
-          // added by data/wishdrop-chat-threads-context-rollup.sql.
+          // added by data/Wishdrop-chat-threads-context-rollup.sql.
           // Kept current by sendChatMessage() in lib/supabase/chat.ts.
           // Distinct from request_id/order_id above, which are only
           // ever set at thread-CREATION time and are effectively always
@@ -489,7 +489,7 @@ export interface Database {
           last_order_id: string | null
           last_activity: string
           unread: boolean
-          // See data/wishdrop-chat-whatsapp-handoff.sql.
+          // See data/Wishdrop-chat-whatsapp-handoff.sql.
           last_whatsapp_reminder_at?: string | null
           last_whatsapp_reminder_by_name?: string | null
         }
@@ -535,7 +535,7 @@ export interface Database {
           quantity: number
           variant_options: Json | null
           // Kept current by sendChatMessage() in lib/supabase/chat.ts —
-          // see data/wishdrop-orders-requests-unreplied-flag.sql.
+          // see data/Wishdrop-orders-requests-unreplied-flag.sql.
           has_unreplied_message: boolean
         }
         Insert: {
@@ -597,13 +597,13 @@ export interface Database {
           request_id: string | null
           order_id: string | null
           sent_via_whatsapp: boolean
-          // See data/wishdrop-chat-messages-channel.sql — 'whatsapp' for
+          // See data/Wishdrop-chat-messages-channel.sql — 'whatsapp' for
           // a message that arrived via, or was relayed out through, the
           // Cloud API webhook; null for the normal in-app case. Distinct
           // from sent_via_whatsapp above, which specifically means
           // "staff manually used the wa.me deep-link button."
           channel: string | null
-          // Staff re-tag audit — see data/wishdrop-chat-message-retag.sql.
+          // Staff re-tag audit — see data/Wishdrop-chat-message-retag.sql.
           // Optional so rows built client-side before the migration (and
           // optimistic inserts) still type-check.
           tag_edited?: boolean
@@ -612,7 +612,7 @@ export interface Database {
           tag_edited_at?: string | null
           original_order_id?: string | null
           original_request_id?: string | null
-          // See data/wishdrop-chat-whatsapp-handoff.sql.
+          // See data/Wishdrop-chat-whatsapp-handoff.sql.
           whatsapp_sent_by?: string | null
           whatsapp_sent_by_name?: string | null
           whatsapp_sent_at?: string | null
@@ -665,14 +665,14 @@ export interface Database {
           created_at: string
           stage_entered_at: string
           // Kept current by sendChatMessage() in lib/supabase/chat.ts —
-          // see data/wishdrop-orders-requests-unreplied-flag.sql.
+          // see data/Wishdrop-orders-requests-unreplied-flag.sql.
           has_unreplied_message: boolean
         }
         Insert: {
           id?: string
           // Optional now that orders.display_id has a real DB default
           // (a Postgres sequence — see
-          // data/wishdrop-order-display-id-sequence.sql). Marking this
+          // data/Wishdrop-order-display-id-sequence.sql). Marking this
           // required was accurate against the old schema (no default
           // existed, so every insert had to supply one), but is now
           // stale — both createOrderWithRetry (DashboardContext.tsx)
@@ -717,7 +717,7 @@ export interface Database {
           screenshot_url: string | null
           // Real, per-item QC-passed signal — see markItemQcPassed in
           // lib/supabase/orders-admin.ts and
-          // data/wishdrop-qc-per-item-pass.sql for the bug this fixes
+          // data/Wishdrop-qc-per-item-pass.sql for the bug this fixes
           // (marking one item passed used to flip the whole order's
           // substage, silently marking every sibling item as passed too).
           qc_passed_at: string | null
@@ -1070,7 +1070,7 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['notifications']['Insert']>
         Relationships: []
       }
-      // See data/wishdrop-push-notifications.sql.
+      // See data/Wishdrop-push-notifications.sql.
       push_subscriptions: {
         Row: {
           id: string
@@ -1139,7 +1139,7 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['push_broadcasts']['Insert']>
         Relationships: []
       }
-      // See data/wishdrop-whatsapp-manual-verification.sql.
+      // See data/Wishdrop-whatsapp-manual-verification.sql.
       whatsapp_verification_requests: {
         Row: {
           id: string
@@ -1170,7 +1170,7 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['whatsapp_verification_requests']['Insert']>
         Relationships: []
       }
-      // See data/wishdrop-chat-whatsapp-handoff.sql.
+      // See data/Wishdrop-chat-whatsapp-handoff.sql.
       chat_whatsapp_handoffs: {
         Row: {
           id: string
@@ -1227,7 +1227,7 @@ export interface Database {
           email: string
           // Nullable — a self-registered ('pending') account has no
           // role until a Manager/Super Admin approves it. See
-          // data/wishdrop-staff-self-registration.sql.
+          // data/Wishdrop-staff-self-registration.sql.
           role: string | null
           // What a self-registered applicant said they're applying
           // for — informational only, never the source of the actual
@@ -1238,7 +1238,7 @@ export interface Database {
           last_login: string | null
           // Per-account toggle prefs for /admin/settings/notifications
           // (new_request, order_delayed, chat_message, qc_flagged,
-          // purchase_issue) — see data/wishdrop-staff-notification-prefs.sql.
+          // purchase_issue) — see data/Wishdrop-staff-notification-prefs.sql.
           // Nullable/absent keys default to "on" client-side, so this
           // column only ever needs to store the OFF exceptions.
           notification_prefs: Record<string, boolean> | null
@@ -1398,7 +1398,7 @@ export interface Database {
           created_by: string | null
           resolved_at: string | null
           // Set for real once the item's replacement has actually been
-          // bought again — see data/wishdrop-qc-repurchase-signal.sql.
+          // bought again — see data/Wishdrop-qc-repurchase-signal.sql.
           // Null means "retry_same but still waiting to be repurchased".
           replacement_purchased_at: string | null
           created_at: string
@@ -1465,7 +1465,7 @@ export interface Database {
     Views: Record<string, never>
     Functions: {
       // Backs upsertScrapeHealth (lib/supabase/scrape-health-write.ts) —
-      // see data/wishdrop-scrape-health-increment-fn.sql for why this is
+      // see data/Wishdrop-scrape-health-increment-fn.sql for why this is
       // a database-side function rather than a plain client upsert.
       increment_scrape_health: {
         Args: { p_domain: string; p_success: boolean; p_title?: string; p_image_url?: string; p_price?: string; p_error?: string }

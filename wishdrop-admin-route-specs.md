@@ -1,4 +1,4 @@
-# WishDrop Admin — Route Specifications (v2, matches built folder structure)
+# Wishdrop Admin — Route Specifications (v2, matches built folder structure)
 
 *Rewritten to match the actual `app/admin` tree after absorbing several standalone "new"/sub-action routes into their parent pages. No database/schema details here — this is purely actions, features, and layout per page. Use as the build checklist for UI/UX and interaction logic.*
 

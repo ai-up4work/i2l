@@ -35,7 +35,7 @@ type ThreadRow = {
   request_id: string | null
   order_id: string | null
   /** Rollup of the most recent TAGGED message in this thread — see
-   * wishdrop-chat-threads-context-rollup.sql. Unlike request_id/order_id
+   * Wishdrop-chat-threads-context-rollup.sql. Unlike request_id/order_id
    * above (set only at thread-creation time, and effectively always
    * null since threads are reused per-customer rather than created per
    * request/order), these stay current as the conversation goes on. */
@@ -109,7 +109,7 @@ function groupByDate(messages: ChatMessageRow[]) {
 // reused for their whole lifetime rather than created per request/
 // order, they're effectively always null now. The order pill rendered
 // in the thread list below reads last_order_id (the live rollup)
-// instead — see wishdrop-chat-threads-context-rollup.sql.
+// instead — see Wishdrop-chat-threads-context-rollup.sql.
 
 function Avatar({
   name,

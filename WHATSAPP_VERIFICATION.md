@@ -1,4 +1,4 @@
-# WishDrop — WhatsApp number verification (staff-reviewed)
+# Wishdrop — WhatsApp number verification (staff-reviewed)
 
 Customers verify their WhatsApp number by **sending us a WhatsApp
 message**; staff confirm it in the admin panel. No Meta API, no templates,
@@ -7,7 +7,7 @@ My Profile.
 
 ## Setup
 
-1. Run `data/wishdrop-whatsapp-manual-verification.sql` in Supabase.
+1. Run `data/Wishdrop-whatsapp-manual-verification.sql` in Supabase.
 2. **Which number customers message.** By default they message
    `NEXT_PUBLIC_WHATSAPP_NUMBER` (the site's WhatsApp contact). That number
    must be one your team reads in the **WhatsApp or WhatsApp Business app**.
@@ -22,7 +22,7 @@ My Profile.
 
 ## Unique chat handles
 
-Run `data/wishdrop-unique-chat-handles.sql` too (before or after the file
+Run `data/Wishdrop-unique-chat-handles.sql` too (before or after the file
 above). The verification message includes the customer's chat handle, and
 until now handles weren't unique — every Kavindi was "@kavindi".
 
@@ -54,7 +54,7 @@ select lower(chat_handle), count(*) from public.profiles group by 1 having count
 3. **Send on WhatsApp** → WhatsApp opens with this message ready to send:
 
    ```
-   Hi WishDrop! Please verify my WhatsApp number.
+   Hi Wishdrop! Please verify my WhatsApp number.
 
    Reference: WD-7K3D9Q
    Name: Kavindi Silva
@@ -79,7 +79,7 @@ verified on another account is refused with a "contact support" message.
 Visible to Manager, Sales and Super Admin; the sidebar shows how many are
 waiting.
 
-1. In the WishDrop WhatsApp, find the message — search the **reference**,
+1. In the Wishdrop WhatsApp, find the message — search the **reference**,
    or use **Open this chat in WhatsApp** on the card.
 2. **Check who it came FROM.** WhatsApp shows the real sender number; the
    text inside the message can be typed by anyone. This check is what makes
@@ -104,8 +104,8 @@ Verify is blocked and the card says which account.
 
 | File | Purpose |
 |---|---|
-| `data/wishdrop-whatsapp-manual-verification.sql` | `whatsapp_verification_requests` table |
-| `data/wishdrop-unique-chat-handles.sql` | Unique chat handles: generator, sign-up trigger, backfill, unique index |
+| `data/Wishdrop-whatsapp-manual-verification.sql` | `whatsapp_verification_requests` table |
+| `data/Wishdrop-unique-chat-handles.sql` | Unique chat handles: generator, sign-up trigger, backfill, unique index |
 | `lib/whatsapp/verification.ts` | Number normalizing, reference codes, the message text, reject reasons |
 | `app/api/account/whatsapp/verification-request/route.ts` | Customer: start / check / cancel |
 | `app/api/admin/whatsapp-verifications/route.ts` | Staff: list, count, verify, reject (+ notifies the customer) |

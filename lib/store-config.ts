@@ -652,7 +652,7 @@ export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
   listingUrl: string;
   /**
    * Per-category listing pages, the html-scrape equivalent of Shopify's
-   * collectionMap / WooCommerce's categoryMap \u2014 maps a WishDrop category
+   * collectionMap / WooCommerce's categoryMap \u2014 maps a Wishdrop category
    * name to that category's OWN listing page on the source site (a path
    * or full URL; a bare path is resolved against baseUrl). When a shopper
    * filters the storefront by category, fetchHtmlScrapeProducts requests

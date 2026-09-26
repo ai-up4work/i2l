@@ -1,4 +1,4 @@
--- data/wishdrop-orders-chat-thread-backfill.sql
+-- data/Wishdrop-orders-chat-thread-backfill.sql
 --
 -- One-time repair: link every order that has no chat thread
 -- (orders.chat_thread_id is null) to the right conversation.

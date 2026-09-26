@@ -170,7 +170,7 @@ export default function NewStaffPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@wishdrop.lk"
+              placeholder="name@Wishdrop.lk"
               className={`mt-1.5 w-full ${inputClass}`}
             />
           </div>

@@ -4,9 +4,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping',
-  title: 'How Shopping Works | WishDrop',
+  title: 'How Shopping Works | Wishdrop',
   description:
-    'Two ways to shop with WishDrop: browse affiliated stores directly, or send us a link to almost anything and let us buy it for you.',
+    'Two ways to shop with Wishdrop: browse affiliated stores directly, or send us a link to almost anything and let us buy it for you.',
 })
 
 const paths = [
@@ -29,7 +29,7 @@ const paths = [
 const steps = [
   { title: 'Tell us what you want', text: 'Pick a product from an affiliated store, or paste a link and add any details (size, colour, quantity).' },
   { title: 'Review your quote', text: 'See the product price, our service fee, freight, and estimated customs charges before you pay anything.' },
-  { title: 'We buy it', text: 'Once you accept and pay, WishDrop purchases the item directly from the seller.' },
+  { title: 'We buy it', text: 'Once you accept and pay, Wishdrop purchases the item directly from the seller.' },
   { title: 'Track it home', text: 'Follow your order through quality check, shipping, and delivery from your account.' },
 ]
 
@@ -44,7 +44,7 @@ export default function ShoppingPage() {
           Two ways to shop, one guided journey
         </h1>
         <p className="mx-auto mt-5 max-w-xl font-body text-base leading-relaxed text-ink/65">
-          Whatever you want to buy, WishDrop becomes your purchasing agent — sourcing it, paying
+          Whatever you want to buy, Wishdrop becomes your purchasing agent — sourcing it, paying
           for it, checking it, and delivering it, so you don't have to.
         </p>
       </section>

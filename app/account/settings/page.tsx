@@ -266,12 +266,12 @@ export default function SettingsPage() {
         <LinkRow
           label="Delete Account"
           description="NOTE: Account will NOT BE RECOVERABLE once deleted. Contact support to request this."
-          onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Delete%20my%20account')}
+          onClick={() => window.location.assign('mailto:support@Wishdrop.app?subject=Delete%20my%20account')}
         />
         <LinkRow
           label="Download Your Information"
           description="To request a copy of your personal data, contact support — we'll verify your identity and send it to you."
-          onClick={() => window.location.assign('mailto:support@wishdrop.app?subject=Data%20export%20request')}
+          onClick={() => window.location.assign('mailto:support@Wishdrop.app?subject=Data%20export%20request')}
         />
       </div>
     </div>

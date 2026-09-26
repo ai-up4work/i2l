@@ -394,7 +394,7 @@ export function AdminSidebar() {
   // (rose, numeric — "how much is in this queue"), this is a "does
   // anything here need a reply" flag (gold, a dot, not a number) — see
   // Order.hasUnrepliedMessage / RequestLine.hasUnrepliedMessage and
-  // data/wishdrop-orders-requests-unreplied-flag.sql. The two are
+  // data/Wishdrop-orders-requests-unreplied-flag.sql. The two are
   // independent: an order can have zero backlog concerns and still be
   // sitting on an unanswered customer message, or vice versa.
   const attentionFlags = useMemo(() => {
@@ -437,7 +437,7 @@ export function AdminSidebar() {
             W
           </span>
         ) : (
-          <Image src="/wish-drop-logo.png" alt="WishDrop" width={120} height={32} className="h-9 w-auto object-contain" />
+          <Image src="/wish-drop-logo.png" alt="Wishdrop" width={120} height={32} className="h-9 w-auto object-contain" />
         )}
       </div>
 

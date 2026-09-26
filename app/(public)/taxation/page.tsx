@@ -3,9 +3,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/taxation',
-  title: 'Taxation & Customs | WishDrop',
+  title: 'Taxation & Customs | Wishdrop',
   description:
-    'How Sri Lankan customs duty, PAL, SSCL, Cess, surcharge, and VAT are calculated into your WishDrop quote.',
+    'How Sri Lankan customs duty, PAL, SSCL, Cess, surcharge, and VAT are calculated into your Wishdrop quote.',
 })
 
 export default function TaxationPage() {
@@ -13,7 +13,7 @@ export default function TaxationPage() {
     <LegalPageLayout
       eyebrow="Legal · Shipping"
       title="Taxation & Customs"
-      intro="Every item WishDrop imports on your behalf clears Sri Lankan customs before it reaches you. This page explains, in plain language, which duties and taxes can apply, how they're estimated in your quote, and what changes them."
+      intro="Every item Wishdrop imports on your behalf clears Sri Lankan customs before it reaches you. This page explains, in plain language, which duties and taxes can apply, how they're estimated in your quote, and what changes them."
       lastUpdated="14 September 2026"
       note={
         <>
@@ -29,10 +29,10 @@ export default function TaxationPage() {
           heading: 'Why import charges apply',
           body: (
             <p>
-              Any parcel entering Sri Lanka from abroad — including everything WishDrop imports on
+              Any parcel entering Sri Lanka from abroad — including everything Wishdrop imports on
               your behalf — is subject to Sri Lanka Customs assessment. Depending on the product
               category and declared value, this can include import duty and several
-              government-mandated levies and taxes. WishDrop builds a reasonable estimate of these
+              government-mandated levies and taxes. Wishdrop builds a reasonable estimate of these
               charges into your quote so there are no surprises at delivery, and we handle the
               customs clearance process for you.
             </p>
@@ -92,7 +92,7 @@ export default function TaxationPage() {
               Customs value is generally based on the product's purchase price plus applicable
               freight, so heavier or bulkier items typically carry a higher freight charge, which
               in turn affects the customs value used for these calculations. When a product's exact
-              weight is not available from the seller, WishDrop applies a reasonable default weight
+              weight is not available from the seller, Wishdrop applies a reasonable default weight
               for estimation, and adjusts the final charge once the actual weight is confirmed at
               quality check.
             </p>
@@ -103,7 +103,7 @@ export default function TaxationPage() {
           heading: 'Flat markup pricing (where offered)',
           body: (
             <p>
-              For some catalogue products and delivery options, WishDrop instead shows a simplified,
+              For some catalogue products and delivery options, Wishdrop instead shows a simplified,
               all-in price that bundles a flat service margin with weight-based freight and
               clearance charges (Express), or a single postal-charges line (Economy), rather than
               itemising each duty component separately. In both cases, the amount you pay at
@@ -120,8 +120,8 @@ export default function TaxationPage() {
               Sri Lanka Customs may apply exemptions or reduced processing for very low-value
               shipments, and duty-free or concessionary treatment can apply to specific product
               categories under prevailing regulations. Where such treatment plausibly applies,
-              WishDrop reflects it in your quote; however, final eligibility is determined by
-              customs at the time of clearance, not by WishDrop.
+              Wishdrop reflects it in your quote; however, final eligibility is determined by
+              customs at the time of clearance, not by Wishdrop.
             </p>
           ),
         },
@@ -134,7 +134,7 @@ export default function TaxationPage() {
                 <li>The seller's actual price at the time of purchase differing from the price shown when you requested a quote.</li>
                 <li>Actual weight or dimensions differing from the estimate once the item is received and measured.</li>
                 <li>Sri Lanka Customs reclassifying or revaluing an item differently than estimated.</li>
-                <li>Government rate changes to duty, PAL, SSCL, Cess, or VAT, which are outside WishDrop's control.</li>
+                <li>Government rate changes to duty, PAL, SSCL, Cess, or VAT, which are outside Wishdrop's control.</li>
               </ul>
               <p>
                 If a material change increases your total, we will contact you before proceeding
@@ -150,7 +150,7 @@ export default function TaxationPage() {
             <p>
               Some products cannot be imported at all, or require special permits regardless of
               duty payment. See our full <a href="/prohibited-items">Prohibited Items</a> list
-              before submitting a request. WishDrop will not knowingly purchase or ship a
+              before submitting a request. Wishdrop will not knowingly purchase or ship a
               prohibited item.
             </p>
           ),

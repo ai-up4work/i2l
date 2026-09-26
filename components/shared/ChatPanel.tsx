@@ -197,7 +197,7 @@ export default function ChatPanel({
       className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[40rem] w-[27rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
       role="dialog"
       aria-modal="true"
-      aria-label="Chat with WishDrop support"
+      aria-label="Chat with Wishdrop support"
     >
       <div className="flex items-center justify-between bg-indigo px-4 py-3.5">
         <div className="flex items-center gap-3">
@@ -205,7 +205,7 @@ export default function ChatPanel({
             <MessageCircle size={18} />
           </span>
           <div>
-            <p className="font-display text-sm font-semibold text-parchment">WishDrop Support</p>
+            <p className="font-display text-sm font-semibold text-parchment">Wishdrop Support</p>
             <p className="font-body text-[11px] text-parchment/55">
               {handle ? `Chatting as ${handle}` : 'Typically replies within a few hours'}
             </p>

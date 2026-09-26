@@ -6,13 +6,13 @@ import { FaFacebook, FaInstagram } from 'react-icons/fa'
 
 const socialLinks = [
   { label: 'Wishdrop Sri Lanka', icon: FaFacebook, href: 'https://www.facebook.com/profile.php?id=61594274796466&mibextid=wwXIfr' },
-  { label: 'wishdrop.goodies', icon: FaInstagram, href: 'https://www.instagram.com/wishdrop.shop?stkn=cGo2bG4yNjhzYWtz&utm_source=qr' },
+  { label: 'Wishdrop.goodies', icon: FaInstagram, href: 'https://www.instagram.com/Wishdrop.shop?stkn=cGo2bG4yNjhzYWtz&utm_source=qr' },
 ]
 
 const columns = [
   {
     heading: 'About Wishdrop',
-    links: [{label: 'About us', href: '/about'}, {label: 'Privacy policy', href: '/privacy'}, {label: 'Taxation', href: '/taxation'}],
+    links: [{label: 'About us', href: '/about'}, {label: 'Privacy policy', href: '/privacy'}],
   },
   {
     heading: 'Shipping supports',

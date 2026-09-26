@@ -6,8 +6,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/coupons',
-  title: 'Coupons | WishDrop',
-  description: 'Active coupon codes to save on shipping and shopping fees at WishDrop.',
+  title: 'Coupons | Wishdrop',
+  description: 'Active coupon codes to save on shipping and shopping fees at Wishdrop.',
 })
 
 export default function CouponsPage() {
@@ -57,7 +57,7 @@ export default function CouponsPage() {
       )}
 
       <p className="mt-12 font-body text-xs text-ink/40">
-        One coupon code per order unless stated otherwise. WishDrop may withdraw or amend a
+        One coupon code per order unless stated otherwise. Wishdrop may withdraw or amend a
         promotion at any time; already-placed orders are not affected. Full terms in our{' '}
         <a href="/terms" className="text-teal-deep underline underline-offset-2">Terms of Use</a>.
       </p>

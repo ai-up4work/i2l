@@ -3,7 +3,7 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shipping/protection',
-  title: 'Shipping Protection Plan | WishDrop',
+  title: 'Shipping Protection Plan | Wishdrop',
   description:
     'Optional coverage against loss or damage to your parcel between our facility and your door.',
 })
@@ -13,7 +13,7 @@ export default function ShippingProtectionPage() {
     <LegalPageLayout
       eyebrow="Legal · Shipping"
       title="Shipping Protection Plan"
-      intro="Shipping Protection is an optional add-on that covers your consolidated parcel against loss or damage from the moment it leaves a WishDrop facility until it's delivered to your address."
+      intro="Shipping Protection is an optional add-on that covers your consolidated parcel against loss or damage from the moment it leaves a Wishdrop facility until it's delivered to your address."
       lastUpdated="14 September 2026"
       note={
         <>
@@ -31,7 +31,7 @@ export default function ShippingProtectionPage() {
             <>
               <p>When added to an order, Shipping Protection covers:</p>
               <ul>
-                <li>Parcels confirmed lost in transit by the courier after leaving a WishDrop facility.</li>
+                <li>Parcels confirmed lost in transit by the courier after leaving a Wishdrop facility.</li>
                 <li>Parcels that arrive visibly damaged in a way that occurred during international transit or last-mile delivery.</li>
                 <li>Parcels marked delivered by the courier that you did not actually receive, subject to our standard investigation.</li>
               </ul>
@@ -59,7 +59,7 @@ export default function ShippingProtectionPage() {
               The protection fee and maximum coverage amount for a given order are shown at
               checkout before you add the plan, and are calculated from the declared value of your
               consolidated shipment, up to a maximum coverage cap. Coverage cannot exceed the
-              declared value of the goods actually purchased through WishDrop for that shipment.
+              declared value of the goods actually purchased through Wishdrop for that shipment.
             </p>
           ),
         },
@@ -92,8 +92,8 @@ export default function ShippingProtectionPage() {
           body: (
             <p>
               Approved claims are resolved by replacement (where the same item can be re-sourced),
-              WishDrop wallet credit, or a refund to your original payment method, up to the
-              covered amount, at WishDrop's discretion after considering your preference.
+              Wishdrop wallet credit, or a refund to your original payment method, up to the
+              covered amount, at Wishdrop's discretion after considering your preference.
             </p>
           ),
         },

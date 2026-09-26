@@ -105,7 +105,7 @@ export type ConfirmResult = { ok: boolean; error?: string }
  * `addresses` and points the new order's recipient_address_id at it —
  * previously this data was collected nowhere on checkout at all, so
  * orders.recipient_address_id stayed permanently null (see
- * "Known gaps" in WISHDROP_STATUS.md).
+ * "Known gaps" in Wishdrop_STATUS.md).
  *
  * `existingAddressId` — set when the checkout form was prefilled from
  * the customer's saved default address (Address Book) and they didn't
@@ -258,7 +258,7 @@ function applyScrapeResultToDraft(current: Draft, result: ScrapeResult): Draft {
  * to be a client-side random 5-digit number with a retry-on-collision
  * loop, since there was no DB-side way to produce one. Now
  * orders.display_id has a real DEFAULT backed by a Postgres sequence
- * (see data/wishdrop-order-display-id-sequence.sql), so leaving it out
+ * (see data/Wishdrop-order-display-id-sequence.sql), so leaving it out
  * of the insert lets the database assign a real, strictly increasing
  * order number.
  *

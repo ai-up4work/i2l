@@ -109,7 +109,7 @@ export default function Sidebar({
       >
         {/* Logo — mobile-only. On desktop the shared marketing Header
             (rendered above this whole layout, see account/layout.tsx)
-            already shows the WishDrop logo, so repeating it here just
+            already shows the Wishdrop logo, so repeating it here just
             duplicated it and pushed "Personal Center" down for no
             reason. On mobile, Header isn't rendered at all for account
             pages, so this drawer needs its own logo + close (X) button. */}

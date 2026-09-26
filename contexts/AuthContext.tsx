@@ -62,7 +62,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 // those stay in Supabase's own storage). This is purely so the header can
 // paint the right name/avatar on the very first render instead of flashing
 // a logged-out state while getUser() round-trips.
-const CACHE_KEY = "wishdrop:auth-user-cache:v1"
+const CACHE_KEY = "Wishdrop:auth-user-cache:v1"
 
 function readCachedUser(): AuthUser | null {
   if (typeof window === "undefined") return null

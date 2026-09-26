@@ -34,7 +34,7 @@ export const REQUEST_STATUS_FLOW: RequestStatus[] = [
   'Delivered',
 ]
 
-/** Statuses at or after which WishDrop has already spent money/effort on the customer's behalf. */
+/** Statuses at or after which Wishdrop has already spent money/effort on the customer's behalf. */
 const LOCKED_STATUSES: RequestStatus[] = [
   'Order accepted',
   'Product received',
@@ -153,7 +153,7 @@ export function canRequestCancellation(request: Pick<ItemRequest, 'status' | 'ca
   return CANCELLATION_REQUESTABLE_STATUSES.includes(request.status)
 }
 
-/** Once shipped, the order is out of WishDrop's hands — no cancellation path at all. */
+/** Once shipped, the order is out of Wishdrop's hands — no cancellation path at all. */
 export function isPastCancellationWindow(status: RequestStatus): boolean {
   return status === 'Shipped' || status === 'Delivered' || status === 'Cancelled'
 }

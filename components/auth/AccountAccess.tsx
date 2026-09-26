@@ -227,7 +227,7 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
             {mode === 'login' ? 'Welcome back' : 'Create your account'}
           </h2>
           <p className="mt-2 text-sm text-ink/55">
-            {mode === 'login' ? 'Your delivery desk is waiting.' : 'Start with your free WishDrop account.'}
+            {mode === 'login' ? 'Your delivery desk is waiting.' : 'Start with your free Wishdrop account.'}
           </p>
 
           <form onSubmit={submit} className="mt-6 flex flex-col gap-4">

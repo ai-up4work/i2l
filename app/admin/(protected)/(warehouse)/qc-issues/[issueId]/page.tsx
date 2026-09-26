@@ -488,7 +488,7 @@ export default function QcIssueDetailPage() {
                       n={1}
                       done={issue.sellerRefundObtained !== null}
                       title="Seller refund"
-                      description="Did WishDrop get a real refund from the seller for this item?"
+                      description="Did Wishdrop get a real refund from the seller for this item?"
                     >
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -612,7 +612,7 @@ export default function QcIssueDetailPage() {
                       <Step
                         n={3}
                         title="Ship as originally sourced"
-                        description="No coupon. WishDrop can't absorb a cost it didn't recover from the seller."
+                        description="No coupon. Wishdrop can't absorb a cost it didn't recover from the seller."
                       >
                         <button
                           type="button"

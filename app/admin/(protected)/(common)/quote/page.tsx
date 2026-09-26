@@ -28,7 +28,7 @@ import {
 import { rateToLKR } from "@/lib/currency-config"
 
 // Quote calculator: enter what a customer wants to buy and see the landed-cost
-// breakdown WishDrop would quote them, step by step. Same page recipe as the
+// breakdown Wishdrop would quote them, step by step. Same page recipe as the
 // admin list pages (shell, header with a live stat strip, segmented toolbar,
 // bordered surfaces), with the tool itself below.
 //
@@ -366,7 +366,7 @@ function QuoteDemoPage() {
             <div>
               <h1 className="font-display text-3xl font-semibold leading-tight">Quote calculator</h1>
               <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
-                Enter what a customer wants to buy and see the landed cost breakdown WishDrop would quote them, step by
+                Enter what a customer wants to buy and see the landed cost breakdown Wishdrop would quote them, step by
                 step.
               </p>
             </div>

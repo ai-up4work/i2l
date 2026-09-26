@@ -8,7 +8,7 @@
 // PATCH — { type: 'order' | 'request' | 'none', id? }
 //         Sets the tag. The order/request must belong to the same
 //         customer as the conversation. Records who changed it and the
-//         original tag (data/wishdrop-chat-message-retag.sql), then
+//         original tag (data/Wishdrop-chat-message-retag.sql), then
 //         recomputes the conversation's "last order/request" rollup.
 //
 // Manager, Sales and Super Admin — the roles that work the inbox.

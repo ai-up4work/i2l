@@ -1,4 +1,4 @@
--- data/wishdrop-admin-orders-rls-fix.sql
+-- data/Wishdrop-admin-orders-rls-fix.sql
 --
 -- ROOT CAUSE of "fresh orders show on /admin/orders but not on
 -- /admin/purchases (or only one order ever shows at all, no matter who
@@ -31,7 +31,7 @@
 -- authenticated user, so the admin panel can see every order regardless
 -- of who's logged into that browser tab. This matches the level of
 -- access-control maturity the rest of the admin panel already has today
--- (per data/wishdrop-supabase-schema.sql's own comment: "Staff/admin
+-- (per data/Wishdrop-supabase-schema.sql's own comment: "Staff/admin
 -- tables intentionally have NO client-facing RLS policy... access them
 -- only through server-side routes using the service role key" — i.e.
 -- the schema's author always expected a real access-control layer to

@@ -5,8 +5,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/contact',
-  title: 'Contact Us | WishDrop',
-  description: 'Get in touch with WishDrop support — WhatsApp, email, phone, or send a message directly.',
+  title: 'Contact Us | Wishdrop',
+  description: 'Get in touch with Wishdrop support — WhatsApp, email, phone, or send a message directly.',
 })
 
 // Sri Lankan mobile number 0770774828 in the +CC-no-leading-zero shape
@@ -27,14 +27,14 @@ const channels = [
     // shared number (NEXT_PUBLIC_WHATSAPP_NUMBER), not a second
     // hardcoded copy that could quietly go stale here while that one
     // gets updated.
-    href: buildWhatsAppLink(null, "Hi, I have a question about WishDrop."),
+    href: buildWhatsAppLink(null, "Hi, I have a question about Wishdrop."),
   },
   {
     icon: Mail,
     title: 'Email',
-    detail: "support@wishdrop.shop — for anything that needs attachments or isn't urgent.",
-    action: 'support@wishdrop.shop',
-    href: 'mailto:support@wishdrop.shop',
+    detail: "support@Wishdrop.shop — for anything that needs attachments or isn't urgent.",
+    action: 'support@Wishdrop.shop',
+    href: 'mailto:support@Wishdrop.shop',
   },
   {
     icon: Phone,
@@ -56,7 +56,7 @@ export default function ContactPage() {
           Contact us
         </h1>
         <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-          Have a question about a request, an order, or WishDrop in general? Reach us however is
+          Have a question about a request, an order, or Wishdrop in general? Reach us however is
           easiest — for anything tied to a specific order, signing in first helps us answer faster.
         </p>
       </div>
@@ -90,7 +90,7 @@ export default function ContactPage() {
             <div>
               <h2 className="font-display text-base font-semibold text-ink">Registered office</h2>
               <p className="mt-1 font-body text-sm leading-relaxed text-ink/60">
-                WishDrop Limited, Colombo, Sri Lanka. Support is handled remotely — this address is
+                Wishdrop Limited, Colombo, Sri Lanka. Support is handled remotely — this address is
                 not a walk-in service centre.
               </p>
             </div>

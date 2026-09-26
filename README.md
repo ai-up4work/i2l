@@ -1,8 +1,8 @@
-# WishDrop Platform
+# Wishdrop Platform
 
-WishDrop is a concierge shopping and cross-border delivery platform that helps customers in Sri Lanka buy products from affiliated Indian stores or request products from other online stores without handling international purchasing, warehousing, customs, or shipping themselves.
+Wishdrop is a concierge shopping and cross-border delivery platform that helps customers in Sri Lanka buy products from affiliated Indian stores or request products from other online stores without handling international purchasing, warehousing, customs, or shipping themselves.
 
-## Why WishDrop exists
+## Why Wishdrop exists
 
 Many customers want products that are unavailable locally, but international shopping creates friction:
 
@@ -13,18 +13,18 @@ Many customers want products that are unavailable locally, but international sho
 - Buying from several stores creates multiple support and tracking problems.
 - Customers have limited confidence that the item will arrive safely and as described.
 
-WishDrop turns that complicated process into one guided customer journey: choose what you want, understand the cost, pay through the platform, and receive the item at your door.
+Wishdrop turns that complicated process into one guided customer journey: choose what you want, understand the cost, pay through the platform, and receive the item at your door.
 
-## What WishDrop does
+## What Wishdrop does
 
-WishDrop acts as the customer’s shopping and delivery partner:
+Wishdrop acts as the customer’s shopping and delivery partner:
 
 1. **Discover** — browse affiliated stores and products, or submit a product link.
-2. **Request** — tell WishDrop what you want to buy when it is not already in the catalog.
+2. **Request** — tell Wishdrop what you want to buy when it is not already in the catalog.
 3. **Quote** — show the product price, service fees, shipping, discounts, credits, and estimated total clearly.
-4. **Purchase** — WishDrop buys the product on the customer’s behalf.
-5. **Quality check** — the item is received at a WishDrop facility and inspected before international shipping.
-6. **Ship** — WishDrop consolidates and sends the order to Sri Lanka.
+4. **Purchase** — Wishdrop buys the product on the customer’s behalf.
+5. **Quality check** — the item is received at a Wishdrop facility and inspected before international shipping.
+6. **Ship** — Wishdrop consolidates and sends the order to Sri Lanka.
 7. **Track** — the customer follows progress from purchase through quality check, shipment, and final delivery.
 8. **Support** — customers have one place to ask questions and resolve issues.
 
@@ -34,7 +34,7 @@ The customer does not need to arrange an overseas warehouse address, forward a p
 
 ### For customers
 
-WishDrop removes the operational work between wanting a product and receiving it. The platform provides:
+Wishdrop removes the operational work between wanting a product and receiving it. The platform provides:
 
 - One trusted place to request products.
 - Clear pricing before the customer commits.
@@ -47,7 +47,7 @@ WishDrop removes the operational work between wanting a product and receiving it
 
 ### For affiliated stores and sellers
 
-WishDrop gives stores access to customers who may not be able to purchase directly. It helps by:
+Wishdrop gives stores access to customers who may not be able to purchase directly. It helps by:
 
 - Extending product reach into the Sri Lankan market.
 - Creating a managed purchasing channel.
@@ -55,7 +55,7 @@ WishDrop gives stores access to customers who may not be able to purchase direct
 - Giving customers a consistent support and tracking experience.
 - Making new products and promotions easier to discover.
 
-### For the WishDrop operations team
+### For the Wishdrop operations team
 
 The platform organizes the full lifecycle of a request and order:
 
@@ -69,7 +69,7 @@ The platform organizes the full lifecycle of a request and order:
 
 ## What customers should expect
 
-Customers should expect WishDrop to be:
+Customers should expect Wishdrop to be:
 
 - **Clear:** show the meaningful cost and status of an order without hidden steps.
 - **Reliable:** keep customers informed when an item is requested, purchased, inspected, shipped, delayed, or delivered.
@@ -79,7 +79,7 @@ Customers should expect WishDrop to be:
 - **Human:** provide responsive support in plain language instead of logistics jargon.
 - **Consistent:** keep the same product, request, order, and shipment information visible across the account area.
 
-WishDrop should say “Your order is being inspected in India” rather than exposing internal terms such as “inbound parcel processing.”
+Wishdrop should say “Your order is being inspected in India” rather than exposing internal terms such as “inbound parcel processing.”
 
 ## Core product areas
 
@@ -93,7 +93,7 @@ Customers can browse available stores and product catalogs, view product details
 
 ### Buying requests
 
-Customers can paste a product URL or submit a custom request. WishDrop can review the product, confirm availability, calculate the quote, and move the request toward payment.
+Customers can paste a product URL or submit a custom request. Wishdrop can review the product, confirm availability, calculate the quote, and move the request toward payment.
 
 ### Orders and delivery
 
@@ -130,7 +130,7 @@ Use simple, customer-facing language:
 - “Your request” instead of “customer intake record.”
 - “Pay when ready” instead of “payment authorization state.”
 
-The tone should be warm, direct, and reassuring. WishDrop is a service customers trust with money, personal information, and products they are excited to receive.
+The tone should be warm, direct, and reassuring. Wishdrop is a service customers trust with money, personal information, and products they are excited to receive.
 
 ## Current technical structure
 
@@ -152,7 +152,7 @@ The account shell is shared by account pages so navigation, banners, dialogs, ch
 
 ## Design direction
 
-WishDrop uses a warm, editorial marketplace style:
+Wishdrop uses a warm, editorial marketplace style:
 
 - Parchment backgrounds for approachability.
 - Indigo for trust, structure, and primary surfaces.
@@ -165,7 +165,7 @@ The design should feel more like a trusted shopping concierge than a freight-for
 
 ## Success criteria
 
-WishDrop is successful when a customer can:
+Wishdrop is successful when a customer can:
 
 1. Understand what the platform does within a few seconds.
 2. Find a product or submit a request without confusion.
@@ -176,7 +176,7 @@ WishDrop is successful when a customer can:
 7. Find every important account destination from the sidebar.
 8. Receive clear help when something is delayed or unavailable.
 
-The core promise is simple: **customers choose what they want; WishDrop handles the difficult journey from store to door.**
+The core promise is simple: **customers choose what they want; Wishdrop handles the difficult journey from store to door.**
 
 ## Local development
 
@@ -192,4 +192,4 @@ Before shipping, verify the public landing page, header actions, account shell, 
 
 ### Scheduled jobs
 
-The weekly ghost-storage sweep runs entirely inside Supabase — no route or env var in this app is involved. `data/wishdrop-storage-reconciliation-views.sql` sets up everything: the views that compare every image-holding column against Supabase Storage, a `pg_cron` schedule, and a `pg_net`-based delete call to Storage's own REST API. Run that file once in the Supabase SQL editor (it has one-time setup steps — enabling `pg_cron`/`pg_net`/Vault and storing your project URL + service role key in Vault — in its header comment) and it's self-sufficient from then on.
+The weekly ghost-storage sweep runs entirely inside Supabase — no route or env var in this app is involved. `data/Wishdrop-storage-reconciliation-views.sql` sets up everything: the views that compare every image-holding column against Supabase Storage, a `pg_cron` schedule, and a `pg_net`-based delete call to Storage's own REST API. Run that file once in the Supabase SQL editor (it has one-time setup steps — enabling `pg_cron`/`pg_net`/Vault and storing your project URL + service role key in Vault — in its header comment) and it's self-sufficient from then on.

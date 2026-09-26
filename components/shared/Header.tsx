@@ -62,7 +62,7 @@ interface HeaderProps {
 export const HEADER_BAR_HEIGHT = INNER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_MOBILE = OUTER_H + AIRMAIL_STRIPE_HEIGHT
 export const HEADER_BAR_HEIGHT_DESKTOP = INNER_H + AIRMAIL_STRIPE_HEIGHT
-export const OPEN_SHOP_EVENT = "wishdrop:open-shop"
+export const OPEN_SHOP_EVENT = "Wishdrop:open-shop"
 export { INNER_H }
 
 const MOBILE_BG = "bg-parchment"

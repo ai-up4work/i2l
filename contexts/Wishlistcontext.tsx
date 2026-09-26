@@ -135,7 +135,7 @@ const WishlistContext = createContext<WishlistContextValue | null>(null)
 // already exist in the schema and are ready for this when it's built.
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'wishdrop:wishlist-data'
+const STORAGE_KEY = 'Wishdrop:wishlist-data'
 
 type PersistedShape = {
   items: WishlistEntry[]

@@ -1,6 +1,6 @@
 // types/admin.ts
 //
-// Shared types for the WishDrop admin panel's local mock data layer.
+// Shared types for the Wishdrop admin panel's local mock data layer.
 // This file has no runtime dependency on any real backend — it's the
 // contract that contexts/AdminDataContext.tsx implements and every
 // admin page reads from. Growing the mock "database" later (staff,
@@ -47,7 +47,7 @@ export interface Site {
    * determines a site — see AdminDataContext's defaultSiteId and
    * lib/supabase/sites-admin.ts's setDefaultSite. At most one site has
    * this true at a time (enforced by a partial unique index — see
-   * data/wishdrop-sites-default.sql). */
+   * data/Wishdrop-sites-default.sql). */
   isDefault: boolean
 }
 
@@ -87,7 +87,7 @@ export interface OrderItem {
    * fix for a real bug where passing one item silently marked every
    * sibling item on the same order as passed too, since QC status used
    * to be tracked only at the order level. See markItemQcPassed in
-   * lib/supabase/orders-admin.ts and data/wishdrop-qc-per-item-pass.sql. */
+   * lib/supabase/orders-admin.ts and data/Wishdrop-qc-per-item-pass.sql. */
   qcPassedAt?: string
   /**
    * Per-unit price quoted to the customer. Drives the Purchases queue.
@@ -173,7 +173,7 @@ export interface Order {
   chatThreadId?: string
   /** True when the last message tagged to THIS order was from the
    * customer with no ops reply after it — see
-   * data/wishdrop-orders-requests-unreplied-flag.sql. Powers the
+   * data/Wishdrop-orders-requests-unreplied-flag.sql. Powers the
    * attention indicator on the orders queue and this order's own page. */
   hasUnrepliedMessage?: boolean
   /** Customer-facing delivery city/area — shown on the Pack & label queue */
@@ -735,7 +735,7 @@ export interface Request {
    * customer-facing message cite a request before it's confirmed into
    * an order and gets its own "WD-#####" id — see quoteMessage/
    * paymentConfirmedMessage in lib/chat/customerMessageTemplates.ts and
-   * data/wishdrop-request-display-id-sequence.sql. */
+   * data/Wishdrop-request-display-id-sequence.sql. */
   displayId: string
   customerName: string
   items: RequestItemAsk[]
@@ -747,7 +747,7 @@ export interface Request {
   chatThreadId: string
   /** True when the last message tagged to THIS request was from the
    * customer with no ops reply after it — see
-   * data/wishdrop-orders-requests-unreplied-flag.sql. */
+   * data/Wishdrop-orders-requests-unreplied-flag.sql. */
   hasUnrepliedMessage: boolean
   /** Present once payment has been confirmed for this request's quote */
   payment?: RequestPayment

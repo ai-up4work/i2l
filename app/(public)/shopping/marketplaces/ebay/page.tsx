@@ -3,8 +3,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping/marketplaces/ebay',
-  title: 'Buying from eBay | WishDrop',
-  description: "A guide to sourcing eBay listings through WishDrop's concierge buying service.",
+  title: 'Buying from eBay | Wishdrop',
+  description: "A guide to sourcing eBay listings through Wishdrop's concierge buying service.",
 })
 
 export default function EbayGuidePage() {
@@ -12,7 +12,7 @@ export default function EbayGuidePage() {
     <MarketplaceGuide
       name="eBay"
       tagline="Auctions, fixed-price listings, and everything from parts to collectibles."
-      description="eBay hosts millions of individual sellers, so listings, condition, and shipping policies vary seller-to-seller. WishDrop buys the specific listing you choose — we don't bid on auctions on your behalf, so auction items should be requested only once you've confirmed the current price and time remaining."
+      description="eBay hosts millions of individual sellers, so listings, condition, and shipping policies vary seller-to-seller. Wishdrop buys the specific listing you choose — we don't bid on auctions on your behalf, so auction items should be requested only once you've confirmed the current price and time remaining."
       bestFor={[
         'Used or refurbished electronics and computer parts',
         'Collectibles, trading cards, and hobby items',

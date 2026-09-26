@@ -7,8 +7,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/community/discover/recommended',
-  title: 'Trending Now | WishDrop',
-  description: 'What other WishDrop shoppers are buying right now.',
+  title: 'Trending Now | Wishdrop',
+  description: 'What other Wishdrop shoppers are buying right now.',
 })
 
 // Deterministic "trending" slice (every 7th product) rather than random,

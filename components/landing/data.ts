@@ -239,5 +239,5 @@ export const trustFeatures: TrustFeature[] = [
 export const statsBandItems = [
   { value: '90%', label: 'Max savings on shopping abroad' },
   { value: '50%', label: 'Orders are hard-to-find products' },
-  { value: '120+', label: 'Shipments handled by WishDrop' },
+  { value: '120+', label: 'Shipments handled by Wishdrop' },
 ]

@@ -60,7 +60,7 @@ export const initialRequests: ItemRequest[] = [
 export const offers: Offer[] = [
   { title: 'Shop More. Save More.', img: '/offers/offer1.jpg', tone: 'sun' },
   { title: 'Cross Borders, Not Budgets', img: '/offers/offer2.jpg', tone: 'sun' },
-  { title: 'Welcome to WishDrop', img: '/offers/offer3.jpg', tone: 'welcome' },
+  { title: 'Welcome to Wishdrop', img: '/offers/offer3.jpg', tone: 'welcome' },
   { title: 'Rakuten Japan Exclusive', img: '/offers/offer4.jpg', tone: 'rakuten' },
   { title: 'Refer Friends, Earn Rewards', img: '/offers/offer5.jpg', tone: 'referral' },
   { title: 'Anime Collectibles: 25% Off Shipping', img: '/offers/offer6.jpg', tone: 'anime' },
@@ -284,7 +284,7 @@ export const earnMethods: EarnMethod[] = [
 // Matches the "0 My referrals" stat on the home page for the same reason
 // creditTransactions is empty above.
 export const referralCode = 'SAFNAS25'
-export const referralLink = `https://WishDrop.example/r/${referralCode}`
+export const referralLink = `https://Wishdrop.example/r/${referralCode}`
 export const referralStats = { invited: 0, joined: 0, creditsEarned: 0 }
 export const referredFriends: ReferredFriend[] = []
 

@@ -21,7 +21,7 @@ import { seedData } from "@/data/admin"
 // Bump this whenever the shape in types.ts changes in a way old localStorage
 // data can't satisfy — prevents "why is this field undefined" during dev.
 const SCHEMA_VERSION = 1;
-const STORAGE_KEY = `wishdrop_mock_db_v${SCHEMA_VERSION}`;
+const STORAGE_KEY = `Wishdrop_mock_db_v${SCHEMA_VERSION}`;
 
 let idCounter = 0;
 function makeId(prefix: string) {

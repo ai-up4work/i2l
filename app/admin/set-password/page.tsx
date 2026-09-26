@@ -118,7 +118,7 @@ export default function SetPasswordPage() {
       <div className="w-full max-w-sm rounded-2xl border border-ink/10 bg-card p-8 shadow-lg">
         <div className="flex items-center gap-2.5">
           <ShieldCheck size={22} className="text-teal-deep" />
-          <h1 className="font-display text-xl text-ink">WishDrop Admin</h1>
+          <h1 className="font-display text-xl text-ink">Wishdrop Admin</h1>
         </div>
 
         {stage === "verifying" && (

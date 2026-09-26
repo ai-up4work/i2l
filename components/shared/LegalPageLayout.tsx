@@ -39,7 +39,7 @@ export default function LegalPageLayout({
         className="inline-flex items-center gap-2 font-body text-sm font-medium text-ink/50 transition-colors hover:text-ink"
       >
         <ArrowLeft size={15} />
-        Back to WishDrop
+        Back to Wishdrop
       </Link>
 
       <div className="mt-8 max-w-2xl">

@@ -166,7 +166,7 @@ export default function CatalogueDetailPage() {
       </div>
 
       <div className={`mt-4 p-6 ${panelClass}`}>
-        <h3 className="font-semibold text-ink">WishDrop margin</h3>
+        <h3 className="font-semibold text-ink">Wishdrop margin</h3>
         <p className="mt-1 text-sm text-ink/55">
           Applied on top of the seller's cost price to compute the selling price shown above.
         </p>

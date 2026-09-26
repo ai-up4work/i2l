@@ -1,4 +1,4 @@
--- data/wishdrop-push-notifications.sql
+-- data/Wishdrop-push-notifications.sql
 --
 -- Web push notifications: device subscriptions, the customer's "offers"
 -- preference, broadcast history, and the trigger that pushes every staff
@@ -9,7 +9,7 @@
 -- ─── ONE-TIME SETUP (run once, in the Supabase SQL editor) ─────────────
 --
 -- 1. pg_net is already enabled if you ran
---    wishdrop-storage-reconciliation-views.sql; if not:
+--    Wishdrop-storage-reconciliation-views.sql; if not:
 --
 --      create extension if not exists pg_net;
 --
@@ -17,12 +17,12 @@
 --    PUSH_WEBHOOK_SECRET on Vercel (any long random string, e.g. the output
 --    of `openssl rand -hex 32`). Use your PRODUCTION URL, no trailing slash:
 --
---      select vault.create_secret('https://www.wishdrop.shop', 'wishdrop_app_url');
---      select vault.create_secret('<same value as PUSH_WEBHOOK_SECRET>', 'wishdrop_push_webhook_secret');
+--      select vault.create_secret('https://www.Wishdrop.shop', 'Wishdrop_app_url');
+--      select vault.create_secret('<same value as PUSH_WEBHOOK_SECRET>', 'Wishdrop_push_webhook_secret');
 --
 --    To change one later:
 --      select vault.update_secret(
---        (select id from vault.secrets where name = 'wishdrop_push_webhook_secret'),
+--        (select id from vault.secrets where name = 'Wishdrop_push_webhook_secret'),
 --        '<new value>');
 --
 -- Until both secrets exist the trigger silently does nothing, so running
@@ -120,9 +120,9 @@ declare
   push_secret text;
 begin
   select decrypted_secret into app_url
-    from vault.decrypted_secrets where name = 'wishdrop_app_url' limit 1;
+    from vault.decrypted_secrets where name = 'Wishdrop_app_url' limit 1;
   select decrypted_secret into push_secret
-    from vault.decrypted_secrets where name = 'wishdrop_push_webhook_secret' limit 1;
+    from vault.decrypted_secrets where name = 'Wishdrop_push_webhook_secret' limit 1;
 
   -- Not configured yet: do nothing rather than fail the chat insert.
   if app_url is null or push_secret is null then

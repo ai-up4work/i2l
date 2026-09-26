@@ -6,7 +6,7 @@
 // domain, not the store's. Left unresolved, this breaks several things
 // that all key off the URL's hostname:
 //   - matchAffiliatedSellerUrl (store-config-db.ts) compares hostnames
-//     against known sellers — a shortlink to one of WishDrop's own
+//     against known sellers — a shortlink to one of Wishdrop's own
 //     affiliated stores would never match, since it's checking
 //     "bit.ly", not the seller's real domain, so the customer would be
 //     sent through the external scraper instead of the fast internal

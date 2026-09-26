@@ -13,8 +13,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shipping/pricing',
-  title: 'Shipping Pricing | WishDrop',
-  description: 'How WishDrop calculates freight, service fees, and delivery pricing by weight and delivery speed.',
+  title: 'Shipping Pricing | Wishdrop',
+  description: 'How Wishdrop calculates freight, service fees, and delivery pricing by weight and delivery speed.',
 })
 
 const expressRows = [

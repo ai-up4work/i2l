@@ -4,8 +4,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/warehouses',
-  title: 'Our Facilities | WishDrop',
-  description: 'Where WishDrop receives, quality-checks, and consolidates your orders before they ship to Sri Lanka.',
+  title: 'Our Facilities | Wishdrop',
+  description: 'Where Wishdrop receives, quality-checks, and consolidates your orders before they ship to Sri Lanka.',
 })
 
 const facilities = [
@@ -15,7 +15,7 @@ const facilities = [
 ]
 
 const steps = [
-  { icon: PackageSearch, title: 'Received', text: 'Sellers ship your purchased item to a WishDrop facility, not to you directly.' },
+  { icon: PackageSearch, title: 'Received', text: 'Sellers ship your purchased item to a Wishdrop facility, not to you directly.' },
   { icon: ScanEye, title: 'Quality checked', text: 'Our team confirms the item matches your order before it moves further.' },
   { icon: Truck, title: 'Consolidated & shipped', text: 'Your item is packed for international transit toward Sri Lanka.' },
 ]
@@ -31,7 +31,7 @@ export default function WarehousesPage() {
       </h1>
       <p className="mt-4 max-w-2xl font-body text-base leading-relaxed text-ink/65">
         Unlike a package-forwarding service, you never need to open a warehouse account, get an
-        overseas address, or declare an inbound parcel yourself. WishDrop purchases the item and
+        overseas address, or declare an inbound parcel yourself. Wishdrop purchases the item and
         routes it through our own network of facilities on your behalf — here's how that works.
       </p>
 
@@ -61,7 +61,7 @@ export default function WarehousesPage() {
           ))}
         </div>
         <p className="mt-6 font-body text-xs text-ink/45">
-          These facilities are operated by WishDrop and our logistics partners for order
+          These facilities are operated by Wishdrop and our logistics partners for order
           processing only — they are not customer drop-off points, and we're unable to accept
           walk-in parcels or visitors.
         </p>
@@ -70,7 +70,7 @@ export default function WarehousesPage() {
       <div className="mt-10 rounded-2xl border border-ink/10 bg-parchment/60 p-6">
         <h2 className="font-display text-base font-semibold text-ink">Why this matters to you</h2>
         <p className="mt-2 font-body text-sm leading-relaxed text-ink/65">
-          Because WishDrop purchases on your behalf, you never have to give a seller a facility
+          Because Wishdrop purchases on your behalf, you never have to give a seller a facility
           address yourself — you just submit a request or shop our catalogue, and everything after
           purchase happens through this network automatically. Learn more on our{' '}
           <Link href="/shipping" className="text-teal-deep underline underline-offset-2">Shipping &amp; Delivery</Link> page.

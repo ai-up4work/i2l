@@ -3,9 +3,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping/protection',
-  title: 'Shopping Protection Plan | WishDrop',
+  title: 'Shopping Protection Plan | Wishdrop',
   description:
-    'Optional buyer protection covering item-not-as-described and seller-side issues on the products WishDrop purchases for you.',
+    'Optional buyer protection covering item-not-as-described and seller-side issues on the products Wishdrop purchases for you.',
 })
 
 export default function ShoppingProtectionPage() {
@@ -56,7 +56,7 @@ export default function ShoppingProtectionPage() {
           body: (
             <p>
               The protection fee and maximum coverage for a given order are shown at checkout
-              before you add the plan. Coverage is limited to the product price and any WishDrop
+              before you add the plan. Coverage is limited to the product price and any Wishdrop
               service fees paid for that specific item, and does not extend to unrelated items in
               the same shipment unless they are also covered.
             </p>
@@ -88,7 +88,7 @@ export default function ShoppingProtectionPage() {
           body: (
             <p>
               Depending on the seller's response and what is reasonable for the item, approved
-              claims are resolved by a replacement order, WishDrop wallet credit, or a refund to
+              claims are resolved by a replacement order, Wishdrop wallet credit, or a refund to
               your original payment method, up to the covered amount. This is separate from, and in
               addition to, the standard quality-check protections described in our{' '}
               <a href="/refund-policy">Refund Policy</a>.

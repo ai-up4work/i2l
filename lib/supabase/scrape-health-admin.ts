@@ -26,7 +26,7 @@
 //     last_failure/decision/ops_note) is what makes ops' decisions
 //     (build extractor / pursue affiliate / dismiss) persist for real
 //     instead of resetting on every reload — see
-//     data/wishdrop-scrape-health-decision-columns.sql, which this file
+//     data/Wishdrop-scrape-health-decision-columns.sql, which this file
 //     assumes has been run. upsertScrapeHealth (lib/supabase/
 //     scrape-health-write.ts) is the hook called from the actual scrape
 //     pipeline (/api/product-lookup) so fail_count/success_count now
@@ -58,14 +58,14 @@ export type DomainHealthRecord = {
   failCount: number | null
   successCount: number | null
   /** A real example of a successful scrape from this domain — see
-   * wishdrop-scrape-health-success-sample.sql. All null until this
+   * Wishdrop-scrape-health-success-sample.sql. All null until this
    * domain has had at least one real success since instrumentation. */
   lastSuccessTitle: string | null
   lastSuccessImageUrl: string | null
   lastSuccessPrice: string | null
   lastSuccessAt: string | null
   /** scrapeProduct()'s own full diagnostic text for the most recent
-   * FAILURE on this domain — see wishdrop-scrape-health-last-error.sql.
+   * FAILURE on this domain — see Wishdrop-scrape-health-last-error.sql.
    * This is the detail the customer never sees (BLOCKED vs JS_SHELL vs
    * a specific HTTP status, which fallback tier was tried and how, ...),
    * made visible here specifically so "why is this domain failing" is

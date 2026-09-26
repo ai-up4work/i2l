@@ -118,9 +118,9 @@ export async function GET(request: Request) {
     // uses (hooks/useProductLookup.ts: `!data.error`). On a success, also
     // carries the real title/image/price through so ops can see an
     // actual example of what this domain's product pages look like, not
-    // just a bare count (see wishdrop-scrape-health-success-sample.sql).
+    // just a bare count (see Wishdrop-scrape-health-success-sample.sql).
     // On a FAILURE, carries the full error text through instead — see
-    // wishdrop-scrape-health-last-error.sql.
+    // Wishdrop-scrape-health-last-error.sql.
     upsertScrapeHealth(
       resolvedUrl,
       !result.error,

@@ -1,7 +1,7 @@
 // lib/supabase/qc-issues.ts
 //
 // Handles a QC-flagged item once it's confirmed faulty: admin records
-// what happened, whether WishDrop got a real refund from the seller for
+// what happened, whether Wishdrop got a real refund from the seller for
 // it, and resolves it accordingly —
 //   - Seller refunded us -> customer gets a coupon worth exactly the
 //     faulty item's price (never shipping/other items), redeemable on
@@ -13,9 +13,9 @@
 //     so both the coupon and the alert show up on the customer's
 //     existing, real "My Coupons" page and notification bell with zero
 //     changes needed there.
-//   - Seller did NOT refund us -> ship the item as-is. WishDrop doesn't
+//   - Seller did NOT refund us -> ship the item as-is. Wishdrop doesn't
 //     eat a cost it can't recover; the customer chose that specific
-//     item, not WishDrop.
+//     item, not Wishdrop.
 // Either way, WhatsApp goes out first (same deferred-confirmation
 // pattern as request chat — compose, send manually, mark sent) before
 // the resolution is considered final.
@@ -232,7 +232,7 @@ export async function fetchAllOpenQcIssues(resolutions: QcIssueResolution[] = ['
   return (data ?? []).map((r) => mapRow(r as QcIssueRow))
 }
 
-/** Step 2: admin records whether WishDrop actually got money back from the seller for this item. Everything downstream depends on this. */
+/** Step 2: admin records whether Wishdrop actually got money back from the seller for this item. Everything downstream depends on this. */
 export async function setSellerRefundOutcome(issueId: string, obtained: boolean): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   const { error } = await supabase.from('order_item_issues').update({ seller_refund_obtained: obtained }).eq('id', issueId)
@@ -392,7 +392,7 @@ export async function fetchOrderItemPrice(orderItemId: string): Promise<number |
 
 /**
  * Resolution B: seller didn't refund us -> ship the faulty item as-is.
- * No coupon (WishDrop can't absorb a cost it didn't recover), but the
+ * No coupon (Wishdrop can't absorb a cost it didn't recover), but the
  * customer is still notified, so they aren't surprised by what arrives.
  */
 export async function resolveShippedAsIs(

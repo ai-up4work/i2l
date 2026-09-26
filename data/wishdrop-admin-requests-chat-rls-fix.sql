@@ -1,6 +1,6 @@
--- data/wishdrop-admin-requests-chat-rls-fix.sql
+-- data/Wishdrop-admin-requests-chat-rls-fix.sql
 --
--- Same root cause as wishdrop-admin-orders-rls-fix.sql, applied to the
+-- Same root cause as Wishdrop-admin-orders-rls-fix.sql, applied to the
 -- three tables the Channel 3 (manual-quote) flow depends on:
 --
 --   create policy "own requests" on public.requests

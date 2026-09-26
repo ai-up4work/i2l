@@ -14,7 +14,7 @@ export default function TopChoices() {
           <h2 className="mt-3 font-display text-3xl text-ink sm:text-4xl">
             Top reasons to
             <br />
-            shop with <span className="text-gold">WishDrop</span>
+            shop with <span className="text-gold">Wishdrop</span>
           </h2>
         </div>
 

@@ -29,7 +29,7 @@ export async function generateMetadata({
     title: `Shop ${store.name} from Sri Lanka`,
     description:
       store.description ||
-      `Browse ${store.name} products and have WishDrop buy, quality-check, and deliver them to your door in Sri Lanka.`,
+      `Browse ${store.name} products and have Wishdrop buy, quality-check, and deliver them to your door in Sri Lanka.`,
     path: `/stores/${store.platform}`,
     // Store logos are usually small squares, so the default 1200×630 card
     // stays in place; set a store-specific banner here if you add one.

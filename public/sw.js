@@ -1,4 +1,4 @@
-/* WishDrop service worker
+/* Wishdrop service worker
  *
  * What it caches, and why:
  *   - Build assets (/_next/static/*): cache-first. Filenames are content-
@@ -21,10 +21,10 @@
  */
 
 const VERSION = 'v2' // v2: push notifications
-const PRECACHE = `wishdrop-precache-${VERSION}`
-const PAGES = `wishdrop-pages-${VERSION}`
-const ASSETS = `wishdrop-assets-${VERSION}`
-const STATIC = `wishdrop-static-${VERSION}`
+const PRECACHE = `Wishdrop-precache-${VERSION}`
+const PAGES = `Wishdrop-pages-${VERSION}`
+const ASSETS = `Wishdrop-assets-${VERSION}`
+const STATIC = `Wishdrop-static-${VERSION}`
 
 const OFFLINE_URL = '/offline'
 
@@ -61,7 +61,7 @@ self.addEventListener('activate', (event) => {
     (async () => {
       const names = await caches.keys()
       await Promise.all(
-        names.filter((n) => n.startsWith('wishdrop-') && !keep.has(n)).map((n) => caches.delete(n)),
+        names.filter((n) => n.startsWith('Wishdrop-') && !keep.has(n)).map((n) => caches.delete(n)),
       )
       // Navigation preload lets the browser start the page request while
       // the worker boots, so network-first pages aren't slowed down.
@@ -80,7 +80,7 @@ self.addEventListener('message', (event) => {
     // Called on logout so nothing from the signed-in session lingers.
     event.waitUntil(
       caches.keys().then((names) =>
-        Promise.all(names.filter((n) => n.startsWith('wishdrop-') && n !== PRECACHE).map((n) => caches.delete(n))),
+        Promise.all(names.filter((n) => n.startsWith('Wishdrop-') && n !== PRECACHE).map((n) => caches.delete(n))),
       ),
     )
   }
@@ -212,7 +212,7 @@ self.addEventListener('push', (event) => {
     data = { body: event.data ? event.data.text() : '' }
   }
 
-  const title = data.title || 'WishDrop'
+  const title = data.title || 'Wishdrop'
   const options = {
     body: data.body || '',
     icon: '/icons/icon-192.png',
@@ -238,7 +238,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      // Reuse an open WishDrop window/tab rather than opening another.
+      // Reuse an open Wishdrop window/tab rather than opening another.
       for (const client of windows) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
           await client.focus()

@@ -22,7 +22,7 @@ export type AppNotification = {
 
 /**
  * Real `notifications.type` is free text (see
- * data/wishdrop-supabase-schema.sql: 'order_update' | 'price_drop' |
+ * data/Wishdrop-supabase-schema.sql: 'order_update' | 'price_drop' |
  * 'chat_reply' | ...) — this is the one place that maps it down to the
  * 3-category vocabulary the UI (Topbar's CATEGORY_ICON) actually
  * switches on. Extend this, not the UI, when a new notification type is

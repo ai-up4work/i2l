@@ -3,7 +3,7 @@
 // Real `sites` table access — previously AdminDataContext.tsx hardcoded
 // a `SITES` const (three fixed rows) instead of ever reading this table,
 // even though it already exists and is already seeded (see
-// data/wishdrop-seed-staff-sites.sql). The warehouses admin page's own
+// data/Wishdrop-seed-staff-sites.sql). The warehouses admin page's own
 // header comment already flagged this as a known gap ("no addSite/
 // updateSite/deactivateSite mutation yet... won't survive a refresh").
 // This file is what actually closes it.
@@ -66,7 +66,7 @@ export async function setSiteActive(siteId: string, active: boolean): Promise<{ 
  * Makes `siteId` the one default site, clearing any previous default in
  * the same operation (two statements, not one atomic transaction — the
  * client can't open one — but the partial unique index on
- * sites.is_default, see data/wishdrop-sites-default.sql, means the
+ * sites.is_default, see data/Wishdrop-sites-default.sql, means the
  * worst a failure between them can do is leave NO default rather than
  * two, since the index would reject a second `true` row outright).
  */

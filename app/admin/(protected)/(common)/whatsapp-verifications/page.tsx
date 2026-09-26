@@ -122,7 +122,7 @@ export default function WhatsAppVerificationsPage() {
 
         <ol className="mt-6 grid gap-3 text-sm sm:grid-cols-3">
           {[
-            ['Find the message', 'In the WishDrop WhatsApp, search for the reference (e.g. WD-7K3D9Q).'],
+            ['Find the message', 'In the Wishdrop WhatsApp, search for the reference (e.g. WD-7K3D9Q).'],
             ['Check the sender', 'The number WhatsApp shows it came FROM must match the number here.'],
             ['Decide', 'Verify. If they sent it from another number, attach that one instead. Otherwise reject.'],
           ].map(([title, text], i) => (

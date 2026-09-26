@@ -5,7 +5,7 @@
 // page.tsx here — only the two subpages (profile, notifications)
 // existed, both one-line stubs (`<div>Profile settings</div>`). This is
 // the missing index: per the route spec
-// (wishdrop-admin-route-specs.md), the only two real settings areas are
+// (Wishdrop-admin-route-specs.md), the only two real settings areas are
 // self-service account details and personal notification preferences,
 // so this is a short menu into those two, not a page with its own
 // content to manage.

@@ -79,7 +79,7 @@ export function websiteSchema(): Json {
   }
 }
 
-/** BreadcrumbList — shows the "WishDrop › Stores › Myntra" trail in results. */
+/** BreadcrumbList — shows the "Wishdrop › Stores › Myntra" trail in results. */
 export function breadcrumbSchema(items: { name: string; path: string }[]): Json {
   return {
     '@context': 'https://schema.org',

@@ -228,7 +228,7 @@ export default function OrderDetailPage() {
   const [qcIssuesByItemId, setQcIssuesByItemId] = useState<Map<string, CustomerVisibleQcIssue>>(new Map())
 
   // ---- embedded order-chat panel state ----
-  // See data/wishdrop-chat-messages-order-id.sql for why this can show
+  // See data/Wishdrop-chat-messages-order-id.sql for why this can show
   // messages at all: chat_messages had no order_id column before, so
   // there was no way to isolate "just the conversation about THIS
   // order" out of a thread that carries a customer's whole history.

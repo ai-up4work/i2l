@@ -6,8 +6,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/deals',
-  title: 'Deals & Promos | WishDrop',
-  description: 'Current storewide, seller, and collection promotions on WishDrop.',
+  title: 'Deals & Promos | Wishdrop',
+  description: 'Current storewide, seller, and collection promotions on Wishdrop.',
 })
 
 export default function DealsPage() {
@@ -64,7 +64,7 @@ export default function DealsPage() {
         <h2 className="font-display text-base font-semibold text-ink">Terms</h2>
         <p className="mt-2 font-body text-sm leading-relaxed text-ink/60">
           Deals apply automatically to qualifying orders at checkout and cannot usually be
-          combined with a coupon code covering the same items, unless stated. WishDrop may modify
+          combined with a coupon code covering the same items, unless stated. Wishdrop may modify
           or end a promotion at any time without affecting orders already placed. See our{' '}
           <Link href="/terms" className="text-teal-deep underline underline-offset-2">Terms of Use</Link> for full details.
         </p>

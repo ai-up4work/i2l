@@ -3,8 +3,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/data-deletion',
-  title: 'Data Deletion Instructions | WishDrop',
-  description: 'How to request deletion of your personal data from WishDrop.',
+  title: 'Data Deletion Instructions | Wishdrop',
+  description: 'How to request deletion of your personal data from Wishdrop.',
 })
 
 // Exists mainly because Meta's App Dashboard (Settings > Basic > User data
@@ -21,7 +21,7 @@ export default function DataDeletionPage() {
     <LegalPageLayout
       eyebrow="Legal"
       title="Data Deletion Instructions"
-      intro="You can ask us to delete your WishDrop account and the personal data associated with it at any time. Here's exactly how, and what happens next."
+      intro="You can ask us to delete your Wishdrop account and the personal data associated with it at any time. Here's exactly how, and what happens next."
       lastUpdated="21 September 2026"
       sections={[
         {
@@ -30,8 +30,8 @@ export default function DataDeletionPage() {
           body: (
             <>
               <p>
-                Email <a href="mailto:support@wishdrop.shop?subject=Delete%20my%20account">support@wishdrop.shop</a>{' '}
-                from the email address on your WishDrop account, with the subject line{' '}
+                Email <a href="mailto:support@Wishdrop.shop?subject=Delete%20my%20account">support@Wishdrop.shop</a>{' '}
+                from the email address on your Wishdrop account, with the subject line{' '}
                 <strong>&quot;Delete my account&quot;</strong>. If you signed up or verified with a WhatsApp
                 number instead, include that number in your message so we can find your account.
               </p>
@@ -94,7 +94,7 @@ export default function DataDeletionPage() {
           body: (
             <p>
               If you want a copy of your personal data rather than deleting it, email{' '}
-              <a href="mailto:support@wishdrop.shop?subject=Data%20export%20request">support@wishdrop.shop</a>{' '}
+              <a href="mailto:support@Wishdrop.shop?subject=Data%20export%20request">support@Wishdrop.shop</a>{' '}
               with the subject line <strong>&quot;Data export request&quot;</strong>, or use{' '}
               <strong>Account → Profile → Download Your Information</strong>. See our{' '}
               <a href="/privacy">Privacy Policy</a> for more on what we collect and how it&apos;s used.

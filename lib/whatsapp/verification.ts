@@ -1,7 +1,7 @@
 // lib/whatsapp/verification.ts
 //
 // Shared helpers for staff-reviewed WhatsApp verification
-// (data/wishdrop-whatsapp-manual-verification.sql). Safe to import from
+// (data/Wishdrop-whatsapp-manual-verification.sql). Safe to import from
 // both client and server code — no secrets here.
 
 /** The WhatsApp number customers message to verify. Must be a number
@@ -68,7 +68,7 @@ export interface VerificationMessageInput {
 /** The pre-written WhatsApp message the customer sends. */
 export function verificationMessage(v: VerificationMessageInput): string {
   return [
-    'Hi WishDrop! Please verify my WhatsApp number.',
+    'Hi Wishdrop! Please verify my WhatsApp number.',
     '',
     `Reference: ${v.reference}`,
     `Name: ${v.name}`,
@@ -86,5 +86,5 @@ export function verificationWhatsAppLink(message: string): string {
 export const REJECT_REASONS = [
   'We didn’t receive your WhatsApp message.',
   'The message came from a different number than the one you entered.',
-  'This number is already linked to another WishDrop account.',
+  'This number is already linked to another Wishdrop account.',
 ] as const

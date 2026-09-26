@@ -19,7 +19,7 @@
  * each with the real product photo URL from your catalog/CDN.
  *
  * `sellerName` / `sellerType` / `storeUrl` (per item):
- * WishDrop sources each product independently, so a single order can bundle
+ * Wishdrop sources each product independently, so a single order can bundle
  * items bought from different stores AND items sourced from individual
  * sellers/boutiques (Channel 3-style manual requests) side by side.
  *   - sellerType: 'store'      → a real storefront (Amazon, Fabindia, a
@@ -30,7 +30,7 @@
  *                                 independent maker) — `storeUrl` is often
  *                                 absent or just a profile link.
  * All three fields are OPTIONAL — `itemSourceLabel()` below falls back to
- * a generic "WishDrop partner store" label when they're not set, so older
+ * a generic "Wishdrop partner store" label when they're not set, so older
  * seed rows and any order you add later still render fine without you
  * having to backfill every item.
  *
@@ -85,7 +85,7 @@ export type TimelineIconKey = 'confirmed' | 'purchased' | 'received' | 'quality'
 export type TimelineEvent = {
   icon: TimelineIconKey
   title: string
-  subtitle?: string // e.g. "WishDrop facility · India"
+  subtitle?: string // e.g. "Wishdrop facility · India"
   date: string // short label, e.g. "Sep 7" — must match today's `getTodayLabel()` output to collapse to a time-only row
   time: string // e.g. "10:42 AM"
 }
@@ -161,14 +161,14 @@ export function itemMeta(item: OrderItem) {
 // item's title. Falls back to a generic label so items without seller
 // info (or older seed rows) still render something sensible.
 export function itemSourceLabel(item: OrderItem): string {
-  if (!item.sellerName) return 'WishDrop partner store'
+  if (!item.sellerName) return 'Wishdrop partner store'
   return item.sellerType === 'individual' ? `Sourced from ${item.sellerName}` : item.sellerName
 }
 
 // True once an order's items came from 2+ distinct sellers — lets the
 // order card show a "Multiple sellers" pill instead of a single store name.
 export function hasMultipleSources(order: Order): boolean {
-  const distinct = new Set(order.items.map((it) => it.sellerName ?? 'WishDrop partner store'))
+  const distinct = new Set(order.items.map((it) => it.sellerName ?? 'Wishdrop partner store'))
   return distinct.size > 1
 }
 
@@ -178,7 +178,7 @@ export function orderSellerNames(order: Order): string[] {
   const seen = new Set<string>()
   const names: string[] = []
   for (const it of order.items) {
-    const name = it.sellerName ?? 'WishDrop partner store'
+    const name = it.sellerName ?? 'Wishdrop partner store'
     if (!seen.has(name)) {
       seen.add(name)
       names.push(name)
@@ -244,7 +244,7 @@ export function getOrderTimeline(order: Order): TimelineEvent[] {
     events.push({
       icon: 'received',
       title: 'Item received',
-      subtitle: 'WishDrop facility',
+      subtitle: 'Wishdrop facility',
       date: order.date,
       time: '4:18 PM',
     })
@@ -253,7 +253,7 @@ export function getOrderTimeline(order: Order): TimelineEvent[] {
     events.push({
       icon: 'quality',
       title: 'Quality check in progress',
-      subtitle: 'WishDrop facility',
+      subtitle: 'Wishdrop facility',
       date: getTodayLabel(),
       time: '10:42 AM',
     })
@@ -261,7 +261,7 @@ export function getOrderTimeline(order: Order): TimelineEvent[] {
     events.push({
       icon: 'quality',
       title: 'Quality check complete',
-      subtitle: 'WishDrop facility',
+      subtitle: 'Wishdrop facility',
       date: order.date,
       time: '6:00 PM',
     })
@@ -402,14 +402,14 @@ export const MOCK_ORDERS: Order[] = [
       {
         icon: 'quality',
         title: 'Quality check in progress',
-        subtitle: 'WishDrop facility · India',
+        subtitle: 'Wishdrop facility · India',
         date: 'Sep 7',
         time: '10:42 AM',
       },
       {
         icon: 'received',
         title: 'Item received',
-        subtitle: 'WishDrop facility · India',
+        subtitle: 'Wishdrop facility · India',
         date: 'Sep 6',
         time: '4:18 PM',
       },

@@ -118,7 +118,7 @@ export interface RealRequest {
   chatThreadId: string
   /** True when the last message tagged to THIS request was from the
    * customer with no ops reply after it — see
-   * data/wishdrop-orders-requests-unreplied-flag.sql. */
+   * data/Wishdrop-orders-requests-unreplied-flag.sql. */
   hasUnrepliedMessage: boolean
   payment?: RealRequestPayment
 }
@@ -364,7 +364,7 @@ export async function confirmRequestPaymentReal(
   // every row an .update() would have matched; it silently reports
   // success with zero rows affected. Without this check, a staff
   // member's update to a request they don't "own" under RLS (see
-  // data/wishdrop-admin-requests-chat-rls-fix.sql — requests' default
+  // data/Wishdrop-admin-requests-chat-rls-fix.sql — requests' default
   // policy is `auth.uid() = user_id`, which is never true for a staff
   // session updating a customer's request) would look identical to a
   // real success: no error, optimistic UI shows "confirmed," and the
@@ -386,7 +386,7 @@ export async function confirmRequestPaymentReal(
   if (!data || data.length === 0) {
     return {
       ok: false,
-      error: 'The payment could not be recorded — this request may not be accessible to your account (a permissions issue, not a data problem). Run data/wishdrop-admin-requests-chat-rls-fix.sql if this keeps happening.',
+      error: 'The payment could not be recorded — this request may not be accessible to your account (a permissions issue, not a data problem). Run data/Wishdrop-admin-requests-chat-rls-fix.sql if this keeps happening.',
     }
   }
   return { ok: true }
@@ -452,7 +452,7 @@ export async function clearRequestUnrepliedFlag(requestId: string): Promise<{ ok
  * Admin's manual product-data entry for a request the scraper couldn't
  * read at all — title (item_name), a real product photo, the seller/
  * store name, and quantity. None of this exists for a Channel 3 item by
- * default (see this file's header on wishdrop-requests-manual-product-
+ * default (see this file's header on Wishdrop-requests-manual-product-
  * details.sql for exactly what that costs the resulting order), so this
  * is what lets an admin fill it in by hand before confirming, the same
  * way setRequestVariantReal lets them resolve a variant. Every field is
@@ -547,7 +547,7 @@ export async function confirmRequestReal(
 
   // display_id is intentionally left out of this insert — orders.display_id
   // has a real DEFAULT backed by a Postgres sequence (see
-  // data/wishdrop-order-display-id-sequence.sql), the same mechanism
+  // data/Wishdrop-order-display-id-sequence.sql), the same mechanism
   // Channel 1/2 checkout relies on via createOrderWithRetry
   // (contexts/DashboardContext.tsx). The retry loop below exists for the
   // same reason createOrderWithRetry's does: this table can still contain
@@ -623,7 +623,7 @@ export async function confirmRequestReal(
     // showed a generic placeholder image and literally "Unassigned
     // seller" forever — now carries over whatever the admin filled in
     // by hand for a link the scraper couldn't read (see
-    // updateRequestItemDetails and wishdrop-requests-manual-product-
+    // updateRequestItemDetails and Wishdrop-requests-manual-product-
     // details.sql). Both stay null when the admin never filled them
     // in, same fallback behavior as before.
     product_image_url: existing.product_image_url ?? null,

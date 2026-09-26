@@ -1,8 +1,8 @@
 -- ============================================================================
--- WishDrop — Supabase (Postgres) Schema
+-- Wishdrop — Supabase (Postgres) Schema
 -- ============================================================================
--- Generated from: README.md, wishdrop-requirements-and-discussion-summary.md,
--- wishlist-boards-spec.md, loyalty-program.md, wishdrop-admin-route-specs.md,
+-- Generated from: README.md, Wishdrop-requirements-and-discussion-summary.md,
+-- wishlist-boards-spec.md, loyalty-program.md, Wishdrop-admin-route-specs.md,
 -- whatsapp-integration-discussion-summary.md, and the actual mock shapes in
 -- lib/store.types.ts, types/admin-mock.ts, lib/loyaltyPoints.ts,
 -- contexts/{Cartcontext,Wishlistcontext,Ordercontexts,DashboardContext}.tsx.
@@ -49,7 +49,7 @@ create table public.profiles (
   phone text,
   phone_verified boolean not null default false,
   -- WhatsApp OTP verification state — see
-  -- data/wishdrop-whatsapp-otp.sql for why this replaced Supabase
+  -- data/Wishdrop-whatsapp-otp.sql for why this replaced Supabase
   -- Auth's own (SMS-only) phone_change flow.
   pending_phone text,
   phone_otp_code_hash text,
@@ -355,7 +355,7 @@ create table public.requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   -- Real, sequence-backed customer-facing reference — see
-  -- data/wishdrop-request-display-id-sequence.sql.
+  -- data/Wishdrop-request-display-id-sequence.sql.
   display_id text unique not null,
   link text not null,
   note text,
@@ -367,7 +367,7 @@ create table public.requests (
   assigned_staff_id uuid,                -- FK added in Phase 3 (staff_accounts)
   submitted_at timestamptz not null default now(),
   -- Admin-defined variant dimensions/values — see
-  -- data/wishdrop-requests-variant-options.sql.
+  -- data/Wishdrop-requests-variant-options.sql.
   variant_options jsonb
 );
 alter table public.chat_threads
@@ -391,7 +391,7 @@ create table public.chat_messages (
   text text,
   attachment_url text,
   request_id uuid references public.requests(id) on delete set null,
-  -- See data/wishdrop-chat-messages-order-id.sql.
+  -- See data/Wishdrop-chat-messages-order-id.sql.
   order_id uuid references public.orders(id) on delete set null,
   sent_via_whatsapp boolean not null default false,   -- manual wa.me deep-link click, never auto-synced
   created_at timestamptz not null default now()
@@ -408,7 +408,7 @@ create index on public.chat_messages (order_id, created_at);
 create type order_stage as enum ('ordered', 'quality_check', 'shipped', 'delivered', 'cancelled');
 create type order_seller_type as enum ('store', 'individual');
 
--- Backs orders.display_id below — see data/wishdrop-order-display-id-sequence.sql
+-- Backs orders.display_id below — see data/Wishdrop-order-display-id-sequence.sql
 -- for the full rationale (this is the fresh-database version of that same fix).
 create sequence public.order_display_id_seq start with 10000 increment by 1;
 
@@ -418,7 +418,7 @@ create sequence public.order_display_id_seq start with 10000 increment by 1;
 -- sequence values per insert and format the wrong one. Pad width is
 -- greatest(actual digit count, 5) so a short number still zero-pads to
 -- "WD-10004", but a 6+ digit number is used in full rather than
--- silently truncated — see data/wishdrop-order-display-id-fix-truncation-bug.sql
+-- silently truncated — see data/Wishdrop-order-display-id-fix-truncation-bug.sql
 -- for the real production bug this avoids (lpad(string, length)
 -- truncates, not just pads, when string is already longer than length).
 create or replace function public.next_order_display_id() returns text
@@ -445,7 +445,7 @@ create table public.orders (
   delayed boolean not null default false,
   -- Manual staff-set hold, keeping a packed order back from courier
   -- pickup on purpose (e.g. waiting on a sibling order from the same
-  -- customer/address) — see data/wishdrop-orders-export-hold.sql.
+  -- customer/address) — see data/Wishdrop-orders-export-hold.sql.
   export_hold boolean not null default false,
   site_id uuid,                          -- FK added in Phase 3 (sites)
   request_id uuid references public.requests(id) on delete set null,   -- set when channel = 3
@@ -482,7 +482,7 @@ create table public.order_items (
   screenshot_url text,                   -- channel 3 only
   -- Admin-entered product photo, for a channel 3 item with no
   -- product_snapshots row to pull an image from — see
-  -- data/wishdrop-requests-manual-product-details.sql.
+  -- data/Wishdrop-requests-manual-product-details.sql.
   product_image_url text
 );
 create index on public.order_items (order_id);
@@ -691,7 +691,7 @@ create index on public.notifications (user_id, read);
 
 create type staff_role as enum ('manager', 'sales', 'warehouse', 'super_admin');
 -- 'pending' = self-registered via /admin/register, awaiting Manager/
--- Super Admin approval — see data/wishdrop-staff-self-registration.sql.
+-- Super Admin approval — see data/Wishdrop-staff-self-registration.sql.
 create type staff_status as enum ('active', 'deactivated', 'pending');
 
 create table public.sites (
@@ -701,7 +701,7 @@ create table public.sites (
   headcount integer not null default 0,
   active boolean not null default true,
   -- The one site new orders are assigned to when nothing else
-  -- determines a site — see data/wishdrop-sites-default.sql.
+  -- determines a site — see data/Wishdrop-sites-default.sql.
   is_default boolean not null default false
 );
 create unique index sites_one_default on public.sites (is_default) where is_default;
@@ -763,11 +763,11 @@ create table public.scrape_health (
   success_count integer not null default 0,
   last_failure timestamptz,
   linked_seller_id uuid references public.sellers(id) on delete set null,
-  -- See data/wishdrop-scrape-health-decision-columns.sql.
+  -- See data/Wishdrop-scrape-health-decision-columns.sql.
   decision text not null default 'not_started',
   ops_note text,
   -- A real example of what this domain's product data looks like —
-  -- see data/wishdrop-scrape-health-success-sample.sql.
+  -- see data/Wishdrop-scrape-health-success-sample.sql.
   last_success_title text,
   last_success_image_url text,
   last_success_price text,
@@ -775,7 +775,7 @@ create table public.scrape_health (
 );
 -- The atomic fail_count/success_count increment function this table's
 -- write side depends on lives in its own file — see
--- data/wishdrop-scrape-health-increment-fn.sql.
+-- data/Wishdrop-scrape-health-increment-fn.sql.
 
 create table public.seller_extraction_history (
   id uuid primary key default gen_random_uuid(),
@@ -879,9 +879,9 @@ create policy "own notifications" on public.notifications for all using (auth.ui
 -- Staff/admin tables (Phase 3) intentionally have NO client-facing RLS
 -- policy here — access them only through server-side routes using the
 -- Supabase service role key, gated by your own staff-role checks (Manager /
--- Sales & Purchase / Warehouse / Super Admin), matching wishdrop-admin-route-specs.md.
+-- Sales & Purchase / Warehouse / Super Admin), matching Wishdrop-admin-route-specs.md.
 
--- Real "follow a store" backend — see data/wishdrop-store-follows.sql.
+-- Real "follow a store" backend — see data/Wishdrop-store-follows.sql.
 create table public.store_follows (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -897,8 +897,8 @@ create policy "own store follows" on public.store_follows for all
 -- ─── Push notifications ─────────────────────────────────────────────────
 -- push_subscriptions, push_broadcasts, profiles.push_offers and the
 -- chat_messages push trigger are defined in
--- data/wishdrop-push-notifications.sql — run that file after this one.
+-- data/Wishdrop-push-notifications.sql — run that file after this one.
 
 -- ─── WhatsApp verification & unique chat handles ────────────────────────
--- See data/wishdrop-whatsapp-manual-verification.sql and
--- data/wishdrop-unique-chat-handles.sql — run both after this file.
+-- See data/Wishdrop-whatsapp-manual-verification.sql and
+-- data/Wishdrop-unique-chat-handles.sql — run both after this file.

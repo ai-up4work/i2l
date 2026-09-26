@@ -196,7 +196,7 @@ function hostnameOf(url: string): string {
 /* ------------------------------------------------------------------ */
 
 const STORAGE_VERSION = "v3" // bumped: orders are now derived from orderContexts.tsx
-const STORAGE_PREFIX = `wishdrop:${STORAGE_VERSION}:`
+const STORAGE_PREFIX = `Wishdrop:${STORAGE_VERSION}:`
 
 function readFromStorage<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback // SSR guard — no window on the server
@@ -275,7 +275,7 @@ function usePersistentState<T>(key: string, initial: T) {
 /* Reference data                                                      */
 /* ------------------------------------------------------------------ */
 
-// IDs below MUST match data/wishdrop-seed-staff-sites.sql exactly — that
+// IDs below MUST match data/Wishdrop-seed-staff-sites.sql exactly — that
 // file seeds real `sites`/`staff_accounts` rows at these fixed UUIDs
 // specifically so this mock role-switcher can write real data. Before
 // this fix, these three constants still used old placeholder strings
@@ -292,14 +292,14 @@ function usePersistentState<T>(key: string, initial: T) {
 // up on /admin/qc-issues, and why it also vanished from every other
 // queue (loadRealOrders' next re-fetch has nothing to show it as
 // belonging to, since the write that would keep it findable never
-// landed). Run data/wishdrop-seed-staff-sites.sql against your Supabase
+// landed). Run data/Wishdrop-seed-staff-sites.sql against your Supabase
 // project once, then these IDs will resolve to real rows and every
 // staff-attributed write will actually persist.
 //
 // FIX: this used to be the ONLY source of sites data — `sites` in the
 // context value below was this const, directly, with no fetch at all,
 // despite a real `sites` table already existing and already being
-// seeded with these exact rows (see wishdrop-seed-staff-sites.sql).
+// seeded with these exact rows (see Wishdrop-seed-staff-sites.sql).
 // Nothing here ever wrote back to the database either — the warehouse
 // sites admin page's Add/Edit/Deactivate all operated on local
 // component state that reset on every refresh (its own header comment
@@ -653,7 +653,7 @@ function mapToOrder(
  * very next realtime-triggered refetch — which fires on almost any
  * order-related write, including the resolution change that just
  * happened — silently overwrote it. `order_item_issues.replacement_purchased_at`
- * (see data/wishdrop-qc-repurchase-signal.sql) is the real, durable fix:
+ * (see data/Wishdrop-qc-repurchase-signal.sql) is the real, durable fix:
  * an item stays correctly "needs_purchase" across any number of
  * refetches until it's actually marked purchased again (see
  * markPurchased below, which writes this column for real).
@@ -700,7 +700,7 @@ function mapToPurchases(
     // submitQcResult in this file), which made every sibling item read
     // as passed too via the order-level check below, whether or not it
     // had actually been inspected. order_items.qc_passed_at
-    // (data/wishdrop-qc-per-item-pass.sql) is real and per-item, so it's
+    // (data/Wishdrop-qc-per-item-pass.sql) is real and per-item, so it's
     // trustworthy on its own regardless of what the rest of the order is
     // doing.
     const item = o.items.find((i) => i.id === itemId)
@@ -981,7 +981,7 @@ function buildRequest(seed: RequestSeed): Request {
     // id (see the INITIAL_REQUESTS seeds above, e.g. id: "REQ-2031") —
     // unlike the real DB, where id is a uuid and displayId is a
     // separate, real sequence-backed column (see
-    // data/wishdrop-request-display-id-sequence.sql). Reusing seed.id
+    // data/Wishdrop-request-display-id-sequence.sql). Reusing seed.id
     // for both here is correct, not a shortcut: this mock data was
     // already shaped like a display id from the start.
     displayId: seed.id,
@@ -1417,7 +1417,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const loadRealSites = useCallback(async () => {
     const realSites = await fetchSites()
     // Empty is treated as "fetch hasn't landed or failed" rather than
-    // "there are genuinely zero sites" — a real WishDrop deployment
+    // "there are genuinely zero sites" — a real Wishdrop deployment
     // always has at least one hub, so an empty result almost certainly
     // means the query failed silently or the table isn't seeded yet;
     // keeping whatever was already showing (the fallback constant, or
@@ -1730,7 +1730,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // Staff roster — deliberately NOT a client-side postgres_changes
   // subscription like orders/requests above. `staff_accounts` has no
   // client-facing RLS SELECT policy at all, by design (see
-  // wishdrop-supabase-schema.sql's own comment: staff/admin tables are
+  // Wishdrop-supabase-schema.sql's own comment: staff/admin tables are
   // meant to be read only through server-side routes using the service
   // role key, same as loadStaffDirectory's `/api/admin/staff` fetch
   // already does). A Postgres-changes subscription is evaluated
@@ -2123,7 +2123,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const isReorderForNote = orderForNote != null && orderForNote.stage !== "Ordered"
 
     // Real, durable write closing the loop on a repurchase — see
-    // mapToPurchases' doc comment and data/wishdrop-qc-repurchase-signal.sql
+    // mapToPurchases' doc comment and data/Wishdrop-qc-repurchase-signal.sql
     // for the full "why". Fire-and-forget, same pattern as addInternalNote
     // below: the local Purchase[] update further down already gives the
     // admin immediate feedback, but this is what makes the item survive
@@ -3035,7 +3035,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // since the local newOrderId above is only ever a guess (a plain
     // count-based string) that essentially never matches what the DB
     // actually assigns via its own sequence (see
-    // data/wishdrop-order-display-id-sequence.sql). Sending a customer
+    // data/Wishdrop-order-display-id-sequence.sql). Sending a customer
     // a made-up order number they can never actually look up would be
     // worse than a brief wait for the real one. userId/firstItem were
     // already resolved above (needed there for the optimistic order's
@@ -3092,7 +3092,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * FIXED: this used to update local state immediately, then fire
    * sendAdminChatMessage() WITHOUT awaiting it or checking its result —
    * so if the real insert failed (most likely cause: the RLS policy fix
-   * in data/wishdrop-admin-requests-chat-rls-fix.sql hasn't actually
+   * in data/Wishdrop-admin-requests-chat-rls-fix.sql hasn't actually
    * been run against this Supabase project yet, so a staff session's
    * insert into chat_messages gets rejected by the default "own thread
    * only" policy), the admin's own screen still showed the message as

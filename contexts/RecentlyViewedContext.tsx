@@ -39,7 +39,7 @@ type RecentlyViewedContextValue = {
 
 const RecentlyViewedContext = createContext<RecentlyViewedContextValue | null>(null)
 
-const STORAGE_KEY = 'wishdrop:recently-viewed'
+const STORAGE_KEY = 'Wishdrop:recently-viewed'
 const MAX_ITEMS = 100
 
 function dedupeById(entries: RecentlyViewedEntry[]): RecentlyViewedEntry[] {

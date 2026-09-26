@@ -80,7 +80,7 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-sm rounded-2xl border border-ink/10 bg-card p-8 shadow-lg">
         <div className="flex items-center gap-2.5">
           <ShieldCheck size={22} className="text-teal-deep" />
-          <h1 className="font-display text-xl text-ink">WishDrop Admin</h1>
+          <h1 className="font-display text-xl text-ink">Wishdrop Admin</h1>
         </div>
         <p className="mt-2 text-sm text-ink/55">Sign in with your staff account.</p>
 
@@ -92,7 +92,7 @@ export default function AdminLoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-              placeholder="name@wishdrop.shop"
+              placeholder="name@Wishdrop.shop"
               className="mt-1.5 w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-teal/50"
             />
           </div>

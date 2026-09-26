@@ -1,4 +1,4 @@
-# WishDrop — Send chat messages to WhatsApp (admin)
+# Wishdrop — Send chat messages to WhatsApp (admin)
 
 From the admin inbox, staff can send any of their messages — or a
 "you have messages waiting" reminder — to a customer's **verified**
@@ -8,9 +8,9 @@ filled in, and they press **Send**.
 
 ## Before you start
 
-- Run `data/wishdrop-chat-whatsapp-handoff.sql` in Supabase.
+- Run `data/Wishdrop-chat-whatsapp-handoff.sql` in Supabase.
 - Staff computers must have **WhatsApp Web or WhatsApp Desktop logged in as
-  the WishDrop business number** (WhatsApp Business app → Linked devices).
+  the Wishdrop business number** (WhatsApp Business app → Linked devices).
   The link opens whichever WhatsApp is logged in on that device — if it's a
   personal account, the customer gets it from that personal number.
 - Only customers with a verified number (My Profile → WhatsApp Number,
@@ -29,7 +29,7 @@ outline) → **Send to WhatsApp** in the bar above the composer. They're
 combined in order into one message.
 
 **Reminder** — **Remind on WhatsApp** writes a short nudge, e.g.
-"Hi Kavindi, you have 3 new messages from WishDrop about your order
+"Hi Kavindi, you have 3 new messages from Wishdrop about your order
 *WD-10499*." (it counts your messages since the customer last wrote).
 
 Every option opens the same review dialog:
@@ -60,7 +60,7 @@ We can't see whether Send was pressed, so everything records that it was
 
 | File | Purpose |
 |---|---|
-| `data/wishdrop-chat-whatsapp-handoff.sql` | Columns on messages/threads + hand-off log |
+| `data/Wishdrop-chat-whatsapp-handoff.sql` | Columns on messages/threads + hand-off log |
 | `lib/chat/whatsapp-handoff.ts` | Writes the combined message / reminder, links, length limits |
 | `app/api/admin/chat/threads/[threadId]/whatsapp/route.ts` | Verified number + last reminder (GET), log a hand-off (POST) |
 | `components/admin/chat/WhatsAppHandoffDialog.tsx` | The review-and-open dialog |

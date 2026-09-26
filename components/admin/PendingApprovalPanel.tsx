@@ -3,7 +3,7 @@
 // Shown instead of the normal edit-mode view whenever a staff detail
 // page's account has status='pending' — a self-registered applicant
 // awaiting approval (see /admin/register and
-// data/wishdrop-staff-self-registration.sql). Reused by both the
+// data/Wishdrop-staff-self-registration.sql). Reused by both the
 // Manager staff detail page (allowedRoles: sales/warehouse only) and
 // the Super Admin one (all four roles) rather than duplicating this
 // panel in both places, since the only real difference between them is

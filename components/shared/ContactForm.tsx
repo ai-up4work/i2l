@@ -7,7 +7,7 @@ const topics = [
   'An existing request or order',
   'Shipping, customs, or delivery',
   'Billing, refunds, or credits',
-  'Becoming a WishDrop seller',
+  'Becoming a Wishdrop seller',
   'Something else',
 ]
 

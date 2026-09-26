@@ -1,4 +1,4 @@
-# WishDrop — SEO & PWA
+# Wishdrop — SEO & PWA
 
 > Push notifications (chat messages and broadcasts) are documented in
 > **PUSH_NOTIFICATIONS.md**.
@@ -85,7 +85,7 @@ Suggested design: parchment background (`#fbf6ec`) with the logo centred.
 In **`lib/seo.ts`**:
 - `SITE.contact.email` — support inbox (used in Google's brand data).
 - `SITE.social.*` — official profile URLs; blanks are ignored.
-- `SITE.twitterHandle` — e.g. `'@wishdrop'`, if you have one.
+- `SITE.twitterHandle` — e.g. `'@Wishdrop'`, if you have one.
 
 On **Vercel → Settings → Environment Variables** (all optional):
 
@@ -127,7 +127,7 @@ every canonical URL and social image URL is built from it.
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
-  title: 'Gift cards',           // " | WishDrop" is added automatically
+  title: 'Gift cards',           // " | Wishdrop" is added automatically
   description: 'One or two sentences, under ~155 characters.',
   path: '/gift-cards',           // becomes the canonical URL
 })
@@ -172,7 +172,7 @@ top so old caches are deleted. Normal deploys don't need a bump.
 6. **Link previews**: developers.facebook.com/tools/debug (also refreshes
    WhatsApp's cache over time), and paste a link into WhatsApp itself.
 7. **Search Console**: verify the domain, then submit
-   `https://www.wishdrop.shop/sitemap.xml`.
+   `https://www.Wishdrop.shop/sitemap.xml`.
 
 ## Known limits
 

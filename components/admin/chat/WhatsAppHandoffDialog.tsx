@@ -222,7 +222,7 @@ export default function WhatsAppHandoffDialog(props: Props) {
 
           <p className="rounded-xl border border-ink/10 bg-card px-3 py-2.5 text-xs leading-relaxed text-ink/60">
             This opens WhatsApp on this device with the message ready — press <strong>Send</strong> there. Make sure the
-            WhatsApp open on this device is the <strong>WishDrop business number</strong>, not a personal one.
+            WhatsApp open on this device is the <strong>Wishdrop business number</strong>, not a personal one.
           </p>
         </div>
 

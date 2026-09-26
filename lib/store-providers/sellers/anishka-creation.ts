@@ -40,7 +40,7 @@ import { applySort } from '../types';
 export const ANISHKA_BASE_URL = 'https://www.anishkacreation.com';
 
 // Real category slugs, taken directly from the site's own navbar markup.
-// Key is whatever WishDrop's storefront passes as params.category; value
+// Key is whatever Wishdrop's storefront passes as params.category; value
 // is the real path on anishkacreation.com. "MEN'S WEAR" keeps its literal
 // apostrophe — that's the site's actual path, not a typo, and `new URL()`
 // percent-encodes it correctly on its own.

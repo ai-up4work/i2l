@@ -56,7 +56,7 @@ type CartContextValue = {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
-const STORAGE_KEY = 'wishdrop:cart'
+const STORAGE_KEY = 'Wishdrop:cart'
 
 function loadInitialItems(): CartLineItem[] {
   if (typeof window === 'undefined') return []
@@ -203,7 +203,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
             sourcePrice: row.product_snapshots.price != null ? String(row.product_snapshots.price) : null,
             selectedOptions: row.selected_options ?? undefined,
             // Was hardcoded to 'link' here — cart_items now has a real
-            // source column (see wishdrop-cart-items-source-column.sql)
+            // source column (see Wishdrop-cart-items-source-column.sql)
             // to read back instead. Rows written before that migration
             // still have source = null, hence the 'link' fallback (the
             // same default this always used, just now only applied to

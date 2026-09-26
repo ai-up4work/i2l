@@ -67,7 +67,7 @@ export default function MarketplaceGuide({
             , adding any size, colour, or quantity details.
           </li>
           <li>3. Review the quote — product price, service fee, freight, and estimated customs — and accept it.</li>
-          <li>4. WishDrop buys it, quality-checks it, and ships it to you.</li>
+          <li>4. Wishdrop buys it, quality-checks it, and ships it to you.</li>
         </ol>
       </div>
 

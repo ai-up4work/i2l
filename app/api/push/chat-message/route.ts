@@ -1,13 +1,13 @@
 // app/api/push/chat-message/route.ts
 //
 // Called ONLY by the database trigger `push_on_staff_chat_message`
-// (data/wishdrop-push-notifications.sql) after any staff message is
+// (data/Wishdrop-push-notifications.sql) after any staff message is
 // inserted into chat_messages. Looks the message up itself — the trigger
 // only sends its id — and pushes it to every device of the thread's
 // customer.
 //
 // Auth: the `x-push-secret` header must equal PUSH_WEBHOOK_SECRET (the same
-// value stored in Supabase Vault as `wishdrop_push_webhook_secret`).
+// value stored in Supabase Vault as `Wishdrop_push_webhook_secret`).
 
 import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   const result = await sendPushToUsers(admin, [thread.user_id], {
     kind: 'chat',
-    title: senderName ? `${senderName} from WishDrop` : 'WishDrop support',
+    title: senderName ? `${senderName} from Wishdrop` : 'Wishdrop support',
     body,
     url: '/account/messages',
     // One notification per conversation: a new reply replaces the last

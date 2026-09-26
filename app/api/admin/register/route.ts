@@ -17,7 +17,7 @@
 // anything other than status='active' as "not staff." So it's safe to
 // leave this open to the public internet — the worst case is a pending
 // row nobody approves, never unauthorized access. See
-// data/wishdrop-staff-self-registration.sql for the schema change this
+// data/Wishdrop-staff-self-registration.sql for the schema change this
 // depends on.
 
 import { NextRequest, NextResponse } from 'next/server'

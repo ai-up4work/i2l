@@ -52,10 +52,10 @@ function parseDraft(input: Record<string, unknown>): { draft?: Draft; error?: st
   if (title.length > LIMITS.title) return { error: `Keep the title under ${LIMITS.title} characters.` }
   if (body.length > LIMITS.body) return { error: `Keep the message under ${LIMITS.body} characters.` }
 
-  // Only links inside WishDrop: a path like /deals or /stores/myntra.
+  // Only links inside Wishdrop: a path like /deals or /stores/myntra.
   let url = typeof input.url === 'string' && input.url.trim() ? input.url.trim() : '/'
   if (!url.startsWith('/') || url.startsWith('//')) {
-    return { error: 'The link must be a page on WishDrop, starting with / (for example /deals).' }
+    return { error: 'The link must be a page on Wishdrop, starting with / (for example /deals).' }
   }
   url = url.slice(0, 300)
 

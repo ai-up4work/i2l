@@ -258,7 +258,7 @@ export default function PurchaseDetailPage() {
                         "Manual-mode"` — but order_seller_type only has two
                         real values ('store'/'individual'), and 'store' maps
                         to "feed" here regardless of whether the seller is
-                        actually one of WishDrop's own onboarded affiliate
+                        actually one of Wishdrop's own onboarded affiliate
                         feeds or just any real online store a customer's
                         link happened to point at (e.g. Amazon). itemSource
                         is already correctly derived from requestLink's

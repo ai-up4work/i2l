@@ -14,7 +14,7 @@
 // even named this exact file — but it was never actually written, so
 // every domain's real fail_count/success_count has sat at zero this
 // whole time regardless of how many scrapes actually ran against it.
-// See data/wishdrop-scrape-health-increment-fn.sql for why the actual
+// See data/Wishdrop-scrape-health-increment-fn.sql for why the actual
 // increment happens inside a single atomic SQL statement (an RPC call)
 // rather than a plain client-side upsert with a JS-computed "+1", which
 // would lose counts under concurrent requests against the same domain.
@@ -62,7 +62,7 @@ function isStaleConnectionError(err: unknown): boolean {
  * `!data.error`), so "success" here means exactly what it means there.
  *
  * `sample` is only meaningful (and only ever written) on a real
- * success — see wishdrop-scrape-health-success-sample.sql for why this
+ * success — see Wishdrop-scrape-health-success-sample.sql for why this
  * exists: a bare count told ops a domain scrapes fine, but never showed
  * what actually came back. A sample field left undefined doesn't erase
  * a previously-recorded one (see the RPC's own comment on why), so a
@@ -70,7 +70,7 @@ function isStaleConnectionError(err: unknown): boolean {
  * otherwise-good example.
  *
  * `error`, symmetrically, is only meaningful (and only ever written) on
- * a real FAILURE — see wishdrop-scrape-health-last-error.sql. This is
+ * a real FAILURE — see Wishdrop-scrape-health-last-error.sql. This is
  * scrapeProduct()'s own full diagnostic string (BLOCKED/JS_SHELL/a
  * specific HTTP status, which fallback tier was tried and how, vendor-
  * fingerprinted block-page markers, ...) — the same detail the customer

@@ -3,9 +3,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/refund-policy',
-  title: 'Refund & Cancellation Policy | WishDrop',
+  title: 'Refund & Cancellation Policy | Wishdrop',
   description:
-    'When WishDrop provides refunds or credits — cancellations, failed purchases, quality-check rejections, lost or damaged shipments, and delivery issues.',
+    'When Wishdrop provides refunds or credits — cancellations, failed purchases, quality-check rejections, lost or damaged shipments, and delivery issues.',
 })
 
 export default function RefundPolicyPage() {
@@ -13,7 +13,7 @@ export default function RefundPolicyPage() {
     <LegalPageLayout
       eyebrow="Legal"
       title="Refund & Cancellation Policy"
-      intro="Because WishDrop purchases real products from real sellers on your behalf, refund eligibility depends on where your request or order is in the journey — Ordered, Quality check, Shipped, or Delivered. This page explains what to expect at each stage."
+      intro="Because Wishdrop purchases real products from real sellers on your behalf, refund eligibility depends on where your request or order is in the journey — Ordered, Quality check, Shipped, or Delivered. This page explains what to expect at each stage."
       lastUpdated="14 September 2026"
       note={
         <>
@@ -29,7 +29,7 @@ export default function RefundPolicyPage() {
             <>
               <p>
                 A quote is not a confirmed order. If you cancel a request or a quote before
-                WishDrop has purchased the item from the seller, you are entitled to a full
+                Wishdrop has purchased the item from the seller, you are entitled to a full
                 refund of any amount paid, less any payment-gateway processing fee that is not
                 refundable to us.
               </p>
@@ -47,7 +47,7 @@ export default function RefundPolicyPage() {
           body: (
             <>
               <p>
-                Once WishDrop has paid a seller on your behalf, the order generally cannot be
+                Once Wishdrop has paid a seller on your behalf, the order generally cannot be
                 cancelled for a full refund, because funds have already left our account. In
                 limited cases where a seller allows cancellation before dispatch, we will pass on
                 any refund the seller provides, minus our non-refundable service fee, which covers
@@ -56,8 +56,8 @@ export default function RefundPolicyPage() {
               <p>
                 If a seller is unable to fulfil your order at all (for example, the item goes out
                 of stock after purchase, or the seller refuses to ship) and no replacement is
-                available, WishDrop will refund the product cost paid to the seller and any
-                shipping/service fees tied specifically to that item, back to your WishDrop wallet
+                available, Wishdrop will refund the product cost paid to the seller and any
+                shipping/service fees tied specifically to that item, back to your Wishdrop wallet
                 credit or original payment method, at your choice where possible.
               </p>
             </>
@@ -69,7 +69,7 @@ export default function RefundPolicyPage() {
           body: (
             <>
               <p>
-                Every item is inspected at a WishDrop facility before it is consolidated for
+                Every item is inspected at a Wishdrop facility before it is consolidated for
                 international shipping. If an item fails quality check because it is:
               </p>
               <ul>
@@ -79,7 +79,7 @@ export default function RefundPolicyPage() {
               </ul>
               <p>
                 you will be offered, at your choice where the seller allows it: a replacement, a
-                refund of the product cost and any fees tied to that item, or WishDrop wallet
+                refund of the product cost and any fees tied to that item, or Wishdrop wallet
                 credit. We will notify you with photos or a description of the issue found during
                 inspection before proceeding.
               </p>
@@ -106,8 +106,8 @@ export default function RefundPolicyPage() {
                 Claims for shipments covered by our optional{' '}
                 <a href="/shipping/protection">Shipping Protection Plan</a> are handled under the
                 terms of that plan, up to its stated coverage limit. For shipments without
-                protection, WishDrop will pursue a claim with the courier on your behalf and pass
-                on any compensation received; WishDrop's own liability in this case is limited as
+                protection, Wishdrop will pursue a claim with the courier on your behalf and pass
+                on any compensation received; Wishdrop's own liability in this case is limited as
                 set out in our <a href="/terms">Terms of Use</a>.
               </p>
             </>
@@ -135,7 +135,7 @@ export default function RefundPolicyPage() {
             <>
               <p>Approved refunds are issued using one of the following, depending on the case:</p>
               <ul>
-                <li>WishDrop wallet credit, usually available within 24–48 hours of approval.</li>
+                <li>Wishdrop wallet credit, usually available within 24–48 hours of approval.</li>
                 <li>Reversal to your original payment method, which can take 5–14 business days depending on your bank or card issuer.</li>
               </ul>
               <p>

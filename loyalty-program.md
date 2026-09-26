@@ -1,4 +1,4 @@
-# WishDrop Loyalty Program — Design Reference
+# Wishdrop Loyalty Program — Design Reference
 
 Status: demo/prototype. Point rules and reward catalog are placeholders — tune before launch. No real earning flow is wired into checkout, boards, or cart yet.
 

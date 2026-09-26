@@ -27,13 +27,13 @@ function resolveSiteUrl(): string {
 export const SITE_URL = resolveSiteUrl()
 
 export const SITE = {
-  name: 'WishDrop',
-  legalName: 'WishDrop',
-  shortName: 'WishDrop',
+  name: 'Wishdrop',
+  legalName: 'Wishdrop',
+  shortName: 'Wishdrop',
   tagline: "Wish it. We'll drop it.",
-  defaultTitle: "WishDrop — Wish it. We'll drop it.",
+  defaultTitle: "Wishdrop — Wish it. We'll drop it.",
   description:
-    'Shop from your favourite Indian stores — WishDrop buys it, quality-checks it, and delivers it to your door in Sri Lanka.',
+    'Shop from your favourite Indian stores — Wishdrop buys it, quality-checks it, and delivers it to your door in Sri Lanka.',
   locale: 'en_LK',
   language: 'en',
   country: 'LK',
@@ -43,7 +43,7 @@ export const SITE = {
   themeColor: '#08274f',
   backgroundColor: '#fbf6ec',
   keywords: [
-    'WishDrop',
+    'Wishdrop',
     'buy from India Sri Lanka',
     'Indian online shopping Sri Lanka',
     'shop Indian stores deliver to Sri Lanka',
@@ -60,13 +60,13 @@ export const SITE = {
   // Public contact points used in Organization structured data. Fill the
   // email in when you have a real support inbox; empty values are dropped.
   contact: {
-    email: '', // e.g. 'support@wishdrop.shop'
+    email: '', // e.g. 'support@Wishdrop.shop'
     whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '',
   },
   // Official social profiles (Organization "sameAs"). Empty entries are
   // ignored, so leave them blank until the profile exists.
   social: {
-    facebook: '', // e.g. 'https://www.facebook.com/wishdrop'
+    facebook: '', // e.g. 'https://www.facebook.com/Wishdrop'
     instagram: '',
     tiktok: '',
     youtube: '',
@@ -149,13 +149,13 @@ export function clampDescription(text: string, max = 158): string {
   return `${(lastSpace > 80 ? cut.slice(0, lastSpace) : cut).replace(/[,.;:\-–—\s]+$/, '')}…`
 }
 
-/** Drops the legacy " | WishDrop" suffix pages used to hand-write. */
+/** Drops the legacy " | Wishdrop" suffix pages used to hand-write. */
 function stripBrandSuffix(title: string): string {
-  return title.replace(/\s*[|–—-]\s*WishDrop\s*$/i, '').trim()
+  return title.replace(/\s*[|–—-]\s*Wishdrop\s*$/i, '').trim()
 }
 
 export interface PageMetadataInput {
-  /** Page title WITHOUT the brand — " | WishDrop" is appended by the root template. */
+  /** Page title WITHOUT the brand — " | Wishdrop" is appended by the root template. */
   title: string
   description: string
   /** Site-relative path of this page, e.g. '/shipping'. Becomes the canonical URL. */
@@ -189,8 +189,8 @@ export function pageMetadata({
   type = 'website',
 }: PageMetadataInput): Metadata {
   const cleanTitle = stripBrandSuffix(title)
-  // Titles that already name the brand ("About WishDrop", "Sell on
-  // WishDrop") are used as-is rather than becoming "About WishDrop | WishDrop".
+  // Titles that already name the brand ("About Wishdrop", "Sell on
+  // Wishdrop") are used as-is rather than becoming "About Wishdrop | Wishdrop".
   const namesBrand = new RegExp(`\\b${SITE.name}\\b`, 'i').test(cleanTitle)
   const fullTitle =
     cleanTitle === SITE.name

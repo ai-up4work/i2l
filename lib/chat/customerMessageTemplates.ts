@@ -92,7 +92,7 @@ export function arrivedInSriLankaMessage(orderDisplayId: string): string {
 
 // Deliberately doesn't mention loyalty points — addOrderPoints exists in
 // the loyalty engine but has no call site wiring it to real orders yet
-// (see WISHDROP_STATUS.md), so promising "points are in your account"
+// (see Wishdrop_STATUS.md), so promising "points are in your account"
 // here would just be false. Update this once that's actually wired up.
 export function deliveredMessage(orderDisplayId: string): string {
   return `🎉 Your order ${orderDisplayId} has arrived — enjoy! We really hope it's exactly what you were after. If anything's not quite right, just reply here and we'll sort it out for you. And whenever you spot something else you'd like, send us the link or browse our catalogue — we're always ready for the next one!`

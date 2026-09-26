@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   // and the storage path has no user id in it at all for RLS to match
   // against. Same root cause already documented and fixed for the
   // `orders`/`requests`/`chat_*` tables in
-  // data/wishdrop-admin-*-rls-fix.sql: there's no real staff-auth-aware
+  // data/Wishdrop-admin-*-rls-fix.sql: there's no real staff-auth-aware
   // policy yet, so any write outside "auth.uid() owns this row" gets
   // rejected with "new row violates row-level security policy". Route
   // those through the service-role client (see its doc comment in

@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss'
 
 /**
- * Design tokens for WishDrop 
+ * Design tokens for Wishdrop 
  * ------------------------------------------------------------------
  * Palette is drawn from postal & customs ephemera (ink, airmail
  * envelopes, wax stamps) rather than a generic brand-blue/teal duo.

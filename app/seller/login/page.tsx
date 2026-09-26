@@ -34,10 +34,10 @@ export default function SellerLoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-parchment px-6">
       <div className="w-full max-w-sm rounded-2xl border border-ink/10 bg-card p-8 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">WishDrop</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Wishdrop</p>
         <h1 className="mt-1 font-display text-2xl font-bold text-ink">Seller login</h1>
         <p className="mt-1 text-sm text-ink/55">
-          Use the email and temporary password your WishDrop contact sent you.
+          Use the email and temporary password your Wishdrop contact sent you.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3">

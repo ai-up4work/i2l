@@ -7,7 +7,7 @@
 // Env:
 //   NEXT_PUBLIC_VAPID_PUBLIC_KEY  public key (also used by the browser)
 //   VAPID_PRIVATE_KEY             private key — never expose
-//   VAPID_SUBJECT                 mailto: or https: contact, e.g. mailto:support@wishdrop.shop
+//   VAPID_SUBJECT                 mailto: or https: contact, e.g. mailto:support@Wishdrop.shop
 // Generate a pair once with `npm run push:keys`.
 //
 // Only import from route handlers / server code. (web-push is Node-only,
@@ -45,7 +45,7 @@ export function isPushConfigured(): boolean {
   if (configured !== null) return configured
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
   const privateKey = process.env.VAPID_PRIVATE_KEY
-  const subject = process.env.VAPID_SUBJECT || 'mailto:support@wishdrop.shop'
+  const subject = process.env.VAPID_SUBJECT || 'mailto:support@Wishdrop.shop'
   if (!publicKey || !privateKey) {
     configured = false
     return false

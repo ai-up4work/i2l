@@ -1,4 +1,4 @@
--- data/wishdrop-chat-message-retag.sql
+-- data/Wishdrop-chat-message-retag.sql
 --
 -- Staff can re-tag any chat message from the admin inbox (/admin/chat):
 -- point it at a different order or request, or clear the tag. The tag

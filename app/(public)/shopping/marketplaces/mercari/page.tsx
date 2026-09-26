@@ -3,8 +3,8 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping/marketplaces/mercari',
-  title: 'Buying from Mercari | WishDrop',
-  description: "A guide to sourcing Mercari listings through WishDrop's concierge buying service.",
+  title: 'Buying from Mercari | Wishdrop',
+  description: "A guide to sourcing Mercari listings through Wishdrop's concierge buying service.",
 })
 
 export default function MercariGuidePage() {

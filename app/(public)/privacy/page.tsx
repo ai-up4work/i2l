@@ -3,9 +3,9 @@ import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/privacy',
-  title: 'Privacy Policy | WishDrop',
+  title: 'Privacy Policy | Wishdrop',
   description:
-    'How WishDrop collects, uses, shares, and protects your personal data across the buying, quality-check, and delivery journey.',
+    'How Wishdrop collects, uses, shares, and protects your personal data across the buying, quality-check, and delivery journey.',
 })
 
 export default function PrivacyPolicyPage() {
@@ -13,11 +13,11 @@ export default function PrivacyPolicyPage() {
     <LegalPageLayout
       eyebrow="Legal"
       title="Privacy Policy"
-      intro="This Privacy Policy explains what personal data WishDrop collects when you use our website, mobile experience, and concierge buying service, why we collect it, who we share it with, and the choices and rights you have over it."
+      intro="This Privacy Policy explains what personal data Wishdrop collects when you use our website, mobile experience, and concierge buying service, why we collect it, who we share it with, and the choices and rights you have over it."
       lastUpdated="14 September 2026"
       note={
         <>
-          WishDrop (“WishDrop”, “we”, “us”, or “our”) is operated by WishDrop Limited. This
+          Wishdrop (“Wishdrop”, “we”, “us”, or “our”) is operated by Wishdrop Limited. This
           policy should be read alongside our <a href="/terms">Terms of Use</a>. By creating an
           account or using any part of the service, you agree to the practices described here.
         </>
@@ -29,13 +29,13 @@ export default function PrivacyPolicyPage() {
           body: (
             <>
               <p>
-                WishDrop is a concierge shopping and cross-border delivery service that lets
+                Wishdrop is a concierge shopping and cross-border delivery service that lets
                 customers in Sri Lanka buy products from affiliated Indian stores or request
                 products from other online stores, without handling international purchasing,
                 warehousing, customs, or shipping themselves.
               </p>
               <p>
-                This policy applies to personal data we collect through wishdrop.shop (and any
+                This policy applies to personal data we collect through Wishdrop.shop (and any
                 subdomains), our account dashboard, our WhatsApp and in-app chat channels, and
                 any related customer support interactions. It does not cover the privacy
                 practices of third-party stores, marketplaces, couriers, or payment processors
@@ -67,7 +67,7 @@ export default function PrivacyPolicyPage() {
                   instructions, and communications about a specific order.
                 </li>
                 <li>
-                  <strong>Payment data:</strong> WishDrop does not store your full card number,
+                  <strong>Payment data:</strong> Wishdrop does not store your full card number,
                   CVV, or bank credentials. Payments are processed by our licensed payment
                   gateway partner, and we retain only a transaction reference, the last four
                   digits of a card (if applicable), payment status, and amount.
@@ -213,10 +213,10 @@ export default function PrivacyPolicyPage() {
                 <li>
                   <strong>Authorities and regulators</strong> — where required by law, customs
                   regulation, court order, or to protect the rights, safety, or property of
-                  WishDrop, our customers, or the public.
+                  Wishdrop, our customers, or the public.
                 </li>
                 <li>
-                  <strong>A buyer in a corporate transaction</strong> — if WishDrop is involved in
+                  <strong>A buyer in a corporate transaction</strong> — if Wishdrop is involved in
                   a merger, acquisition, financing, or sale of assets, personal data may be
                   transferred as part of that transaction, subject to confidentiality
                   arrangements.
@@ -231,7 +231,7 @@ export default function PrivacyPolicyPage() {
           heading: 'International data transfers',
           body: (
             <p>
-              Because WishDrop connects Sri Lankan customers with stores, warehouses, and delivery
+              Because Wishdrop connects Sri Lankan customers with stores, warehouses, and delivery
               partners in India and elsewhere, your order and delivery data will necessarily be
               transferred outside Sri Lanka to fulfil your request. Some of our infrastructure and
               service providers may also process data outside Sri Lanka. Where we transfer
@@ -336,7 +336,7 @@ export default function PrivacyPolicyPage() {
           heading: "Children's privacy",
           body: (
             <p>
-              WishDrop is not directed at children under 18, and we do not knowingly collect
+              Wishdrop is not directed at children under 18, and we do not knowingly collect
               personal data from children. If you believe a child has provided us with personal
               data, please contact us so we can delete it.
             </p>

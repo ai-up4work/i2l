@@ -1,7 +1,7 @@
--- data/wishdrop-qc-issues-rls-fix.sql
+-- data/Wishdrop-qc-issues-rls-fix.sql
 --
--- Same root cause as wishdrop-admin-orders-rls-fix.sql and
--- wishdrop-admin-requests-chat-rls-fix.sql, applied to the tables the
+-- Same root cause as Wishdrop-admin-orders-rls-fix.sql and
+-- Wishdrop-admin-requests-chat-rls-fix.sql, applied to the tables the
 -- QC-fault flow depends on: lib/supabase/qc-issues.ts is called directly
 -- from 'use client' admin pages (app/admin/(warehouse)/qc/[id]/page.tsx,
 -- app/admin/(warehouse)/qc-issues/[issueId]/page.tsx) using the browser

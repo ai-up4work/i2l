@@ -138,7 +138,7 @@ export async function generateMetadata({
 
     const description = product.description
       ? clampDescription(product.description)
-      : `Buy ${product.name} from ${store.name} on WishDrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
+      : `Buy ${product.name} from ${store.name} on Wishdrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
 
     return pageMetadata({
       title: `${product.name} — ${store.name}`,

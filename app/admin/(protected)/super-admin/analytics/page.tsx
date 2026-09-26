@@ -58,7 +58,7 @@ const CHANNEL_LABEL: Record<Channel, string> = {
   3: "Custom request",
 }
 const CHANNEL_DESCRIPTION: Record<Channel, string> = {
-  1: "Bought straight from WishDrop's own curated catalogue — a fixed SKU and price, no scraping or manual pricing involved.",
+  1: "Bought straight from Wishdrop's own curated catalogue — a fixed SKU and price, no scraping or manual pricing involved.",
   2: "Customer pasted a product link; price came from the scraper at the time of purchase.",
   3: "No usable link or price up front — a Sales & Purchase teammate manually quoted and confirmed this one.",
 }

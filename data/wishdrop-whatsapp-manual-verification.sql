@@ -1,4 +1,4 @@
--- data/wishdrop-whatsapp-manual-verification.sql
+-- data/Wishdrop-whatsapp-manual-verification.sql
 --
 -- Staff-reviewed WhatsApp number verification (no Meta API, no templates).
 --
@@ -7,7 +7,7 @@
 --      created here with a short reference code (e.g. WD-7K3D9Q).
 --   2. They tap "Verify on WhatsApp", which opens WhatsApp with a
 --      pre-written message (reference, name, chat handle, email, number)
---      addressed to the WishDrop business number, and they send it.
+--      addressed to the Wishdrop business number, and they send it.
 --   3. Staff open /admin/whatsapp-verifications, find that message in the
 --      WhatsApp app, check it was sent FROM the claimed number (WhatsApp
 --      shows the real sender), and Verify or Reject.

@@ -84,8 +84,8 @@ export default function PushOptIn({ className = '' }: { className?: string }) {
           <p className="text-sm font-semibold text-ink">Get notified when we reply</p>
           <p className="mt-0.5 text-[13px] leading-relaxed text-ink/60">
             {needsInstall
-              ? 'On iPhone, notifications work once WishDrop is on your Home Screen.'
-              : 'We’ll send a notification to this device, even when WishDrop is closed.'}
+              ? 'On iPhone, notifications work once Wishdrop is on your Home Screen.'
+              : 'We’ll send a notification to this device, even when Wishdrop is closed.'}
           </p>
           {error && <p className="mt-1 text-xs font-semibold text-red-600">{error}</p>}
         </div>

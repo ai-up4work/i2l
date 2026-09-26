@@ -285,7 +285,7 @@ export default function AccountMessagesPage() {
                               }`}
                             >
                               <p className={`text-[11.5px] font-semibold ${isMine ? 'text-parchment/90' : 'text-teal-deep'}`}>
-                                {m.replyTo.sender === 'customer' ? 'You' : 'WishDrop Support'}
+                                {m.replyTo.sender === 'customer' ? 'You' : 'Wishdrop Support'}
                               </p>
                               <p className={`truncate text-[11.5px] ${isMine ? 'text-parchment/70' : 'text-ink/50'}`}>
                                 {m.replyTo.text}
@@ -365,7 +365,7 @@ export default function AccountMessagesPage() {
               <div className="flex items-center gap-2 border-t border-ink/10 pt-3">
                 <div className="flex-1 rounded-lg border-l-[3px] border-teal-deep bg-ink/[0.04] px-3 py-1.5">
                   <p className="text-[12px] font-semibold text-teal-deep">
-                    Replying to {replyingTo.sender === 'customer' ? 'yourself' : 'WishDrop Support'}
+                    Replying to {replyingTo.sender === 'customer' ? 'yourself' : 'Wishdrop Support'}
                   </p>
                   <p className="truncate text-xs text-ink/50">{replyingTo.text}</p>
                 </div>

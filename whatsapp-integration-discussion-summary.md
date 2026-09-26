@@ -1,4 +1,4 @@
-# WishDrop — Roles, Permissions & Policy Map (v2 — corrected to match built route tree)
+# Wishdrop — Roles, Permissions & Policy Map (v2 — corrected to match built route tree)
 
 *Defines every platform role, what each can see/do, and the governing policies. Covers internal admin roles + the external Seller Dashboard. Public storefront and signed-in customer account pages are out of scope here — this is the admin/ops side only.*
 
@@ -96,7 +96,7 @@ Legend: ✅ full write access · 👁 view/read-only · ❌ no access
 | Cross-warehouse & cross-channel analytics | ✅ | ✅ | ❌ | ❌ |
 | Per-site operational reporting | ✅ | ✅ | ❌ | 👁 (own site) |
 
-**Correction from v1:** the "automated WhatsApp sync (n8n)" row has been replaced with **"manual Send via WhatsApp deep-link action."** Per the finalized WhatsApp cost research (Section 5 of the requirements doc), WishDrop is **not** building Cloud API / n8n automation in the near term — outbound WhatsApp messages are a manual `wa.me` deep-link a human clicks send on, kept at $0 cost. Any reference elsewhere in older docs to "automated n8n sync" describes an earlier plan that was superseded by the cost research; this doc now reflects the current, actually-being-built architecture.
+**Correction from v1:** the "automated WhatsApp sync (n8n)" row has been replaced with **"manual Send via WhatsApp deep-link action."** Per the finalized WhatsApp cost research (Section 5 of the requirements doc), Wishdrop is **not** building Cloud API / n8n automation in the near term — outbound WhatsApp messages are a manual `wa.me` deep-link a human clicks send on, kept at $0 cost. Any reference elsewhere in older docs to "automated n8n sync" describes an earlier plan that was superseded by the cost research; this doc now reflects the current, actually-being-built architecture.
 
 ---
 

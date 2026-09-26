@@ -528,7 +528,7 @@ function QcIssueBadge({ count }: { count: number }) {
 }
 
 // Small underlined text trigger that opens the price breakdown overlay.
-// Shares the same slot the old static "+ WishDrop delivery" caption used
+// Shares the same slot the old static "+ Wishdrop delivery" caption used
 // to occupy, so it doesn't add any extra vertical space to the card.
 function BreakdownTrigger({ onClick }: { onClick: () => void }) {
   return (
@@ -552,7 +552,7 @@ function BreakdownTrigger({ onClick }: { onClick: () => void }) {
 // pricing — Order has no per-item delivery/tax/discount fields, only
 // qty * unitPrice per item (see orderTotal in Ordercontexts.tsx), so
 // there's no economy/express comparison to show here. The card's
-// "+ WishDrop delivery" caption was always just a label, not a stored
+// "+ Wishdrop delivery" caption was always just a label, not a stored
 // fee, so this overlay states that plainly rather than inventing a
 // number.
 // ---------------------------------------------------------------------
@@ -624,7 +624,7 @@ function OrderPriceBreakdownOverlay({ order, onClose }: { order: Order; onClose:
             </span>
           </div>
           <div className="flex items-center justify-between text-ink/70">
-            <span>WishDrop delivery</span>
+            <span>Wishdrop delivery</span>
             <span className="text-ink/50">Included</span>
           </div>
           <div className="flex items-center justify-between border-t border-ink/10 pt-2 text-base font-semibold text-ink">

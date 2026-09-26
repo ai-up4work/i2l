@@ -26,7 +26,7 @@ export type Audience =
   | { type: 'customers'; userIds: string[] }
 
 export const AUDIENCE_OPTIONS: { type: Exclude<Audience['type'], 'customers'>; label: string; hint: string }[] = [
-  { type: 'all', label: 'All customers', hint: 'Everyone with a WishDrop account' },
+  { type: 'all', label: 'All customers', hint: 'Everyone with a Wishdrop account' },
   { type: 'active_orders', label: 'Customers with an order in progress', hint: 'Ordered, in quality check, or shipped' },
   { type: 'ordered_before', label: 'Customers who have ordered', hint: 'At least one order that wasn’t cancelled' },
   { type: 'never_ordered', label: 'Customers who haven’t ordered yet', hint: 'Signed up but no orders' },
