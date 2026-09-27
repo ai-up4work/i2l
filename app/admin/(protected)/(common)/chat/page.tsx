@@ -3,7 +3,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BellRing, CheckCheck, CheckSquare, ChevronDown, ChevronUp, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
+import { BellRing, CheckCheck, CheckSquare, ChevronDown, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import {
@@ -1141,31 +1141,31 @@ function AdminChatPageInner() {
                   {waInfo.lastReminder.by ? ` by ${waInfo.lastReminder.by}` : ''}
                 </p>
               )}
-              <div className="mt-2.5 flex items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={!waInfo?.customer.verifiedPhone}
-                  onClick={() => {
-                    setSelectMode((v) => !v)
-                    setSelectedMsgIds(new Set())
-                  }}
-                  title={waInfo?.customer.verifiedPhone ? 'Pick your messages to send to WhatsApp' : 'Customer hasn’t verified WhatsApp'}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                    selectMode ? 'border-teal-deep bg-teal-deep/10 text-teal-deep' : 'border-ink/15 text-ink/70 hover:border-ink/30'
-                  }`}
-                >
-                  <CheckSquare size={13} /> {selectMode ? 'Selecting' : 'Select'}
-                </button>
-                <button
-                  type="button"
-                  disabled={!waInfo?.customer.verifiedPhone}
-                  onClick={() => setHandoff({ kind: 'reminder' })}
-                  title={waInfo?.customer.verifiedPhone ? 'Remind them on WhatsApp' : 'Customer hasn’t verified WhatsApp'}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <BellRing size={13} /> Remind on WhatsApp
-                </button>
-              </div>
+              {waInfo?.customer.verifiedPhone && (
+                <div className="mt-2.5 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectMode((v) => !v)
+                      setSelectedMsgIds(new Set())
+                    }}
+                    title="Pick your messages to send to WhatsApp"
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                      selectMode ? 'border-teal-deep bg-teal-deep/10 text-teal-deep' : 'border-ink/15 text-ink/70 hover:border-ink/30'
+                    }`}
+                  >
+                    <CheckSquare size={13} /> {selectMode ? 'Selecting' : 'Select'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHandoff({ kind: 'reminder' })}
+                    title="Remind them on WhatsApp"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#0B5E2F]"
+                  >
+                    <BellRing size={13} /> Remind on WhatsApp
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
