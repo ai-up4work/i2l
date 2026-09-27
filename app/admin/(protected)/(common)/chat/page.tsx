@@ -740,221 +740,13 @@ function AdminChatPageInner() {
   const dateGroups = useMemo(() => groupByDate(messages), [messages])
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden text-ink">
-      <div className="flex-none bg-parchment">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-ink/10">
-          <div className="flex items-center gap-2">
-            <p className="text-lg font-medium text-ink">Chats</p>
-            {totalUnread > 0 && (
-              <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-teal-deep px-1.5 text-[11px] font-bold text-card">
-                {totalUnread > 9 ? '9+' : totalUnread}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 rounded-lg bg-parchment/70 px-3 py-1.5">
-              <Search size={14} className="text-ink/45" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search chats or order ID"
-                className="w-36 bg-transparent text-sm text-ink placeholder:text-ink/50 focus:outline-none"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => setTab('all')}
-              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
-                tab === 'all' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
-              }`}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('unread')}
-              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
-                tab === 'unread' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
-              }`}
-            >
-              Unread {totalUnread > 0 ? totalUnread : ''}
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('order')}
-              title="Threads whose most recent tagged message was about an order"
-              className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${
-                tab === 'order' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
-              }`}
-            >
-              Has order
-            </button>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              aria-label="Refresh conversations"
-              title="Refresh conversations"
-              className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink disabled:opacity-50"
-            >
-              <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setListCollapsed((prev) => !prev)}
-              aria-label={listCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
-              title={listCollapsed ? 'Expand conversation list' : 'Collapse conversation list'}
-              className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink"
-            >
-              {listCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            </button>
-          </div>
-        </div>
-
-        {!listCollapsed && (
-        <div className="scrollbar-none flex gap-2 overflow-x-auto px-4 pb-2 border-b border-ink/10 mt-2">
-          {threadsLoading ? (
-            <p className="px-1 py-2 text-sm text-ink/40">Loading conversations…</p>
-          ) : rows.length === 0 ? (
-            <p className="px-1 py-2 text-sm text-ink/40">No conversations yet.</p>
-          ) : (
-            rows.map((t, i) => {
-              const isSelected = t.id === selectedId
-              // Mirrors displayHandle's own fallback order (chat_handle
-              // before giving up) rather than jumping straight to the
-              // generic 'Customer' the moment full_name/email are both
-              // empty — that gap is exactly why two customers with no
-              // name on file but a real chat_handle were both showing
-              // as identical, indistinguishable "Customer" cards.
-              const name =
-                t.profiles?.full_name ||
-                t.profiles?.email ||
-                (t.profiles?.chat_handle ? `@${t.profiles.chat_handle.replace(/^@/, '')}` : 'Customer')
-              const preview = t.lastMessage ? parseReplyBody(t.lastMessage.text ?? '').text || (t.lastMessage.attachment_url ? '📷 Attachment' : '') : ''
-              const orderDisplayId = t.last_order_id ? orderDisplayById.get(t.last_order_id) : null
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => handleSelect(t.id)}
-                  className={`flex w-60 flex-none items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                    isSelected ? 'border-teal-deep bg-teal/10' : 'border-ink/10 bg-parchment/50 hover:bg-parchment/70'
-                  }`}
-                >
-                  <Avatar
-                    name={name}
-                    avatarUrl={t.profiles?.avatar_url}
-                    colorClass={AVATAR_COLORS[i % AVATAR_COLORS.length]}
-                    sizeClass="h-10 w-10"
-                    textClass="text-sm"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <p className="truncate text-[13px] font-medium text-ink">{name}</p>
-                        {/* Skipped when `name` already IS the handle (see
-                            its own fallback above) — otherwise this would
-                            render the identical @handle twice in a row. */}
-                        {displayHandle(t.profiles) !== name && (
-                          <span className="flex-none rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
-                            {displayHandle(t.profiles)}
-                          </span>
-                        )}
-                        {orderDisplayId && (
-                          <span
-                            title="Most recent tagged message in this thread was about this order"
-                            className="flex-none rounded-full bg-teal/12 px-1.5 py-[1px] text-[10px] font-semibold text-teal-deep"
-                          >
-                            {orderDisplayId}
-                          </span>
-                        )}
-                      </div>
-                      {t.lastMessage && (
-                        <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>
-                          {formatTime(t.lastMessage.created_at)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between gap-1.5">
-                      <p className="truncate text-[11.5px] text-ink/50">
-                        {t.lastMessage?.sender === 'ops' ? 'You: ' : ''}
-                        {preview}
-                      </p>
-                      {t.unread && <span className="h-2 w-2 flex-none rounded-full bg-teal-deep" />}
-                    </div>
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
-        )}
-      </div>
-
+    <div className="flex h-full w-full overflow-hidden text-ink">
+      {/* ── Left: conversation (now gets the full height) ── */}
       <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
-            {/* Conversation header: who, their WhatsApp status, and the
-                WhatsApp hand-off actions (select messages / remind). */}
-            <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-ink/10 bg-card px-4 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink">
-                  {selectedThread.profiles?.full_name || displayHandle(selectedThread.profiles)}
-                  <span className="ml-1.5 text-xs font-medium text-ink/45">{displayHandle(selectedThread.profiles)}</span>
-                </p>
-                <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink/50">
-                  {waInfo === null ? (
-                    'Checking WhatsApp…'
-                  ) : waInfo.customer.verifiedPhone ? (
-                    <span className="inline-flex items-center gap-1 text-teal-deep">
-                      <FaWhatsapp size={11} /> {formatPhone(waInfo.customer.verifiedPhone)} verified
-                    </span>
-                  ) : (
-                    <span>WhatsApp not verified — can’t send to WhatsApp</span>
-                  )}
-                  {waInfo?.lastReminder && (
-                    <span>
-                      · Last WhatsApp{' '}
-                      {new Date(waInfo.lastReminder.at).toLocaleString([], {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                      {waInfo.lastReminder.by ? ` by ${waInfo.lastReminder.by}` : ''}
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="flex flex-none items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={!waInfo?.customer.verifiedPhone}
-                  onClick={() => {
-                    setSelectMode((v) => !v)
-                    setSelectedMsgIds(new Set())
-                  }}
-                  title={waInfo?.customer.verifiedPhone ? 'Pick your messages to send to WhatsApp' : 'Customer hasn’t verified WhatsApp'}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                    selectMode ? 'border-teal-deep bg-teal-deep/10 text-teal-deep' : 'border-ink/15 text-ink/70 hover:border-ink/30'
-                  }`}
-                >
-                  <CheckSquare size={13} /> {selectMode ? 'Selecting' : 'Select'}
-                </button>
-                <button
-                  type="button"
-                  disabled={!waInfo?.customer.verifiedPhone}
-                  onClick={() => setHandoff({ kind: 'reminder' })}
-                  title={waInfo?.customer.verifiedPhone ? 'Remind them on WhatsApp' : 'Customer hasn’t verified WhatsApp'}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <BellRing size={13} /> Remind on WhatsApp
-                </button>
-              </div>
-            </div>
             {(orderIdsInOpenThread.length > 0 || requestIdsInOpenThread.length > 0) && (
-              <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-ink/10 bg-parchment px-4 py-2">
+              <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-ink/10 bg-card px-4 py-2">
                 <span className="font-body text-[11px] font-medium text-ink/40">Filter:</span>
                 <button
                   type="button"
@@ -1313,6 +1105,242 @@ function AdminChatPageInner() {
           </div>
         )}
       </div>
+
+      {/* ── Right: sidebar — customer/verified/select/remind block on
+          top, then the scrollable thread list below it ── */}
+      {!listCollapsed ? (
+        <div className="flex w-80 flex-none flex-col border-l border-ink/10 bg-card">
+          {/* Selected conversation's WhatsApp status + actions, pinned
+              to the very top of this sidebar. */}
+          {selectedThread && (
+            <div className="flex-none border-b border-ink/10 bg-parchment/60 px-3.5 py-3">
+              <p className="truncate text-sm font-semibold text-ink">
+                {selectedThread.profiles?.full_name || displayHandle(selectedThread.profiles)}
+                <span className="ml-1.5 text-xs font-medium text-ink/45">{displayHandle(selectedThread.profiles)}</span>
+              </p>
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-ink/50">
+                {waInfo === null ? (
+                  'Checking WhatsApp…'
+                ) : waInfo.customer.verifiedPhone ? (
+                  <span className="inline-flex items-center gap-1 text-teal-deep">
+                    <FaWhatsapp size={11} /> {formatPhone(waInfo.customer.verifiedPhone)} verified
+                  </span>
+                ) : (
+                  <span>WhatsApp not verified — can’t send to WhatsApp</span>
+                )}
+              </p>
+              {waInfo?.lastReminder && (
+                <p className="mt-0.5 text-[11px] text-ink/50">
+                  Last WhatsApp{' '}
+                  {new Date(waInfo.lastReminder.at).toLocaleString([], {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  {waInfo.lastReminder.by ? ` by ${waInfo.lastReminder.by}` : ''}
+                </p>
+              )}
+              <div className="mt-2.5 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={!waInfo?.customer.verifiedPhone}
+                  onClick={() => {
+                    setSelectMode((v) => !v)
+                    setSelectedMsgIds(new Set())
+                  }}
+                  title={waInfo?.customer.verifiedPhone ? 'Pick your messages to send to WhatsApp' : 'Customer hasn’t verified WhatsApp'}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    selectMode ? 'border-teal-deep bg-teal-deep/10 text-teal-deep' : 'border-ink/15 text-ink/70 hover:border-ink/30'
+                  }`}
+                >
+                  <CheckSquare size={13} /> {selectMode ? 'Selecting' : 'Select'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!waInfo?.customer.verifiedPhone}
+                  onClick={() => setHandoff({ kind: 'reminder' })}
+                  title={waInfo?.customer.verifiedPhone ? 'Remind them on WhatsApp' : 'Customer hasn’t verified WhatsApp'}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F7A3D] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#0B5E2F] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <BellRing size={13} /> Remind on WhatsApp
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Chats header: title, search, tabs, refresh/collapse. */}
+          <div className="flex-none border-b border-ink/10 px-3.5 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <p className="text-base font-medium text-ink">Chats</p>
+                {totalUnread > 0 && (
+                  <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-teal-deep px-1.5 text-[11px] font-bold text-card">
+                    {totalUnread > 9 ? '9+' : totalUnread}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  aria-label="Refresh conversations"
+                  title="Refresh conversations"
+                  className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink disabled:opacity-50"
+                >
+                  <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setListCollapsed(true)}
+                  aria-label="Hide conversation list"
+                  title="Hide conversation list"
+                  className="rounded-full p-1.5 text-ink/45 transition-colors hover:bg-ink/5 hover:text-ink"
+                >
+                  <ChevronDown size={15} className="-rotate-90" />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-center gap-2 rounded-lg bg-parchment/70 px-3 py-1.5">
+              <Search size={14} className="text-ink/45" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search chats or order ID"
+                className="w-full bg-transparent text-sm text-ink placeholder:text-ink/50 focus:outline-none"
+              />
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTab('all')}
+                className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                  tab === 'all' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('unread')}
+                className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                  tab === 'unread' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
+                }`}
+              >
+                Unread {totalUnread > 0 ? totalUnread : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('order')}
+                title="Threads whose most recent tagged message was about an order"
+                className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                  tab === 'order' ? 'bg-teal-deep/15 text-teal-deep' : 'text-ink/45 hover:bg-ink/5'
+                }`}
+              >
+                Has order
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable thread list. */}
+          <div className="scrollbar-none min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2.5 py-2.5">
+            {threadsLoading ? (
+              <p className="px-1.5 py-2 text-sm text-ink/40">Loading conversations…</p>
+            ) : rows.length === 0 ? (
+              <p className="px-1.5 py-2 text-sm text-ink/40">No conversations yet.</p>
+            ) : (
+              rows.map((t, i) => {
+                const isSelected = t.id === selectedId
+                // Mirrors displayHandle's own fallback order (chat_handle
+                // before giving up) rather than jumping straight to the
+                // generic 'Customer' the moment full_name/email are both
+                // empty — that gap is exactly why two customers with no
+                // name on file but a real chat_handle were both showing
+                // as identical, indistinguishable "Customer" cards.
+                const name =
+                  t.profiles?.full_name ||
+                  t.profiles?.email ||
+                  (t.profiles?.chat_handle ? `@${t.profiles.chat_handle.replace(/^@/, '')}` : 'Customer')
+                const preview = t.lastMessage
+                  ? parseReplyBody(t.lastMessage.text ?? '').text || (t.lastMessage.attachment_url ? '📷 Attachment' : '')
+                  : ''
+                const orderDisplayId = t.last_order_id ? orderDisplayById.get(t.last_order_id) : null
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => handleSelect(t.id)}
+                    className={`flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
+                      isSelected ? 'border-teal-deep bg-teal/10' : 'border-ink/10 bg-parchment/50 hover:bg-parchment/70'
+                    }`}
+                  >
+                    <Avatar
+                      name={name}
+                      avatarUrl={t.profiles?.avatar_url}
+                      colorClass={AVATAR_COLORS[i % AVATAR_COLORS.length]}
+                      sizeClass="h-9 w-9"
+                      textClass="text-xs"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <p className="truncate text-[13px] font-medium text-ink">{name}</p>
+                        {t.lastMessage && (
+                          <span className={`flex-none text-[10px] ${t.unread ? 'text-teal-deep' : 'text-ink/40'}`}>
+                            {formatTime(t.lastMessage.created_at)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {/* Skipped when `name` already IS the handle (see
+                            its own fallback above) — otherwise this would
+                            render the identical @handle twice in a row. */}
+                        {displayHandle(t.profiles) !== name && (
+                          <span className="flex-none rounded-full bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/45">
+                            {displayHandle(t.profiles)}
+                          </span>
+                        )}
+                        {orderDisplayId && (
+                          <span
+                            title="Most recent tagged message in this thread was about this order"
+                            className="flex-none rounded-full bg-teal/12 px-1.5 py-[1px] text-[10px] font-semibold text-teal-deep"
+                          >
+                            {orderDisplayId}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <p className="truncate text-[11.5px] text-ink/50">
+                          {t.lastMessage?.sender === 'ops' ? 'You: ' : ''}
+                          {preview}
+                        </p>
+                        {t.unread && <span className="h-2 w-2 flex-none rounded-full bg-teal-deep" />}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setListCollapsed(false)}
+          aria-label="Show conversation list"
+          title="Show conversation list"
+          className="flex w-8 flex-none flex-col items-center justify-center gap-1 border-l border-ink/10 bg-card text-ink/40 hover:text-ink/70"
+        >
+          <ChevronDown size={15} className="rotate-90" />
+          {totalUnread > 0 && (
+            <span className="grid h-4 min-w-[16px] place-items-center rounded-full bg-teal-deep px-1 text-[9px] font-bold text-card">
+              {totalUnread > 9 ? '9+' : totalUnread}
+            </span>
+          )}
+        </button>
+      )}
 
       {handoff && selectedThread && waInfo?.customer.verifiedPhone && (() => {
         // Staff messages after the customer's last message = what's waiting for them.

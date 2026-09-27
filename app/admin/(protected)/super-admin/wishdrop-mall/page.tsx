@@ -180,7 +180,7 @@ export default function WishdropMallPage() {
               </span>
             </div>
             <p className="mt-1 max-w-lg text-sm leading-relaxed text-ink/60">
-              Your own store. Pick products from any seller or link, set your price in rupees, and sell them under the Wishdrop
+              Pick products from any seller or link, set your price in rupees, and sell them under the Wishdrop
               name. Customers pay your price + {formatMoney(MALL_DELIVERY_FEE_LKR, 'Rs')} delivery — no tax or import charges.
             </p>
             <div className="mt-2 flex flex-wrap gap-4">
@@ -310,8 +310,8 @@ export default function WishdropMallPage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
-      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">{children}</div>
+    <div className="h-full overflow-y-auto scrollbar-none bg-parchment font-body text-ink">
+      <div className="mx-auto max-w-8xl px-6 pb-20 pt-10 lg:px-10">{children}</div>
     </div>
   )
 }

@@ -108,7 +108,7 @@ export default function CategoriesPanel({
 
   return (
     <div>
-      <div className="flex flex-col gap-3 rounded-2xl border border-ink/10 bg-card p-5 sm:flex-row sm:items-end">
+      <div className="flex flex-col gap-3 rounded-2xl max-w-8xl border border-ink/10 bg-card p-5 sm:flex-row sm:items-end">
         <label className="block flex-1">
           <span className="text-xs font-semibold text-ink/60">New category</span>
           <input
