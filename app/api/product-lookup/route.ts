@@ -21,6 +21,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing required query param: url' }, { status: 400 })
   }
 
+  // Internal QA testing traffic (app/demo/scraper-qa) sends this header
+  // (see ScraperQaClient's attemptLookup). It is excluded from Scrape
+  // health, AND it must never take the affiliated-seller shortcut below:
+  // that shortcut returns `{ internalRedirect }`, which is an instruction
+  // for the customer flow, not a scrape result — the QA page would render
+  // it as an empty "Unknown site". QA exists to exercise the real scraper,
+  // so an affiliated store's URL is scraped like any other.
+  const isQaTraffic =
+    request.headers.get('x-scrape-source') === 'qa-tool' || searchParams.get('qa') === 'true'
+  console.log('[product-lookup] qa-traffic check', {
+    isQaTraffic,
+    header: request.headers.get('x-scrape-source'),
+    qaParam: searchParams.get('qa'),
+  })
+
   // A shortlink's own domain (bit.ly, amzn.to, a WhatsApp-shared
   // affiliate link, ...) has nothing to do with the real product —
   // resolve it to the real destination BEFORE anything below keys off
@@ -41,7 +56,8 @@ export async function GET(request: Request) {
   // our own affiliated sellers' storefront URLs? If so, we already have
   // this seller's real config/pricing in our own DB — no need to run
   // their storefront through the external scraper like an unknown site.
-  const matchedSeller = await matchAffiliatedSellerUrl(resolvedUrl)
+  // Skipped for QA traffic (see isQaTraffic above).
+  const matchedSeller = isQaTraffic ? null : await matchAffiliatedSellerUrl(resolvedUrl)
 
   if (matchedSeller) {
     // Best-effort extraction of which specific product this URL points
@@ -55,7 +71,7 @@ export async function GET(request: Request) {
 
     if (productId) {
       try {
-          const product = await fetchStoreProductForRedirectCheck(matchedSeller.platform, productId)        
+        const product = await fetchStoreProductForRedirectCheck(matchedSeller.platform, productId)
         if (product) {
           // NOTE: this app's product detail route is singular
           // "/product/[productId]", not "/products/[productId]" — do
@@ -81,29 +97,15 @@ export async function GET(request: Request) {
   const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal })
   if (resolvedUrl !== url) result.resolvedFromShortlink = true
 
-  // Internal QA testing traffic (app/demo/scraper-qa) is explicitly
-  // excluded from Scrape health, per product decision — a developer
-  // testing "does gymshark.com scrape correctly" ten times in a row
-  // shouldn't inflate that domain's real counts or overwrite its
-  // success sample with test data. Every genuine customer-facing
-  // caller (ItemInfoModal, useLiveProductData, ...) hits this same
-  // route WITHOUT this header, so they're unaffected.
-  const isQaTraffic = request.headers.get('x-scrape-source') === 'qa-tool'
-
   // FIX: every real diagnostic detail scrapeProduct() computes (which
   // tier failed, BLOCKED vs JS_SHELL vs a specific HTTP status, vendor-
   // fingerprinted block-page markers, per-key ScraperAPI errors, ...)
   // used to be thrown away the moment this response left the server —
-  // returned to the client, never logged server-side. Unless someone
-  // was tailing Vercel's function logs at the exact moment a request
-  // failed, "why did this platform fail in production" was
-  // unanswerable after the fact. This one line is what actually
-  // answers it: a clear, greppable log line per failure, with the site,
-  // URL, and the FULL error text (not the generic message the customer
-  // sees) all in one place. See upsertScrapeHealth below for the
-  // second, PERSISTENT half of this fix — the same text saved to
-  // scrape_health.last_error so it's visible on the admin Scrape Health
-  // page too, not just in logs that scroll away.
+  // returned to the client, never logged server-side. This one line is
+  // what actually answers "why did this platform fail in production": a
+  // clear, greppable log line per failure, with the site, URL, and the
+  // FULL error text all in one place. See upsertScrapeHealth below for
+  // the second, PERSISTENT half of this fix.
   if (result.error) {
     console.error(`[product-lookup] FAILED site=${result.site ?? 'unknown'} url=${resolvedUrl} — ${result.error}`)
   }
@@ -114,13 +116,10 @@ export async function GET(request: Request) {
     // scrape-health-write.ts's own header for the gap this closes) —
     // intentionally NOT awaited, so a slow or failing health-tracking
     // write can never add latency to, or break, the actual response the
-    // customer is waiting on. Same success definition the client already
-    // uses (hooks/useProductLookup.ts: `!data.error`). On a success, also
-    // carries the real title/image/price through so ops can see an
-    // actual example of what this domain's product pages look like, not
-    // just a bare count (see Wishdrop-scrape-health-success-sample.sql).
-    // On a FAILURE, carries the full error text through instead — see
-    // Wishdrop-scrape-health-last-error.sql.
+    // customer is waiting on. On a success, also carries the real
+    // title/image/price through so ops can see an actual example of what
+    // this domain's product pages look like. On a FAILURE, carries the
+    // full error text through instead.
     upsertScrapeHealth(
       resolvedUrl,
       !result.error,

@@ -4,12 +4,22 @@
 // exists specifically so client components (via hooks/useAffiliatedStores.ts)
 // can use the mapping logic without pulling in lib/supabase/server.ts
 // (which imports next/headers and breaks if it ends up in a client bundle).
+//
+// Scraper QA / scraper routing config lives in the seller row at
+// provider_config.scraper:
+//   {
+//     "type": "shopify" | "woocommerce",
+//     "siteHost": "example.com",            // no www, lowercase
+//     "sampleProductUrl": "https://...",
+//     "sampleProductLabel": "Product name"
+//   }
 
 import type { AffiliatedStore } from '@/data/stores/data'
 
 export function mapRowToAffiliatedStore(row: Record<string, unknown>): AffiliatedStore {
   const providerConfig = (row.provider_config ?? {}) as Record<string, unknown>
   const display = (providerConfig.display ?? {}) as Record<string, unknown>
+  const scraper = (providerConfig.scraper ?? {}) as Record<string, unknown>
 
   return {
     platform: row.platform_slug as string,
@@ -28,5 +38,10 @@ export function mapRowToAffiliatedStore(row: Record<string, unknown>): Affiliate
     payment: display.payment as string | undefined,
     tags: display.tags as string[] | undefined,
     buildType: (display.buildType as AffiliatedStore['buildType']) ?? 'template',
+
+    // Scraper / QA config (all optional)
+    scraperSite: scraper.type as string | undefined,
+    sampleProductUrl: scraper.sampleProductUrl as string | undefined,
+    sampleProductLabel: scraper.sampleProductLabel as string | undefined,
   }
 }

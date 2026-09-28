@@ -28,13 +28,10 @@ import {
 } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import { SITE_LOGOS } from '@/lib/platform-logos'
-// NOTE: the canonical source of truth for affiliatedStores / SITE_LOGOS_SQUARE /
-// scraperTestLinks is data/stores/data.ts (components/dashboard/data.ts is the
-// re-export shim in the other direction). Pointing these imports at
-// '@/data/stores/data' rather than a '@/data/stores/demo' module that doesn't
-// appear to exist per the documented file layout. If your repo does have a
-// legitimate '@/data/stores/demo' re-export, revert this import back to it.
-import { SITE_LOGOS_SQUARE, scraperTestLinks as PRESET_LINKS, type ScraperTestLink as PresetLink } from '@/data/stores/demo'
+// Test cases now arrive as a prop (static marketplaces + DB sellers, built
+// server-side in page.tsx). SITE_LOGOS_SQUARE is only used for the live
+// logo in the URL bar, where no preset (and so no `logo`) exists yet.
+import { SITE_LOGOS_SQUARE, type ScraperTestLink as PresetLink } from '@/data/stores/demo'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import AmazonProductView from './platforms/AmazonProductView'
 import FlipkartProductView from './platforms/FlipkartProductView'
@@ -151,26 +148,24 @@ function SiteLogo({ site, size = 'md' }: { site: string | null; size?: 'sm' | 'm
   )
 }
 
-// FIX: this was previously declared/used as `siteLogoSquared` (lowercase
-// first letter). JSX treats a lowercase-leading tag name as a literal DOM
-// element, not a component reference — so `<siteLogoSquared ... />` was
-// never actually calling this function. React just tried to mount an
-// unknown custom element `<sitelogosquared>` and passed `site`/`size`/
-// `className` through as raw (nonsensical) DOM attributes. Renamed to
-// `SiteLogoSquared` so JSX resolves it as a component, and added the
-// `className` prop it's called with at the usage site below (previously
-// undeclared and silently dropped).
+/** Square brand tile. `src` wins when given (test-case rows pass the
+ * store's own logo, which is how DB sellers get a logo at all); otherwise
+ * falls back to the static SITE_LOGOS_SQUARE map by site key. */
 function SiteLogoSquared({
   site,
+  src: srcProp,
+  label,
   size = 'md',
   className = '',
 }: {
   site: string | null
+  src?: string
+  label?: string
   size?: 'sm' | 'md' | 'lg'
   className?: string
 }) {
-  const src = site ? SITE_LOGOS_SQUARE[site] : undefined
-  const name = (site && SITE_NAMES[site]) || site || 'Unknown'
+  const src = srcProp || (site ? SITE_LOGOS_SQUARE[site] : undefined)
+  const name = label || (site && SITE_NAMES[site]) || site || 'Unknown'
   const box = size === 'lg' ? 'h-12 w-12' : size === 'sm' ? 'h-7 w-7' : 'h-9 w-9'
   return (
     <span
@@ -912,7 +907,7 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'fail', label: 'Failed' },
 ]
 
-export default function ScraperQaClient() {
+export default function ScraperQaClient({ presetLinks }: { presetLinks: PresetLink[] }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -1122,10 +1117,10 @@ export default function ScraperQaClient() {
     })
   }
 
-  const passCount = PRESET_LINKS.filter((p) => getCase(p.url).status === 'pass').length
-  const failCount = PRESET_LINKS.filter((p) => getCase(p.url).status === 'fail').length
-  const untestedCount = PRESET_LINKS.length - passCount - failCount
-  const totalCount = PRESET_LINKS.length
+  const passCount = presetLinks.filter((p) => getCase(p.url).status === 'pass').length
+  const failCount = presetLinks.filter((p) => getCase(p.url).status === 'fail').length
+  const untestedCount = presetLinks.length - passCount - failCount
+  const totalCount = presetLinks.length
 
   const filterCounts: Record<StatusFilter, number> = {
     all: totalCount,
@@ -1135,7 +1130,7 @@ export default function ScraperQaClient() {
   }
 
   const q = caseQuery.trim().toLowerCase()
-  const visiblePresets = PRESET_LINKS.filter((p) => {
+  const visiblePresets = presetLinks.filter((p) => {
     if (statusFilter !== 'all' && getCase(p.url).status !== statusFilter) return false
     if (!q) return true
     return `${p.label} ${p.product}`.toLowerCase().includes(q)
@@ -1198,12 +1193,24 @@ export default function ScraperQaClient() {
     // this page's purpose is showing whether the REAL scraper got real
     // data, so it reports the true scraper error text.
     const RETRY_DELAY_MS = 5000
-    const fetchUrl = `/api/product-lookup?url=${encodeURIComponent(activeUrl)}&needVariants=true`
+    const fetchUrl = `/api/product-lookup?url=${encodeURIComponent(activeUrl)}&needVariants=true&qa=true`
 
     async function attemptLookup(): Promise<ScrapeResult> {
-      const res = await fetch(fetchUrl, { signal: controller.signal })
+      // x-scrape-source: qa-tool tells the route to (a) skip the
+      // affiliated-seller shortcut, which would return an
+      // { internalRedirect } instead of a scrape result, and (b) keep
+      // this traffic out of Scrape health counts.
+      const res = await fetch(fetchUrl, {
+        signal: controller.signal,
+        headers: { 'x-scrape-source': 'qa-tool' },
+      })
       const body = await res.json().catch(() => null)
       if (!res.ok) throw new Error((body && body.error) || `Request failed (${res.status})`)
+      if (body && body.internalRedirect) {
+        throw new Error(
+          `Route returned an affiliated-store redirect (${body.internalRedirect}) instead of a scrape result.`,
+        )
+      }
       return body as ScrapeResult
     }
 
@@ -1327,7 +1334,7 @@ export default function ScraperQaClient() {
 
   const resultSiteKey = result ? normalizeSite(result.site) : null
   const typedSiteKey = siteKeyForUrl(inputValue)
-  const isPreset = PRESET_LINKS.some((p) => p.url === activeUrl)
+  const isPreset = presetLinks.some((p) => p.url === activeUrl)
   const warnings = result?.warning ? result.warning.split(' | ').filter(Boolean) : []
   const pct = (n: number) => (totalCount ? (n / totalCount) * 100 : 0)
 
@@ -1537,12 +1544,16 @@ export default function ScraperQaClient() {
                         disabled={loading}
                         className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {/* FIX: was `<siteLogoSquared ... />` (lowercase
-                            tag) — JSX rendered it as a literal unknown DOM
-                            element instead of calling the component; the
-                            logo never appeared and `site`/`size` were
-                            being dumped onto the DOM as invalid attributes. */}
-                        <SiteLogoSquared site={siteKey} size="sm" className="flex-none" />
+                        {/* The store's own logo (from the affiliatedStores
+                            entry or the sellers row) wins; falls back to
+                            the static per-site map, then an initial. */}
+                        <SiteLogoSquared
+                          site={siteKey}
+                          src={preset.logo}
+                          label={preset.label}
+                          size="sm"
+                          className="flex-none"
+                        />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-1.5 text-xs font-bold text-ink/85">
                             {preset.label}

@@ -1,4 +1,4 @@
-// data/stores/data.ts
+// data/stores/demo.ts
 //
 // CANONICAL SOURCE OF TRUTH for store data. Previously this file just
 // re-exported from components/dashboard/data.ts (a dashboard file being
@@ -879,21 +879,32 @@ export type ScraperTestLink = {
   label: string
   product: string
   url: string
+  /** Store logo path/URL for the test-case row. May be ''. */
+  logo: string
 }
 
-export const scraperTestLinks: ScraperTestLink[] = affiliatedStores
-  .filter(
-    (s): s is AffiliatedStore & { sampleProductUrl: string; sampleProductLabel: string } =>
-      !!s.sampleProductUrl && !!s.sampleProductLabel,
-  )
-  .map((s) => ({
-    site: s.scraperSite ?? s.platform,
-    label: s.name,
-    product: s.sampleProductLabel,
-    url: s.sampleProductUrl,
-  }))
 
+export function buildScraperTestLinks(stores: AffiliatedStore[]): ScraperTestLink[] {
+  return stores
+    .filter(
+      (s): s is AffiliatedStore & { sampleProductUrl: string; sampleProductLabel: string } =>
+        !!s.sampleProductUrl && !!s.sampleProductLabel,
+    )
+    .map((s) => ({
+      site: s.scraperSite ?? s.platform,
+      label: s.name,
+      product: s.sampleProductLabel,
+      url: s.sampleProductUrl,
+      logo: s.logo,
+    }))
+}
+ 
+/** Static (code-defined) test cases only. The QA page uses
+ * buildScraperTestLinks(await fetchAffiliatedStores()) to include DB sellers. */
+export const scraperTestLinks: ScraperTestLink[] = buildScraperTestLinks(affiliatedStores)
+ 
 export const SITE_LOGOS_SQUARE: Record<string, string> = affiliatedStores.reduce((acc, s) => {
   acc[s.platform] = s.logo
   return acc
 }, {} as Record<string, string>)
+ 
