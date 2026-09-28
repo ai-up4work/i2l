@@ -85,7 +85,7 @@ function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistPr
 function ProductSkeleton() {
   return (
     <div className="animate-pulse">
-      <div className="aspect-square rounded-2xl bg-ink/10 mb-3" />
+      <div className="aspect-[3/4] rounded-2xl bg-ink/10 mb-3" />
       <div className="h-2.5 w-20 rounded bg-ink/10 mb-1.5" />
       <div className="h-3.5 w-3/4 rounded bg-ink/10 mb-2" />
       <div className="h-3 w-1/3 rounded bg-ink/10" />
@@ -111,17 +111,20 @@ function ProductCard({
 
   return (
     <div className="group flex flex-col">
+      {/* Fixed 3:4 frame so every card in a row is the same height and
+          prices line up, regardless of each source image's own shape.
+          object-top keeps faces/heads in frame when a photo is cropped. */}
       <Link
         href={`/stores/${platform}/product/${product.handle}`}
-        className="relative overflow-hidden rounded-2xl bg-card border border-ink/10 mb-3 block"
+        className="relative block aspect-[3/4] overflow-hidden rounded-2xl bg-card border border-ink/10 mb-3"
       >
         <Image
           src={product.image}
           alt={product.name}
-          className="w-full h-auto object-contain transition-all duration-700 group-hover:scale-105"
+          className="h-full w-full object-cover object-top transition-all duration-700 group-hover:scale-105"
           loading="lazy"
           width={400}
-          height={400}
+          height={533}
           referrerPolicy="no-referrer"
           onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
         />
@@ -176,7 +179,9 @@ function ProductCard({
         <p className="text-[10px] text-ink/45 uppercase tracking-wider font-semibold mb-0.5">
           {product.category}
         </p>
-        <p className="text-sm font-semibold text-ink leading-tight mb-1.5 line-clamp-2 font-body">
+        {/* min-h reserves two lines so a one-line title doesn't pull the
+            price up relative to its neighbours. */}
+        <p className="text-sm font-semibold text-ink leading-tight mb-1.5 line-clamp-2 min-h-[2.25rem] font-body">
           {product.name}
         </p>
         <p className="text-[10px] text-ink/40 mb-1.5 font-body">Sold by {product.seller}</p>
