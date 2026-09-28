@@ -5,10 +5,11 @@ import Link from 'next/link'
 import { Heart, Minus, Plus } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
-import type { StoreProductVariant } from '@/lib/store.types'
 import { isMatchableOption } from '@/lib/product-options'
+import type { VariantStatus } from '@/lib/feature-flags'
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext'
 import type { StoreProduct } from '@/lib/store.types'
+
 
 /**
  * Builds the small serializable snapshot WishlistContext stores, out of
@@ -16,7 +17,8 @@ import type { StoreProduct } from '@/lib/store.types'
  * platform-scoped id) is the identity key, same convention used by
  * MarketplaceProductActions and ItemInfoModal, so the same listing
  * saved from any of those three places dedupes to one wishlist entry
- * instead of three.
+ * instead of three. (Deliberately the bare product URL, not the
+ * ?variant= URL, for the same reason.)
  */
 function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistProduct {
   const url = product.url || ''
@@ -41,7 +43,8 @@ export default function ProductActions({
   selectedColor,
   onSelectSize,
   onSelectColor,
-  variantMatch,
+  variantStatus,
+  variantUrl,
 }: {
   product: StoreProduct
   platform: string
@@ -54,13 +57,17 @@ export default function ProductActions({
   selectedColor?: string
   onSelectSize: (size: string) => void
   onSelectColor: (color: string) => void
-  /** Computed once by the parent (it already needs this for the gallery/
-   * price swap) and passed down rather than recomputed here — avoids two
-   * separate findMatchingVariant calls silently disagreeing if the
-   * matching logic ever changes in only one call site. undefined = no
-   * per-variant data to check; null = fully selected but nothing matches
-   * that combination. */
-  variantMatch: StoreProductVariant | null | undefined
+  /** Computed once by the parent (it already needs the matched variant
+   * for the gallery/price swap) and passed down rather than recomputed
+   * here — avoids two separate findMatchingVariant calls silently
+   * disagreeing if the matching logic ever changes in only one call site.
+   * 'not-applicable' = no per-variant data to check; 'incomplete' = still
+   * picking; 'match' = a variant resolved; 'none' = fully selected but
+   * nothing matches that combination. */
+  variantStatus: VariantStatus
+  /** Product URL + ?variant=<id>, so the cart line carries the exact
+   * variant's link. Falls back to product.url downstream. */
+  variantUrl?: string
 }) {
   const wishlist = useWishlist()
 
@@ -68,7 +75,7 @@ export default function ProductActions({
   const hasColors = !!product.colors?.length
   // Same "informational vs. actually matchable" distinction as
   // ProductPurchasePanel's needsSelection — must stay consistent with
-  // it, since that's what variantMatch (passed down as a prop) was
+  // it, since that's what variantStatus (passed down as a prop) was
   // computed against. A mismatch here would mean this component asks
   // for a size the parent never required before resolving the variant.
   const sizeRequired = hasSizes && isMatchableOption(product, 'size')
@@ -77,9 +84,8 @@ export default function ProductActions({
   const missingColor = colorRequired && !selectedColor
   const needsSelection = missingSize || missingColor
 
-  // null = no per-variant data to check (nothing to block on);
-  // undefined = fully selected but no variant matches that combo.
-  const comboUnavailable = !needsSelection && variantMatch === undefined
+  // Fully selected, but no variant exists for that combination.
+  const comboUnavailable = variantStatus === 'none'
 
   const selectedOptions = useMemo(() => {
     const opts: Record<string, string> = {}
@@ -152,6 +158,7 @@ export default function ProductActions({
             quantity={qty}
             compact
             selectedOptions={selectedOptions}
+            variantUrl={variantUrl}
             disabled={needsSelection || comboUnavailable}
           />
         </div>

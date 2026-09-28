@@ -23,6 +23,10 @@ interface ProductGalleryProps {
 
 const AUTOPLAY_INTERVAL_MS = 8000
 const EASE = [0.16, 1, 0.3, 1] as const
+// Shorter than the old 0.7s: a colour click now feels like a soft dissolve
+// rather than a slow fade. The previous photo stays fully opaque underneath
+// until the new one has finished fading in, so there's never a dim frame.
+const CROSSFADE_SECONDS = 0.45
 
 const DEFAULT_THEME: Required<ProductGalleryTheme> = {
   frameBorder: 'border-ink/10',
@@ -169,14 +173,57 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
   const lightboxThumbsScrollable = useIsScrollable(lightboxThumbStripRef, [safeImages.length, lightboxOpen])
 
   // Reset back to the first slide (and close the lightbox) whenever resetKey
-  // changes — i.e. when the caller navigates to a different product, rather
-  // than leaving the gallery on whatever slide index the previous product left it at.
-  useEffect(() => {
+  // changes — i.e. when the caller navigates to a different product (or the
+  // shopper picks a different colour), rather than leaving the gallery on
+  // whatever slide index the previous selection left it at.
+  //
+  // This is done DURING render (React's supported "adjust state when a prop
+  // changes" pattern) instead of in a useEffect. As an effect it ran one
+  // render late: the gallery first rendered the NEW images at the OLD slide
+  // index (showing the wrong photo and starting a crossfade to it), then the
+  // effect reset to slide 0 and faded again — a visible double change.
+  const [prevResetKey, setPrevResetKey] = useState(resetKey)
+  if (prevResetKey !== resetKey) {
+    setPrevResetKey(resetKey)
     setActiveIndex(0)
     setAutoplayRunId((n) => n + 1)
     setLightboxOpen(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey])
+  }
+
+  // The photo the gallery WANTS to show vs the one it is actually showing.
+  // `shownSrc` only advances to `targetSrc` once the browser has fetched and
+  // decoded it, so the previous photo stays on screen (fully opaque) while a
+  // new one loads instead of fading into an empty frame. For photos already
+  // in the browser cache this resolves almost immediately.
+  const targetSrc = safeImages[activeIndex]
+  const [shownSrc, setShownSrc] = useState(targetSrc)
+
+  useEffect(() => {
+    if (targetSrc === shownSrc) return
+
+    let cancelled = false
+    const apply = () => {
+      if (!cancelled) setShownSrc(targetSrc)
+    }
+
+    const img = new window.Image()
+    img.decoding = 'async'
+    img.src = targetSrc
+    // decode() resolves once fully decoded so the crossfade never starts on
+    // a half-painted frame; on a load error we still swap (the browser then
+    // shows its own broken-image state rather than us hanging on the old one
+    // forever). Browsers without decode() fall back to onload/onerror.
+    if (typeof img.decode === 'function') {
+      img.decode().then(apply, apply)
+    } else {
+      img.onload = apply
+      img.onerror = apply
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [targetSrc, shownSrc])
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -229,8 +276,8 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
   }, [lightboxOpen, goPrev, goNext])
 
   const isPlaying = hasMultiple && !isHovering && !lightboxOpen
-  const crossfadeDuration = reduceMotion ? 0 : 0.7
-  const isPlaceholder = safeImages[activeIndex] === '/placeholder.png'
+  const crossfadeDuration = reduceMotion ? 0 : CROSSFADE_SECONDS
+  const isPlaceholder = shownSrc === '/placeholder.png'
 
   return (
     <div className="min-w-0 w-full">
@@ -247,17 +294,23 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
           aria-label="Open full-screen view"
           className="relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-2"
         >
-          <img src={safeImages[activeIndex]} alt="" aria-hidden="true" className="block w-full h-auto opacity-0" />
+          {/* Invisible sizing image follows the photo actually SHOWN (not the
+              one still loading), so the frame height only changes together
+              with the visible picture instead of jumping early. */}
+          <img src={shownSrc} alt="" aria-hidden="true" className="block w-full h-auto opacity-0" />
 
           <AnimatePresence initial={false}>
             <motion.img
-              key={safeImages[activeIndex] + activeIndex}
-              src={safeImages[activeIndex]}
+              key={shownSrc}
+              src={shownSrc}
               alt={resolvedAlt}
               className={`absolute inset-0 h-full w-full object-contain ${isPlaceholder ? t.placeholderText : ''}`}
               initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.015 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
+              // The outgoing photo stays fully opaque for the length of the
+              // incoming fade, then is removed — a true dissolve with no dim
+              // "both half-transparent" moment in the middle.
+              exit={{ opacity: 0, transition: { delay: crossfadeDuration, duration: 0.01 } }}
               transition={{ duration: crossfadeDuration, ease: EASE }}
             />
           </AnimatePresence>

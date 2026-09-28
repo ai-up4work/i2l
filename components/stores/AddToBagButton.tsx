@@ -49,13 +49,16 @@ function sameOptions(
 
 /**
  * Builds the small serializable snapshot CartContext stores.
+ * `variantUrl` (product URL + ?variant=<id>) is preferred over the bare
+ * product URL so the cart line carries the exact variant's link.
  */
 function toCartSnapshot(
   product: StoreProduct,
   platform: string,
-  selectedOptions?: Record<string, string>
+  selectedOptions?: Record<string, string>,
+  variantUrl?: string
 ): CartProduct {
-  const baseUrl = product.url || '';
+  const baseUrl = variantUrl || product.url || '';
   const baseId = baseUrl || `${platform}:${product.id}`;
 
   const variantSuffix = selectedOptions
@@ -87,6 +90,7 @@ export default function AddToBagButton({
   quantity = 1,
   compact = false,
   selectedOptions,
+  variantUrl,
   height = 'h-12',
   disabled = false,
 }: {
@@ -95,6 +99,8 @@ export default function AddToBagButton({
   quantity?: number;
   compact?: boolean;
   selectedOptions?: Record<string, string>;
+  /** Product URL + ?variant=<id> for the exact selected variant. */
+  variantUrl?: string;
   height?: string;
   disabled?: boolean;
 }) {
@@ -141,7 +147,7 @@ export default function AddToBagButton({
     writeCart(platform, next);
 
     cart.addItem(
-      toCartSnapshot(product, platform, selectedOptions),
+      toCartSnapshot(product, platform, selectedOptions, variantUrl),
       quantity
     );
 

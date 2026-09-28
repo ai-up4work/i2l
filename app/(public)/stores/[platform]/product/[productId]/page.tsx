@@ -6,6 +6,7 @@ import { ChevronRight } from 'lucide-react'
 import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { getDualDeliveryPricing } from '@/lib/pricing'
+import { ECONOMY_LOCKED } from '@/lib/feature-flags'
 import ProductPurchasePanel from '@/components/stores/ProductPurchasePanel'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
@@ -14,7 +15,6 @@ import { DashboardProvider } from '@/contexts/DashboardContext'
 import ViewTracker from './ViewTracker'
 import JsonLd, { breadcrumbSchema, productSchema } from '@/components/seo/JsonLd'
 import { clampDescription, pageMetadata } from '@/lib/seo'
-import type { StoreProduct } from '@/lib/store.types'
 
 // No generateStaticParams: live-feed stores (Shopify/WooCommerce) can add
 // or remove products at any time, so every product handle can't be known
@@ -86,19 +86,21 @@ import type { StoreProduct } from '@/lib/store.types'
 // ECONOMY LOCKED (temporary): Economy delivery is disabled sitewide for
 // now — see the cart page's own DeliveryModeToggle, which renders it
 // grayed-out with a "Coming soon" sub-label instead of "3–4 weeks", and
-// defaults deliveryChoice to 'express'. This page still computes BOTH
-// dualPricing.economy and dualPricing.express (the underlying math is
-// unaffected — Economy could be re-enabled at any time by simply
-// removing the lock, not by re-deriving pricing), but every value read
-// FROM dualPricing at this level — JSON-LD's price and ViewTracker's
-// recently-viewed price/discount — now uses .express instead of
-// .economy, since Economy's price isn't something a shopper can actually
-// act on right now. `economyLocked` is passed down to
-// ProductPurchasePanel so its own pricing card (the "ticket-stub"
-// Economy/Express split described below) can render Economy with the
-// same disabled/"Coming soon" treatment as the cart toggle, and default
-// its own internal selection to Express. Delete this flag (and switch
-// the two reads below back to .economy) when Economy comes back.
+// defaults deliveryChoice to 'express'. The lock now lives in ONE place,
+// ECONOMY_LOCKED in lib/feature-flags.ts, shared by this page,
+// ProductPurchasePanel and the cart toggle so they all flip together.
+// This page still computes BOTH dualPricing.economy and dualPricing.express
+// (the underlying math is unaffected — Economy could be re-enabled at any
+// time by simply flipping the flag, not re-deriving pricing), but every
+// value read FROM dualPricing at this level — JSON-LD's price and
+// ViewTracker's recently-viewed price/discount — goes through
+// `primaryPricing` below, which is .express while the lock is on and
+// .economy once it's off, since Economy's price isn't something a
+// shopper can actually act on while it's locked. `economyLocked` is
+// passed down to ProductPurchasePanel so its own pricing card (the
+// "ticket-stub" Economy/Express split described below) can render
+// Economy with the same disabled/"Coming soon" treatment as the cart
+// toggle, and default its own internal selection to Express.
 //
 // PRICING BLOCK STYLE: styled like a two-part shipping/customs slip —
 // a ticket-stub perforation (two page-background-colored circles punched
@@ -180,7 +182,7 @@ export async function generateMetadata({
   params,
 }: {
   params: Promise<{ platform: string; productId: string }>
-}) {
+}): Promise<Metadata> {
   const { platform, productId: rawProductId } = await params
   const productId = normalizeHandle(rawProductId)
 
@@ -254,11 +256,12 @@ export default async function ProductDetailPage({
   const dualPricing = getDualDeliveryPricing(product)
 
   // Economy is temporarily locked sitewide (see the top-of-file comment)
-  // — only Express is actually bookable right now, so it's what gets fed
-  // into the two "primary price" call sites below (JSON-LD, ViewTracker),
-  // and it's what ProductPurchasePanel should default its own internal
-  // selection to once it reads `economyLocked`.
-  const economyLocked = true
+  // via the shared ECONOMY_LOCKED flag. While it's on, only Express is
+  // actually bookable, so `primaryPricing` (fed into the two "primary
+  // price" call sites below: JSON-LD, ViewTracker) is Express; once the
+  // flag is off it's Economy again with no other edits needed here.
+  const economyLocked = ECONOMY_LOCKED
+  const primaryPricing = economyLocked ? dualPricing.express : dualPricing.economy
 
   const productPath = handlePath(store.platform, productId)
 
@@ -277,7 +280,7 @@ export default async function ProductDetailPage({
             // Economy locked — Express is the only price a shopper can
             // actually book right now (see economyLocked above), so
             // that's what search engines/rich results should show.
-            priceLKR: dualPricing.express.priceLKR,
+            priceLKR: primaryPricing.priceLKR,
             inStock: product.inStock,
             condition: product.condition,
             sellerName: store.name,
@@ -299,8 +302,8 @@ export default async function ProductDetailPage({
         // Economy locked — same reasoning as JSON-LD above: a recently-
         // viewed card shouldn't show a price the shopper can't actually
         // check out at.
-        formattedPrice={dualPricing.express.formattedPrice}
-        discountPercent={dualPricing.express.discountPercent}
+        formattedPrice={primaryPricing.formattedPrice}
+        discountPercent={primaryPricing.discountPercent}
       />
 
       {/* Sets --account-header-h the same way AccountLayout does for its
@@ -337,7 +340,10 @@ export default async function ProductDetailPage({
               tall the gallery is. */}
           <div className="mx-auto max-w-6xl px-6 pb-10 pt-8 lg:px-10">
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
+              {/* key={product.id} resets the size/color selection when the
+                  shopper navigates between products. */}
               <ProductPurchasePanel
+                key={product.id}
                 product={product}
                 platform={store.platform}
                 storeName={store.name}
