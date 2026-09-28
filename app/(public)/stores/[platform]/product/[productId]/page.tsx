@@ -132,6 +132,43 @@ import type { StoreProduct } from '@/lib/store.types'
 // the same sense a catalogue shopper has. It's placed after the
 // try/catch below returns early on a failed fetch, so a broken upstream
 // load never gets recorded as a view.
+//
+// EMOJI / NON-ASCII HANDLES: some sellers' product handles contain emoji
+// or other non-ASCII characters (e.g. "flower-saree-🌸"). Next.js hands
+// the dynamic segment to this page still percent-encoded
+// ("flower-saree-%F0%9F%8C%B8"). If that raw value goes straight into the
+// upstream lookup, it gets encoded a SECOND time (%25F0%259F...) or fails
+// to match the feed's own handle, and the product 404s even though it
+// exists. normalizeHandle() below decodes the route param exactly once,
+// up front, so everything downstream (fetchStoreProduct, ViewTracker,
+// cache keys) works with the plain Unicode handle, and every URL WE
+// build (canonical, JSON-LD, breadcrumbs) re-encodes it once via
+// handlePath().
+
+// Turns a route param into the plain Unicode handle, e.g. "flower-saree-🌸".
+// Safe to call on already-decoded or double-encoded values — it decodes
+// until the string stops changing (max 2 passes), and falls back to
+// whatever it has if a malformed % sequence blows up decodeURIComponent.
+function normalizeHandle(raw: string): string {
+  let h = raw
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(h)
+      if (decoded === h) break
+      h = decoded
+    } catch {
+      break
+    }
+  }
+  return h.normalize('NFC')
+}
+
+// The product's own path, with the handle percent-encoded exactly once —
+// used for the canonical URL, JSON-LD and breadcrumbs so they're always
+// valid URLs even when the handle contains emoji.
+function handlePath(platform: string, handle: string): string {
+  return `/stores/${platform}/product/${encodeURIComponent(handle)}`
+}
 
 // SEO: generateMetadata and the page need the same store + product. Without
 // cache() each upstream (Shopify/WooCommerce/scraper) request ran twice per
@@ -144,7 +181,8 @@ export async function generateMetadata({
 }: {
   params: Promise<{ platform: string; productId: string }>
 }) {
-  const { platform, productId } = await params
+  const { platform, productId: rawProductId } = await params
+  const productId = normalizeHandle(rawProductId)
 
   const store = await getStore(platform)
   if (!store) return { title: 'Product not found', robots: { index: false, follow: true } }
@@ -160,9 +198,9 @@ export async function generateMetadata({
     return pageMetadata({
       title: `${product.name} — ${store.name}`,
       description,
-      // Canonical uses the route's own productId segment, which is the
-      // handle the page was requested with.
-      path: `/stores/${store.platform}/product/${productId}`,
+      // Canonical uses the route's own handle segment (decoded, then
+      // re-encoded once) so emoji handles produce a valid URL.
+      path: handlePath(store.platform, productId),
       image: product.image || undefined,
       imageAlt: product.name,
     })
@@ -176,7 +214,9 @@ export default async function ProductDetailPage({
 }: {
   params: Promise<{ platform: string; productId: string }>
 }) {
-  const { platform, productId } = await params
+  const { platform, productId: rawProductId } = await params
+  // Decode once, up front — see the EMOJI / NON-ASCII HANDLES note above.
+  const productId = normalizeHandle(rawProductId)
 
   const store = await getStore(platform)
   if (!store) notFound()
@@ -220,7 +260,7 @@ export default async function ProductDetailPage({
   // selection to once it reads `economyLocked`.
   const economyLocked = true
 
-  const productPath = `/stores/${store.platform}/product/${productId}`
+  const productPath = handlePath(store.platform, productId)
 
   return (
     <DashboardProvider>
