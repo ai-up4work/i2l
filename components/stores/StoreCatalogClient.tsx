@@ -900,7 +900,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
               {[
                 { icon: <Sparkles size={13} />,    label: 'Wide selection'      },
                 { icon: <ShieldCheck size={13} />, label: 'We verify every item' },
-                { icon: <Truck size={13} />,       label: 'International shipping' },
+                { icon: <Truck size={13} />,       label: 'Shipping to Sri Lanka' },
               ].map((b) => (
                 <div key={b.label} className="flex items-center gap-1.5 text-xs text-ink/55 font-body">
                   <span className="text-teal-deep">{b.icon}</span>
