@@ -11,6 +11,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
+// Mirrors SellerStatus from data/sellers/data.ts. Kept as a small local
+// constant (rather than importing the client-side type) since this is the
+// one place we validate an admin-controlled string against it before it
+// touches the DB.
 const VALID_STATUSES = ['active', 'pending_review', 'inactive'] as const
 type ValidStatus = (typeof VALID_STATUSES)[number]
 
@@ -35,6 +39,7 @@ function scraperSiteHost(config: unknown): string | null {
   return typeof siteHost === 'string' ? siteHost.toLowerCase() : null
 }
 
+/** Adds orderId to the set stored under key (creating it if needed). */
 function addTo(map: Map<string, Set<string>>, key: string | null, orderId: string) {
   if (!key) return
   let set = map.get(key)
@@ -51,8 +56,8 @@ export async function GET() {
 
   // Wishdrop Mall (our own store, provider_type 'catalogue') is managed
   // from /admin/wishdrop-mall, not the seller wizard — keep it out of this
-  // list. `or` rather than `neq` so rows with a NULL provider_type aren't
-  // dropped too.
+  // list so nobody edits it as if it were a third-party feed. `or` rather
+  // than `neq` so rows with a NULL provider_type aren't dropped too.
   const { data, error } = await admin
     .from('sellers')
     .select('*')
@@ -62,9 +67,8 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Pending = order still at stage 'ordered' (waiting to be purchased).
-  // ASSUMED column names on order_items: order_id, seller_name, store_url.
-  // Verify against fetchAdminOrders in lib/supabase/orders-admin.ts.
-  // If this query fails, the list still loads and counts show 0.
+  // Columns confirmed against ORDER_SELECT in lib/supabase/orders-admin.ts.
+  // If this query fails, the list still loads and every count shows 0.
   const { data: rawItems, error: itemsError } = await admin
     .from('order_items')
     .select('order_id, seller_name, store_url, orders!inner(stage)')
@@ -72,12 +76,11 @@ export async function GET() {
 
   if (itemsError) console.error('[admin/sellers] pending count failed:', itemsError)
 
-  // Loosely typed on purpose: the columns above may not be in the
-  // generated Supabase types.
+  // Loosely typed on purpose, in case the generated Supabase types lag the schema.
   const items = (rawItems ?? []) as unknown as Record<string, unknown>[]
 
-  // Distinct order ids per seller name and per store host, so an order
-  // with several items from one seller (or matching by both name and
+  // Distinct order ids per seller name/slug and per store host, so an order
+  // with several items from one seller (or one that matches on both name and
   // host) is counted once.
   const byName = new Map<string, Set<string>>()
   const byHost = new Map<string, Set<string>>()
@@ -91,9 +94,17 @@ export async function GET() {
 
   const sellers = (data ?? []).map((s) => {
     const ids = new Set<string>()
-    byName.get(String(s.name ?? '').trim().toLowerCase())?.forEach((id) => ids.add(id))
+
+    // Match by display name or platform slug (whichever checkout stores)
+    const keys = [s.name, s.platform_slug]
+      .map((k) => String(k ?? '').trim().toLowerCase())
+      .filter(Boolean)
+    for (const k of keys) byName.get(k)?.forEach((id) => ids.add(id))
+
+    // Match by store host
     const host = hostOf(s.outbound_url) ?? scraperSiteHost(s.provider_config)
     if (host) byHost.get(host)?.forEach((id) => ids.add(id))
+
     return { ...s, orders_pending: ids.size }
   })
 
@@ -118,7 +129,9 @@ export async function POST(req: NextRequest) {
     notes,
     logoUrl,
     providerConfig, // { type: 'mock'|'shopify'|'woocommerce'|'jsonapi'|'html-scrape', ...fields }
-    status, // optional; anything invalid/omitted falls back to pending_review
+    status, // optional; the seller wizard decides up front whether this starts
+    // as 'active' (mock — nothing to verify) or 'pending_review' (a real feed,
+    // unverified). Anything else falls back to pending_review, the safe default.
   } = body
 
   if (!storeName || !platform || !contactEmail) {
