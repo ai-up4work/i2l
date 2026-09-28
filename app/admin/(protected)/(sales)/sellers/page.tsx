@@ -9,6 +9,7 @@ import { ChevronRight, Inbox, Loader2, Plus, Search, SearchX, ShoppingBag } from
 
 import { STATUS_LABEL, mapDbRowToAdminSeller, type AdminSeller, type SellerStatus } from "@/data/sellers/data"
 import { useSequentialLiveProductCounts, type LiveCountEntry } from "@/hooks/useSequentialLiveProductCounts"
+import { useSellerPendingOrderCounts, type PendingCountsStatus } from "@/hooks/useSellerPendingOrderCounts"
 
 // Sellers: the affiliated stores feeding the catalogue. Same list recipe as
 // Delivered (table-style rows on a shared GRID), Requests (status tabs with
@@ -19,6 +20,10 @@ import { useSequentialLiveProductCounts, type LiveCountEntry } from "@/hooks/use
 // with a real feed is checked against /api/stores/[platform] ONE AT A TIME in
 // list order (useSequentialLiveProductCounts). The queue is built from the full
 // seller list, so searching or filtering never restarts or reorders it.
+//
+// Pending orders load in the background too, but as ONE batched call to
+// /api/admin/sellers/pending-orders (useSellerPendingOrderCounts), since it's
+// a single DB query rather than a per-seller feed check.
 //
 // Only sellers waiting on a review get a left edge (gold, the one tone kept for
 // "needs a second look"), so the eye goes straight to them.
@@ -98,6 +103,13 @@ function formatJoined(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
 }
 
+// Shape passed from the page down to each row's pending-orders cell.
+type PendingInfo = {
+  status: PendingCountsStatus
+  count: number
+  error: string | null
+}
+
 function StatusPill({ status }: { status: SellerStatus }) {
   const tone = STATUS_TONE[status]
   return (
@@ -150,10 +162,19 @@ export default function SellersListPage() {
   // saved config. Without this OR, its Products count would never join
   // the live-count queue at all.
   const liveFeedPlatforms = useMemo(
-    () => sellers.filter((s) => s.providerConfig.type !== "mock" || s.platform === 'anishka-creation').map((s) => s.platform),
+    () => sellers.filter((s) => s.providerConfig.type !== "mock" || s.platform === "anishka-creation").map((s) => s.platform),
     [sellers],
   )
   const { entries: liveCounts, refresh: refreshLiveCount } = useSequentialLiveProductCounts(liveFeedPlatforms)
+
+  // Pending orders per seller, fetched once in the background (one batched
+  // call). Keyed by platform slug.
+  const {
+    counts: pendingCounts,
+    status: pendingStatus,
+    error: pendingError,
+    refresh: refreshPending,
+  } = useSellerPendingOrderCounts()
 
   // Search scopes everything, including the tab counts, so a count always
   // matches what the tab would show.
@@ -184,7 +205,7 @@ export default function SellersListPage() {
   const settled = !loading && !loadError
   const activeCount = sellers.filter((s) => s.admin.status === "active").length
   const pendingReviewCount = sellers.filter((s) => s.admin.status === "pending_review").length
-  const pendingOrderCount = sellers.reduce((sum, s) => sum + s.admin.ordersPending, 0)
+  const pendingOrderCount = Object.values(pendingCounts).reduce((sum, n) => sum + n, 0)
   const hasSearch = search.trim() !== ""
   const stat = (n: number) => (settled ? n : "\u2014")
 
@@ -222,7 +243,9 @@ export default function SellersListPage() {
             </div>
             <div className="px-5 py-3">
               <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Pending orders</dt>
-              <dd className="mt-0.5 font-display text-xl text-ink">{stat(pendingOrderCount)}</dd>
+              <dd className="mt-0.5 font-display text-xl text-ink">
+                {settled && pendingStatus === "ready" ? pendingOrderCount : "\u2014"}
+              </dd>
             </div>
           </dl>
         </div>
@@ -328,6 +351,12 @@ export default function SellersListPage() {
                 key={s.platform}
                 seller={s}
                 live={liveCounts[s.platform]}
+                pending={{
+                  status: pendingStatus,
+                  count: pendingCounts[s.platform] ?? 0,
+                  error: pendingError,
+                }}
+                onRefreshPending={refreshPending}
                 onRefreshLive={() => refreshLiveCount(s.platform)}
                 onOpen={() => router.push(`/admin/sellers/${s.platform}`)}
               />
@@ -402,11 +431,15 @@ function EmptyState({
 function SellerRow({
   seller,
   live,
+  pending,
+  onRefreshPending,
   onRefreshLive,
   onOpen,
 }: {
   seller: AdminSeller
   live?: LiveCountEntry
+  pending: PendingInfo
+  onRefreshPending: () => void
   onRefreshLive: () => void
   onOpen: () => void
 }) {
@@ -416,7 +449,7 @@ function SellerRow({
 
   return (
     // The row is clickable, the name is a real <Link> so keyboard and
-    // middle-click still work, and the products cell keeps its own button.
+    // middle-click still work, and the products/pending cells keep their own buttons.
     <div
       onClick={onOpen}
       className={`relative grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-ink/[0.06] px-5 py-4 transition-colors last:border-b-0 hover:bg-ink/[0.02] focus-within:bg-teal/[0.04] sm:gap-y-0 sm:py-3.5 ${GRID}`}
@@ -461,7 +494,9 @@ function SellerRow({
         <ProductsCell seller={seller} live={live} onRefresh={onRefreshLive} />
       </span>
 
-      <span className="hidden justify-self-end text-sm tabular-nums text-ink/60 sm:block">{admin.ordersPending}</span>
+      <span className="hidden justify-self-end sm:block">
+        <PendingOrdersCell pending={pending} onRefresh={onRefreshPending} />
+      </span>
 
       <span className="hidden sm:block">
         <StatusPill status={admin.status} />
@@ -478,11 +513,54 @@ function SellerRow({
           Products
           <ProductsCell seller={seller} live={live} onRefresh={onRefreshLive} />
         </span>
-        <span>
-          {admin.ordersPending} pending order{admin.ordersPending === 1 ? "" : "s"}
+        <span className="inline-flex items-center gap-1.5">
+          <PendingOrdersCell pending={pending} onRefresh={onRefreshPending} /> pending
         </span>
       </span>
     </div>
+  )
+}
+
+/**
+ * Pending orders for one seller. Shows a small skeleton while the single
+ * batched background fetch is in flight, then the count. On error, a retry
+ * link re-runs the fetch for the whole list.
+ */
+function PendingOrdersCell({
+  pending,
+  onRefresh,
+}: {
+  pending: PendingInfo
+  onRefresh: () => void
+}) {
+  if (pending.status === "loading") {
+    return (
+      <span className="inline-flex items-center" title={"Checking pending orders\u2026"}>
+        <span className="h-3 w-6 animate-pulse rounded bg-ink/10" />
+      </span>
+    )
+  }
+
+  if (pending.status === "error") {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRefresh()
+        }}
+        title={pending.error ?? "Failed to load pending orders"}
+        className="rounded text-sm font-semibold text-gold-deep underline decoration-dotted underline-offset-4 outline-none hover:text-gold focus-visible:ring-2 focus-visible:ring-teal/40"
+      >
+        retry
+      </button>
+    )
+  }
+
+  return (
+    <span className={`text-sm tabular-nums ${pending.count > 0 ? "font-semibold text-ink" : "text-ink/60"}`}>
+      {pending.count}
+    </span>
   )
 }
 
@@ -501,7 +579,7 @@ function ProductsCell({
   live?: LiveCountEntry
   onRefresh: () => void
 }) {
-  const isLiveFeed = seller.providerConfig.type !== "mock" || seller.platform === 'anishka-creation'
+  const isLiveFeed = seller.providerConfig.type !== "mock" || seller.platform === "anishka-creation"
   const cached = seller.store.itemCount ?? null
 
   if (!isLiveFeed) {
