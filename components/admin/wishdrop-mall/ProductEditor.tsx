@@ -608,7 +608,7 @@ export default function ProductEditor({
         </div>
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-5 min-w-0">
         {duplicateOf && !productId && (
           <div className="rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-ink/80">
             <p className="font-semibold">Already in Wishdrop Mall as &ldquo;{duplicateOf.name}&rdquo;.</p>
@@ -633,9 +633,9 @@ export default function ProductEditor({
           </p>
         )}
 
-        <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           {/* ── Left column ── */}
-          <div className="space-y-5">
+          <div className="space-y-5 min-w-0">
             <section className={SECTION}>
               <h3 className={SECTION_TITLE}>Basics</h3>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -874,7 +874,7 @@ export default function ProductEditor({
               </p>
               <div className="mt-3 space-y-2">
                 {f.images.map((src, i) => (
-                  <div key={src} className="flex items-center gap-2">
+                  <div key={src} className="flex min-w-0 items-center gap-2">
                     <Thumb src={src} alt="" size={48} />
                     <div className="min-w-0 flex-1">
                       {i === 0 ? (
