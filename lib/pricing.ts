@@ -38,7 +38,7 @@ import {
 // Which delivery method the storefront's headline price reflects.
 // Change this in one place if that business decision ever changes —
 // every function below reads it rather than hardcoding "economy".
-export const DISPLAY_DELIVERY_TYPE: DeliveryType = "economy";
+export const DISPLAY_DELIVERY_TYPE: DeliveryType = "express";
 
 // ============================================================
 // INPUT SHAPE
@@ -101,10 +101,9 @@ export function getDisplayPriceLKR(item: PriceableItem): number {
     weightKg: item.weightKg ?? undefined,
   };
 
-  // DISPLAY_DELIVERY_TYPE is currently always "economy", but this switch
-  // keeps the function correct (and the Express-locked wrapper unused-but-
-  // ready) if that constant is ever changed to "express" later.
-  return getEconomyCatalogPriceLKR(input);
+  return DISPLAY_DELIVERY_TYPE === "express"
+    ? calculateExpressCatalogQuote(input).catalogPrice
+    : getEconomyCatalogPriceLKR(input);
 }
 
 /** Formats a value already in LKR using the site's shared currency formatter. */
