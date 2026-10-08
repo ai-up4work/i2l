@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
+import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue'
+import { MoreFromStore, StickyBuyBar } from '@/components/stores/social/SocialProductExtras'
 import { getDualDeliveryPricing } from '@/lib/pricing'
 import { ECONOMY_LOCKED } from '@/lib/feature-flags'
 import ProductPurchasePanel from '@/components/stores/ProductPurchasePanel'
@@ -265,6 +267,17 @@ export default async function ProductDetailPage({
 
   const productPath = handlePath(store.platform, productId)
 
+  // Custom (Instagram / Facebook) seller stores get the remodelled page:
+  // a store block with Follow, one clear price, a sticky buy bar on
+  // phones and "More from this store". A failed lookup just hides the
+  // "more" row — it must never take the product page down with it.
+  const isSocial = Boolean(store.isSocial)
+  const moreFromStore = isSocial
+    ? await fetchCatalogueProducts(store.platform, store.name, { page: 1, perPage: 9, category: '', search: '', sort: 'newest' })
+        .then((r) => r.products.filter((p) => p.id !== product.id).slice(0, 8))
+        .catch(() => [])
+    : []
+
   return (
     <DashboardProvider>
       <JsonLd
@@ -350,6 +363,7 @@ export default async function ProductDetailPage({
                 storeLogo={store.logo}
                 isMarketplace={isMarketplace}
                 economyLocked={economyLocked}
+                social={isSocial ? { storeHref: `/stores/${store.platform}`, tagline: store.tagline } : undefined}
               />
             </div>
 
@@ -357,8 +371,12 @@ export default async function ProductDetailPage({
                 bottom-most, full-width tab strip, availability-driven
                 (a tab only appears if the product has data backing it). */}
             <ProductInfoTabs product={product} />
+
+            {isSocial && <MoreFromStore products={moreFromStore} platform={store.platform} storeName={store.name} />}
           </div>
         </div>
+
+        {isSocial && <StickyBuyBar product={product} platform={store.platform} formattedPrice={primaryPricing.formattedPrice} />}
 
         <ProductRequestOverlay />
       </div>

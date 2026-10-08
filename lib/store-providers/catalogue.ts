@@ -27,6 +27,7 @@ import type { ProviderFetchParams, ProviderFetchResult } from './types'
 import { extractColors, extractSizes } from './types'
 import { fetchMockProduct, fetchMockProducts } from './mock'
 import { WISHDROP_MALL_SLUG, categorySlug } from '@/lib/wishdrop-mall'
+import { videoPoster } from '@/lib/media'
 
 /** Wishdrop Mall category by its storefront handle (slug), or by name for
  *  older links. Null if there's no such active category. */
@@ -51,18 +52,34 @@ async function findMallCategoryId(handle: string): Promise<string | null> {
 }
 
 const PUBLIC_PRODUCT_COLUMNS =
-  'id, handle, name, brand, description, full_description, highlights, specs, category, condition, tags, gender, sku, price, compare_at_price, currency, weight_kg, images, stock_count, average_rating, review_count, created_at'
+  'id, handle, name, brand, description, full_description, highlights, specs, category, condition, tags, gender, sku, price, compare_at_price, currency, weight_kg, images, videos, stock_count, average_rating, review_count, created_at'
 
-// Same list without the Mall-editor columns (brand/highlights/specs),
-// used if the database hasn't had data/wishdrop-mall.sql re-run yet —
-// so a pending migration degrades to "no highlights/specs" instead of
-// breaking every catalogue store page (Mall AND custom sellers).
-const LEGACY_PRODUCT_COLUMNS = PUBLIC_PRODUCT_COLUMNS.replace('brand, ', '').replace('highlights, specs, ', '')
-let productColumns = PUBLIC_PRODUCT_COLUMNS
+// Fallbacks for a database that hasn't had every migration run yet, tried
+// in order, so a pending migration degrades gracefully instead of
+// breaking every catalogue store page (Mall AND custom sellers):
+//   1. without `videos`            (data/wishdrop-seller-media.sql pending)
+//   2. also without brand/highlights/specs (data/wishdrop-mall.sql pending)
+const NO_VIDEO_COLUMNS = PUBLIC_PRODUCT_COLUMNS.replace('videos, ', '')
+const LEGACY_PRODUCT_COLUMNS = NO_VIDEO_COLUMNS.replace('brand, ', '').replace('highlights, specs, ', '')
+const COLUMN_FALLBACKS = [PUBLIC_PRODUCT_COLUMNS, NO_VIDEO_COLUMNS, LEGACY_PRODUCT_COLUMNS]
+let columnTier = 0
 
 /** Postgres "column does not exist". */
 function isMissingColumn(error: { code?: string } | null): boolean {
   return error?.code === '42703'
+}
+
+/** Runs a product query with the fullest column list the database
+ *  supports, stepping down (and remembering the step) on a missing column. */
+async function withColumnFallback<T extends { error: { code?: string } | null }>(
+  run: (columns: string) => PromiseLike<T>,
+): Promise<T> {
+  let result = await run(COLUMN_FALLBACKS[columnTier])
+  while (isMissingColumn(result.error) && columnTier < COLUMN_FALLBACKS.length - 1) {
+    columnTier += 1
+    result = await run(COLUMN_FALLBACKS[columnTier])
+  }
+  return result
 }
 
 const PUBLIC_VARIANT_COLUMNS = 'id, label, options, price, compare_at_price, stock, image_url, available'
@@ -86,6 +103,7 @@ type PublicProductRow = {
   currency: string
   weight_kg: number | null
   images: string[] | null
+  videos?: string[] | null
   stock_count: number | null
   average_rating: number | null
   review_count: number | null
@@ -216,6 +234,10 @@ function rowToStoreProduct(
   sellerName: string,
 ): StoreProduct {
   const images = (row.images ?? []).filter(Boolean)
+  const videos = (row.videos ?? []).filter(Boolean)
+  // A product with only a video still needs a picture for cards, the
+  // cart and order lines — use a still frame from the first video.
+  const cover = images[0] ?? (videos[0] ? videoPoster(videos[0]) : '')
   const built = buildVariants(variantRows, row.price, row.stock_count != null)
   const onSale = row.compare_at_price != null && row.compare_at_price > row.price
   const anyVariantAvailable = built ? built.variants.some((v) => v.available) : true
@@ -227,8 +249,9 @@ function rowToStoreProduct(
     storeSlug: platform,
     stockCount: row.stock_count,
     name: row.name,
-    image: images[0] ?? '',
-    images,
+    image: cover,
+    images: images.length ? images : cover ? [cover] : [],
+    videos: videos.length ? videos : undefined,
     price: row.price,
     currency: row.currency,
     compareAtPrice: onSale ? row.compare_at_price ?? undefined : undefined,
@@ -320,11 +343,7 @@ export async function fetchCatalogueProducts(
     return query.range(from, from + params.perPage - 1)
   }
 
-  let { data, error, count } = await run(productColumns)
-  if (isMissingColumn(error) && productColumns !== LEGACY_PRODUCT_COLUMNS) {
-    productColumns = LEGACY_PRODUCT_COLUMNS
-    ;({ data, error, count } = await run(productColumns))
-  }
+  const { data, error, count } = await withColumnFallback(run)
   if (error) throw error
 
   const rows = (data ?? []) as unknown as PublicProductRow[]
@@ -362,11 +381,7 @@ export async function fetchCatalogueProduct(
       .eq(isUuid ? 'id' : 'handle', handle)
       .maybeSingle()
 
-  let { data, error } = await run(productColumns)
-  if (isMissingColumn(error) && productColumns !== LEGACY_PRODUCT_COLUMNS) {
-    productColumns = LEGACY_PRODUCT_COLUMNS
-    ;({ data, error } = await run(productColumns))
-  }
+  const { data, error } = await withColumnFallback(run)
   if (error) throw error
   if (!data) {
     // Demo products (see DEMO FALLBACK above) — only while the seller has
@@ -424,4 +439,30 @@ export async function fetchCatalogueCategories(platform: string): Promise<{ hand
   return Array.from(seen)
     .sort((a, b) => a.localeCompare(b))
     .map((title) => ({ handle: title, title }))
+}
+
+
+/**
+ * Products of this store that have at least one video, newest first —
+ * the "reels" row on a custom seller's store page. Returns [] (never
+ * throws) if the videos column doesn't exist yet.
+ */
+export async function fetchCatalogueReels(platform: string, sellerName: string, limit = 12): Promise<StoreProduct[]> {
+  const sellerId = await resolveSellerId(platform)
+  if (!sellerId) return []
+  const supabase = createServiceRoleClient()
+  const { data, error } = await supabase
+    .from('products')
+    .select(PUBLIC_PRODUCT_COLUMNS)
+    .eq('seller_id', sellerId)
+    .eq('active', true)
+    .not('videos', 'eq', '{}')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) return []
+  const rows = (data ?? []) as unknown as PublicProductRow[]
+  const variantsByProduct = await loadVariants(rows.map((r) => r.id))
+  return rows
+    .map((r) => rowToStoreProduct(r, variantsByProduct.get(r.id) ?? [], platform, sellerName))
+    .filter((p) => p.videos?.length)
 }

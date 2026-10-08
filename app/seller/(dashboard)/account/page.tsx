@@ -8,6 +8,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import StoreProfileForm from './StoreProfileForm'
 
 const MIN_LENGTH = 8
 
@@ -35,13 +36,19 @@ export default function SellerAccountPage() {
   }
 
   return (
-    <div className="max-w-md">
-      <h2 className="font-display text-2xl text-ink">Account</h2>
+    <div className="max-w-2xl">
+      <h2 className="font-display text-2xl text-ink">Store profile</h2>
+      <p className="mt-1 text-sm text-ink/55">This is what shoppers see at the top of your store page.</p>
+      <div className="mt-5">
+        <StoreProfileForm />
+      </div>
+
+      <h2 className="mt-10 font-display text-2xl text-ink">Password</h2>
       <p className="mt-1 text-sm text-ink/55">
         Change the temporary password your Wishdrop contact gave you to one only you know.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-card p-6">
+      <form onSubmit={handleSubmit} className="mt-5 flex max-w-md flex-col gap-3 rounded-2xl border border-ink/10 bg-card p-6">
         <label className="text-sm font-semibold text-ink" htmlFor="new-password">
           New password
         </label>

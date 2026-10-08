@@ -4,7 +4,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Play, X } from 'lucide-react'
+import { isVideoUrl, videoPlayback, videoPoster } from '@/lib/media'
 
 export interface ProductGalleryTheme {
   frameBorder?: string
@@ -15,6 +16,10 @@ export interface ProductGalleryTheme {
 
 interface ProductGalleryProps {
   images: string[]
+  /** Product videos (seller uploads). Shown as extra slides after the
+   *  photos, with a still frame as the thumbnail. Optional — every
+   *  existing caller that only has photos is unaffected. */
+  videos?: string[]
   alt?: string | null
   title?: string | null
   resetKey?: string | number
@@ -149,14 +154,24 @@ function dedupeImages(images: string[]): string[] {
   return Array.from(byIdentity.values())
 }
 
-export default function ProductGallery({ images, alt, title, resetKey, theme }: ProductGalleryProps) {
+export default function ProductGallery({ images, videos, alt, title, resetKey, theme }: ProductGalleryProps) {
   // `alt` is the true accessible label; `title` is a convenience fallback so callers
   // that only have a product title (like AmazonProductView) don't have to duplicate it.
   const resolvedAlt = alt ?? title ?? 'Product image'
   const t = { ...DEFAULT_THEME, ...theme }
 
   const deduped = dedupeImages(images)
-  const safeImages = deduped.length ? deduped : ['/placeholder.png']
+  // Slides are photos first, then videos. A slide is just its link;
+  // isVid() tells the two apart wherever they need different markup.
+  const videoList = (videos ?? []).filter((v) => Boolean(v) && isVideoUrl(v))
+  const isVid = (src: string) => videoList.includes(src)
+  /** What to show for a slide in a thumbnail (a video's still frame). */
+  const thumbOf = (src: string) => (isVid(src) ? videoPoster(src, 200) || '/placeholder.png' : src)
+  // A video-only product arrives with one "photo" that is really that
+  // video's still frame (see lib/store-providers/catalogue.ts) — drop it
+  // so the video isn't shown twice.
+  const photos = videoList.length ? deduped.filter((u) => !videoList.some((v) => videoPoster(v) === u)) : deduped
+  const safeImages = photos.length || videoList.length ? [...photos, ...videoList] : ['/placeholder.png']
   const hasMultiple = safeImages.length > 1
   const reduceMotion = useReducedMotion()
 
@@ -195,7 +210,8 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
   // decoded it, so the previous photo stays on screen (fully opaque) while a
   // new one loads instead of fading into an empty frame. For photos already
   // in the browser cache this resolves almost immediately.
-  const targetSrc = safeImages[activeIndex]
+  const targetSrc = safeImages[Math.min(activeIndex, safeImages.length - 1)]
+  const onVideo = videoList.includes(targetSrc)
   const [shownSrc, setShownSrc] = useState(targetSrc)
 
   useEffect(() => {
@@ -204,6 +220,12 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
     let cancelled = false
     const apply = () => {
       if (!cancelled) setShownSrc(targetSrc)
+    }
+
+    // Videos have nothing to decode up front — switch straight away.
+    if (videoList.includes(targetSrc)) {
+      apply()
+      return
     }
 
     const img = new window.Image()
@@ -223,6 +245,7 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetSrc, shownSrc])
 
   const clearTimer = useCallback(() => {
@@ -254,7 +277,8 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
   }, [])
 
   useEffect(() => {
-    if (!hasMultiple || isHovering || lightboxOpen) {
+    // Never auto-advance away from a video — the shopper may be watching it.
+    if (!hasMultiple || isHovering || lightboxOpen || onVideo) {
       clearTimer()
       return
     }
@@ -263,7 +287,7 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
       setAutoplayRunId((n) => n + 1)
     }, AUTOPLAY_INTERVAL_MS)
     return clearTimer
-  }, [hasMultiple, isHovering, lightboxOpen, safeImages.length, clearTimer])
+  }, [hasMultiple, isHovering, lightboxOpen, onVideo, safeImages.length, clearTimer])
 
   useEffect(() => {
     if (!lightboxOpen) return
@@ -275,7 +299,7 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [lightboxOpen, goPrev, goNext])
 
-  const isPlaying = hasMultiple && !isHovering && !lightboxOpen
+  const isPlaying = hasMultiple && !isHovering && !lightboxOpen && !onVideo
   const crossfadeDuration = reduceMotion ? 0 : CROSSFADE_SECONDS
   const isPlaceholder = shownSrc === '/placeholder.png'
 
@@ -288,36 +312,49 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
         onFocus={() => setIsHovering(true)}
         onBlur={() => setIsHovering(false)}
       >
-        <button
-          type="button"
-          onClick={() => setLightboxOpen(true)}
-          aria-label="Open full-screen view"
-          className="relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-2"
-        >
-          {/* Invisible sizing image follows the photo actually SHOWN (not the
-              one still loading), so the frame height only changes together
-              with the visible picture instead of jumping early. */}
-          <img src={shownSrc} alt="" aria-hidden="true" className="block w-full h-auto opacity-0" />
+        {isVid(shownSrc) ? (
+          <video
+            key={shownSrc}
+            src={videoPlayback(shownSrc)}
+            poster={videoPoster(shownSrc) || undefined}
+            controls
+            playsInline
+            preload="metadata"
+            aria-label={`${resolvedAlt} video`}
+            className="block max-h-[80vh] w-full bg-black"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            aria-label="Open full-screen view"
+            className="relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-2"
+          >
+            {/* Invisible sizing image follows the photo actually SHOWN (not the
+                one still loading), so the frame height only changes together
+                with the visible picture instead of jumping early. */}
+            <img src={shownSrc} alt="" aria-hidden="true" className="block w-full h-auto opacity-0" />
 
-          <AnimatePresence initial={false}>
-            <motion.img
-              key={shownSrc}
-              src={shownSrc}
-              alt={resolvedAlt}
-              className={`absolute inset-0 h-full w-full object-contain ${isPlaceholder ? t.placeholderText : ''}`}
-              initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.015 }}
-              animate={{ opacity: 1, scale: 1 }}
-              // The outgoing photo stays fully opaque for the length of the
-              // incoming fade, then is removed — a true dissolve with no dim
-              // "both half-transparent" moment in the middle.
-              exit={{ opacity: 0, transition: { delay: crossfadeDuration, duration: 0.01 } }}
-              transition={{ duration: crossfadeDuration, ease: EASE }}
-            />
-          </AnimatePresence>
-        </button>
+            <AnimatePresence initial={false}>
+              <motion.img
+                key={shownSrc}
+                src={shownSrc}
+                alt={resolvedAlt}
+                className={`absolute inset-0 h-full w-full object-contain ${isPlaceholder ? t.placeholderText : ''}`}
+                initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.015 }}
+                animate={{ opacity: 1, scale: 1 }}
+                // The outgoing photo stays fully opaque for the length of the
+                // incoming fade, then is removed — a true dissolve with no dim
+                // "both half-transparent" moment in the middle.
+                exit={{ opacity: 0, transition: { delay: crossfadeDuration, duration: 0.01 } }}
+                transition={{ duration: crossfadeDuration, ease: EASE }}
+              />
+            </AnimatePresence>
+          </button>
+        )}
 
         {hasMultiple && (
-          <div className="absolute inset-x-3 top-3 flex gap-1">
+          <div className={`absolute inset-x-3 top-3 flex gap-1 ${isVid(shownSrc) ? 'pointer-events-none opacity-0' : ''}`}>
             {safeImages.map((_, i) => (
               <button
                 key={i}
@@ -371,14 +408,21 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
                 type="button"
                 onClick={() => selectManual(i)}
                 aria-current={i === activeIndex}
-                aria-label={`View image ${i + 1}`}
+                aria-label={isVid(img) ? `Play video` : `View image ${i + 1}`}
                 className={
                   i === activeIndex
                     ? `h-14 w-14 flex-none snap-start overflow-hidden rounded-lg shadow-sm transition-all duration-300 ${t.activeThumb}`
                     : `h-14 w-14 flex-none snap-start overflow-hidden rounded-lg opacity-55 grayscale-[20%] transition-all duration-300 hover:opacity-90 hover:grayscale-0 focus-visible:opacity-100 focus-visible:grayscale-0 ${t.restingThumb}`
                 }
               >
-                <img src={img} alt="" className="h-full w-full object-cover" />
+                <span className="relative block h-full w-full">
+                  <img src={thumbOf(img)} alt="" className="h-full w-full object-cover" />
+                  {isVid(img) && (
+                    <span className="absolute inset-0 grid place-items-center bg-black/25 text-white">
+                      <Play size={14} fill="currentColor" />
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </div>
@@ -428,17 +472,34 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
 
             <div className="flex min-h-0 flex-1 items-center justify-center">
               <AnimatePresence initial={false} mode="wait">
-                <motion.img
-                  key={safeImages[activeIndex] + activeIndex}
-                  src={safeImages[activeIndex]}
-                  alt={resolvedAlt}
-                  onClick={(e) => e.stopPropagation()}
-                  className="block max-w-full max-h-[75vh] w-auto h-auto rounded-lg"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: crossfadeDuration, ease: EASE }}
-                />
+                {isVid(safeImages[activeIndex]) ? (
+                  <motion.video
+                    key={safeImages[activeIndex] + activeIndex}
+                    src={videoPlayback(safeImages[activeIndex])}
+                    poster={videoPoster(safeImages[activeIndex]) || undefined}
+                    controls
+                    autoPlay
+                    playsInline
+                    onClick={(e) => e.stopPropagation()}
+                    className="block max-h-[75vh] max-w-full rounded-lg bg-black"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: crossfadeDuration, ease: EASE }}
+                  />
+                ) : (
+                  <motion.img
+                    key={safeImages[activeIndex] + activeIndex}
+                    src={safeImages[activeIndex]}
+                    alt={resolvedAlt}
+                    onClick={(e) => e.stopPropagation()}
+                    className="block max-w-full max-h-[75vh] w-auto h-auto rounded-lg"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: crossfadeDuration, ease: EASE }}
+                  />
+                )}
               </AnimatePresence>
             </div>
 
@@ -487,7 +548,14 @@ export default function ProductGallery({ images, alt, title, resetKey, theme }: 
                           : 'h-12 w-12 flex-none overflow-hidden rounded-lg opacity-45 grayscale-[20%] ring-1 ring-white/20 transition-all duration-300 hover:opacity-80 hover:grayscale-0'
                       }
                     >
-                      <img src={img} alt="" className="h-full w-full object-cover" />
+                      <span className="relative block h-full w-full">
+                  <img src={thumbOf(img)} alt="" className="h-full w-full object-cover" />
+                  {isVid(img) && (
+                    <span className="absolute inset-0 grid place-items-center bg-black/25 text-white">
+                      <Play size={14} fill="currentColor" />
+                    </span>
+                  )}
+                </span>
                     </button>
                   ))}
                 </div>

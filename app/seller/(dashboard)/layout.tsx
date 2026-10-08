@@ -10,12 +10,12 @@ export default async function SellerLayout({ children }: { children: React.React
 
   return (
     <div className="min-h-screen bg-parchment">
-      <header className="flex items-center justify-between border-b border-ink/10 bg-card px-6 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-ink/10 bg-card px-4 py-3 sm:px-6 sm:py-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Seller portal</p>
           <h1 className="font-display text-lg text-ink">{seller.name}</h1>
         </div>
-        <nav className="flex items-center gap-4 text-sm font-semibold text-ink/60">
+        <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold text-ink/60">
           <Link href="/seller/products" className="hover:text-ink">
             My products
           </Link>
@@ -23,12 +23,12 @@ export default async function SellerLayout({ children }: { children: React.React
             View my store
           </a>
           <Link href="/seller/account" className="hover:text-ink">
-            Account
+            Store profile
           </Link>
           <SellerSignOutButton />
         </nav>
       </header>
-      <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
     </div>
   )
 }

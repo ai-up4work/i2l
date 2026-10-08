@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSeller } from '@/lib/supabase/seller-auth'
 import { mallHandle } from '@/lib/wishdrop-mall'
-import { SELLER_PRODUCT_COLUMNS, cleanSellerInput, sellerPrice, type SellerProductInput } from '../lib'
+import { SELLER_PRODUCT_COLUMNS, friendlyDbError, cleanSellerInput, sellerPrice, type SellerProductInput } from '../lib'
 
 export async function GET() {
   const auth = await requireSeller()
@@ -19,8 +19,12 @@ export async function GET() {
     .select(SELLER_PRODUCT_COLUMNS)
     .eq('seller_id', seller.id)
     .order('created_at', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ products: data ?? [], defaultMarginPercent: seller.defaultMarginPercent })
+  if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
+  return NextResponse.json({
+    products: data ?? [],
+    defaultMarginPercent: seller.defaultMarginPercent,
+    seller: { id: seller.id, name: seller.name, slug: seller.platform },
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
       .single()
     if (!error) return NextResponse.json({ product: data }, { status: 201 })
     if (error.code !== '23505' || attempt === 1) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
     }
   }
   return NextResponse.json({ error: 'Could not create the product.' }, { status: 500 })

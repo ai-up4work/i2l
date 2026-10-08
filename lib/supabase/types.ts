@@ -168,6 +168,7 @@ export interface Database {
           currency: string
           weight_kg: number | null
           images: string[]
+          videos: string[]
           stock_count: number | null
           average_rating: number | null
           review_count: number
@@ -205,6 +206,7 @@ export interface Database {
           currency?: string
           weight_kg?: number | null
           images?: string[]
+          videos?: string[]
           stock_count?: number | null
           average_rating?: number | null
           review_count?: number

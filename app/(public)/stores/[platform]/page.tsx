@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
 import StoreCatalogClient from '@/components/stores/StoreCatalogClient'
+import SocialStoreClient from '@/components/stores/social/SocialStoreClient'
 import JsonLd, { breadcrumbSchema } from '@/components/seo/JsonLd'
 import { pageMetadata } from '@/lib/seo'
 
@@ -55,7 +56,9 @@ export default async function StoreLandingPage({
           { name: store.name, path: `/stores/${store.platform}` },
         ])}
       />
-      <StoreCatalogClient store={store} />
+      {/* Custom (Instagram / Facebook) sellers get the photo-and-video
+          storefront; every other store keeps the standard catalogue page. */}
+      {store.isSocial ? <SocialStoreClient store={store} /> : <StoreCatalogClient store={store} />}
     </>
   )
 }

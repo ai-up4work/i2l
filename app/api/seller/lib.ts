@@ -2,16 +2,28 @@
 //
 // Shared validation for the seller product routes. The seller supplies
 // only what they own — name, description, category, THEIR cost price,
-// stock, weight, photos, visibility. Wishdrop's margin and the selling
+// stock, weight, photos, videos, visibility. Wishdrop's margin and the selling
 // price are never accepted from the client: price is always
 // cost × (1 + margin%) computed here, with the margin taken from the
 // seller's default (new products) or kept as-is (edits — staff may have
 // set a per-product margin in Catalogues).
 
-export const SELLER_PRODUCT_COLUMNS =
-  'id, handle, name, description, category, cost_price, margin_percent, price, currency, stock_count, images, weight_kg, active, created_at'
+import { isOwnCloudinaryUrl, MEDIA_LIMITS } from '@/lib/cloudinary'
 
-export const MAX_IMAGES = 10
+export const SELLER_PRODUCT_COLUMNS =
+  'id, handle, name, description, category, cost_price, margin_percent, price, currency, stock_count, images, videos, weight_kg, active, created_at'
+
+export const MAX_IMAGES = MEDIA_LIMITS.image.maxCount
+export const MAX_VIDEOS = MEDIA_LIMITS.video.maxCount
+
+/** Postgres "column does not exist" -> a message staff can act on,
+ *  instead of a raw database error, when the videos migration is pending. */
+export function friendlyDbError(error: { code?: string; message: string }): string {
+  if (error.code === '42703' || /videos/.test(error.message)) {
+    return 'The database needs an update before products can be saved: run data/wishdrop-seller-media.sql in Supabase.'
+  }
+  return error.message
+}
 
 export type SellerProductInput = {
   name?: string
@@ -21,6 +33,7 @@ export type SellerProductInput = {
   stockCount?: number | string | null
   weightKg?: number | string | null
   images?: string[]
+  videos?: string[]
   active?: boolean
 }
 
@@ -32,6 +45,7 @@ export type CleanFields = {
   stock_count?: number | null
   weight_kg?: number | null
   images?: string[]
+  videos?: string[]
   active?: boolean
 }
 
@@ -86,6 +100,19 @@ export function cleanSellerInput(body: SellerProductInput, requireAll: boolean):
       if (!/^https:\/\//i.test(u)) return { error: 'Photo links must start with https://' }
     }
     fields.images = images
+  }
+  if (body.videos !== undefined) {
+    if (!Array.isArray(body.videos)) return { error: 'videos must be a list of links.' }
+    const videos = body.videos
+      .map((u) => String(u).trim())
+      .filter(Boolean)
+      .slice(0, MAX_VIDEOS)
+    // Videos must be files uploaded through our own uploader — an
+    // arbitrary link could be anything (or vanish tomorrow).
+    for (const u of videos) {
+      if (!isOwnCloudinaryUrl(u, 'video')) return { error: 'Videos must be uploaded with the Upload video button.' }
+    }
+    fields.videos = videos
   }
   if (body.active !== undefined) fields.active = Boolean(body.active)
 

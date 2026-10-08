@@ -14,6 +14,7 @@ import {
   type AffiliatedStore,
 } from '@/data/stores/data';
 import { createClient } from '@/lib/supabase/client';
+import SocialStoreTiles from '@/components/stores/social/SocialStoreTiles';
 import { useSequentialLiveProductCounts, type LiveCountEntry } from '@/hooks/useSequentialLiveProductCounts';
 
 // Same provider types the admin sellers page keys off of
@@ -480,6 +481,10 @@ export default function StoresPage() {
 
           {/* Static data — renders immediately regardless of the sellers fetch */}
           <MarketplacesCarousel stores={marketplaceStores} />
+
+          {/* Custom sellers (Instagram / Facebook shops) — loads its own
+              data; renders nothing if there are none with products. */}
+          <SocialStoreTiles />
 
           {loading ? <AllStoresSkeleton /> : (
             <AllStores activeFilter={activeFilter} stores={stores} liveCounts={liveCounts} />

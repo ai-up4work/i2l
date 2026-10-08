@@ -51,6 +51,9 @@ export interface StoreProduct {
   name: string;
   image: string;
   images: string[];
+  /** Product videos (Cloudinary links), when the seller uploaded any.
+   *  Shown in the product gallery after the photos. Absent otherwise. */
+  videos?: string[];
   price: number; // always major units (e.g. 89.00, not 8900)
   currency: string;
   compareAtPrice?: number;

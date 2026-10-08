@@ -59,6 +59,20 @@ export type AffiliatedStore = {
   /** Only set for storeType: 'local'. See StoreBuildType above. */
   buildType?: StoreBuildType
 
+  // ── Custom (Instagram / Facebook) sellers ───────────────────────────────
+  /**
+   * True for a custom seller: no feed, products (with photos and videos)
+   * added in the seller portal. These stores get the "social" storefront
+   * (components/stores/social/*) instead of the standard catalogue page.
+   */
+  isSocial?: boolean
+  /** Wide banner photo on the store page. */
+  cover?: string
+  /** One short line under the store name. */
+  tagline?: string
+  instagram?: string
+  facebook?: string
+
   // ── QA-tool only (app/demo/scraper-qa) ──────────────────────────────────
   /**
    * The site identifier the scraper's `ScrapeResult.site` actually returns

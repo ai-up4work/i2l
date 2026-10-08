@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSeller } from '@/lib/supabase/seller-auth'
-import { SELLER_PRODUCT_COLUMNS, cleanSellerInput, sellerPrice, type SellerProductInput } from '../../lib'
+import { SELLER_PRODUCT_COLUMNS, friendlyDbError, cleanSellerInput, sellerPrice, type SellerProductInput } from '../../lib'
 
 type Params = { params: Promise<{ productId: string }> }
 
@@ -32,7 +32,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .eq('id', productId)
     .eq('seller_id', seller.id)
     .maybeSingle()
-  if (findError) return NextResponse.json({ error: findError.message }, { status: 500 })
+  if (findError) return NextResponse.json({ error: friendlyDbError(findError) }, { status: 500 })
   if (!existing) return NextResponse.json({ error: 'Product not found.' }, { status: 404 })
 
   const update: typeof fields & { price?: number; margin_percent?: number; updated_at: string } = {
@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .eq('seller_id', seller.id)
     .select(SELLER_PRODUCT_COLUMNS)
     .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
   return NextResponse.json({ product: data })
 }
 
@@ -68,7 +68,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     .eq('id', productId)
     .eq('seller_id', seller.id)
     .select('id')
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
   if (!data || data.length === 0) return NextResponse.json({ error: 'Product not found.' }, { status: 404 })
   return NextResponse.json({ deleted: true })
 }

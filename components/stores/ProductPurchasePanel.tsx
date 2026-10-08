@@ -76,6 +76,8 @@ import ProductActions from '@/components/stores/ProductActions'
 import ProductGallery from '@/components/stores/ProductGallery'
 import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
+import FollowButton from '@/components/stores/social/FollowButton'
+import { imageThumb } from '@/lib/media'
 import type { StoreProduct } from '@/lib/store.types'
 
 type Variant = NonNullable<StoreProduct['variants']>[number]
@@ -139,6 +141,7 @@ export default function ProductPurchasePanel({
   storeLogo,
   isMarketplace,
   economyLocked = ECONOMY_LOCKED,
+  social,
 }: {
   product: StoreProduct
   platform: string
@@ -150,6 +153,11 @@ export default function ProductPurchasePanel({
    * any caller that hasn't been updated yet still agrees with the rest
    * of the site. */
   economyLocked?: boolean
+  /** Set for custom (Instagram / Facebook) seller stores: swaps the small
+   * store line for a store block with a Follow button, and the
+   * Economy/Express slip for one clear price. Everything else (gallery,
+   * variant picking, add to bag) is unchanged. */
+  social?: { storeHref: string; tagline?: string }
 }) {
   const [selectedSize, setSelectedSize] = useState<string | undefined>()
   const [selectedColor, setSelectedColor] = useState<string | undefined>()
@@ -366,6 +374,7 @@ export default function ProductPurchasePanel({
             variant's thumbnail silently upgrades. */}
         <ProductGallery
           images={galleryImages}
+          videos={product.videos}
           alt={product.name}
           resetKey={imageVariant?.image ?? product.image}
         />
@@ -375,7 +384,23 @@ export default function ProductPurchasePanel({
           </span>
         )}
       </div>
-      <div className="flex h-full min-w-0 flex-col">
+      <div id="buy-box" className="flex h-full min-w-0 flex-col">
+        {social ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-card px-3.5 py-3">
+            <Link href={social.storeHref} className="grid h-11 w-11 flex-none place-items-center overflow-hidden rounded-full border border-ink/10 bg-parchment">
+              {storeLogo ? (
+                <img src={imageThumb(storeLogo, 120)} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="font-display text-lg font-bold text-teal-deep">{storeName.charAt(0).toUpperCase()}</span>
+              )}
+            </Link>
+            <Link href={social.storeHref} className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-bold text-ink">{storeName}</span>
+              <span className="block truncate text-xs text-ink/50">{social.tagline || 'Visit store'}</span>
+            </Link>
+            <FollowButton slug={platform} />
+          </div>
+        ) : (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
           <span className="inline-flex items-center gap-2">
             {dualPricing.fixedPrice ? (
@@ -412,12 +437,54 @@ export default function ProductPurchasePanel({
             </>
           )}
         </div>
+        )}
 
-        <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+        <h1 className={`${social ? 'mt-4' : 'mt-2'} font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl`}>
           {product.name}
         </h1>
+        {social && product.averageRating != null && (
+          <div className="mt-1.5">
+            <RatingStars rating={product.averageRating} count={product.reviewCount} />
+          </div>
+        )}
 
-        {dualPricing.fixedPrice ? (
+        {social && !dualPricing.fixedPrice ? (
+          // Custom seller stores: one clear price (the delivery method
+          // that can actually be booked), then what gets added at
+          // checkout, so the total is never a surprise.
+          (() => {
+            const p = economyLocked ? dualPricing.express : dualPricing.economy
+            return (
+              <div className="mt-3">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="font-display text-3xl font-extrabold tabular-nums text-ink">{p.formattedPrice}</span>
+                  {p.formattedCompareAtPrice != null && (
+                    <span className="text-sm text-ink/45">
+                      <span className="line-through">{p.formattedCompareAtPrice}</span>
+                      {p.discountPercent != null && p.discountPercent > 0 && (
+                        <span className="ml-2 rounded-md bg-ink px-1.5 py-0.5 text-xs font-bold text-white">-{p.discountPercent}%</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1.5 text-xs text-ink/55">
+                  Shipping to Sri Lanka included. At checkout: {p.formattedServiceCharge} service charge
+                  {p.deliveryFeeLKR > 0 && <> + {p.formattedDeliveryFee} delivery</>}.
+                </p>
+                <ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink/70 sm:grid-cols-2">
+                  <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
+                    <Zap size={14} className="flex-none text-teal-deep" />
+                    Arrives in {economyLocked ? '12 to 15 days' : '3 to 4 weeks'}
+                  </li>
+                  <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
+                    <Package size={14} className="flex-none text-teal-deep" />
+                    Checked by us before it ships
+                  </li>
+                </ul>
+              </div>
+            )
+          })()
+        ) : dualPricing.fixedPrice ? (
           // Fixed-price store (Wishdrop Mall): the price is set in LKR and
           // already covers everything, so there's no delivery-method
           // comparison — just the price and the flat delivery fee.
@@ -542,7 +609,7 @@ export default function ProductPurchasePanel({
           </>
         )}
 
-        <p className="mt-3 text-xs text-ink/45">Sold by {product.seller}</p>
+        {!social && <p className="mt-3 text-xs text-ink/45">Sold by {product.seller}</p>}
 
         {product.weightKg != null && (
           <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-ink/50">
@@ -584,6 +651,7 @@ export default function ProductPurchasePanel({
             CHECKOUT
           </ProductRequestButton>
         ) : (
+          <div id="buy-actions">
           <ProductActions
             product={product}
             platform={platform}
@@ -596,6 +664,7 @@ export default function ProductPurchasePanel({
             variantStatus={variantState.status}
             variantUrl={variantUrl}
           />
+          </div>
         )}
       </div>
     </>

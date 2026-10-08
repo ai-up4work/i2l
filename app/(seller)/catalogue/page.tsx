@@ -58,7 +58,7 @@ export default function CataloguesPage() {
   }, [rows, search])
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-8xl px-6 py-8">
       <div className="flex items-start gap-4">
         <div>
           <h1 className="font-display text-3xl text-ink">Catalogues</h1>

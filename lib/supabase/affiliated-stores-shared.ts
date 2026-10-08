@@ -16,6 +16,24 @@
 
 import type { AffiliatedStore } from '@/data/stores/data'
 
+// Slugs that are `manual` + `mock` in the database but are NOT custom
+// seller-portal stores (they have their own hardcoded handling).
+const NOT_SOCIAL_SLUGS = new Set(['anishka-creation', 'wishdrop-mall'])
+
+/**
+ * True for a custom seller row: no feed, catalogue managed in the seller
+ * portal. Mirrors the rule in lib/store-config-db.ts that switches these
+ * sellers onto the `catalogue` provider (type 'manual' + config 'mock').
+ */
+export function isSocialSellerRow(row: Record<string, unknown>): boolean {
+  const providerConfig = (row.provider_config ?? {}) as Record<string, unknown>
+  return (
+    row.type === 'manual' &&
+    ((providerConfig.type as string | undefined) ?? 'mock') === 'mock' &&
+    !NOT_SOCIAL_SLUGS.has(row.platform_slug as string)
+  )
+}
+
 export function mapRowToAffiliatedStore(row: Record<string, unknown>): AffiliatedStore {
   const providerConfig = (row.provider_config ?? {}) as Record<string, unknown>
   const display = (providerConfig.display ?? {}) as Record<string, unknown>
@@ -38,6 +56,12 @@ export function mapRowToAffiliatedStore(row: Record<string, unknown>): Affiliate
     payment: display.payment as string | undefined,
     tags: display.tags as string[] | undefined,
     buildType: (display.buildType as AffiliatedStore['buildType']) ?? 'template',
+
+    isSocial: isSocialSellerRow(row),
+    cover: (row.cover_url as string | null) ?? undefined,
+    tagline: (row.tagline as string | null) ?? undefined,
+    instagram: (row.instagram_url as string | null) ?? undefined,
+    facebook: (row.facebook_url as string | null) ?? undefined,
 
     // Scraper / QA config (all optional)
     scraperSite: scraper.type as string | undefined,

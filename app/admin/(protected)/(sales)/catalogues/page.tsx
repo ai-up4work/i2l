@@ -1,18 +1,23 @@
 // app/admin/(protected)/(sales)/catalogues/page.tsx
 //
-// Rebuilt from scratch. The old version managed a seller-proposal /
-// admin-approve-reject workflow entirely in a mock in-memory array. Per
-// the actual decision made for this feature: sellers now log in and edit
-// their own products directly (app/seller/(dashboard)/products) — no
-// approval step. This page is now a read-mostly overview across every
-// manual-mode seller's real catalogue, with the one thing that's still
-// genuinely admin's call: the margin (see [catalogueId]/page.tsx).
+// Every product in a custom (manual) seller's catalogue — the sellers
+// with no feed, typically running their shop on Instagram / Facebook.
+// Sellers add products from their own portal (/seller/products); staff
+// can also add one on a seller's behalf here ("Add product"), and open
+// any product to edit it, change Wishdrop's margin, or hide it.
+//
+// Reads through /api/admin/catalogues (service role, staff-gated) rather
+// than the browser client — RLS only lets the browser read ACTIVE
+// products, so hidden ones would silently disappear from this list.
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Loader2, Search } from 'lucide-react'
+import { ArrowLeft, Loader2, Play, Plus, Search } from 'lucide-react'
 import { panelClass } from '@/components/admin/seller/shared'
+import ProductForm, { type ProductFormPayload } from '@/components/catalogue/ProductForm'
+import { imageThumb, videoPoster } from '@/lib/media'
 
 type Row = {
   id: string
@@ -23,120 +28,341 @@ type Row = {
   price: number
   currency: string
   stock_count: number | null
+  images: string[] | null
+  videos?: string[] | null
   active: boolean
   seller_id: string
   sellers: { name: string; platform_slug: string } | null
 }
 
+type SellerOption = {
+  id: string
+  name: string
+  slug: string
+  defaultMarginPercent: number
+  hasLogin: boolean
+  status: string
+}
+
+function coverOf(r: Row): string | null {
+  if (r.images?.[0]) return imageThumb(r.images[0], 120)
+  if (r.videos?.[0]) return videoPoster(r.videos[0], 120) || null
+  return null
+}
+
 export default function CataloguesPage() {
   const router = useRouter()
   const [rows, setRows] = useState<Row[]>([])
+  const [sellers, setSellers] = useState<SellerOption[]>([])
+  const [needsMigration, setNeedsMigration] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [sellerFilter, setSellerFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'hidden'>('all')
+
+  const [adding, setAdding] = useState(false)
+  const [addSellerId, setAddSellerId] = useState('')
 
   useEffect(() => {
-    // Through the admin API (service role, staff-gated) rather than the
-    // browser client — RLS only lets the browser read ACTIVE products, so
-    // hidden ones used to silently disappear from this list.
     fetch('/api/admin/catalogues')
       .then(async (res) => {
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body.error ?? 'Could not load catalogue')
         setRows((body.products ?? []) as Row[])
+        setSellers((body.sellers ?? []) as SellerOption[])
+        setNeedsMigration(Boolean(body.needsMigration))
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
 
+  const countBySeller = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of rows) map.set(r.seller_id, (map.get(r.seller_id) ?? 0) + 1)
+    return map
+  }, [rows])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter(
-      (r) => r.name.toLowerCase().includes(q) || r.sellers?.name.toLowerCase().includes(q),
-    )
-  }, [rows, search])
+    return rows.filter((r) => {
+      if (sellerFilter !== 'all' && r.seller_id !== sellerFilter) return false
+      if (statusFilter === 'active' && !r.active) return false
+      if (statusFilter === 'hidden' && r.active) return false
+      return !q || r.name.toLowerCase().includes(q) || (r.sellers?.name ?? '').toLowerCase().includes(q) || (r.category ?? '').toLowerCase().includes(q)
+    })
+  }, [rows, search, sellerFilter, statusFilter])
 
-  return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="flex items-start gap-4">
-        <div>
-          <h1 className="font-display text-3xl text-ink">Catalogues</h1>
+  const addSeller = sellers.find((s) => s.id === addSellerId) ?? null
+  const categories = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.category).filter((c): c is string => Boolean(c)))).sort(),
+    [rows],
+  )
+
+  function openAdd() {
+    setAddSellerId(sellerFilter !== 'all' ? sellerFilter : sellers.length === 1 ? sellers[0].id : '')
+    setAdding(true)
+  }
+
+  async function handleCreate(payload: ProductFormPayload) {
+    const res = await fetch('/api/admin/catalogues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, sellerId: addSellerId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.error ?? 'Could not add the product')
+    const p = body.product as Row & { sellers: { name: string; platform_slug: string } | null }
+    setRows((prev) => [p, ...prev])
+    setAdding(false)
+  }
+
+  async function toggleActive(r: Row) {
+    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, active: !x.active } : x)))
+    const res = await fetch(`/api/admin/catalogues/${r.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !r.active }),
+    })
+    if (!res.ok) {
+      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, active: r.active } : x)))
+      const body = await res.json().catch(() => ({}))
+      setError(body.error ?? 'Could not update the product')
+    }
+  }
+
+  if (adding) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-6 py-8">
+          <button onClick={() => setAdding(false)} className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink">
+            <ArrowLeft size={15} /> Catalogues
+          </button>
+          <h1 className="mt-4 font-display text-3xl text-ink">Add a product for a seller</h1>
           <p className="mt-1 text-sm text-ink/55">
-            Products from every manual-mode seller. Sellers add these directly from their own portal —
-            open one here to adjust Wishdrop's margin.
+            For sellers who send you their photos instead of using the seller portal. It appears on their store page as soon as you save.
           </p>
+
+          <div className={`mt-6 p-6 ${panelClass}`}>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink/60">Seller</span>
+              <select
+                value={addSellerId}
+                onChange={(e) => setAddSellerId(e.target.value)}
+                className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-teal"
+              >
+                <option value="">Choose a seller…</option>
+                {sellers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.defaultMarginPercent}% margin){s.status !== 'active' ? ` — ${s.status}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {addSeller ? (
+              <div className="mt-6 border-t border-ink/10 pt-6">
+                <ProductForm
+                  key={addSeller.id}
+                  marginPercent={addSeller.defaultMarginPercent}
+                  staffSellerId={addSeller.id}
+                  categorySuggestions={categories}
+                  submitLabel="Add product"
+                  onSubmit={handleCreate}
+                  onCancel={() => setAdding(false)}
+                />
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-ink/50">Choose the seller first — photos and videos are filed under their name.</p>
+            )}
+          </div>
         </div>
       </div>
+    )
+  }
 
-      <div className="mt-5 flex items-center gap-2 rounded-xl border border-ink/10 bg-card px-3 py-2">
-        <Search size={16} className="text-ink/35" />
-        <input
-          placeholder="Search product or seller…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-transparent text-sm outline-none"
-        />
-      </div>
-
-      <div className={`mt-4 overflow-hidden ${panelClass}`}>
-        {loading ? (
-          <div className="flex flex-col items-center gap-2 py-16 text-ink/50">
-            <Loader2 size={20} className="animate-spin" />
-            <p className="text-sm">Loading catalogue…</p>
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="font-display text-3xl text-ink">Catalogues</h1>
+            <p className="mt-1 max-w-2xl text-sm text-ink/55">
+              Products from sellers without a feed (Instagram, Facebook and other custom sellers). They add products in
+              their own portal; you can also add one for them, edit it, and set Wishdrop&rsquo;s margin.
+            </p>
           </div>
-        ) : error ? (
-          <p className="px-5 py-10 text-center text-sm font-semibold text-red-700">{error}</p>
-        ) : filtered.length === 0 ? (
-          <p className="px-5 py-16 text-center text-sm text-ink/50">
-            {rows.length === 0
-              ? 'No products yet — nothing shows up here until a manual-mode seller has a login and adds their own products.'
-              : 'No products match your search.'}
+          <button
+            onClick={openAdd}
+            disabled={sellers.length === 0}
+            className="flex items-center gap-2 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment hover:bg-teal disabled:opacity-50"
+          >
+            <Plus size={16} /> Add product
+          </button>
+        </div>
+
+        {needsMigration && (
+          <p className="mt-4 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-ink">
+            Videos are switched off until the database is updated: run <code className="font-mono text-xs">data/wishdrop-seller-media.sql</code> in the Supabase SQL editor.
           </p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-ink/10 text-xs font-semibold uppercase tracking-wide text-ink/40">
-              <tr>
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Seller</th>
-                <th className="px-5 py-3">Cost</th>
-                <th className="px-5 py-3">Margin</th>
-                <th className="px-5 py-3">Selling price</th>
-                <th className="px-5 py-3">Stock</th>
-                <th className="px-5 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <tr
-                  key={r.id}
-                  onClick={() => router.push(`/admin/catalogues/${r.id}`)}
-                  className="cursor-pointer border-b border-ink/5 last:border-0 hover:bg-ink/[0.02]"
-                >
-                  <td className="px-5 py-3 font-medium text-ink">{r.name}</td>
-                  <td className="px-5 py-3 text-ink/70">{r.sellers?.name ?? '—'}</td>
-                  <td className="px-5 py-3 text-ink/70">
-                    {r.currency} {r.cost_price?.toFixed(2) ?? '—'}
-                  </td>
-                  <td className="px-5 py-3 text-ink/70">{r.margin_percent ?? '—'}%</td>
-                  <td className="px-5 py-3 font-semibold text-ink">
-                    {r.currency} {r.price.toFixed(2)}
-                  </td>
-                  <td className="px-5 py-3 text-ink/70">{r.stock_count ?? '—'}</td>
-                  <td className="px-5 py-3">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        r.active ? 'bg-teal/10 text-teal-deep' : 'bg-ink/5 text-ink/40'
-                      }`}
-                    >
-                      {r.active ? 'Active' : 'Hidden'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         )}
+
+        {!loading && !error && sellers.length === 0 && (
+          <div className={`mt-5 p-6 ${panelClass}`}>
+            <p className="font-semibold text-ink">No custom sellers yet</p>
+            <p className="mt-1 text-sm text-ink/55">
+              Create the seller first, with the type set to custom (no feed). Then give them a portal login from the seller&rsquo;s page, or add their products here.
+            </p>
+            <Link href="/admin/sellers" className="mt-3 inline-block text-sm font-semibold text-teal-deep underline">
+              Go to Sellers
+            </Link>
+          </div>
+        )}
+
+        {sellers.length > 0 && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              onClick={() => setSellerFilter('all')}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${sellerFilter === 'all' ? 'border-ink bg-ink text-white' : 'border-ink/15 bg-card text-ink/60 hover:text-ink'}`}
+            >
+              All sellers · {rows.length}
+            </button>
+            {sellers.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setSellerFilter(s.id)}
+                title={s.hasLogin ? 'Has a seller portal login' : 'No portal login yet'}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${sellerFilter === s.id ? 'border-ink bg-ink text-white' : 'border-ink/15 bg-card text-ink/60 hover:text-ink'}`}
+              >
+                {s.name} · {countBySeller.get(s.id) ?? 0}
+                {!s.hasLogin && <span className="ml-1 font-normal opacity-70">(no login)</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-xl border border-ink/10 bg-card px-3 py-2">
+            <Search size={16} className="text-ink/35" />
+            <input
+              placeholder="Search product, seller or category…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-transparent text-sm outline-none"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className="rounded-xl border border-ink/10 bg-card px-3 py-2 text-sm outline-none"
+            aria-label="Filter by status"
+          >
+            <option value="all">Active and hidden</option>
+            <option value="active">Active only</option>
+            <option value="hidden">Hidden only</option>
+          </select>
+        </div>
+
+        <div className={`mt-4 overflow-hidden ${panelClass}`}>
+          {loading ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-ink/50">
+              <Loader2 size={20} className="animate-spin" />
+              <p className="text-sm">Loading catalogue…</p>
+            </div>
+          ) : error ? (
+            <p className="px-5 py-10 text-center text-sm font-semibold text-red-700">{error}</p>
+          ) : filtered.length === 0 ? (
+            <div className="px-5 py-16 text-center text-sm text-ink/50">
+              {rows.length === 0 ? (
+                <>
+                  <p>No products yet. A seller adds them from their portal, or you can add one for them.</p>
+                  {sellers.length > 0 && (
+                    <button onClick={openAdd} className="mt-3 font-semibold text-teal-deep underline">
+                      Add the first product
+                    </button>
+                  )}
+                </>
+              ) : (
+                'No products match.'
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-sm">
+                <thead className="border-b border-ink/10 text-xs font-semibold uppercase tracking-wide text-ink/40">
+                  <tr>
+                    <th className="px-5 py-3">Product</th>
+                    <th className="px-5 py-3">Seller</th>
+                    <th className="px-5 py-3">Cost</th>
+                    <th className="px-5 py-3">Margin</th>
+                    <th className="px-5 py-3">Selling price</th>
+                    <th className="px-5 py-3">Stock</th>
+                    <th className="px-5 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r) => {
+                    const cover = coverOf(r)
+                    const videoCount = r.videos?.length ?? 0
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => router.push(`/admin/catalogues/${r.id}`)}
+                        className="cursor-pointer border-b border-ink/5 last:border-0 hover:bg-ink/[0.02]"
+                      >
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className="relative h-11 w-11 flex-none overflow-hidden rounded-lg bg-parchment">
+                              {cover && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={cover} alt="" className="h-full w-full object-cover" />
+                              )}
+                              {videoCount > 0 && (
+                                <span className="absolute bottom-0.5 right-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink/75 text-white">
+                                  <Play size={8} fill="currentColor" />
+                                </span>
+                              )}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block max-w-[260px] truncate font-medium text-ink">{r.name}</span>
+                              <span className="block text-xs text-ink/45">
+                                {r.category ?? 'No category'} · {r.images?.length ?? 0} photos
+                                {videoCount > 0 ? ` · ${videoCount} video${videoCount === 1 ? '' : 's'}` : ''}
+                              </span>
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-ink/70">{r.sellers?.name ?? '—'}</td>
+                        <td className="px-5 py-3 text-ink/70">
+                          {r.currency} {r.cost_price != null ? Number(r.cost_price).toFixed(2) : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-ink/70">{r.margin_percent ?? '—'}%</td>
+                        <td className="px-5 py-3 font-semibold text-ink">
+                          {r.currency} {Number(r.price).toFixed(2)}
+                        </td>
+                        <td className="px-5 py-3 text-ink/70">{r.stock_count ?? '—'}</td>
+                        <td className="px-5 py-3">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void toggleActive(r)
+                            }}
+                            title={r.active ? 'Click to hide from the store' : 'Click to show on the store'}
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              r.active ? 'bg-teal/10 text-teal-deep' : 'bg-ink/5 text-ink/40'
+                            }`}
+                          >
+                            {r.active ? 'Active' : 'Hidden'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
