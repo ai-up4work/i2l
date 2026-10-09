@@ -24,7 +24,7 @@ export default function HiddenStoreBanner({
         <span className="text-ink/65">
           {viewer === 'seller'
             ? 'Only you and Wishdrop can see this page. Shoppers will see it once Wishdrop makes your store live.'
-            : 'Only staff and the store’s seller can see it. Shoppers see “not available” until it goes live.'}
+            : 'Only staff and the store’s seller can see it.'}
         </span>
         <Link href={manageHref} className="ml-auto font-semibold text-teal-deep underline">
           {viewer === 'seller' ? 'Back to my seller portal' : 'Manage store'}

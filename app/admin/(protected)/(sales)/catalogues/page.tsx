@@ -152,7 +152,7 @@ export default function CataloguesPage() {
   if (adding) {
     return (
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className="mx-auto max-w-8xl px-6 py-8">
           <button onClick={() => setAdding(false)} className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink">
             <ArrowLeft size={15} /> Social Stores
           </button>
@@ -202,7 +202,7 @@ export default function CataloguesPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="mx-auto max-w-8xl px-6 py-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="font-display text-3xl text-ink">Social Stores</h1>

@@ -172,11 +172,13 @@ function Inner({ store }: { store: AffiliatedStore }) {
 
   return (
     <div className="min-h-screen bg-parchment">
-      {/* ── Cover ── */}
-      <div className="relative h-36 w-full overflow-hidden bg-indigo sm:h-56 lg:h-64">
+      {/* Wider than the content below (max-w-7xl vs max-w-6xl), so the banner frames the page. */}
+      <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6">
+      {/* ── Cover: contained, rounded banner ── */}
+      <div className="relative h-50 w-full overflow-hidden rounded-3xl bg-indigo sm:h-80 lg:h-[26rem]">
         {store.cover ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageThumb(store.cover, 1600)} alt="" className="h-full w-full object-cover" />
+          <img src={imageThumb(store.cover, 1600)} alt="" className="h-full w-full object-cover object-center" />
         ) : (
           // No cover yet: a calm brand-coloured band rather than an empty box.
           <div className="h-full w-full bg-[radial-gradient(120%_140%_at_0%_0%,var(--color-teal)_0%,var(--color-indigo)_55%,var(--color-indigo-deep)_100%)]" />
@@ -189,6 +191,7 @@ function Inner({ store }: { store: AffiliatedStore }) {
           <ChevronRight size={10} />
           <span className="truncate">{store.name}</span>
         </nav>
+      </div>
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-10">
@@ -282,11 +285,42 @@ function Inner({ store }: { store: AffiliatedStore }) {
           </li>
         </ul>
 
-        {/* ── Shop by collection ── */}
+        {/* ── Shop by category (round buttons) ── */}
+        {categories.length > 0 && (
+          <section className="mt-7" aria-label="Shop by category">
+            <h2 className="mb-3 font-display text-xl font-bold text-ink">Shop by category</h2>
+            <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+              {categories.map((c) => {
+                const value = c.handle || c.title
+                const on = category === value
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => pickCategory(on ? '' : value)}
+                    aria-pressed={on}
+                    className="group w-24 flex-none snap-start text-center sm:w-28"
+                  >
+                    <span
+                      className={`mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full bg-ink/5 ring-2 transition-colors sm:h-28 sm:w-28 ${
+                        on ? 'ring-ink' : 'ring-transparent group-hover:ring-ink/20'
+                      }`}
+                    >
+                      <span className="font-display text-3xl font-bold text-teal-deep/70">{c.title.charAt(0).toUpperCase()}</span>
+                    </span>
+                    <span className={`mt-2 line-clamp-2 block font-body text-sm leading-snug ${on ? 'font-bold text-ink' : 'font-medium text-ink/75'}`}>{c.title}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ── Shop by collection (round buttons) ── */}
         {collections.length > 0 && (
           <section className="mt-7" aria-label="Shop by collection">
             <h2 className="mb-3 font-display text-xl font-bold text-ink">Shop by collection</h2>
-            <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+            <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
               {collections.map((c) => {
                 const on = collection === c.slug
                 return (
@@ -295,19 +329,22 @@ function Inner({ store }: { store: AffiliatedStore }) {
                     type="button"
                     onClick={() => pickCollection(on ? '' : c.slug)}
                     aria-pressed={on}
-                    className="group w-[36vw] max-w-[180px] flex-none snap-start text-left sm:w-40"
+                    className="group w-24 flex-none snap-start text-center sm:w-28"
                   >
-                    <span className={`relative block aspect-[4/5] overflow-hidden rounded-2xl bg-ink/5 ring-2 ${on ? 'ring-ink' : 'ring-transparent'}`}>
-                      {c.image && (
+                    <span
+                      className={`mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full bg-ink/5 ring-2 transition-colors sm:h-28 sm:w-28 ${
+                        on ? 'ring-ink' : 'ring-transparent group-hover:ring-ink/20'
+                      }`}
+                    >
+                      {c.image ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={imageThumb(c.image, 400)} alt="" loading="lazy" className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" />
+                        <img src={imageThumb(c.image, 300)} alt="" loading="lazy" className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" />
+                      ) : (
+                        <span className="font-display text-3xl font-bold text-teal-deep/70">{c.name.charAt(0).toUpperCase()}</span>
                       )}
-                      <span className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/0 to-transparent" />
-                      <span className="absolute inset-x-2.5 bottom-2.5 text-white">
-                        <span className="line-clamp-2 block font-body text-sm font-bold leading-snug">{c.name}</span>
-                        <span className="block font-body text-[11px] text-white/80">{c.count} item{c.count === 1 ? '' : 's'}</span>
-                      </span>
                     </span>
+                    <span className={`mt-2 line-clamp-2 block font-body text-sm leading-snug ${on ? 'font-bold text-ink' : 'font-medium text-ink/75'}`}>{c.name}</span>
+                    <span className="block font-body text-[11px] text-ink/45">{c.count} item{c.count === 1 ? '' : 's'}</span>
                   </button>
                 )
               })}

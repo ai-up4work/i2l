@@ -96,7 +96,7 @@ function NewStore() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-6 py-8">
+      <div className="mx-auto max-w-8xl px-6 py-8">
         <Link href="/admin/catalogues" className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink">
           <ArrowLeft size={15} /> Social Stores
         </Link>
@@ -303,7 +303,7 @@ function ManageStore({ slug }: { slug: string }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-8xl px-6 py-8">
         <Link href="/admin/catalogues" className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink">
           <ArrowLeft size={15} /> Social Stores
         </Link>
@@ -509,7 +509,7 @@ function ManageStore({ slug }: { slug: string }) {
           <div>
             <span className={labelClass}>Cover photo and logo</span>
             <div className="relative">
-              <button type="button" onClick={() => coverInput.current?.click()} aria-label="Change cover photo" className="relative block h-36 w-full overflow-hidden rounded-xl border border-dashed border-ink/25 bg-parchment">
+              <button type="button" onClick={() => coverInput.current?.click()} aria-label="Change cover photo" className="relative block h-48 w-full overflow-hidden rounded-xl border border-dashed border-ink/25 bg-parchment sm:h-64">
                 {form.coverUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={imageThumb(form.coverUrl, 900)} alt="" className="h-full w-full object-cover" />
