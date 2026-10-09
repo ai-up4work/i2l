@@ -35,6 +35,8 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'sale', label: 'On sale' },
 ]
 const PER_PAGE = 24
+// Videos appear after this many products. 12 fills whole rows at 2, 3 and 4 columns.
+const REELS_AFTER = 12
 
 type Category = { handle: string; title: string }
 type ShopCollection = { slug: string; name: string; description: string | null; image: string | null; count: number }
@@ -175,7 +177,7 @@ function Inner({ store }: { store: AffiliatedStore }) {
       {/* Wider than the content below (max-w-7xl vs max-w-6xl), so the banner frames the page. */}
       <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6">
       {/* ── Cover: contained, rounded banner ── */}
-      <div className="relative h-50 w-full overflow-hidden rounded-3xl bg-indigo sm:h-80 lg:h-[26rem]">
+      <div className="relative h-56 w-full overflow-hidden rounded-3xl bg-indigo sm:h-80 lg:h-[26rem]">
         {store.cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={imageThumb(store.cover, 1600)} alt="" className="h-full w-full object-cover object-center" />
@@ -352,19 +354,10 @@ function Inner({ store }: { store: AffiliatedStore }) {
           </section>
         )}
 
-        {/* ── Reels ── */}
-        {reels.length > 0 && (
-          <div className="mt-7">
-            <ReelsRow products={reels} platform={platform} />
-          </div>
-        )}
       </div>
 
       {/* ── Sticky filters ── */}
-      <div
-        className="sticky z-20 mt-7 border-b border-ink/10 bg-parchment/95 backdrop-blur-md"
-        style={{ top: headerOffset }}
-      >
+      <div className="relative z-10 mt-7 border-b border-ink/10 bg-parchment">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-2.5 sm:px-10">
           <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {chips.slice(0, 1).map((c) => {
@@ -554,10 +547,26 @@ function Inner({ store }: { store: AffiliatedStore }) {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 lg:grid-cols-4">
-              {products.map((p) => (
+              {products.slice(0, REELS_AFTER).map((p) => (
                 <SocialProductCard key={p.id} product={p} platform={platform} />
               ))}
             </div>
+
+            {/* ── Reels: after the first batch of products, so the shop comes first
+                but shoppers still hit the videos before the end of the page. ── */}
+            {reels.length > 0 && (
+              <div className="my-10">
+                <ReelsRow products={reels} platform={platform} />
+              </div>
+            )}
+
+            {products.length > REELS_AFTER && (
+              <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 lg:grid-cols-4">
+                {products.slice(REELS_AFTER).map((p) => (
+                  <SocialProductCard key={p.id} product={p} platform={platform} />
+                ))}
+              </div>
+            )}
             {page < totalPages && (
               <div className="mt-10 text-center">
                 <button
