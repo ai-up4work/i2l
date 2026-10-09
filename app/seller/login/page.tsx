@@ -59,10 +59,10 @@ export default function SellerLoginPage() {
             <h1 className="max-w-[16ch] font-display text-[2rem] font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.4rem]">
               Your Instagram shop, now delivering to Sri Lanka.
             </h1>
-            <p className="mt-4 max-w-md font-body text-[15px] leading-relaxed text-parchment/75">
+            {/* <p className="mt-4 max-w-md font-body text-[15px] leading-relaxed text-parchment/75">
               Post your products here the way you post them on Instagram. Shoppers in Sri Lanka order, pay in rupees and
               get it at their door. We buy from you at your price and handle the rest.
-            </p>
+            </p> */}
           </div>
 
           <div className="mt-10 hidden sm:block lg:mt-0">

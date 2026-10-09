@@ -8,7 +8,8 @@ import Link from 'next/link'
 import { getCurrentSeller } from '@/lib/supabase/seller-auth'
 import { imageThumb } from '@/lib/media'
 import AirmailStripe from '@/components/shared/AirmailStripe'
-import { SellerSideNav, SellerTabBar } from './SellerNav'
+import SellerSideNav from './SellerSideNav'
+import SellerTabBar from './SellerTabBar'
 
 function StoreBadge({ name, logo, live, dark }: { name: string; logo: string | null; live: boolean; dark?: boolean }) {
   return (
