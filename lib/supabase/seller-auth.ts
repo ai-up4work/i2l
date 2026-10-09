@@ -7,6 +7,10 @@ export type SellerSession = {
   platform: string
   name: string
   defaultMarginPercent: number
+  /** 'active' = live. Anything else = hidden by Wishdrop: shoppers and
+   *  the seller can't open the store page (see lib/store-preview.ts). */
+  status: string
+  logoUrl: string | null
 }
 
 /** Server-side only. Returns the seller the current auth session owns, or
@@ -20,7 +24,7 @@ export async function getCurrentSeller(): Promise<SellerSession | null> {
 
   const { data } = await supabase
     .from('sellers')
-    .select('id, platform_slug, name, default_margin_percent')
+    .select('id, platform_slug, name, default_margin_percent, status, logo_url')
     .eq('owner_user_id', user.id)
     .maybeSingle()
 
@@ -30,6 +34,8 @@ export async function getCurrentSeller(): Promise<SellerSession | null> {
     platform: data.platform_slug,
     name: data.name,
     defaultMarginPercent: Number(data.default_margin_percent ?? 25),
+    status: (data as { status?: string }).status ?? 'active',
+    logoUrl: (data as { logo_url?: string | null }).logo_url ?? null,
   }
 }
 

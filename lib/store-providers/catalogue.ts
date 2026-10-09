@@ -28,6 +28,7 @@ import { extractColors, extractSizes } from './types'
 import { fetchMockProduct, fetchMockProducts } from './mock'
 import { WISHDROP_MALL_SLUG, categorySlug } from '@/lib/wishdrop-mall'
 import { videoPoster } from '@/lib/media'
+import { productIdsInCollection } from '@/lib/store-collections'
 
 /** Wishdrop Mall category by its storefront handle (slug), or by name for
  *  older links. Null if there's no such active category. */
@@ -121,14 +122,19 @@ type PublicVariantRow = {
   available: boolean
 }
 
-async function resolveSellerId(platform: string): Promise<string | null> {
+/** `includeHidden` is for staff previews of a hidden store only (see
+ *  lib/store-preview.ts) — never pass it on a shopper's request. */
+export type CatalogueFetchOptions = {
+  includeHidden?: boolean
+  /** Store collection slug (data/wishdrop-store-collections.sql) to filter by. */
+  collection?: string
+}
+
+async function resolveSellerId(platform: string, opts: CatalogueFetchOptions = {}): Promise<string | null> {
   const supabase = createServiceRoleClient()
-  const { data, error } = await supabase
-    .from('sellers')
-    .select('id')
-    .eq('platform_slug', platform)
-    .eq('status', 'active')
-    .maybeSingle()
+  let query = supabase.from('sellers').select('id').eq('platform_slug', platform)
+  if (!opts.includeHidden) query = query.eq('status', 'active')
+  const { data, error } = await query.maybeSingle()
   if (error) throw error
   return (data as { id: string } | null)?.id ?? null
 }
@@ -307,14 +313,22 @@ export async function fetchCatalogueProducts(
   platform: string,
   sellerName: string,
   params: ProviderFetchParams,
+  opts: CatalogueFetchOptions = {},
 ): Promise<ProviderFetchResult> {
-  const sellerId = await resolveSellerId(platform)
+  const sellerId = await resolveSellerId(platform, opts)
   if (!sellerId) return { products: [], total: 0, totalPages: 1, totalIsExact: true }
   if (!(await hasOwnProducts(sellerId))) return fetchMockProducts(platform, params)
 
   const supabase = createServiceRoleClient()
   const from = (params.page - 1) * params.perPage
   const q = sanitizeSearch(params.search)
+
+  // Store collection filter (?collection=<slug>).
+  let collectionIds: string[] | null = null
+  if (opts.collection) {
+    collectionIds = await productIdsInCollection(supabase, sellerId, opts.collection)
+    if (!collectionIds || collectionIds.length === 0) return { products: [], total: 0, totalPages: 1, totalIsExact: true }
+  }
 
   // Wishdrop Mall filters by its managed categories (the filter value is
   // the category's slug); other catalogue stores by the category text.
@@ -331,6 +345,7 @@ export async function fetchCatalogueProducts(
       .eq('seller_id', sellerId)
       .eq('active', true)
 
+    if (collectionIds) query = query.in('id', collectionIds)
     if (mallCategoryId) query = query.eq('mall_category_id', mallCategoryId)
     else if (params.category) query = query.eq('category', params.category)
     if (q) query = query.or(`name.ilike.%${q}%,category.ilike.%${q}%,description.ilike.%${q}%`)
@@ -365,8 +380,9 @@ export async function fetchCatalogueProduct(
   platform: string,
   sellerName: string,
   handle: string,
+  opts: CatalogueFetchOptions = {},
 ): Promise<StoreProduct | null> {
-  const sellerId = await resolveSellerId(platform)
+  const sellerId = await resolveSellerId(platform, opts)
   if (!sellerId) return null
 
   const supabase = createServiceRoleClient()
@@ -396,8 +412,8 @@ export async function fetchCatalogueProduct(
 
 /** Distinct categories that currently have at least one live product —
  *  powers the storefront's category filter (?collections=1). */
-export async function fetchCatalogueCategories(platform: string): Promise<{ handle: string; title: string }[]> {
-  const sellerId = await resolveSellerId(platform)
+export async function fetchCatalogueCategories(platform: string, opts: CatalogueFetchOptions = {}): Promise<{ handle: string; title: string }[]> {
+  const sellerId = await resolveSellerId(platform, opts)
   if (!sellerId) return []
   const supabase = createServiceRoleClient()
 
@@ -447,8 +463,8 @@ export async function fetchCatalogueCategories(platform: string): Promise<{ hand
  * the "reels" row on a custom seller's store page. Returns [] (never
  * throws) if the videos column doesn't exist yet.
  */
-export async function fetchCatalogueReels(platform: string, sellerName: string, limit = 12): Promise<StoreProduct[]> {
-  const sellerId = await resolveSellerId(platform)
+export async function fetchCatalogueReels(platform: string, sellerName: string, limit = 12, opts: CatalogueFetchOptions = {}): Promise<StoreProduct[]> {
+  const sellerId = await resolveSellerId(platform, opts)
   if (!sellerId) return []
   const supabase = createServiceRoleClient()
   const { data, error } = await supabase

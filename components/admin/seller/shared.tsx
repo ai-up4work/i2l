@@ -74,7 +74,7 @@ export const EXTRACTOR_OPTIONS: {
 }[] = [
   {
     value: 'mock',
-    blurb: 'No automated extraction. Catalogue entries are added by hand.',
+    blurb: 'A custom extractor built into the code for this store. For Instagram or Facebook sellers with no website, create it in Social Stores instead.',
   },
   {
     value: 'shopify',

@@ -43,6 +43,18 @@ export async function fetchAffiliatedStore(platform: string): Promise<Affiliated
   return mapRowToAffiliatedStore(data)
 }
 
+/**
+ * Server only. A store by slug WHATEVER its status — for staff previews of
+ * a hidden store (callers must check canPreviewStore() first).
+ * Service role, since RLS may hide non-active sellers.
+ */
+export async function fetchAffiliatedStoreAnyStatus(platform: string): Promise<(AffiliatedStore & { status: string }) | null> {
+  const admin = createAdminClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+  const { data, error } = await admin.from('sellers').select('*').eq('platform_slug', platform).maybeSingle()
+  if (error || !data) return null
+  return { ...mapRowToAffiliatedStore(data), status: (data as { status: string }).status }
+}
+
 // ─── Lookup by product URL (used by /api/product-lookup) ────────────────────
 
 /** Lowercased hostname without a leading "www.", or null for a bad URL. */

@@ -31,7 +31,6 @@ export async function fetchSocialStoreTiles(): Promise<SocialStoreTile[]> {
     .from('sellers')
     .select('*')
     .eq('status', 'active')
-    .eq('type', 'manual')
   if (error) throw error
 
   const sellers = ((sellerRows ?? []) as unknown as Record<string, unknown>[]).filter(isSocialSellerRow)

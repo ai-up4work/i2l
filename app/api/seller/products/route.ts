@@ -1,13 +1,21 @@
 // app/api/seller/products/route.ts
 //
-// GET  -> the logged-in seller's own products (active AND hidden).
-// POST -> add a product. Price = cost × (1 + the seller's default
-//         margin), computed here — see ../lib.ts.
+// GET  -> the logged-in seller's own products (active AND hidden), with
+//         their variants.
+// POST -> add a product. The seller sends THEIR price; Wishdrop's margin
+//         (the seller's default) is applied on the server. Rules and
+//         saving: lib/catalogue-products.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSeller } from '@/lib/supabase/seller-auth'
-import { mallHandle } from '@/lib/wishdrop-mall'
-import { SELLER_PRODUCT_COLUMNS, friendlyDbError, cleanSellerInput, sellerPrice, type SellerProductInput } from '../lib'
+import {
+  PRODUCT_EDIT_SELECT,
+  cleanProductInput,
+  createProduct,
+  friendlyDbError,
+  loadEditableProduct,
+  type ProductInput,
+} from '@/lib/catalogue-products'
 
 export async function GET() {
   const auth = await requireSeller()
@@ -16,14 +24,14 @@ export async function GET() {
 
   const { data, error } = await admin
     .from('products')
-    .select(SELLER_PRODUCT_COLUMNS)
+    .select(PRODUCT_EDIT_SELECT)
     .eq('seller_id', seller.id)
     .order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
   return NextResponse.json({
     products: data ?? [],
     defaultMarginPercent: seller.defaultMarginPercent,
-    seller: { id: seller.id, name: seller.name, slug: seller.platform },
+    seller: { id: seller.id, name: seller.name, slug: seller.platform, live: seller.status === 'active' },
   })
 }
 
@@ -32,37 +40,14 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return auth.response
   const { admin, seller } = auth
 
-  const body = (await req.json().catch(() => ({}))) as SellerProductInput
-  const cleaned = cleanSellerInput(body, true)
-  if ('error' in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 })
-  const { fields } = cleaned
+  const body = (await req.json().catch(() => ({}))) as ProductInput
+  const clean = cleanProductInput(body, true)
+  if ('error' in clean) return NextResponse.json({ error: clean.error }, { status: 400 })
 
-  const margin = seller.defaultMarginPercent
-  const now = new Date().toISOString()
+  const saved = await createProduct(admin, seller.id, seller.defaultMarginPercent, clean)
+  if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: saved.status })
 
-  // Handle gets a short random suffix so two products with the same name
-  // don't collide on (seller_id, handle); retry once on the rare clash.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, error } = await admin
-      .from('products')
-      .insert({
-        ...fields,
-        name: fields.name as string,
-        seller_id: seller.id,
-        handle: mallHandle(fields.name as string),
-        margin_percent: margin,
-        price: sellerPrice(fields.cost_price as number, margin),
-        currency: 'INR',
-        active: fields.active ?? true,
-        created_at: now,
-        updated_at: now,
-      })
-      .select(SELLER_PRODUCT_COLUMNS)
-      .single()
-    if (!error) return NextResponse.json({ product: data }, { status: 201 })
-    if (error.code !== '23505' || attempt === 1) {
-      return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
-    }
-  }
-  return NextResponse.json({ error: 'Could not create the product.' }, { status: 500 })
+  const { data, error } = await loadEditableProduct(admin, saved.productId, seller.id)
+  if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
+  return NextResponse.json({ product: data }, { status: 201 })
 }

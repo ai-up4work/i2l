@@ -3,7 +3,10 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
-import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
+import { fetchAffiliatedStore, fetchAffiliatedStoreAnyStatus } from '@/lib/supabase/affiliated-stores'
+import { canPreviewStore } from '@/lib/store-preview'
+import HiddenStoreBanner from '@/components/stores/social/HiddenStoreBanner'
+import StoreUnavailable from '@/components/stores/StoreUnavailable'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue'
 import { MoreFromStore, StickyBuyBar } from '@/components/stores/social/SocialProductExtras'
@@ -177,8 +180,21 @@ function handlePath(platform: string, handle: string): string {
 // SEO: generateMetadata and the page need the same store + product. Without
 // cache() each upstream (Shopify/WooCommerce/scraper) request ran twice per
 // page view — once for <head>, once for the body.
-const getStore = cache(fetchAffiliatedStore)
-const getProduct = cache(fetchStoreProduct)
+const getLiveStore = cache(fetchAffiliatedStore)
+
+// Hidden stores: "not found" for shoppers and the seller, a preview for
+// staff who manage stores (see lib/store-preview.ts).
+const getStoreAccess = cache(async (platform: string) => {
+  const live = await getLiveStore(platform)
+  if (live) return { store: live, preview: false, viewer: null, unavailable: false }
+  const hidden = await fetchAffiliatedStoreAnyStatus(platform)
+  if (!hidden) return null
+  const viewer = await canPreviewStore(platform)
+  return { store: hidden, preview: Boolean(viewer), viewer, unavailable: !viewer }
+})
+const getProduct = cache((platform: string, handle: string, includeHidden: boolean) =>
+  fetchStoreProduct(platform, handle, { includeHidden }),
+)
 
 export async function generateMetadata({
   params,
@@ -188,11 +204,12 @@ export async function generateMetadata({
   const { platform, productId: rawProductId } = await params
   const productId = normalizeHandle(rawProductId)
 
-  const store = await getStore(platform)
-  if (!store) return { title: 'Product not found', robots: { index: false, follow: true } }
+  const access = await getStoreAccess(platform)
+  if (!access) return { title: 'Product not found', robots: { index: false, follow: true } }
+  const { store, preview } = access
 
   try {
-    const product = await getProduct(platform, productId)
+    const product = await getProduct(platform, productId, preview)
     if (!product) return { title: 'Product not found', robots: { index: false, follow: true } }
 
     const description = product.description
@@ -222,12 +239,14 @@ export default async function ProductDetailPage({
   // Decode once, up front — see the EMOJI / NON-ASCII HANDLES note above.
   const productId = normalizeHandle(rawProductId)
 
-  const store = await getStore(platform)
-  if (!store) notFound()
+  const access = await getStoreAccess(platform)
+  if (!access) notFound()
+  if (access.unavailable) return <StoreUnavailable name={access.store.name} logo={access.store.logo} kind="paused" />
+  const { store, preview, viewer } = access
 
   let product
   try {
-    product = await getProduct(platform, productId)
+    product = await getProduct(platform, productId, preview)
   } catch (err) {
     // Upstream (Shopify/WooCommerce) request failed — show a soft error
     // instead of crashing the whole page into the nearest error boundary.
@@ -273,7 +292,7 @@ export default async function ProductDetailPage({
   // "more" row — it must never take the product page down with it.
   const isSocial = Boolean(store.isSocial)
   const moreFromStore = isSocial
-    ? await fetchCatalogueProducts(store.platform, store.name, { page: 1, perPage: 9, category: '', search: '', sort: 'newest' })
+    ? await fetchCatalogueProducts(store.platform, store.name, { page: 1, perPage: 9, category: '', search: '', sort: 'newest' }, { includeHidden: preview })
         .then((r) => r.products.filter((p) => p.id !== product.id).slice(0, 8))
         .catch(() => [])
     : []
@@ -324,6 +343,7 @@ export default async function ProductDetailPage({
           live JS measurement — this page's sticky bar below is `hidden
           sm:block` and `h-14` (56px), so the var is 0px under `sm` and
           3.5rem from `sm` up, matching the bar's own visibility exactly. */}
+      {preview && viewer && <HiddenStoreBanner slug={store.platform} isSocial={store.isSocial} viewer={viewer} />}
       <div className="[--account-header-h:0px] sm:[--account-header-h:3.5rem]">
         <div className="min-h-screen">
           {/* Sticky breadcrumb + share nav */}

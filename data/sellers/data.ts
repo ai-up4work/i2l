@@ -113,12 +113,12 @@ export const STATUS_STYLE: Record<SellerStatus, string> = {
 // Human labels for every StoreProviderType — 'jsonapi' and 'html-scrape'
 // are presented together in the admin UI as the two flavors of "Custom".
 export const EXTRACTOR_TYPE_LABEL: Record<StoreProviderType, string> = {
-  mock: 'None \u2014 manual only',
+  mock: 'Custom extractor (built in)',
   shopify: 'Shopify',
   woocommerce: 'WooCommerce',
   jsonapi: 'Custom \u2014 JSON backend',
   'html-scrape': 'Custom \u2014 HTML scraping',
-  catalogue: 'Wishdrop Mall \u2014 own catalogue',
+  catalogue: 'Catalogue store',
 }
 
 /** Every local (third-party affiliated) seller, joined across the real sources. */

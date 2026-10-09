@@ -1,6 +1,7 @@
 // app/api/stores/[platform]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getSellerAndConfig } from '@/lib/store-config-db';
+import { getSellerAndConfig, getSellerAndConfigForAdmin } from '@/lib/store-config-db';
+import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview';
 import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
@@ -28,7 +29,15 @@ export async function GET(
   try {
     const { platform } = await params;
 
-    const seller = await getSellerAndConfig(platform);
+    let seller = await getSellerAndConfig(platform);
+    // A hidden store (not 'active') resolves to nothing for shoppers and
+    // for its own seller. Staff who manage stores get a preview instead —
+    // never cached, see lib/store-preview.ts.
+    let preview = false;
+    if (!seller && (await canPreviewStore(platform))) {
+      seller = await getSellerAndConfigForAdmin(platform);
+      preview = Boolean(seller);
+    }
     if (!seller) {
       return NextResponse.json({ error: 'Unknown store platform' }, { status: 404 });
     }
@@ -101,7 +110,7 @@ export async function GET(
       } else if (config.type === 'catalogue') {
         // Our own DB-backed store (Wishdrop Mall) — distinct categories of
         // its live products.
-        collections = await fetchCatalogueCategories(platform);
+        collections = await fetchCatalogueCategories(platform, { includeHidden: preview });
       } else if (config.type === 'html-scrape') {
         // Real category browsing now works when the seller's config has
         // a categoryMap (see HtmlScrapeProviderConfig in store-config.ts)
@@ -125,7 +134,7 @@ export async function GET(
         baseUrl: 'baseUrl' in config ? config.baseUrl : null,
         count: collections.length,
         collections,
-      });
+      }, preview ? { headers: PREVIEW_CACHE_HEADERS } : undefined);
     }
 
     const fetchParams: ProviderFetchParams = {
@@ -150,7 +159,7 @@ export async function GET(
         : config.type === 'html-scrape'
         ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
         : config.type === 'catalogue'
-        ? await fetchCatalogueProducts(platform, seller.name, fetchParams)
+        ? await fetchCatalogueProducts(platform, seller.name, fetchParams, { includeHidden: preview, collection: searchParams.get('collection') || undefined })
         : await fetchMockProducts(platform, fetchParams);
 
     return NextResponse.json(
@@ -164,7 +173,7 @@ export async function GET(
         fetchedAt: new Date().toISOString(),
       },
       {
-        headers: {
+        headers: preview ? PREVIEW_CACHE_HEADERS : {
           // Our own catalogue (Wishdrop Mall) changes whenever staff add a
           // product or edit a margin — a 24h CDN cache would hide those
           // edits for a day. Third-party feeds keep the long cache.

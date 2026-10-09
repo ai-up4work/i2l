@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Users,
   BookOpen,
+  Images,
   Layers,
   Percent,
   ShoppingCart,
@@ -143,7 +144,7 @@ function getGroups(role: Role): Group[] {
         // Products custom sellers add themselves in the seller portal —
         // app/admin/(protected)/(sales)/catalogues. BookOpen was already
         // imported for this and never used.
-        { label: "Catalogues", href: "/admin/catalogues", icon: BookOpen, roles: ["manager", "sales"] },
+        { label: "Social Stores", href: "/admin/catalogues", icon: Images, roles: ["manager", "sales"] },
         { label: "Scrape health", href: "/admin/scrape-health", icon: ClipboardList, roles: ["super_admin"] },
       ],
     },

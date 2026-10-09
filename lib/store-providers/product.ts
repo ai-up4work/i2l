@@ -1,4 +1,4 @@
-import { getSellerAndConfig } from '@/lib/store-config-db';
+import { getSellerAndConfig, getSellerAndConfigForAdmin } from '@/lib/store-config-db';
 import type { StoreProduct } from '@/lib/store.types';
 import { fetchJsonApiProduct } from './jsonapi';
 import { fetchMockProduct } from './mock';
@@ -8,8 +8,13 @@ import { fetchHtmlScrapeProduct } from './html-scrape';
 import { fetchAnishkaCreationProduct } from './sellers/anishka-creation';
 import { fetchCatalogueProduct } from './catalogue';
 
-export async function fetchStoreProduct(platform: string, handle: string): Promise<StoreProduct | null> {
-  const seller = await getSellerAndConfig(platform);
+export async function fetchStoreProduct(
+  platform: string,
+  handle: string,
+  /** Staff preview of a hidden store only — see lib/store-preview.ts. */
+  opts: { includeHidden?: boolean } = {},
+): Promise<StoreProduct | null> {
+  const seller = opts.includeHidden ? await getSellerAndConfigForAdmin(platform) : await getSellerAndConfig(platform);
   if (!seller) return null;
 
   // Hardcoded one-off extractor, checked before the generic provider
@@ -23,7 +28,7 @@ export async function fetchStoreProduct(platform: string, handle: string): Promi
   const config = seller.config;
 
   if (config.type === 'catalogue') {
-    return fetchCatalogueProduct(platform, seller.name, handle);
+    return fetchCatalogueProduct(platform, seller.name, handle, { includeHidden: opts.includeHidden });
   }
   if (config.type === 'shopify') {
     return fetchShopifyProduct(platform, config, seller.name, handle);

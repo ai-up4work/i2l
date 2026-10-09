@@ -351,6 +351,28 @@ export default function SellerFormClient({
       setDeactivating(false)
     }
   }
+  // Turns a deactivated seller back on. (There used to be no way back
+  // from Deactivate on this page.)
+  const [activating, setActivating] = useState(false)
+  const handleActivate = async () => {
+    if (!seller) return
+    setActivating(true)
+    setDeactivateError(null)
+    try {
+      const res = await fetch(`/api/admin/sellers/${seller.platform}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'active' }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to activate')
+      setForm((prev) => ({ ...prev, status: 'active' as SellerStatus }))
+    } catch (err) {
+      setDeactivateError(err instanceof Error ? err.message : 'Failed to activate')
+    } finally {
+      setActivating(false)
+    }
+  }
 
   // ---- Seller portal login ----
   // Provisions a real Supabase auth user for this seller and links it via
@@ -2309,14 +2331,25 @@ export default function SellerFormClient({
                       <SummaryRow term="Notes" value={form.notes || '\u2014'} multiline />
                     </dl>
                     <div className="flex items-center justify-between gap-2 border-t border-ink/10 pt-5">
-                      <button
-                        type="button"
-                        onClick={handleDeactivate}
-                        disabled={form.status === 'inactive' || deactivating}
-                        className="rounded-xl border border-red-600/25 px-3.5 py-2 text-sm font-semibold text-red-700 transition-all hover:bg-red-600/5 disabled:cursor-not-allowed disabled:border-ink/10 disabled:text-ink/30"
-                      >
-                        {deactivating ? 'Deactivating…' : 'Deactivate'}
-                      </button>
+                      {form.status !== 'active' && form.status !== 'pending_review' ? (
+                        <button
+                          type="button"
+                          onClick={handleActivate}
+                          disabled={activating}
+                          className="rounded-xl bg-teal-deep px-3.5 py-2 text-sm font-semibold text-parchment transition-all hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {activating ? 'Activating…' : 'Activate'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleDeactivate}
+                          disabled={deactivating}
+                          className="rounded-xl border border-red-600/25 px-3.5 py-2 text-sm font-semibold text-red-700 transition-all hover:bg-red-600/5 disabled:cursor-not-allowed disabled:border-ink/10 disabled:text-ink/30"
+                        >
+                          {deactivating ? 'Deactivating…' : 'Deactivate'}
+                        </button>
+                      )}
                       {deactivateError ? (
                         <p className="text-xs font-semibold text-red-700">{deactivateError}</p>
                       ) : (

@@ -14,8 +14,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
-import { WISHDROP_MALL_SLUG, mallHandle } from '@/lib/wishdrop-mall'
-import { cleanSellerInput, friendlyDbError, sellerPrice, type SellerProductInput } from '@/app/api/seller/lib'
+import { WISHDROP_MALL_SLUG } from '@/lib/wishdrop-mall'
+import { isCatalogueStoreRow, isLegacyCustomRow } from '@/lib/catalogue-stores'
+import { cleanProductInput, createProduct, friendlyDbError, type ProductInput } from '@/lib/catalogue-products'
 
 const LIST_COLUMNS =
   'id, handle, name, category, cost_price, margin_percent, price, currency, stock_count, images, videos, active, created_at, seller_id, sellers(name, platform_slug)'
@@ -23,7 +24,6 @@ const LIST_COLUMNS =
 // page still lists products instead of failing outright.
 const LIST_COLUMNS_NO_VIDEOS = LIST_COLUMNS.replace('videos, ', '')
 
-export const PRODUCT_SELECT = '*, sellers(id, name, platform_slug, default_margin_percent)'
 
 export async function GET() {
   const auth = await requireStaffRole(SOURCING_ROLES)
@@ -32,8 +32,7 @@ export async function GET() {
 
   const { data: sellerRows, error: sellersError } = await admin
     .from('sellers')
-    .select('id, name, platform_slug, default_margin_percent, owner_user_id, status, logo_url')
-    .eq('type', 'manual')
+    .select('id, name, platform_slug, type, provider_type, provider_config, default_margin_percent, owner_user_id, status, logo_url')
     .neq('platform_slug', WISHDROP_MALL_SLUG)
     .order('name')
   if (sellersError) return NextResponse.json({ error: sellersError.message }, { status: 500 })
@@ -54,7 +53,12 @@ export async function GET() {
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const sellers = ((sellerRows ?? []) as unknown as Array<{
+  // Catalogue stores, plus hand-managed sellers made the old way
+  // (wizard → mock). Stores with a built-in extractor are not included.
+  const storeRows = ((sellerRows ?? []) as unknown as Record<string, unknown>[]).filter(
+    (r) => isCatalogueStoreRow(r) || isLegacyCustomRow(r),
+  )
+  const sellers = (storeRows as unknown as Array<{
     id: string
     name: string
     platform_slug: string
@@ -70,6 +74,7 @@ export async function GET() {
     hasLogin: Boolean(s.owner_user_id),
     status: s.status,
     logoUrl: s.logo_url,
+    kind: isCatalogueStoreRow(s as unknown as Record<string, unknown>) ? 'catalogue' : 'legacy',
   }))
 
   return NextResponse.json({ products: data ?? [], sellers, needsMigration }, { headers: { 'Cache-Control': 'no-store' } })
@@ -80,26 +85,23 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return auth.response
   const { admin } = auth
 
-  const body = (await req.json().catch(() => ({}))) as SellerProductInput & { sellerId?: string; marginPercent?: number | string }
-  if (!body.sellerId) return NextResponse.json({ error: 'Choose a seller.' }, { status: 400 })
+  const body = (await req.json().catch(() => ({}))) as ProductInput & { sellerId?: string; marginPercent?: number | string }
+  if (!body.sellerId) return NextResponse.json({ error: 'Choose a store.' }, { status: 400 })
 
   const { data: sellerRow } = await admin
     .from('sellers')
-    .select('id, platform_slug, type, default_margin_percent')
+    .select('id, platform_slug, type, provider_type, provider_config, default_margin_percent')
     .eq('id', body.sellerId)
     .maybeSingle()
-  const seller = sellerRow as { id: string; platform_slug: string; type: string; default_margin_percent: number | null } | null
-  if (!seller) return NextResponse.json({ error: 'Seller not found.' }, { status: 404 })
+  const seller = sellerRow as { id: string; platform_slug: string; default_margin_percent: number | null } | null
+  if (!seller) return NextResponse.json({ error: 'Store not found.' }, { status: 404 })
   if (seller.platform_slug === WISHDROP_MALL_SLUG) {
     return NextResponse.json({ error: 'Wishdrop Mall products are managed on the Wishdrop Mall page.' }, { status: 400 })
   }
-  if (seller.type !== 'manual') {
-    return NextResponse.json({ error: 'This seller has a live feed — its products come from the feed, not from here.' }, { status: 400 })
+  const record = sellerRow as unknown as Record<string, unknown>
+  if (!isCatalogueStoreRow(record) && !isLegacyCustomRow(record)) {
+    return NextResponse.json({ error: 'This seller gets its products from a feed or extractor, not from here.' }, { status: 400 })
   }
-
-  const cleaned = cleanSellerInput(body, true)
-  if ('error' in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 })
-  const { fields } = cleaned
 
   let margin = Number(seller.default_margin_percent ?? 25)
   if (body.marginPercent !== undefined && body.marginPercent !== '') {
@@ -108,28 +110,13 @@ export async function POST(req: NextRequest) {
     margin = m
   }
 
-  const now = new Date().toISOString()
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, error } = await admin
-      .from('products')
-      .insert({
-        ...fields,
-        name: fields.name as string,
-        seller_id: seller.id,
-        handle: mallHandle(fields.name as string),
-        margin_percent: margin,
-        price: sellerPrice(fields.cost_price as number, margin),
-        currency: 'INR',
-        active: fields.active ?? true,
-        created_at: now,
-        updated_at: now,
-      })
-      .select(PRODUCT_SELECT)
-      .single()
-    if (!error) return NextResponse.json({ product: data }, { status: 201 })
-    if (error.code !== '23505' || attempt === 1) {
-      return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
-    }
-  }
-  return NextResponse.json({ error: 'Could not create the product.' }, { status: 500 })
+  const clean = cleanProductInput(body, true)
+  if ('error' in clean) return NextResponse.json({ error: clean.error }, { status: 400 })
+
+  const saved = await createProduct(admin, seller.id, margin, clean)
+  if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: saved.status })
+
+  const { data, error } = await admin.from('products').select(LIST_COLUMNS).eq('id', saved.productId).single()
+  if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
+  return NextResponse.json({ product: data }, { status: 201 })
 }

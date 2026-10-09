@@ -1,5 +1,7 @@
 # Custom sellers: portal, login and store pages
 
+> **Social stores** (sellers with no website) are now created in Admin → Social Stores, not the seller wizard. See SOCIAL_STORES.md.
+>
 > **Photos and videos** are now uploaded from the seller's phone or computer (Cloudinary), and staff can add or fully edit a seller's products in Admin → Catalogues. See CLOUDINARY_SETUP.md.
 
 Custom (manual) sellers are sellers with no product feed. They log in to the

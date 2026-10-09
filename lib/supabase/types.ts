@@ -118,6 +118,10 @@ export interface Database {
           notes: string | null
           owner_user_id: string | null
           default_margin_percent: number
+          cover_url: string | null
+          tagline: string | null
+          instagram_url: string | null
+          facebook_url: string | null
         }
         Insert: {
           id?: string
@@ -144,6 +148,10 @@ export interface Database {
           notes?: string | null
           owner_user_id?: string | null
           default_margin_percent?: number
+          cover_url?: string | null
+          tagline?: string | null
+          instagram_url?: string | null
+          facebook_url?: string | null
         }
         Update: Partial<Database['public']['Tables']['sellers']['Insert']>
         Relationships: []

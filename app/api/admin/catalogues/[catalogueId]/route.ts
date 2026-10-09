@@ -15,7 +15,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES, DELETE_ROLES } from '@/lib/supabase/admin-auth'
-import { cleanSellerInput, friendlyDbError, type SellerProductInput } from '@/app/api/seller/lib'
+import { productCollectionIds } from '@/lib/store-collections'
+import { PRODUCT_EDIT_SELECT, cleanProductInput, friendlyDbError, updateProduct, type ProductInput } from '@/lib/catalogue-products'
 import { WISHDROP_MALL_SLUG } from '@/lib/wishdrop-mall'
 
 type AdminClient = Extract<Awaited<ReturnType<typeof requireStaffRole>>, { ok: true }>['admin']
@@ -30,11 +31,7 @@ async function rejectMallProduct(admin: AdminClient, productId: string) {
   return null
 }
 
-const PRODUCT_SELECT = '*, sellers(id, name, platform_slug, default_margin_percent)'
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100
-}
+const PRODUCT_SELECT = `${PRODUCT_EDIT_SELECT}, sellers(id, name, platform_slug, default_margin_percent)`
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {
   const auth = await requireStaffRole(SOURCING_ROLES)
@@ -44,9 +41,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cat
   const { catalogueId } = await params
   const { data, error } = await admin.from('products').select(PRODUCT_SELECT).eq('id', catalogueId).maybeSingle()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
   if (!data) return NextResponse.json({ error: 'Catalogue entry not found' }, { status: 404 })
-  return NextResponse.json({ product: data })
+  return NextResponse.json({ product: { ...(data as object), collection_ids: await productCollectionIds(admin, catalogueId) } })
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {
@@ -57,62 +54,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ca
   const { catalogueId } = await params
   const mallRejection = await rejectMallProduct(admin, catalogueId)
   if (mallRejection) return mallRejection
-  const body = (await req.json().catch(() => ({}))) as SellerProductInput & { marginPercent?: number | string }
 
-  const cleaned = cleanSellerInput(body, false)
-  if ('error' in cleaned) return NextResponse.json({ error: cleaned.error }, { status: 400 })
-  const { fields } = cleaned
+  const body = (await req.json().catch(() => ({}))) as ProductInput & { marginPercent?: number | string }
+  const clean = cleanProductInput(body, false)
+  if ('error' in clean) return NextResponse.json({ error: clean.error }, { status: 400 })
 
-  let marginPercent: number | undefined
+  let newMargin: number | undefined
   if (body.marginPercent !== undefined && body.marginPercent !== '') {
-    marginPercent = Number(body.marginPercent)
-    if (!Number.isFinite(marginPercent) || marginPercent < 0 || marginPercent > 1000) {
+    newMargin = Number(body.marginPercent)
+    if (!Number.isFinite(newMargin) || newMargin < 0 || newMargin > 1000) {
       return NextResponse.json({ error: 'Enter a valid margin percentage.' }, { status: 400 })
     }
   }
-
-  if (Object.keys(fields).length === 0 && marginPercent === undefined) {
+  if (Object.keys(clean.fields).length === 0 && newMargin === undefined && clean.variants === undefined && clean.collectionIds === undefined && clean.compareAtCost === undefined && clean.trackInventory === undefined && clean.stockCount === undefined) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }
 
-  const patch: typeof fields & { price?: number; margin_percent?: number; updated_at: string } = {
-    ...fields,
-    updated_at: new Date().toISOString(),
-  }
+  const { data: sellerInfo } = await admin.from('products').select('sellers(default_margin_percent)').eq('id', catalogueId).maybeSingle()
+  const fallbackMargin = Number((sellerInfo as unknown as { sellers: { default_margin_percent: number | null } | null } | null)?.sellers?.default_margin_percent ?? 25)
 
-  if (marginPercent !== undefined || fields.cost_price !== undefined) {
-    // price is derived — never set directly; recompute from cost + margin
-    // whenever either changes so the two can't drift apart.
-    const { data: existing, error: fetchError } = await admin
-      .from('products')
-      .select('cost_price, margin_percent, sellers(default_margin_percent)')
-      .eq('id', catalogueId)
-      .maybeSingle()
+  const saved = await updateProduct(admin, catalogueId, clean, { newMargin, fallbackMargin })
+  if (!saved.ok) return NextResponse.json({ error: saved.error === 'Product not found.' ? 'Catalogue entry not found' : saved.error }, { status: saved.status })
 
-    if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
-    if (!existing) return NextResponse.json({ error: 'Catalogue entry not found' }, { status: 404 })
-    const row = existing as unknown as {
-      cost_price: number | null
-      margin_percent: number | null
-      sellers: { default_margin_percent: number | null } | null
-    }
-
-    const margin = marginPercent ?? row.margin_percent ?? Number(row.sellers?.default_margin_percent ?? 25)
-    const cost = fields.cost_price ?? row.cost_price
-    patch.margin_percent = margin
-    if (cost != null) patch.price = round2(cost * (1 + margin / 100))
-  }
-
-  const { data, error } = await admin
-    .from('products')
-    .update(patch)
-    .eq('id', catalogueId)
-    .select(PRODUCT_SELECT)
-    .maybeSingle()
-
+  const { data, error } = await admin.from('products').select(PRODUCT_SELECT).eq('id', catalogueId).maybeSingle()
   if (error) return NextResponse.json({ error: friendlyDbError(error) }, { status: 500 })
-  if (!data) return NextResponse.json({ error: 'Catalogue entry not found' }, { status: 404 })
-  return NextResponse.json({ product: data })
+  return NextResponse.json({ product: { ...(data as object), collection_ids: await productCollectionIds(admin, catalogueId) } })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {

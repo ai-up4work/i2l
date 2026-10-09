@@ -11,13 +11,14 @@
 // seller's store page (/stores/<slug>) as soon as they're saved and active.
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, ExternalLink, Loader2, Pencil, Play, Plus, Search, Trash2 } from 'lucide-react'
 import ProductForm, { type CatalogueProduct, type ProductFormPayload } from '@/components/catalogue/ProductForm'
 import { imageThumb, videoPoster } from '@/lib/media'
 
 type ProductRow = CatalogueProduct & { handle?: string }
-type SellerInfo = { id: string; name: string; slug: string }
+type SellerInfo = { id: string; name: string; slug: string; live?: boolean }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } })
@@ -32,7 +33,9 @@ function coverOf(p: ProductRow): string | null {
   return null
 }
 
-export default function SellerProductsPage() {
+function SellerProductsInner() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [defaultMargin, setDefaultMargin] = useState(25)
   const [seller, setSeller] = useState<SellerInfo | null>(null)
   const [products, setProducts] = useState<ProductRow[]>([])
@@ -54,6 +57,20 @@ export default function SellerProductsPage() {
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
+
+  // ?new=1 opens the add form; ?edit=<id> opens that product (links from
+  // the overview page and the "Add" tab).
+  useEffect(() => {
+    if (loading) return
+    const editId = searchParams.get('edit')
+    if (searchParams.get('new') === '1') setEditing('new')
+    else if (editId) {
+      const found = products.find((p) => p.id === editId)
+      if (found) setEditing(found)
+    } else return
+    router.replace('/seller/products', { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, searchParams])
 
   const categories = useMemo(
     () => Array.from(new Set(products.map((p) => p.category).filter((c): c is string => Boolean(c)))).sort(),
@@ -122,17 +139,18 @@ export default function SellerProductsPage() {
   if (editing) {
     const product = editing === 'new' ? null : editing
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="mx-auto max-w-5xl">
         <button onClick={() => setEditing(null)} className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink">
-          <ArrowLeft size={15} /> My products
+          <ArrowLeft size={15} /> Products
         </button>
-        <h2 className="mt-3 font-display text-2xl text-ink">{product ? 'Edit product' : 'Add a product'}</h2>
-        <div className="mt-5 rounded-2xl border border-ink/10 bg-card p-4 sm:p-6">
+        <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink">{product ? 'Edit product' : 'Add a product'}</h1>
+        <div className="mt-5">
           <ProductForm
             key={product?.id ?? 'new'}
             initial={product}
             marginPercent={defaultMargin}
             categorySuggestions={categories}
+            collectionsUrl="/api/seller/collections"
             submitLabel={product ? 'Save changes' : 'Add product'}
             onSubmit={handleSave}
             onCancel={() => setEditing(null)}
@@ -148,7 +166,7 @@ export default function SellerProductsPage() {
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="font-display text-2xl text-ink">My products</h2>
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">Products</h1>
           <p className="mt-1 max-w-xl text-sm text-ink/55">
             Add your photos, videos and your price. Wishdrop adds its {defaultMargin}% margin and shipping, and
             the product shows on your store page right away.
@@ -162,7 +180,7 @@ export default function SellerProductsPage() {
               rel="noreferrer"
               className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ink/15 px-4 py-3 text-sm font-semibold text-ink/70 hover:text-ink sm:flex-none sm:py-2.5"
             >
-              <ExternalLink size={15} /> View store
+              <ExternalLink size={15} /> {seller.live === false ? 'Preview store' : 'View store'}
             </a>
           )}
           <button
@@ -280,5 +298,13 @@ export default function SellerProductsPage() {
         </>
       )}
     </div>
+  )
+}
+
+export default function SellerProductsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SellerProductsInner />
+    </Suspense>
   )
 }

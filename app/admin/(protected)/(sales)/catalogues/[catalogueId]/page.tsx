@@ -92,7 +92,7 @@ export default function CatalogueDetailPage() {
         <div className="mx-auto max-w-2xl px-6 py-16 text-center">
           <p className="text-sm text-ink/55">Product not found. It may have been removed.</p>
           <button onClick={() => router.push('/admin/catalogues')} className="mt-3 text-sm font-semibold text-teal-deep">
-            Back to Catalogues
+            Back to Social Stores
           </button>
         </div>
       </div>
@@ -111,12 +111,12 @@ export default function CatalogueDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-5xl px-6 py-8">
         <button
           onClick={() => router.push('/admin/catalogues')}
           className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink"
         >
-          <ArrowLeft size={15} /> Catalogues
+          <ArrowLeft size={15} /> Social Stores
         </button>
 
         <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
@@ -174,12 +174,13 @@ export default function CatalogueDetailPage() {
           </div>
         </div>
 
-        <div className={`mt-4 p-6 ${panelClass}`}>
+        <div className="mt-4">
           <ProductForm
             key={product.id}
             initial={product}
             marginPercent={Number(product.margin_percent ?? product.sellers?.default_margin_percent ?? 25)}
             staffSellerId={product.seller_id}
+            collectionsUrl={product.sellers?.platform_slug ? `/api/admin/catalogues/stores/${product.sellers.platform_slug}/collections` : undefined}
             submitLabel="Save changes"
             onSubmit={handleSave}
           />

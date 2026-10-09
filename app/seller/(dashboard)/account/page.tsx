@@ -37,13 +37,13 @@ export default function SellerAccountPage() {
 
   return (
     <div className="max-w-2xl">
-      <h2 className="font-display text-2xl text-ink">Store profile</h2>
+      <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">Store profile</h1>
       <p className="mt-1 text-sm text-ink/55">This is what shoppers see at the top of your store page.</p>
       <div className="mt-5">
         <StoreProfileForm />
       </div>
 
-      <h2 className="mt-10 font-display text-2xl text-ink">Password</h2>
+      <h2 className="mt-12 font-display text-2xl font-semibold tracking-tight text-ink">Password</h2>
       <p className="mt-1 text-sm text-ink/55">
         Change the temporary password your Wishdrop contact gave you to one only you know.
       </p>

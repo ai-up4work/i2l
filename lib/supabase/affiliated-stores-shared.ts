@@ -15,23 +15,19 @@
 //   }
 
 import type { AffiliatedStore } from '@/data/stores/data'
-
-// Slugs that are `manual` + `mock` in the database but are NOT custom
-// seller-portal stores (they have their own hardcoded handling).
-const NOT_SOCIAL_SLUGS = new Set(['anishka-creation', 'wishdrop-mall'])
+import { isCatalogueStoreRow, isLegacyCustomRow } from '@/lib/catalogue-stores'
 
 /**
- * True for a custom seller row: no feed, catalogue managed in the seller
- * portal. Mirrors the rule in lib/store-config-db.ts that switches these
- * sellers onto the `catalogue` provider (type 'manual' + config 'mock').
+ * True for a catalogue store (created in Admin → Catalogues; products,
+ * photos and videos held in our database). These get the "social"
+ * storefront. See lib/catalogue-stores.ts for why this is no longer tied
+ * to the seller wizard's "mock" method.
  */
 export function isSocialSellerRow(row: Record<string, unknown>): boolean {
-  const providerConfig = (row.provider_config ?? {}) as Record<string, unknown>
-  return (
-    row.type === 'manual' &&
-    ((providerConfig.type as string | undefined) ?? 'mock') === 'mock' &&
-    !NOT_SOCIAL_SLUGS.has(row.platform_slug as string)
-  )
+  // Older hand-managed sellers (made in the seller wizard with "mock")
+  // keep the social storefront too, so nothing changes for them until
+  // they're moved over in Social Stores.
+  return isCatalogueStoreRow(row) || isLegacyCustomRow(row)
 }
 
 export function mapRowToAffiliatedStore(row: Record<string, unknown>): AffiliatedStore {

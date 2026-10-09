@@ -1,7 +1,11 @@
 // app/admin/(protected)/(sales)/catalogues/page.tsx
 //
-// Every product in a custom (manual) seller's catalogue — the sellers
-// with no feed, typically running their shop on Instagram / Facebook.
+// Catalogue stores and their products. A catalogue store is a seller with
+// no website feed (typically an Instagram / Facebook shop) whose products
+// live in our database. Stores are CREATED here ("New store"), not in the
+// seller wizard — the wizard's "mock" method is for stores with a custom
+// extractor built into the code (see lib/catalogue-stores.ts).
+//
 // Sellers add products from their own portal (/seller/products); staff
 // can also add one on a seller's behalf here ("Add product"), and open
 // any product to edit it, change Wishdrop's margin, or hide it.
@@ -14,9 +18,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Loader2, Play, Plus, Search } from 'lucide-react'
+import { ArrowLeft, Loader2, Play, Plus, Search, Settings2, Store } from 'lucide-react'
 import { panelClass } from '@/components/admin/seller/shared'
 import ProductForm, { type ProductFormPayload } from '@/components/catalogue/ProductForm'
+import SellerApplications from '@/components/admin/catalogue/SellerApplications'
 import { imageThumb, videoPoster } from '@/lib/media'
 
 type Row = {
@@ -42,6 +47,8 @@ type SellerOption = {
   defaultMarginPercent: number
   hasLogin: boolean
   status: string
+  logoUrl?: string | null
+  kind?: 'catalogue' | 'legacy'
 }
 
 function coverOf(r: Row): string | null {
@@ -75,6 +82,17 @@ export default function CataloguesPage() {
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false))
+
+    // Links from a store's page: ?store=<id> filters to that store,
+    // ?add=<id> opens "Add product" for it.
+    const qs = new URLSearchParams(window.location.search)
+    const store = qs.get('store')
+    const add = qs.get('add')
+    if (store) setSellerFilter(store)
+    if (add) {
+      setAddSellerId(add)
+      setAdding(true)
+    }
   }, [])
 
   const countBySeller = useMemo(() => {
@@ -134,48 +152,49 @@ export default function CataloguesPage() {
   if (adding) {
     return (
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6 py-8">
+        <div className="mx-auto max-w-5xl px-6 py-8">
           <button onClick={() => setAdding(false)} className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink">
-            <ArrowLeft size={15} /> Catalogues
+            <ArrowLeft size={15} /> Social Stores
           </button>
-          <h1 className="mt-4 font-display text-3xl text-ink">Add a product for a seller</h1>
+          <h1 className="mt-4 font-display text-3xl text-ink">Add a product</h1>
           <p className="mt-1 text-sm text-ink/55">
             For sellers who send you their photos instead of using the seller portal. It appears on their store page as soon as you save.
           </p>
 
           <div className={`mt-6 p-6 ${panelClass}`}>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink/60">Seller</span>
+              <span className="mb-1.5 block text-xs font-semibold text-ink/60">Store</span>
               <select
                 value={addSellerId}
                 onChange={(e) => setAddSellerId(e.target.value)}
                 className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-teal"
               >
-                <option value="">Choose a seller…</option>
+                <option value="">Choose a store…</option>
                 {sellers.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.defaultMarginPercent}% margin){s.status !== 'active' ? ` — ${s.status}` : ''}
+                    {s.name} ({s.defaultMarginPercent}% margin){s.status !== 'active' ? ' — hidden' : ''}
                   </option>
                 ))}
               </select>
             </label>
 
-            {addSeller ? (
-              <div className="mt-6 border-t border-ink/10 pt-6">
-                <ProductForm
-                  key={addSeller.id}
-                  marginPercent={addSeller.defaultMarginPercent}
-                  staffSellerId={addSeller.id}
-                  categorySuggestions={categories}
-                  submitLabel="Add product"
-                  onSubmit={handleCreate}
-                  onCancel={() => setAdding(false)}
-                />
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-ink/50">Choose the seller first — photos and videos are filed under their name.</p>
-            )}
+            {!addSeller && <p className="mt-3 text-sm text-ink/50">Choose the store first — photos and videos are filed under its name.</p>}
           </div>
+
+          {addSeller && (
+            <div className="mt-4">
+              <ProductForm
+                key={addSeller.id}
+                marginPercent={addSeller.defaultMarginPercent}
+                staffSellerId={addSeller.id}
+                categorySuggestions={categories}
+                collectionsUrl={`/api/admin/catalogues/stores/${addSeller.slug}/collections`}
+                submitLabel="Add product"
+                onSubmit={handleCreate}
+                onCancel={() => setAdding(false)}
+              />
+            </div>
+          )}
         </div>
       </div>
     )
@@ -186,20 +205,30 @@ export default function CataloguesPage() {
       <div className="mx-auto max-w-6xl px-6 py-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="font-display text-3xl text-ink">Catalogues</h1>
+            <h1 className="font-display text-3xl text-ink">Social Stores</h1>
             <p className="mt-1 max-w-2xl text-sm text-ink/55">
-              Products from sellers without a feed (Instagram, Facebook and other custom sellers). They add products in
-              their own portal; you can also add one for them, edit it, and set Wishdrop&rsquo;s margin.
+              Stores for sellers with no website to pull products from, such as Instagram and Facebook shops. Create the
+              store here, then add its products yourself or give the seller a login to do it.
             </p>
           </div>
-          <button
-            onClick={openAdd}
-            disabled={sellers.length === 0}
-            className="flex items-center gap-2 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment hover:bg-teal disabled:opacity-50"
-          >
-            <Plus size={16} /> Add product
-          </button>
+          <div className="flex gap-2">
+            <Link
+              href="/admin/catalogues/stores/new"
+              className="flex items-center gap-2 rounded-xl border border-ink/15 bg-card px-4 py-2.5 text-sm font-semibold text-ink hover:border-ink/40"
+            >
+              <Store size={16} /> New store
+            </Link>
+            <button
+              onClick={openAdd}
+              disabled={sellers.length === 0}
+              className="flex items-center gap-2 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment hover:bg-teal disabled:opacity-50"
+            >
+              <Plus size={16} /> Add product
+            </button>
+          </div>
         </div>
+
+        <SellerApplications />
 
         {needsMigration && (
           <p className="mt-4 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-ink">
@@ -209,35 +238,62 @@ export default function CataloguesPage() {
 
         {!loading && !error && sellers.length === 0 && (
           <div className={`mt-5 p-6 ${panelClass}`}>
-            <p className="font-semibold text-ink">No custom sellers yet</p>
-            <p className="mt-1 text-sm text-ink/55">
-              Create the seller first, with the type set to custom (no feed). Then give them a portal login from the seller&rsquo;s page, or add their products here.
+            <p className="font-semibold text-ink">No catalogue stores yet</p>
+            <p className="mt-1 max-w-xl text-sm text-ink/55">
+              Create a store for the seller first. It starts hidden, so you can add a logo and products before shoppers
+              see it.
             </p>
-            <Link href="/admin/sellers" className="mt-3 inline-block text-sm font-semibold text-teal-deep underline">
-              Go to Sellers
+            <Link href="/admin/catalogues/stores/new" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment hover:bg-teal">
+              <Store size={16} /> Create the first store
             </Link>
           </div>
         )}
 
+        {/* ── Stores ── click a store to filter the products below;
+            the gear opens the store's own page (profile, login, go live). */}
         {sellers.length > 0 && (
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-5 flex gap-3 overflow-x-auto pb-1">
             <button
               onClick={() => setSellerFilter('all')}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${sellerFilter === 'all' ? 'border-ink bg-ink text-white' : 'border-ink/15 bg-card text-ink/60 hover:text-ink'}`}
+              className={`flex-none rounded-2xl border px-4 py-3 text-left ${sellerFilter === 'all' ? 'border-ink bg-ink text-white' : 'border-ink/10 bg-card text-ink hover:border-ink/30'}`}
             >
-              All sellers · {rows.length}
+              <span className="block text-sm font-semibold">All stores</span>
+              <span className={`block text-xs ${sellerFilter === 'all' ? 'text-white/70' : 'text-ink/50'}`}>{rows.length} products</span>
             </button>
-            {sellers.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setSellerFilter(s.id)}
-                title={s.hasLogin ? 'Has a seller portal login' : 'No portal login yet'}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${sellerFilter === s.id ? 'border-ink bg-ink text-white' : 'border-ink/15 bg-card text-ink/60 hover:text-ink'}`}
-              >
-                {s.name} · {countBySeller.get(s.id) ?? 0}
-                {!s.hasLogin && <span className="ml-1 font-normal opacity-70">(no login)</span>}
-              </button>
-            ))}
+            {sellers.map((s) => {
+              const on = sellerFilter === s.id
+              const live = s.status === 'active'
+              return (
+                <div key={s.id} className={`flex flex-none items-stretch overflow-hidden rounded-2xl border ${on ? 'border-ink bg-ink text-white' : 'border-ink/10 bg-card text-ink hover:border-ink/30'}`}>
+                  <button onClick={() => setSellerFilter(s.id)} className="flex items-center gap-3 py-3 pl-3 pr-2 text-left">
+                    <span className="grid h-10 w-10 flex-none place-items-center overflow-hidden rounded-full bg-parchment text-sm font-bold text-teal-deep">
+                      {s.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={imageThumb(s.logoUrl, 100)} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        s.name.charAt(0).toUpperCase()
+                      )}
+                    </span>
+                    <span>
+                      <span className="block max-w-[180px] truncate text-sm font-semibold">{s.name}</span>
+                      <span className={`block text-xs ${on ? 'text-white/70' : 'text-ink/50'}`}>
+                        {countBySeller.get(s.id) ?? 0} products · {live ? 'Live' : 'Hidden'}
+                        {s.kind === 'legacy' ? ' · old setup' : ''}
+                        {!s.hasLogin ? ' · no login' : ''}
+                      </span>
+                    </span>
+                  </button>
+                  <Link
+                    href={`/admin/catalogues/stores/${s.slug}`}
+                    aria-label={`Manage ${s.name}`}
+                    title="Store page, login and go live"
+                    className={`grid w-10 place-items-center border-l ${on ? 'border-white/20 text-white/80 hover:text-white' : 'border-ink/10 text-ink/45 hover:text-ink'}`}
+                  >
+                    <Settings2 size={15} />
+                  </Link>
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -275,7 +331,7 @@ export default function CataloguesPage() {
             <div className="px-5 py-16 text-center text-sm text-ink/50">
               {rows.length === 0 ? (
                 <>
-                  <p>No products yet. A seller adds them from their portal, or you can add one for them.</p>
+                  <p>No products yet. Add one for a store, or give the seller a login to add their own.</p>
                   {sellers.length > 0 && (
                     <button onClick={openAdd} className="mt-3 font-semibold text-teal-deep underline">
                       Add the first product

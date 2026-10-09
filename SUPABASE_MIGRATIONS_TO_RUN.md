@@ -15,6 +15,8 @@ more than once.
 | 7 | `data/wishdrop-mall.sql` | Wishdrop Mall: source-tracking columns, brand/highlights/specs, per-variant supplier link & price, inventory (stock movements log + `mall_deduct_stock` function), Mall categories (converts existing product categories automatically), hides cost/margin/source columns from browser access (safe to re-run if you ran the earlier version) | Then open **/admin/super-admin/wishdrop-mall** (super admin) and click *Set up Wishdrop Mall* — see WISHDROP_MALL.md |
 | 8 | `data/wishdrop-seller-media.sql` | Seller product videos: `products.videos` column | Cloudinary keys — see CLOUDINARY_SETUP.md |
 | 9 | `data/wishdrop-social-stores.sql` | Custom seller store profile: cover photo, tagline, Instagram/Facebook links; makes sure `store_follows` exists | See SOCIAL_STORES.md |
+| 10 | `data/wishdrop-store-collections.sql` | Collections inside a social store (filter on the store page) | See SOCIAL_STORES.md |
+| 11 | `data/wishdrop-seller-applications.sql` | Saves "Sell on Wishdrop" applications (the form used to save nothing) | Shown in Admin → Social Stores |
 
 Still open (not done in this work): the database rules on chat messages,
 chat threads, orders, order items and QC issues allow ANY signed-in user,
