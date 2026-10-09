@@ -13,6 +13,7 @@ import {
   Users,
   BookOpen,
   Images,
+  HardDrive,
   Layers,
   Percent,
   ShoppingCart,
@@ -192,6 +193,7 @@ function getGroups(role: Role): Group[] {
         { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },
         { label: "All staff", href: "/admin/super-admin/staff", icon: Users, roles: ["super_admin"] },
         { label: "Warehouse Sites", href: "/admin/super-admin/warehouses", icon: Building2, roles: ["super_admin"] },
+        { label: "Media cleanup", href: "/admin/super-admin/media-cleanup", icon: HardDrive, roles: ["super_admin"] },
         {
           label: "Pricing engine",
           href: "/admin/super-admin/settings/pricing-engine",

@@ -17,6 +17,7 @@ more than once.
 | 9 | `data/wishdrop-social-stores.sql` | Custom seller store profile: cover photo, tagline, Instagram/Facebook links; makes sure `store_follows` exists | See SOCIAL_STORES.md |
 | 10 | `data/wishdrop-store-collections.sql` | Collections inside a social store (filter on the store page) | See SOCIAL_STORES.md |
 | 11 | `data/wishdrop-seller-applications.sql` | Saves "Sell on Wishdrop" applications (the form used to save nothing) | Shown in Admin → Social Stores |
+| 12 | `data/wishdrop-media-sweep.sql` | Nightly ghost-media cleanup: finds every photo/video link in the database, lists every uploaded file, keeps a history of cleanups | `CRON_SECRET` on Vercel; turn off the old `weekly-storage-cleanup` job — see MEDIA_CLEANUP.md |
 
 Still open (not done in this work): the database rules on chat messages,
 chat threads, orders, order items and QC issues allow ANY signed-in user,

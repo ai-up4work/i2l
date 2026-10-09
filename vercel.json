@@ -1,5 +1,11 @@
 {
     "regions": [
         "bom1"
+    ],
+    "crons": [
+        {
+            "path": "/api/cron/media-sweep",
+            "schedule": "30 21 * * *"
+        }
     ]
 }
