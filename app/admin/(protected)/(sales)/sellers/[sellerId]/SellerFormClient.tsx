@@ -2195,7 +2195,11 @@ export default function SellerFormClient({
                       </div>
                       <span className="absolute bottom-0 left-4 grid h-20 w-20 place-items-center overflow-hidden rounded-full border-4 border-parchment bg-white shadow-sm">
                         {/* eslint-disable-next-line @next/next/no-img-element -- data-URL / remote preview */}
-                        <img src={resolveLogoUrl(storeLogo, form.storeName)} alt="Store logo" className="h-full w-full object-contain p-1.5" />
+                        <img
+                          src={resolveLogoUrl(storeLogo, form.storeName)}
+                          alt="Store logo"
+                          className="h-full w-full scale-125 object-contain"
+                        />
                       </span>
                       {!storeCover && (
                         <p className="absolute bottom-0 left-28 pb-1 text-xs text-ink/40">

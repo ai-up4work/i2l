@@ -741,7 +741,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
               <Image
                 src={store.logo}
                 alt={`${store.name} logo`}
-                className="h-full w-full object-cover p-2"
+                className="h-full w-full object-cover"
                 width={96}
                 height={96}
                 referrerPolicy="no-referrer"
