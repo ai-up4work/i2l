@@ -1942,7 +1942,7 @@ export default function SellerFormClient({
                   alt=""
                   width={48}
                   height={48}
-                  className="h-12 w-12 flex-none rounded-full border border-ink/10 bg-white object-contain"
+                  className="h-12 w-12 flex-none rounded-full border border-ink/10 bg-white object-cover"
                 />
                 <div>
                   <div className="flex flex-wrap items-center gap-2.5">
@@ -2024,7 +2024,7 @@ export default function SellerFormClient({
                       <div className="flex items-center gap-3">
                         {storeLogo ? (
                           // eslint-disable-next-line @next/next/no-img-element -- data-URL preview, not a static asset
-                          <img src={storeLogo} alt="" className="h-9 w-9 flex-none rounded-full border border-ink/10 bg-white object-contain p-0.5" />
+                          <img src={storeLogo} alt="" className="h-9 w-9 flex-none rounded-full border border-ink/10 bg-white object-cover p-0.5" />
                         ) : (
                           <span className="grid h-9 w-9 flex-none place-items-center rounded-full border border-dashed border-red-600/30 text-red-600/60">
                             <UserPlus size={14} />
