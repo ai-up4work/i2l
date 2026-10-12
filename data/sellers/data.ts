@@ -155,6 +155,8 @@ export function mapDbRowToAdminSeller(row: Record<string, unknown>): AdminSeller
       platform: row.platform_slug as string,
       name: row.name as string,
       logo: (row.logo_url as string) ?? '',
+      // Cover banner (sellers.cover_url). null = none → brand gradient.
+      cover: (row.cover_url as string | null) ?? null,
       url: (row.outbound_url as string) ?? undefined,
       country: (row.country as string) ?? '',
       flag: (row.flag_emoji as string) ?? '',
