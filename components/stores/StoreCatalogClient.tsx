@@ -8,7 +8,7 @@ import {
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
   Sparkles, PackageSearch,
 } from 'lucide-react';
-import type { AffiliatedStore } from '@/components/dashboard/data';
+import type { AffiliatedStore as BaseStore } from '@/components/dashboard/data';
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores';
 import type { StoreProduct, StoreApiResponse } from '@/lib/store.types';
 import Image from 'next/image';
@@ -16,7 +16,13 @@ import { formatPrice } from '@/lib/currency';
 import { getProductPricing, getCartLineTotalLKR, getCartSubtotalLKR, formatCartLinesForWhatsApp, formatLKR } from '@/lib/pricing';
 import Flag from '@/components/ui/Flag';
 import AddToBagButton from '@/components/stores/AddToBagButton';
+import StoreCover from '@/components/stores/StoreCover';
+import FollowButton from '@/components/stores/social/FollowButton';
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext';
+
+// Once `cover` is on the shared AffiliatedStore type you can drop this
+// intersection and import the type directly.
+type AffiliatedStore = BaseStore & { cover?: string | null };
 
 type SortKey = 'newest' | 'price-asc' | 'price-desc' | 'sale';
 
@@ -98,12 +104,15 @@ function ProductSkeleton() {
 function ProductCard({
   product,
   platform,
-  onAdd,
+  index,
 }: {
   product: StoreProduct;
   platform: string;
-  onAdd: (p: StoreProduct) => void;
+  index: number;
 }) {
+  // The first row is above the fold on desktop, so load it right away.
+  // next/image doesn't allow `priority` and `loading="lazy"` together.
+  const aboveFold = index < 4;
   const wishlist = useWishlist();
   const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform]);
   const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id);
@@ -122,7 +131,7 @@ function ProductCard({
           src={product.image}
           alt={product.name}
           className="h-full w-full object-cover object-top transition-all duration-700 group-hover:scale-105"
-          loading="lazy"
+          {...(aboveFold ? { priority: true } : { loading: 'lazy' as const })}
           width={400}
           height={533}
           referrerPolicy="no-referrer"
@@ -231,6 +240,7 @@ function MiniCart({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close bag"
             className="w-8 h-8 rounded-full hover:bg-teal/10 flex items-center justify-center transition-colors"
           >
             <X size={14} className="text-ink" />
@@ -335,6 +345,7 @@ function Pagination({
         type="button"
         disabled={page <= 1}
         onClick={onPrev}
+        aria-label="Previous page"
         className="p-2 rounded-xl border border-ink/10 hover:bg-teal/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronLeft size={16} className="text-ink" />
@@ -351,6 +362,7 @@ function Pagination({
               key={item}
               type="button"
               onClick={() => onGoto(item)}
+              aria-current={page === item ? 'page' : undefined}
               className={
                 'w-9 h-9 rounded-xl text-sm font-medium transition-all font-body ' +
                 (page === item ? 'bg-teal-deep text-white' : 'hover:bg-teal/10 text-ink/60')
@@ -366,6 +378,7 @@ function Pagination({
         type="button"
         disabled={page >= totalPages}
         onClick={onNext}
+        aria-label="Next page"
         className="p-2 rounded-xl border border-ink/10 hover:bg-teal/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronRight size={16} className="text-ink" />
@@ -459,6 +472,7 @@ function MobileCategorySheet({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close categories"
             className="w-8 h-8 rounded-full hover:bg-teal/10 flex items-center justify-center transition-colors"
           >
             <X size={14} className="text-ink" />
@@ -469,7 +483,7 @@ function MobileCategorySheet({
           <div className="px-2 py-2">
             {categoryFilters.map((c) => (
               <button
-                key={c.handle || 'all'}
+                key={c.handle || c.title || 'all'}
                 type="button"
                 onClick={() => { onSelectCategory(c); onClose(); }}
                 className={
@@ -536,82 +550,6 @@ function MobileCategorySheet({
   );
 }
 
-// ─── Debug / verification strip ────────────────────────────────────────────
-function DebugInfoBar({
-  totalItems,
-  totalIsExact,
-  totalPages,
-  page,
-  shownCount,
-  categories,
-  categoriesSource,
-  platform,
-}: {
-  totalItems: number | null;
-  totalIsExact: boolean | null;
-  totalPages: number;
-  page: number;
-  shownCount: number;
-  categories: string[];
-  categoriesSource: 'live' | 'static' | 'loading';
-  platform: string;
-}) {
-  return (
-    <div className="mb-6 rounded-xl border border-dashed border-ink/20 bg-ink/[0.03] px-4 py-3 text-[11px] font-mono text-ink/60 space-y-1.5">
-      <div className="flex flex-wrap gap-x-5 gap-y-1 items-center">
-        <span>
-          <span className="text-ink/40">total products:</span>{' '}
-          <span className="font-bold text-ink/80">
-            {totalItems == null ? '—' : totalItems}
-            {totalIsExact === false ? '+' : ''}
-          </span>
-        </span>
-        <span>
-          <span className="text-ink/40">total pages:</span>{' '}
-          <span className="font-bold text-ink/80">{totalPages}</span>
-        </span>
-        <span>
-          <span className="text-ink/40">current page:</span>{' '}
-          <span className="font-bold text-ink/80">{page} / {totalPages}</span>
-        </span>
-        <span>
-          <span className="text-ink/40">shown on this page:</span>{' '}
-          <span className="font-bold text-ink/80">{shownCount}</span>
-        </span>
-        <span>
-          <span className="text-ink/40">count is:</span>{' '}
-          <span className="font-bold text-ink/80">
-            {totalIsExact == null ? '—' : totalIsExact ? 'exact' : 'lower bound'}
-          </span>
-        </span>
-        <span>
-          <span className="text-ink/40">categories from:</span>{' '}
-          <span className={
-            'font-bold ' +
-            (categoriesSource === 'live' ? 'text-teal-deep' : categoriesSource === 'loading' ? 'text-ink/40' : 'text-gold-deep')
-          }>
-            {categoriesSource === 'live' ? 'live Shopify collections' : categoriesSource === 'loading' ? 'loading…' : 'static fallback (data.ts)'}
-          </span>
-        </span>
-        <a
-          href={`/api/stores/${platform}?collections=1`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-teal-deep underline hover:no-underline font-semibold"
-        >
-          view raw collections →
-        </a>
-      </div>
-      <div>
-        <span className="text-ink/40">categories ({categories.length}):</span>{' '}
-        <span className="text-ink/70">
-          {categories.length ? categories.map((c) => c || '(all)').join(', ') : '—'}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main client component (inner, uses useSearchParams) ──────────────────────
 // Split into an inner component wrapped by a <Suspense> boundary in the
 // default export below — useSearchParams() requires this in the App
@@ -625,10 +563,9 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   // Every filter is seeded from the URL on first render, so a refresh or
   // a shared link reproduces the exact same view. `category` holds the
   // real Shopify handle (or, for the static fallback path with no real
-  // handle, the title) — never a display label — since that's the value
-  // actually round-tripped through the URL and sent to the API.
+  // handle, the title) — never a display label.
   const [category,      setCategory]      = useState(searchParams.get('category') ?? '');
-  const [categoryLabel, setCategoryLabel] = useState(''); // resolved once effectiveCategories is known, see effect below
+  const [categoryLabel, setCategoryLabel] = useState('');
   const [sortBy,        setSortBy]        = useState<SortKey>(
     isSortKey(searchParams.get('sort')) ? (searchParams.get('sort') as SortKey) : 'newest'
   );
@@ -647,7 +584,6 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   const [error,       setError]       = useState<string | null>(null);
 
   const [liveCategories, setLiveCategories] = useState<CategoryFilter[] | null>(null);
-  const [categoriesSource, setCategoriesSource] = useState<'live' | 'static' | 'loading'>('loading');
 
   const [cart,        setCart]        = useState<CartItem[]>([]);
   const [cartOpen,    setCartOpen]    = useState(false);
@@ -666,7 +602,6 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
 
   useEffect(() => {
     let cancelled = false;
-    setCategoriesSource('loading');
 
     (async () => {
       try {
@@ -674,18 +609,9 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as LiveCollectionsResponse;
         if (cancelled) return;
-
-        if (data.collections?.length) {
-          setLiveCategories(data.collections.map((c) => ({ handle: c.handle, title: c.title })));
-          setCategoriesSource('live');
-        } else {
-          setLiveCategories(null);
-          setCategoriesSource('static');
-        }
+        setLiveCategories(data.collections?.length ? data.collections.map((c) => ({ handle: c.handle, title: c.title })) : null);
       } catch {
-        if (cancelled) return;
-        setLiveCategories(null);
-        setCategoriesSource('static');
+        if (!cancelled) setLiveCategories(null);
       }
     })();
 
@@ -700,11 +626,8 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
 
   const categoryFilters: CategoryFilter[] = [{ handle: '', title: '' }, ...effectiveCategories];
 
-  // The URL only stores the raw category value (handle, or title for the
-  // static fallback) — resolve the human-readable label for display once
-  // the real collection list is known. Runs whenever `category` or the
-  // resolved list changes (e.g. after the initial live-collections fetch
-  // completes following a hard refresh with ?category=... already in the URL).
+  // The URL only stores the raw category value — resolve the readable
+  // label once the real collection list is known.
   useEffect(() => {
     if (!category) { setCategoryLabel(''); return; }
     const match = effectiveCategories.find((c) => (c.handle || c.title) === category);
@@ -712,10 +635,8 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, liveCategories]);
 
-  // Keeps the URL in sync with every filter so a refresh, a shared link,
-  // or the browser back/forward buttons reproduce the exact same view.
-  // Uses replace (not push) so clicking a filter doesn't spam browser
-  // history — only real page navigations should be back-button-able.
+  // Keeps the URL in sync with every filter. Uses replace (not push) so
+  // clicking a filter doesn't spam browser history.
   useEffect(() => {
     const qs = new URLSearchParams();
     if (category) qs.set('category', category);
@@ -729,18 +650,6 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   }, [category, search, sortBy, page, pathname]);
 
   const clearCart = () => { writeCart(platform, []); setCart([]); };
-
-  const addToCart = (product: StoreProduct) => {
-    const current = readCart(platform);
-    const idx = current.findIndex((i) => i.id === product.id);
-    const next =
-      idx >= 0
-        ? current.map((i, n) => (n === idx ? { ...i, qty: i.qty + 1 } : i))
-        : [...current, { ...product, qty: 1 }];
-    writeCart(platform, next);
-    setCart(next);
-    setCartOpen(true);
-  };
 
   const fetchProducts = useCallback(
     async (cat: string, pg: number, q: string, sort: SortKey) => {
@@ -791,7 +700,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     setCategoryLabel(c.title);
     setPage(1);
   };
-  const handleSearch = () => { setSearch(searchInput); setPage(1); };
+  const handleSearch = () => { setSearch(searchInput.trim()); setPage(1); };
   const goToPage = (pg: number) => { setPage(pg); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   const cartQty = cart.reduce((s, i) => s + i.qty, 0);
@@ -799,282 +708,277 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   return (
     <div className="min-h-screen bg-parchment">
 
-      <div className="bg-parchment border-b border-ink/[0.06] pt-3">
-        <div className="max-w-8xl mx-auto flex items-center justify-between gap-4 px-4 sm:px-10 lg:px-40 pb-2.5">
-          <div className="flex items-center gap-1.5 text-[11px] text-ink/40 shrink-0 font-body min-w-0">
-            <Link href="/" className="hover:text-teal-deep transition-colors font-medium shrink-0">Home</Link>
-            <ChevronRight size={10} className="shrink-0" />
-            <Link href="/stores" className="hover:text-teal-deep transition-colors font-medium shrink-0">Stores</Link>
-            <ChevronRight size={10} className="shrink-0" />
-            <span className="text-ink/70 font-medium truncate">{store.name}</span>
-          </div>
-
+      {/* ── Cover (shared with the social store page) ── */}
+      <StoreCover
+        name={store.name}
+        cover={store.cover}
+        actions={
           <button
             type="button"
             onClick={() => setCartOpen(true)}
-            className="relative flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full hover:bg-teal/10 transition-colors shrink-0"
+            aria-label={`Open bag, ${cartQty} item${cartQty === 1 ? '' : 's'}`}
+            className="relative flex items-center gap-1.5 rounded-full bg-card/90 py-1.5 pl-3 pr-3.5 shadow-sm backdrop-blur-sm transition-colors hover:bg-card"
           >
             <ShoppingBag size={13} className="text-ink/70" />
-            <span className="text-xs font-semibold text-ink/70 font-body">Bag</span>
+            <span className="font-body text-xs font-semibold text-ink/70">Bag</span>
             {cartQty > 0 && (
-              <span className="absolute -top-1 -right-0.5 w-4 h-4 rounded-full bg-teal-deep text-white text-[9px] font-bold flex items-center justify-center">
+              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-teal-deep text-[9px] font-bold text-white">
                 {cartQty}
               </span>
             )}
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="w-full min-w-0 px-4 sm:px-10 lg:px-40">
-        <div className="max-w-7xl mx-auto py-8 sm:py-12 min-w-0">
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-10">
 
-          {/* ── Hero ── */}
-          <div className="mb-10 sm:mb-14">
-            <div className="flex items-center justify-between gap-3 mb-5">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="w-10 h-10 rounded-xl border border-ink/10 bg-card flex items-center justify-center shrink-0 overflow-hidden">
-                  <Image
-                    src={store.logo}
-                    alt={store.name}
-                    className="w-full h-full object-contain"
-                    width={40}
-                    height={40}
-                    referrerPolicy="no-referrer"
-                    onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
-                  />
+        {/* ── Identity ── */}
+        <div className="relative -mt-7 flex items-end justify-between gap-4 sm:-mt-9">
+          <div className="flex min-w-0 items-end gap-4">
+            {/* Affiliated logos are often wordmarks, so they are contained
+                (not cropped) on a white circle. */}
+            <span className="grid h-20 w-20 flex-none place-items-center overflow-hidden rounded-full border-4 border-parchment bg-white shadow-sm sm:h-24 sm:w-24">
+              <Image
+                src={store.logo}
+                alt={`${store.name} logo`}
+                className="h-full w-full object-cover p-2"
+                width={96}
+                height={96}
+                referrerPolicy="no-referrer"
+                onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
+              />
+            </span>
+            <div className="min-w-0 pb-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">{store.name}</h1>
+                <span className="whitespace-nowrap rounded-full bg-teal/10 px-2 py-0.5 font-body text-[10px] font-bold text-teal-deep">
+                  Affiliated store
                 </span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h1 className="font-display text-lg font-black text-ink tracking-tight">{store.name.toUpperCase()}</h1>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-teal/10 text-teal-deep uppercase tracking-wider font-body whitespace-nowrap">
-                      Affiliated store
+              </div>
+              <p className="mt-0.5 flex items-center gap-1.5 font-body text-xs text-ink/55">
+                <Flag flag={store.flag} /> {store.country}
+                {totalItems != null && !search && !category && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      <span className="font-semibold text-ink">{totalItems}{totalIsExact === false ? '+' : ''}</span> items
                     </span>
-                  </div>
-                  <p className="text-[10px] text-ink/45 font-body flex items-center gap-1.5">
-                    <Flag flag={store.flag} /> {store.country}
-                  </p>
-                </div>
-              </div>
-
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowCategoryMenu((v) => !v)}
-                  aria-label="Filter by category"
-                  className="font-body flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl border border-ink/10 bg-card text-xs font-semibold text-ink hover:bg-teal/10 transition-colors"
-                >
-                  <span className="hidden sm:inline whitespace-nowrap">{categoryLabel || 'All categories'}</span>
-                  <ChevronDown size={14} className={showCategoryMenu ? 'rotate-180 transition-transform' : 'transition-transform'} />
-                </button>
-
-                {showCategoryMenu && (
-                  <div className="hidden sm:block absolute right-0 top-full mt-1.5 bg-card border border-ink/10 rounded-xl shadow-xl z-20 py-1 min-w-[160px] max-h-64 overflow-y-auto">
-                    {categoryFilters.map((c) => (
-                      <button
-                        key={c.handle || 'all'}
-                        type="button"
-                        onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
-                        className={
-                          'font-body w-full text-left px-4 py-2.5 text-xs whitespace-nowrap transition-colors hover:bg-teal/10 ' +
-                          (category === (c.handle || c.title) ? 'font-bold text-ink' : 'text-ink/55')
-                        }
-                      >
-                        {c.title || 'All'}
-                      </button>
-                    ))}
-                  </div>
+                  </>
                 )}
-
-                <MobileCategorySheet
-                  open={showCategoryMenu}
-                  onClose={() => setShowCategoryMenu(false)}
-                  store={store}
-                  category={category}
-                  categoryFilters={categoryFilters}
-                  onSelectCategory={handleCategory}
-                />
-              </div>
-            </div>
-
-            <p className="font-display text-3xl sm:text-4xl font-bold text-ink tracking-tight leading-tight mb-3 max-w-lg">
-              Shop {store.name},<br />delivered to your door.
-            </p>
-            <p className="text-ink/60 text-sm max-w-md mb-6 font-body">{store.description}</p>
-
-            <div className="flex items-center gap-6 flex-wrap">
-              {[
-                { icon: <Sparkles size={13} />,    label: 'Wide selection'      },
-                { icon: <ShieldCheck size={13} />, label: 'We verify every item' },
-                { icon: <Truck size={13} />,       label: 'Shipping to Sri Lanka' },
-              ].map((b) => (
-                <div key={b.label} className="flex items-center gap-1.5 text-xs text-ink/55 font-body">
-                  <span className="text-teal-deep">{b.icon}</span>
-                  {b.label}
-                </div>
-              ))}
+              </p>
             </div>
           </div>
 
-          {/* ── Debug / verification strip ── */}
-          {/* <DebugInfoBar
-            totalItems={totalItems}
-            totalIsExact={totalIsExact}
-            totalPages={totalPages}
-            page={page}
-            shownCount={products.length}
-            categories={effectiveCategories.map((c) => c.title)}
-            categoriesSource={categoriesSource}
-            platform={platform}
-          /> */}
+          {/* Follow + category picker live with the identity row on every viewport. */}
+          <div className="flex shrink-0 items-center gap-2 pb-1">
+            <FollowButton slug={platform} />
+            <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowCategoryMenu((v) => !v)}
+              aria-label="Filter by category"
+              aria-expanded={showCategoryMenu}
+              className="font-body flex items-center gap-1.5 rounded-xl border border-ink/10 bg-card px-2.5 py-2 text-xs font-semibold text-ink transition-colors hover:bg-teal/10 sm:px-3.5"
+            >
+              <span className="hidden whitespace-nowrap sm:inline">{categoryLabel || 'All categories'}</span>
+              <ChevronDown size={14} className={showCategoryMenu ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            </button>
 
-          {/* ── Toolbar ── */}
-          <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="relative flex-1 sm:flex-none sm:w-64">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink/40 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder={`Search ${store.name}...`}
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  className="font-body w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-ink/10 bg-card
-                    placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-teal/15 focus:border-teal/40 transition-all"
-                />
+            {showCategoryMenu && (
+              <div className="absolute right-0 top-full z-20 mt-1.5 hidden max-h-64 min-w-[160px] overflow-y-auto rounded-xl border border-ink/10 bg-card py-1 shadow-xl sm:block">
+                {categoryFilters.map((c) => (
+                  <button
+                    key={c.handle || c.title || 'all'}
+                    type="button"
+                    onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
+                    className={
+                      'font-body w-full whitespace-nowrap px-4 py-2.5 text-left text-xs transition-colors hover:bg-teal/10 ' +
+                      (category === (c.handle || c.title) ? 'font-bold text-ink' : 'text-ink/55')
+                    }
+                  >
+                    {c.title || 'All'}
+                  </button>
+                ))}
               </div>
+            )}
+
+            <MobileCategorySheet
+              open={showCategoryMenu}
+              onClose={() => setShowCategoryMenu(false)}
+              store={store}
+              category={category}
+              categoryFilters={categoryFilters}
+              onSelectCategory={handleCategory}
+            />
+            </div>
+          </div>
+        </div>
+
+        {store.description?.trim() && (
+          <p className="mt-4 line-clamp-3 max-w-2xl font-body text-sm leading-relaxed text-ink/60">{store.description}</p>
+        )}
+
+        {/* ── What to expect ── */}
+        <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-y border-ink/10 py-3 font-body text-xs text-ink/65">
+          <li className="flex items-center gap-1.5">
+            <Sparkles size={14} className="text-teal-deep" /> Wide selection
+          </li>
+          <li className="flex items-center gap-1.5">
+            <ShieldCheck size={14} className="text-teal-deep" /> We verify every item
+          </li>
+          <li className="flex items-center gap-1.5">
+            <Truck size={14} className="text-teal-deep" /> Shipping to Sri Lanka
+          </li>
+        </ul>
+
+        {/* ── Toolbar ── */}
+        <div className="mb-6 mt-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="relative flex-1 sm:w-64 sm:flex-none">
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/40" />
+              <input
+                type="text"
+                placeholder={`Search ${store.name}...`}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                className="font-body w-full rounded-xl border border-ink/10 bg-card py-2 pl-8 pr-3 text-xs
+                  placeholder:text-ink/35 focus:border-teal/40 focus:outline-none focus:ring-2 focus:ring-teal/15 transition-all"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSearch}
+              className="font-body shrink-0 rounded-xl border border-ink/10 bg-card px-3 py-2 text-xs font-medium transition-colors hover:bg-teal/10"
+            >
+              Search
+            </button>
+            {search && (
               <button
                 type="button"
-                onClick={handleSearch}
-                className="font-body px-3 py-2 rounded-xl border border-ink/10 bg-card text-xs font-medium hover:bg-teal/10 transition-colors shrink-0"
+                onClick={() => { setSearch(''); setSearchInput(''); setPage(1); }}
+                className="font-body flex shrink-0 items-center gap-1 text-xs text-ink/45 transition-colors hover:text-ink"
               >
-                Search
+                <X size={12} /> Clear
               </button>
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => { setSearch(''); setSearchInput(''); }}
-                  className="font-body flex items-center gap-1 text-xs text-ink/45 hover:text-ink transition-colors shrink-0"
-                >
-                  <X size={12} /> Clear
-                </button>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <p className="font-body hidden text-sm text-ink/50 sm:block">
+              <span className="font-semibold text-ink">{products.length}</span>
+              <span className="text-ink/40"> / </span>
+              <span className="font-semibold text-ink">
+                {totalItems == null ? products.length : totalItems}
+                {totalIsExact === false ? '+' : ''}
+              </span>{' '}
+              items
+            </p>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowSort((v) => !v)}
+                aria-expanded={showSort}
+                className="font-body flex items-center gap-1.5 rounded-xl border border-ink/10 bg-card px-3 py-2 text-xs font-medium transition-colors hover:bg-teal/10"
+              >
+                <ArrowUpDown size={12} />{SORT_OPTIONS.find((s) => s.key === sortBy)?.label}
+              </button>
+              {showSort && (
+                <div className="absolute right-0 top-full z-20 mt-1.5 min-w-[160px] rounded-xl border border-ink/10 bg-card py-1 shadow-xl">
+                  {SORT_OPTIONS.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => { setSortBy(s.key); setPage(1); setShowSort(false); }}
+                      className={
+                        'font-body w-full px-4 py-2.5 text-left text-xs transition-colors hover:bg-teal/10 ' +
+                        (sortBy === s.key ? 'font-bold text-ink' : 'text-ink/55')
+                      }
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <p className="font-body text-sm text-ink/50 hidden sm:block">
-                <span className="text-ink font-semibold">{products.length}</span>
-                <span className="text-ink/40"> / </span>
-                <span className="text-ink font-semibold">
-                  {totalItems == null ? products.length : totalItems}
-                  {totalIsExact === false ? '+' : ''}
-                </span>{' '}
-                items
-              </p>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowSort((v) => !v)}
-                  className="font-body flex items-center gap-1.5 px-3 py-2 rounded-xl border border-ink/10 bg-card text-xs font-medium hover:bg-teal/10 transition-colors"
-                >
-                  <ArrowUpDown size={12} />{SORT_OPTIONS.find((s) => s.key === sortBy)?.label}
-                </button>
-                {showSort && (
-                  <div className="absolute right-0 top-full mt-1.5 bg-card border border-ink/10 rounded-xl shadow-xl z-20 py-1 min-w-[160px]">
-                    {SORT_OPTIONS.map((s) => (
-                      <button
-                        key={s.key}
-                        type="button"
-                        onClick={() => { setSortBy(s.key); setPage(1); setShowSort(false); }}
-                        className={
-                          'font-body w-full text-left px-4 py-2.5 text-xs transition-colors hover:bg-teal/10 ' +
-                          (sortBy === s.key ? 'font-bold text-ink' : 'text-ink/55')
-                        }
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           </div>
+        </div>
 
-          {/* ── Error ── */}
-          {error && (
-            <div className="mb-8 flex items-start gap-3 p-4 rounded-2xl border border-gold/40 bg-gold/10">
-              <AlertCircle size={16} className="text-gold-deep shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-ink mb-0.5 font-body">Could not load products</p>
-                <p className="text-xs text-ink/55 font-body">{error}</p>
-                <button
-                  type="button"
-                  onClick={() => fetchProducts(category, page, search, sortBy)}
-                  className="mt-2 text-xs font-semibold text-ink underline hover:no-underline font-body"
-                >
-                  Try again
-                </button>
-              </div>
+        {/* ── Error ── */}
+        {error && (
+          <div className="mb-8 flex items-start gap-3 rounded-2xl border border-gold/40 bg-gold/10 p-4">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-gold-deep" />
+            <div>
+              <p className="font-body mb-0.5 text-sm font-semibold text-ink">Could not load products</p>
+              <p className="font-body text-xs text-ink/55">{error}</p>
+              <button
+                type="button"
+                onClick={() => fetchProducts(category, page, search, sortBy)}
+                className="font-body mt-2 text-xs font-semibold text-ink underline hover:no-underline"
+              >
+                Try again
+              </button>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ── Product grid ── */}
-          {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8">
-              {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
-            </div>
-          ) : products.length === 0 && !error ? (
-            <div className="py-20 text-center text-ink/50">
-              <PackageSearch size={40} className="mx-auto mb-4 text-ink/20" />
-              <p className="text-sm font-body">No products found.</p>
-              {(category || search) && (
-                <button
-                  type="button"
-                  onClick={() => { handleCategory({ handle: '', title: '' }); setSearch(''); setSearchInput(''); }}
-                  className="mt-3 text-xs font-semibold text-ink underline hover:no-underline font-body"
-                >
-                  Clear filters
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8">
-              {products.map((p) => (
-                <ProductCard key={p.id} product={p} platform={platform} onAdd={addToCart} />
-              ))}
-            </div>
-          )}
-
-          {/* ── Pagination ── */}
-          {!loading && !error && products.length > 0 && (
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              onPrev={() => goToPage(Math.max(1, page - 1))}
-              onNext={() => goToPage(page + 1)}
-              onGoto={goToPage}
-            />
-          )}
-
-          {/* ── Footer ── */}
-          <div className="mt-16 pt-8 border-t border-ink/10 grid grid-cols-1 sm:grid-cols-3 gap-8">
-            {[
-              { title: `About ${store.name}`, body: store.description },
-              {
-                title: 'How buying works',
-                body: 'Browse here, add to bag, then order via WhatsApp. We confirm price and availability with the seller and ship it to you.',
-              },
-              {
-                title: 'Shipping & payment',
-                body: 'International shipping to our local warehouse network, then onward delivery. Cash on delivery available on most orders.',
-              },
-            ].map((s) => (
-              <div key={s.title}>
-                <p className="font-body text-xs font-bold text-ink uppercase tracking-wider mb-2">{s.title}</p>
-                <p className="font-body text-xs text-ink/55 leading-relaxed">{s.body}</p>
-              </div>
+        {/* ── Product grid ── */}
+        {loading ? (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
+          </div>
+        ) : products.length === 0 && !error ? (
+          <div className="py-20 text-center text-ink/50">
+            <PackageSearch size={40} className="mx-auto mb-4 text-ink/20" />
+            <p className="font-body text-sm">No products found.</p>
+            {(category || search) && (
+              <button
+                type="button"
+                onClick={() => { handleCategory({ handle: '', title: '' }); setSearch(''); setSearchInput(''); }}
+                className="font-body mt-3 text-xs font-semibold text-ink underline hover:no-underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
+            {products.map((p, i) => (
+              <ProductCard key={p.id} product={p} platform={platform} index={i} />
             ))}
           </div>
+        )}
 
+        {/* ── Pagination ── */}
+        {!loading && !error && products.length > 0 && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPrev={() => goToPage(Math.max(1, page - 1))}
+            onNext={() => goToPage(page + 1)}
+            onGoto={goToPage}
+          />
+        )}
+
+        {/* ── Footer ── */}
+        <div className="mt-16 grid grid-cols-1 gap-8 border-t border-ink/10 pb-16 pt-8 sm:grid-cols-3">
+          {[
+            { title: `About ${store.name}`, body: store.description },
+            {
+              title: 'How buying works',
+              body: 'Browse here, add to bag, then order via WhatsApp. We confirm price and availability with the seller and ship it to you.',
+            },
+            {
+              title: 'Shipping & payment',
+              body: 'International shipping to our local warehouse network, then onward delivery. Cash on delivery available on most orders.',
+            },
+          ].map((s) => (
+            <div key={s.title}>
+              <p className="font-body mb-2 text-xs font-bold uppercase tracking-wider text-ink">{s.title}</p>
+              <p className="font-body text-xs leading-relaxed text-ink/55">{s.body}</p>
+            </div>
+          ))}
         </div>
+
       </div>
 
       {cartOpen && (
@@ -1085,10 +989,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
 }
 
 // ─── Default export ─────────────────────────────────────────────────────────
-// useSearchParams() requires a <Suspense> boundary in the App Router, or
-// Next throws a build-time error ("useSearchParams should be wrapped in a
-// suspense boundary"). The fallback renders instantly and invisibly since
-// this is a client-rendered page with no server data dependency here.
+// useSearchParams() requires a <Suspense> boundary in the App Router.
 export default function StoreCatalogClient({ store }: { store: AffiliatedStore }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-parchment" />}>
