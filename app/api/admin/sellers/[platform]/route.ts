@@ -1,8 +1,8 @@
 // app/api/admin/sellers/[platform]/route.ts
 //
 // GET    -> fetch one seller by platform slug (admin view)
-// PATCH  -> update profile fields and/or provider_config; also used for
-//           deactivate (PATCH { status: 'inactive' })
+// PATCH  -> update profile fields (incl. logo + cover) and/or provider_config;
+//           also used for deactivate (PATCH { status: 'inactive' })
 // DELETE -> hard-delete the seller outright — Manager (and Super Admin)
 //           only, per the platform's delete policy. Sales & Purchase
 //           gets deactivate (the PATCH above) but never this.
@@ -46,6 +46,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
     notes,
     status,
     providerConfig,
+    logoUrl,  // string = set; undefined = leave alone
+    coverUrl, // string = set; null = clear; undefined = leave alone
   } = body
 
   const patch: Database['public']['Tables']['sellers']['Update'] = {}
@@ -56,6 +58,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
   if (contactPhone !== undefined) patch.contact_phone = contactPhone
   if (notes !== undefined) patch.notes = notes
   if (status !== undefined) patch.status = status
+  if (logoUrl !== undefined) patch.logo_url = logoUrl || null
+  if (coverUrl !== undefined) patch.cover_url = coverUrl || null
   if (providerConfig !== undefined) {
     patch.provider_type = providerConfig.type
     patch.provider_config = providerConfig
@@ -95,9 +99,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   // cascade-deletes on seller_id (see Wishdrop-supabase-schema.sql), so an
   // unguarded delete would silently wipe out every one of this seller's
   // listings along with it. Deactivate the seller (or move/delete its
-  // products first) if that's genuinely intended — this mirrors the same
-  // "don't orphan/silently destroy in-flight work" rule already applied to
-  // staff and warehouse-site deactivation elsewhere in this codebase.
+  // products first) if that's genuinely intended.
   const { count: productCount, error: countError } = await admin
     .from('products')
     .select('id', { count: 'exact', head: true })

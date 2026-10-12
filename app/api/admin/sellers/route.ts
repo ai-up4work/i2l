@@ -8,16 +8,12 @@
 // from /api/admin/sellers/pending-orders (see hooks/useSellerPendingOrderCounts.ts).
 //
 // Gated via requireStaffRole(SOURCING_ROLES) — Super Admin/Manager/Sales &
-// Purchase only, per the permission matrix (Warehouse has no functional
-// need for sourcing/catalogue data). See lib/supabase/admin-auth.ts.
+// Purchase only, per the permission matrix. See lib/supabase/admin-auth.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
-// Mirrors SellerStatus from data/sellers/data.ts. Kept as a small local
-// constant (rather than importing the client-side type) since this is the
-// one place we validate an admin-controlled string against it before it
-// touches the DB.
+// Mirrors SellerStatus from data/sellers/data.ts.
 const VALID_STATUSES = ['active', 'pending_review', 'inactive'] as const
 type ValidStatus = (typeof VALID_STATUSES)[number]
 
@@ -28,8 +24,8 @@ export async function GET() {
 
   // Wishdrop Mall (our own store, provider_type 'catalogue') is managed
   // from /admin/wishdrop-mall, not the seller wizard — keep it out of this
-  // list so nobody edits it as if it were a third-party feed. `or` rather
-  // than `neq` so rows with a NULL provider_type aren't dropped too.
+  // list. `or` rather than `neq` so rows with a NULL provider_type aren't
+  // dropped too.
   const { data, error } = await admin
     .from('sellers')
     .select('*')
@@ -55,16 +51,11 @@ export async function POST(req: NextRequest) {
     contactPhone,
     notes,
     logoUrl,
+    coverUrl, // optional — null/absent means "no cover" (brand gradient)
     providerConfig, // { type: 'mock'|'shopify'|'woocommerce'|'jsonapi'|'html-scrape', ...fields }
-    status, // optional — the seller wizard creates the row as soon as
-    // Method is confirmed (before Test & verify has run), so it decides
-    // up front whether this starts life as 'active' (mock — nothing to
-    // verify) or 'pending_review' (a real feed, unverified until the
-    // wizard's auto-run checklist passes or an admin confirms it by hand).
-    // Anything else the client might send (or omit) falls back to
-    // pending_review below, which is always the safe default — it just
-    // means the storefront won't surface the seller's products until
-    // someone/something verifies the feed.
+    status, // optional — the wizard decides 'active' (mock) vs 'pending_review'
+    // (real feed, unverified). Anything invalid/omitted falls back to
+    // pending_review, the safe default.
   } = body
 
   if (!storeName || !platform || !contactEmail) {
@@ -83,6 +74,7 @@ export async function POST(req: NextRequest) {
       type: providerConfig?.type === 'mock' || !providerConfig ? 'manual' : 'feed',
       outbound_url: storeUrl || null,
       logo_url: logoUrl || null,
+      cover_url: coverUrl || null,
       contact_name: contactName || null,
       contact_email: contactEmail,
       contact_phone: contactPhone || null,
