@@ -2198,7 +2198,7 @@ export default function SellerFormClient({
                         <img
                           src={resolveLogoUrl(storeLogo, form.storeName)}
                           alt="Store logo"
-                          className="h-full w-full scale-125 object-contain"
+                          className="h-full w-full scale-125 object-cover"
                         />
                       </span>
                       {!storeCover && (
