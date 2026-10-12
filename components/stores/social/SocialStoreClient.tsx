@@ -17,7 +17,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowUpDown, ChevronRight, PackageSearch, Search, Share2, ShieldCheck, Truck, MessageCircle, X } from 'lucide-react'
+import { ArrowUpDown, ChevronRight, Search, SearchX, Share2, ShieldCheck, Sparkles, Truck, MessageCircle, X } from 'lucide-react'
 import { FaFacebookF, FaInstagram } from 'react-icons/fa'
 import type { AffiliatedStore } from '@/data/stores/data'
 import type { StoreApiResponse, StoreProduct } from '@/lib/store.types'
@@ -164,6 +164,13 @@ function Inner({ store }: { store: AffiliatedStore }) {
     }
   }
 
+  function clearFilters() {
+    setCategory('')
+    setCollection('')
+    setSearch('')
+    setSearchInput('')
+  }
+
   function share() {
     if (navigator.share) navigator.share({ title: store.name, url: window.location.href }).catch(() => {})
     else navigator.clipboard?.writeText(window.location.href).catch(() => {})
@@ -171,6 +178,7 @@ function Inner({ store }: { store: AffiliatedStore }) {
 
   const about = store.description?.trim()
   const chips: Category[] = [{ handle: '', title: 'All' }, ...categories]
+  const filtered = Boolean(category || search || collection)
 
   return (
     <div className="min-h-screen bg-parchment">
@@ -499,7 +507,7 @@ function Inner({ store }: { store: AffiliatedStore }) {
 
       {/* ── Grid ── */}
       <div ref={gridRef} className="mx-auto w-full max-w-6xl px-4 pb-16 pt-5 sm:px-10">
-        {!loading && !error && total != null && (
+        {!loading && !error && total != null && total > 0 && (
           <p className="mb-3 font-body text-xs text-ink/50">
             {total} item{total === 1 ? '' : 's'}
             {collection && <> in {collections.find((c) => c.slug === collection)?.name ?? 'this collection'}</>}
@@ -526,22 +534,40 @@ function Inner({ store }: { store: AffiliatedStore }) {
             ))}
           </div>
         ) : products.length === 0 ? (
-          <div className="py-20 text-center text-ink/50">
-            <PackageSearch size={40} className="mx-auto mb-4 text-ink/20" />
-            <p className="font-body text-sm">{category || search || collection ? 'Nothing matches that.' : 'This store has no products yet.'}</p>
-            {(category || search || collection) && (
+          /* ── Empty state: flat and quiet, like the rest of the page ── */
+          <div className="flex flex-col items-center px-4 py-16 text-center sm:py-20">
+            {filtered ? (
+              <SearchX size={36} strokeWidth={1.5} className="mb-4 text-ink/25" />
+            ) : (
+              <Sparkles size={36} strokeWidth={1.5} className="mb-4 text-ink/25" />
+            )}
+
+            <h3 className="font-display text-lg font-bold text-ink">
+              {filtered ? 'Nothing matches that' : 'New items coming soon'}
+            </h3>
+            <p className="mt-1 max-w-xs font-body text-sm leading-relaxed text-ink/55">
+              {filtered
+                ? search
+                  ? `No results for “${search}”. Try a different word.`
+                  : 'Try another category or collection.'
+                : `${store.name} hasn't added anything yet. Follow the store to hear when items arrive.`}
+            </p>
+
+            {filtered ? (
               <button
                 type="button"
-                onClick={() => {
-                  setCategory('')
-                  setCollection('')
-                  setSearch('')
-                  setSearchInput('')
-                }}
-                className="mt-3 font-body text-xs font-semibold text-ink underline"
+                onClick={clearFilters}
+                className="mt-5 rounded-full border border-ink bg-ink px-4 py-1.5 font-body text-xs font-semibold text-white"
               >
                 Show everything
               </button>
+            ) : (
+              <Link
+                href="/stores"
+                className="mt-5 rounded-full border border-ink/15 bg-card px-4 py-1.5 font-body text-xs font-semibold text-ink/65 transition-colors hover:text-ink"
+              >
+                Browse other stores
+              </Link>
             )}
           </div>
         ) : (

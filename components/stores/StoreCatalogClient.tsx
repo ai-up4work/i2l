@@ -6,7 +6,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
-  Sparkles, PackageSearch,
+  Sparkles, PackageSearch, SearchX,
 } from 'lucide-react';
 import type { AffiliatedStore as BaseStore } from '@/components/dashboard/data';
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores';
@@ -702,8 +702,14 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   };
   const handleSearch = () => { setSearch(searchInput.trim()); setPage(1); };
   const goToPage = (pg: number) => { setPage(pg); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const clearFilters = () => {
+    handleCategory({ handle: '', title: '' });
+    setSearch('');
+    setSearchInput('');
+  };
 
   const cartQty = cart.reduce((s, i) => s + i.qty, 0);
+  const filtered = Boolean(category || search);
 
   return (
     <div className="min-h-screen bg-parchment">
@@ -864,15 +870,17 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <p className="font-body hidden text-sm text-ink/50 sm:block">
-              <span className="font-semibold text-ink">{products.length}</span>
-              <span className="text-ink/40"> / </span>
-              <span className="font-semibold text-ink">
-                {totalItems == null ? products.length : totalItems}
-                {totalIsExact === false ? '+' : ''}
-              </span>{' '}
-              items
-            </p>
+            {products.length > 0 && (
+              <p className="font-body hidden text-sm text-ink/50 sm:block">
+                <span className="font-semibold text-ink">{products.length}</span>
+                <span className="text-ink/40"> / </span>
+                <span className="font-semibold text-ink">
+                  {totalItems == null ? products.length : totalItems}
+                  {totalIsExact === false ? '+' : ''}
+                </span>{' '}
+                items
+              </p>
+            )}
             <div className="relative">
               <button
                 type="button"
@@ -927,17 +935,40 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
             {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
           </div>
         ) : products.length === 0 && !error ? (
-          <div className="py-20 text-center text-ink/50">
-            <PackageSearch size={40} className="mx-auto mb-4 text-ink/20" />
-            <p className="font-body text-sm">No products found.</p>
-            {(category || search) && (
+          /* ── Empty state: flat and quiet, like the rest of the page ── */
+          <div className="flex flex-col items-center px-4 py-16 text-center sm:py-20">
+            {filtered ? (
+              <SearchX size={36} strokeWidth={1.5} className="mb-4 text-ink/25" />
+            ) : (
+              <Sparkles size={36} strokeWidth={1.5} className="mb-4 text-ink/25" />
+            )}
+
+            <h3 className="font-display text-lg font-bold text-ink">
+              {filtered ? 'Nothing matches that' : 'New items coming soon'}
+            </h3>
+            <p className="mt-1 max-w-xs font-body text-sm leading-relaxed text-ink/55">
+              {filtered
+                ? search
+                  ? `No results for “${search}”. Try a different word.`
+                  : 'Try another category.'
+                : `${store.name} hasn't added anything yet. Follow the store to hear when items arrive.`}
+            </p>
+
+            {filtered ? (
               <button
                 type="button"
-                onClick={() => { handleCategory({ handle: '', title: '' }); setSearch(''); setSearchInput(''); }}
-                className="font-body mt-3 text-xs font-semibold text-ink underline hover:no-underline"
+                onClick={clearFilters}
+                className="mt-5 rounded-full border border-ink bg-ink px-4 py-1.5 font-body text-xs font-semibold text-white"
               >
-                Clear filters
+                Show everything
               </button>
+            ) : (
+              <Link
+                href="/stores"
+                className="mt-5 rounded-full border border-ink/15 bg-card px-4 py-1.5 font-body text-xs font-semibold text-ink/65 transition-colors hover:text-ink"
+              >
+                Browse other stores
+              </Link>
             )}
           </div>
         ) : (
