@@ -444,8 +444,8 @@ export function AdminSidebar() {
 
       <div className="flex h-16 flex-none items-center border-b border-ink/10 px-4">
         {collapsed ? (
-          <span className="mx-auto grid h-8 w-8 place-items-center rounded-lg bg-teal-deep font-display text-sm font-semibold leading-none text-parchment">
-            <img src="/store-icon/wishMall.png" alt="Wishdrop" className="h-4 w-auto object-contain" />
+          <span className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-teal-deep font-display text-sm font-semibold leading-none text-parchment">
+            <img src="/wishMall-transparent.png" alt="Wishdrop" className="h-10 w-auto object-contain rounded-lg" />
           </span>
         ) : (
           <Image src="/wish-drop-logo.png" alt="Wishdrop" width={120} height={32} className="h-9 w-auto object-contain" />
