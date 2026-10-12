@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ClipboardCheck,
   ExternalLink,
-  ImagePlus,
   Loader2,
   Package,
   Pencil,
@@ -48,6 +47,7 @@ import {
   type TestExtractorProductResult,
 } from '@/components/admin/seller/shared'
 import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/admin/seller/ProductCard'
+import StoreBrandingEditor from '@/components/admin/seller/StoreBrandingEditor'
 
 // ---------------------------------------------------------------------------
 // /admin/sellers/[sellerId] — Sales & Purchase Executive
@@ -55,7 +55,7 @@ import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/a
 // sellerId === 'new'  -> ADD mode: a 4-step wizard (Profile -> Method ->
 //                        Test & verify -> Review) with one Continue/Back
 //                        pair driving the whole thing, ending in a single
-//                        "Add seller" confirm.
+//                        "Finish" confirm.
 // sellerId === <slug> -> EDIT mode: everything loads as a read-only summary.
 //                        Profile and Method are independent cards, each with
 //                        its own "Edit" affordance that swaps just that card
@@ -72,82 +72,54 @@ import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/a
 // VERIFICATION MODEL (auto, not a hard gate):
 // A seller is never blocked from being created just because its feed
 // hasn't been confirmed working yet. Instead:
-//   - Reaching the "Test & verify" wizard step (ADD mode) auto-fires the
-//     simulation once, the same run the admin could trigger manually.
-//   - Submitting sends `status: 'active'` only if that run just passed
-//     cleanly (no failed checks); otherwise it sends `pending_review` and
-//     the seller is still created — just flagged as unverified.
+//   - The seller is created (as `pending_review`, or `active` for mock) the
+//     moment Method is confirmed; reaching "Test & verify" then auto-fires
+//     the simulation once, the same run the admin could trigger manually.
+//   - A clean run promotes the seller to `active` via PATCH; otherwise it
+//     stays `pending_review` — still created, just flagged as unverified.
 //   - In EDIT mode, if a seller is sitting in `pending_review`, opening its
 //     page auto-fires the same test once. If it now passes, the status is
-//     silently promoted to `active` via PATCH — no separate "verify"
-//     button, no separate screen. If it still fails, nothing changes; the
-//     admin fixes the Method card and saves, which is exactly the existing
-//     edit flow, and next load (or next manual "Run again") will retry the
-//     promotion.
-//   - Mock sellers (nothing to fetch) and any provider type this page
-//     can't actually test yet (html-scrape — see testPanel below) are
-//     never auto-promoted from here; mock goes `active` immediately since
-//     there's nothing to verify, html-scrape stays `pending_review` until
-//     someone verifies the selectors by hand.
+//     silently promoted to `active`. If it still fails, nothing changes; the
+//     admin fixes the Method card and saves, which retries the promotion.
+//   - Mock sellers (nothing to fetch) are never auto-promoted from here; mock
+//     goes `active` immediately since there's nothing to verify.
 //
 // Currency auto-detection (ADD mode, Method step only): as soon as a
 // live-feed provider (Shopify/WooCommerce) and a base URL are both in
-// place — whether that base URL arrived via the Profile step's store
-// auto-detect, or the admin typed/picked things directly on this step —
-// this page calls /api/admin/sellers/detect-currency, which reads the
-// REAL currency off that store's live cart endpoint. It only ever
+// place, this page calls /api/admin/sellers/detect-currency, which reads
+// the REAL currency off that store's live cart endpoint. It only ever
 // overwrites the Currency field if the admin hasn't typed into it
 // themselves (see currencyTouched) — a manual entry always wins.
 //
-// Store logo: the `storeLogo` state is shared by BOTH modes now. In ADD
-// mode it starts empty (nothing to show yet); in EDIT mode it's seeded
-// from the saved seller so the picker (once opened via the Profile card's
-// Edit button) previews the real logo, and Cancel reverts it. Either way,
-// whatever gets sent to the backend is passed through `resolveLogoUrl`
-// first — sellers.logo_url is presumably NOT NULL, so an empty string here
-// would fail the insert/update, and passing "" straight into next/image's
-// src attribute is also what was throwing the console warning.
+// Store branding (logo + cover): both images are edited through ONE control,
+// <StoreBrandingEditor>, which sits at the top of the Profile fields in
+// BOTH modes and previews them the way the storefront lays them out (cover
+// banner, circular logo overlapping its corner).
+//   - `storeLogo` is required in ADD mode, optional in EDIT mode.
+//   - `storeCover` is always optional; a store without one shows the brand
+//     gradient on its page.
+//   - Both are downsized in the browser (see StoreBrandingEditor) so the
+//     data URLs sent to the API stay small. A real backend should upload
+//     them to storage and keep only the URL.
+//   - `logoUrl` is always passed through `resolveLogoUrl` before sending —
+//     sellers.logo_url is presumably NOT NULL. `coverUrl` is NOT resolved:
+//     null means "no cover" (PATCH null = clear, undefined = leave alone).
 //
 // Collections panel (EDIT mode, inside the Method card): shows this
 // seller's REAL, LIVE store collections/categories — fetched straight off
-// their own feed via /api/admin/sellers/[platform]/collections (which
-// wraps the same fetchShopifyCollections / fetchWooCommerceCategories /
-// fetchJsonApiCategories helpers the storefront itself uses), NOT any
-// curated site-wide `collections` table. There's no "curated collection"
-// concept here at all — this is simply "what native groupings does this
-// seller's own store have, and how many products sit in each."
-//
-// Two display-layer cleanups happen client-side (not in the API, which
-// stays a faithful mirror of the store):
-//   - De-duplication by name, keeping the higher count — some Shopify
-//     stores have two collections sharing a display title (e.g. an
-//     auto-created "frontpage" collection and a merchant-made
-//     "new-arrivals" collection both titled "New Arrivals").
-//   - Filtering out collections that are really just per-size storefront
-//     filters (e.g. "XL / Bust Size 42") rather than genuine
-//     merchandising groupings — see SIZE_COLLECTION_PATTERN below. This is
-//     a best-effort name match; Shopify's API has no structural way to
-//     distinguish a merchandising collection from a size-filter one, both
-//     are just `collections` rows under the hood.
-//
-// Placed inside the Method card — rather than as its own third card —
-// specifically so it can absorb whatever vertical space Method leaves
-// unused, making the Method card's total height track the Profile card's
-// instead of the two ending at visibly different heights. The list itself
-// is capped at a fixed max-height with internal scroll (rather than
-// relying on flex-1 to fill ambient space) since a real store can easily
-// have 30+ collections and this page has no viewport-bounded ancestor to
-// make a flex-grow approach reliably work.
+// their own feed via /api/admin/sellers/[platform]/collections, NOT any
+// curated site-wide `collections` table. Two display-layer cleanups happen
+// client-side (the API stays a faithful mirror of the store):
+//   - De-duplication by name, keeping the higher count.
+//   - Filtering out per-size storefront filters (see SIZE_COLLECTION_PATTERN).
+// The list is capped at a fixed max-height with internal scroll.
 //
 // Shopify category mapping (Method card, Shopify provider only): lets the
 // admin map the site's own category names onto THIS seller's actual
-// Shopify collection handles, fetched live off their store via
-// /api/admin/sellers/detect-collections (which wraps
-// lib/store-providers/shopify.ts's fetchShopifyCollections). The result is
-// saved as providerConfig.collectionMap, which fetchShopifyProducts
-// consults when a shopper filters by category. WooCommerce/JSON/HTML
-// providers have no equivalent yet, so this block only renders for
-// providerType === 'shopify'.
+// Shopify collection handles, fetched live via
+// /api/admin/sellers/detect-collections. Saved as
+// providerConfig.collectionMap, which fetchShopifyProducts consults when a
+// shopper filters by category.
 // ---------------------------------------------------------------------------
 
 const WIZARD_STEPS = ['Profile', 'Method', 'Test & verify', 'Review'] as const
@@ -168,22 +140,16 @@ interface SellerCollection {
 }
 
 // Matches size-only collections some Shopify merchants create purely for
-// storefront filter navigation (e.g. a smart collection with rule
-// "variant option Size = XL") rather than genuine merchandising
-// collections — e.g. "XL / Bust Size 42", "2XL / Bust Size 44",
-// "S / Bust Size 36". This is a best-effort NAME pattern match: Shopify's
-// API has no field distinguishing "this collection is a size filter" from
-// "this collection is a real merchandising grouping" — both are just rows
-// in `collections`. Extend this pattern if other stores use a different
-// size-labelling convention.
+// storefront filter navigation (e.g. "XL / Bust Size 42") rather than
+// genuine merchandising collections. Best-effort NAME match: Shopify's API
+// has no field distinguishing the two. Extend if other stores use a
+// different size-labelling convention.
 const SIZE_COLLECTION_PATTERN = /^(XS|S|M|L|XL|XXL|2XL|3XL)\s*\/\s*.*Size/i
 
-// One row of the site-category -> seller's-Shopify-collection-handle
-// mapping (Shopify sellers only). `handle` is the seller's real Shopify
-// collection handle, fetched live off their store; `category` is typed
-// freely since the site's master category list isn't available to this
-// component — swap the free-text input below for a <select> sourced from
-// your real category list if/when that's wired in.
+// One row of the site-category -> seller's-collection mapping. `handle` is
+// the seller's real Shopify collection handle (or, for html-scrape, a
+// path/URL on the source site); `category` is typed freely since the site's
+// master category list isn't available to this component.
 interface CategoryMappingRow {
   category: string
   handle: string
@@ -220,44 +186,17 @@ export default function SellerFormClient({
   })
   const [profileSaved, setProfileSaved] = useState(false)
 
-  // ---- Store logo. Seeded from the saved seller in EDIT mode (so the
-  // picker previews the real logo once opened); empty in ADD mode until
-  // the admin picks a file. Stored as a data URL for this demo; a real
-  // backend would want a proper upload endpoint returning a hosted URL
-  // instead of inlining base64 into the payload.
-  const MAX_LOGO_BYTES = 2 * 1024 * 1024
+  // ---- Store branding (logo + cover). Seeded from the saved seller in
+  // EDIT mode; empty in ADD mode until picked. `cover` isn't on the
+  // AdminSeller type yet, so it's read through a cast — drop the cast once
+  // `cover?: string | null` is added to AdminSeller['store'].
+  const savedCover = (seller?.store as unknown as { cover?: string | null } | undefined)?.cover ?? null
   const [storeLogo, setStoreLogo] = useState<string | null>(seller?.store.logo || null)
-  const [logoError, setLogoError] = useState<string | null>(null)
+  const [storeCover, setStoreCover] = useState<string | null>(savedCover)
   // ADD mode only: whether the admin has already tried to move past the
   // logo requirement without one, so we don't flash a "required" error
-  // before they've even had a chance to pick a file.
+  // before they've had a chance to pick a file.
   const [logoRequiredTouched, setLogoRequiredTouched] = useState(false)
-
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = '' // reset so re-picking the same file still fires onChange
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setLogoError('Please choose an image file.')
-      return
-    }
-    if (file.size > MAX_LOGO_BYTES) {
-      setLogoError('That image is too large \u2014 please choose one under 2MB.')
-      return
-    }
-    setLogoError(null)
-    const reader = new FileReader()
-    reader.onload = () => setStoreLogo(typeof reader.result === 'string' ? reader.result : null)
-    reader.onerror = () => setLogoError("Couldn't read that file \u2014 try a different image.")
-    reader.readAsDataURL(file)
-  }
-
-  const handleRemoveLogo = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setStoreLogo(null)
-    setLogoError(null)
-  }
 
   const set =
     (key: keyof typeof form) =>
@@ -288,9 +227,8 @@ export default function SellerFormClient({
     form.storeName.trim().length > 0 && form.platform.length > 0 && form.contactEmail.trim().length > 0
   // Only enforced in ADD mode — a seller already saved without a logo
   // shouldn't suddenly block profile edits, but a NEW seller can't be
-  // added until a store image has been picked and it passed validation
-  // (right file type, under the size limit, read successfully).
-  const logoValid = !isNew || (!!storeLogo && !logoError)
+  // added until a store logo has been picked.
+  const logoValid = !isNew || !!storeLogo
   const canSubmit = profileValid && logoValid
 
   const [savingProfile, setSavingProfile] = useState(false)
@@ -312,9 +250,11 @@ export default function SellerFormClient({
           contactPhone: form.contactPhone,
           notes: form.notes,
           // Always resolved so we never PATCH an empty logo_url over a
-          // perfectly good saved one (e.g. if storeLogo somehow ended up
-          // null without the admin meaning to remove it).
+          // perfectly good saved one.
           logoUrl: resolveLogoUrl(storeLogo, form.storeName),
+          // null = no cover (clears a saved one); the page falls back to
+          // the brand gradient.
+          coverUrl: storeCover,
         }),
       })
       const body = await res.json()
@@ -351,8 +291,7 @@ export default function SellerFormClient({
       setDeactivating(false)
     }
   }
-  // Turns a deactivated seller back on. (There used to be no way back
-  // from Deactivate on this page.)
+  // Turns a deactivated seller back on.
   const [activating, setActivating] = useState(false)
   const handleActivate = async () => {
     if (!seller) return
@@ -377,18 +316,14 @@ export default function SellerFormClient({
   // ---- Seller portal login ----
   // Provisions a real Supabase auth user for this seller and links it via
   // sellers.owner_user_id (see app/api/admin/sellers/[platform]/create-login).
-  // That route already existed with no UI caller anywhere — this is the
-  // missing other half. `hasLogin` starts from the server-fetched seller
-  // (mapDbRowToAdminSeller already computes it as Boolean(owner_user_id))
-  // but is tracked in local state too, so a successful creation flips the
-  // UI immediately without needing a full page reload.
+  // `hasLogin` starts from the server-fetched seller but is tracked in local
+  // state too, so a successful creation flips the UI without a reload.
   const [loginEmail, setLoginEmail] = useState(seller?.admin.contactEmail ?? '')
   const [hasLogin, setHasLogin] = useState(seller?.admin.hasLogin ?? false)
   const [creatingLogin, setCreatingLogin] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   // Holds the one-time temp password just long enough to show/copy it —
-  // the API never returns it again on subsequent calls, so this is the
-  // only place it's ever visible.
+  // the API never returns it again, so this is the only place it's visible.
   const [createdLogin, setCreatedLogin] = useState<{ email: string; tempPassword: string } | null>(null)
 
   // Seller forgot their password: issue a new temporary one for the same
@@ -444,49 +379,31 @@ export default function SellerFormClient({
   const [currency, setCurrency] = useState(cfg?.currency ?? '')
 
   // Keyed off the LIVE `providerType` state, not `seller.providerConfig.type`
-  // (the value the server component fetched when the page first loaded).
-  // Using the stale prop meant switching a seller from mock to a real feed
-  // (or back) in the Method card and saving wouldn't turn the "Products
-  // (live)" stat on/off — it'd keep showing whatever was true at initial
-  // page load until a full reload re-ran the server component.
+  // (the value the server component fetched on first load), so switching a
+  // seller between mock and a real feed and saving turns the "Products
+  // (live)" stat on/off immediately.
   //
   // anishka-creation is a deliberate exception: its saved provider_config
-  // is 'mock' (the honest label once html-scrape's selectors went unused —
-  // see lib/store-providers/sellers/anishka-creation.ts), but it has a
-  // real hardcoded feed behind it that the live-count route already knows
-  // to call by platform slug. Without this OR, "Products (live)" would
-  // stay permanently off for the one seller that actually has a working
-  // live count to show.
+  // is 'mock', but it has a real hardcoded feed behind it that the
+  // live-count route already knows to call by platform slug.
   const isLiveFeedStats = !isNew && !!seller && (providerType !== 'mock' || seller.platform === 'anishka-creation')
   const live = useLiveProductCount(seller?.platform ?? '', isLiveFeedStats)
 
   // Currency auto-detection state. `currencyTouched` starts true in EDIT
-  // mode (there's already a saved value; typing to CHANGE the provider
-  // config shouldn't silently clobber it) and false in ADD mode, where an
-  // empty field is exactly what auto-detection is for. Any manual edit to
-  // the field sets this true for the rest of the session, same pattern as
-  // baseUrlTouched above.
+  // mode (there's already a saved value) and false in ADD mode, where an
+  // empty field is exactly what auto-detection is for.
   const [currencyTouched, setCurrencyTouched] = useState(!isNew)
   const [detectingCurrency, setDetectingCurrency] = useState(false)
   const [currencyDetected, setCurrencyDetected] = useState(false)
   const [currencyDetectError, setCurrencyDetectError] = useState<string | null>(null)
 
   // ---- Shopify collection list + category mapping (Shopify only) ----
-  // Fetches the SELLER's real collections (via /api/admin/sellers/detect-collections,
-  // which wraps lib/store-providers/shopify.ts's fetchShopifyCollections)
-  // so the admin can map the site's own category names onto this seller's
-  // actual collection handles. That mapping becomes providerConfig.collectionMap,
-  // which fetchShopifyProducts consults when a shopper filters by category.
   const [shopifyCollections, setShopifyCollections] = useState<{ handle: string; title: string }[]>([])
   const [collectionsFetching, setCollectionsFetching] = useState(false)
   const [collectionsFetchError, setCollectionsFetchError] = useState<string | null>(null)
   const [collectionsFetchedFor, setCollectionsFetchedFor] = useState<string | null>(null)
 
-  // Seeded from the saved config in EDIT mode; empty rows in ADD mode
-  // until the admin adds one. `(cfg as any)` because ShopifyProviderConfig's
-  // full field list isn't visible from this file — replace with a proper
-  // `cfg.type === 'shopify' ? cfg.collectionMap : undefined` once that
-  // type is confirmed to include collectionMap.
+  // Seeded from the saved config in EDIT mode; empty rows in ADD mode.
   const [categoryMapping, setCategoryMapping] = useState<CategoryMappingRow[]>(() => {
     const existing = cfg?.type === 'shopify' ? (cfg as { collectionMap?: Record<string, string> }).collectionMap : undefined
     return existing ? Object.entries(existing).map(([category, handle]) => ({ category, handle })) : []
@@ -522,10 +439,7 @@ export default function SellerFormClient({
   const updateCategoryMappingRow = (index: number, patch: Partial<CategoryMappingRow>) =>
     setCategoryMapping((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
 
-  // Trigger the fetch whenever a Shopify base URL becomes available:
-  // as soon as the admin lands on Method with an existing baseUrl (EDIT
-  // mode, or ADD mode after auto-detect filled it in), and again anytime
-  // they blur a manually-typed/changed base URL field.
+  // Trigger the fetch whenever a Shopify base URL becomes available.
   useEffect(() => {
     if (providerType === 'shopify' && baseUrl.trim()) {
       fetchSellerCollections(baseUrl.trim())
@@ -590,21 +504,15 @@ export default function SellerFormClient({
     cfg?.type === 'html-scrape' ? cfg.selectors : DEFAULT_HTML_SELECTORS
   )
   const [listingUrl, setListingUrl] = useState(cfg?.type === 'html-scrape' ? cfg.listingUrl : '')
-  // Off by default \u2014 most html-scrape sellers are the classic one-page-
+  // Off by default — most html-scrape sellers are the classic one-page-
   // per-product case. Only turn this on for a listing whose OWN detail
-  // page lists several purchasable items itself (see DEFAULT_DETAIL_SELECTORS's
-  // comment) \u2014 flipping it on is what actually adds `detail` to the saved
-  // config; leaving it off keeps the config exactly as before, `detail: undefined`.
+  // page lists several purchasable items itself (see DEFAULT_DETAIL_SELECTORS).
   const [useDetailItems, setUseDetailItems] = useState(cfg?.type === 'html-scrape' && Boolean(cfg.detail))
   const [detailSelectors, setDetailSelectors] = useState<DetailSelectorsState>(
     cfg?.type === 'html-scrape' && cfg.detail ? cfg.detail : DEFAULT_DETAIL_SELECTORS
   )
   // Per-category listing pages (html-scrape's equivalent of Shopify's
-  // collectionMap) — reuses the same {category, handle} row shape, with
-  // `handle` here holding a path/URL on the source site rather than a
-  // Shopify collection handle. Manual entry only (no live-detect endpoint
-  // to fetch these from the way Shopify's detect-collections route does),
-  // since an arbitrary scraped site has no structured category API.
+  // collectionMap) — `handle` here holds a path/URL on the source site.
   const [htmlCategoryMap, setHtmlCategoryMap] = useState<CategoryMappingRow[]>(() => {
     const existing = cfg?.type === 'html-scrape' ? cfg.categoryMap : undefined
     return existing ? Object.entries(existing).map(([category, handle]) => ({ category, handle })) : []
@@ -620,8 +528,7 @@ export default function SellerFormClient({
   const [configSaved, setConfigSaved] = useState(false)
 
   // Tracks whether the config has changed since the last simulation run, so
-  // the Test panel can flag itself stale instead of silently showing
-  // results for a config that no longer matches what's on screen.
+  // the Test panel can flag itself stale.
   const [lastTestedSignature, setLastTestedSignature] = useState<string | null>(null)
   const currentSignature = JSON.stringify({
     providerType,
@@ -661,9 +568,7 @@ export default function SellerFormClient({
     }
 
     // Switching provider type changes which live currency source (if any)
-    // applies, so re-check immediately whenever there's already a base URL
-    // on screen — e.g. the admin picked Shopify first, base URL got
-    // filled, then they realise it's actually WooCommerce and switch.
+    // applies, so re-check immediately whenever there's already a base URL.
     if (isNew && (value === 'shopify' || value === 'woocommerce') && urlForCurrency.trim()) {
       runDetectCurrency(urlForCurrency.trim(), value)
     }
@@ -682,9 +587,9 @@ export default function SellerFormClient({
     }
   }
 
-  // Shared by handleSaveConfig (EDIT mode) and createSellerRecord/syncCreatedRecord (ADD mode) —
-  // shapes the current Method-step state into the StoreProviderConfig JSON
-  // the sellers table's provider_config column expects.
+  // Shared by handleSaveConfig (EDIT mode) and createSellerRecord /
+  // syncCreatedRecord (ADD mode) — shapes the current Method state into the
+  // StoreProviderConfig JSON the sellers table's provider_config column expects.
   const buildProviderConfigPayload = (): Record<string, unknown> => {
     if (providerType === 'mock') return { type: 'mock' }
     if (providerType === 'shopify' || providerType === 'woocommerce') {
@@ -692,9 +597,7 @@ export default function SellerFormClient({
         type: providerType,
         baseUrl,
         currency: currency || undefined,
-        // Only Shopify actually has a use for this right now (see
-        // fetchShopifyProducts) — WooCommerce sellers still get `undefined`
-        // here, which keeps the payload shape the same either way.
+        // Only Shopify has a use for this right now (see fetchShopifyProducts).
         collectionMap:
           providerType === 'shopify' && categoryMapping.some((r) => r.category.trim() && r.handle.trim())
             ? Object.fromEntries(
@@ -735,15 +638,12 @@ export default function SellerFormClient({
       setConfigSaved(true)
       setEditingMethod(false)
       window.setTimeout(() => setConfigSaved(false), 2000)
-      // baseUrl/providerType aren't in useLiveProductCount's own dependency
-      // list (only platform + enabled are), so a saved feed change would
-      // otherwise sit there showing the OLD count until something else
-      // remounted the hook. Kick it explicitly.
+      // baseUrl/providerType aren't in useLiveProductCount's dependency
+      // list, so a saved feed change would otherwise keep showing the OLD
+      // count. Kick it explicitly.
       live.refresh()
-      // Config just changed — re-run verification against the new config
-      // so a fix immediately has a chance to auto-promote the seller back
-      // to active (see runSimulation's auto-promote block below), instead
-      // of leaving it pending_review until the next unrelated page load.
+      // Config just changed — re-run verification so a fix immediately has
+      // a chance to auto-promote the seller back to active.
       if (providerType !== 'mock') {
         runSimulation()
       }
@@ -819,11 +719,8 @@ export default function SellerFormClient({
               : { ...prev, storeName: data.storeName!, platform: prev.platformTouched ? prev.platform : slugify(data.storeName!) }
           )
         }
-        // onProviderTypeChange above already tries a currency lookup, but
-        // it only had the STALE baseUrl in scope (setBaseUrl(data.baseUrl)
-        // hasn't committed yet when that call fires). Re-run it here
-        // against the freshly detected URL so a manually-typed provider
-        // switch and a detected one behave identically.
+        // onProviderTypeChange above only had the STALE baseUrl in scope,
+        // so re-run the currency lookup against the freshly detected URL.
         runDetectCurrency(data.baseUrl || url, data.type)
       }
     } catch (e) {
@@ -843,26 +740,19 @@ export default function SellerFormClient({
 
   // Whether the MOST RECENT completed run passed cleanly (ok + zero failed
   // checks). Computed from a local tally inside runSimulation rather than
-  // read back off `checkStates`/`summary` React state, since those updates
-  // are async and we need a trustworthy answer the instant the run ends —
-  // both to decide the initial status on submit (ADD mode) and to decide
-  // whether to auto-promote pending_review -> active (EDIT mode).
+  // read back off React state, since those updates are async and we need a
+  // trustworthy answer the instant the run ends.
   const [lastRunPassed, setLastRunPassed] = useState<boolean | null>(null)
 
-  // ADD mode's wizard step. Declared here (rather than down in the
-  // "ADD mode: wizard" section below, where it used to live) because the
-  // auto-run effect right after runSimulation needs to read `step` — and
-  // a useEffect referencing a useState that's declared later in the same
-  // component throws "Cannot access 'step' before initialization" the
-  // first time this component renders.
+  // ADD mode's wizard step. Declared here (not down in the wizard section)
+  // because the auto-run effect right after runSimulation reads `step`, and
+  // a useEffect referencing a later-declared useState throws "Cannot access
+  // 'step' before initialization".
   const [step, setStep] = useState(0)
 
-  // ADD mode only: the seller is now created the moment Method (step 1) is
-  // confirmed — see goNext — not at the very end of the wizard. This holds
-  // the platform slug of that just-created record once it exists, so Test
-  // & verify (and its auto-promote logic below) and the final Review step
-  // can PATCH the real row instead of only editing local component state.
-  // Stays null until creation succeeds.
+  // ADD mode only: the seller is created the moment Method (step 1) is
+  // confirmed — see goNext. This holds the platform slug of that
+  // just-created record so Test & verify and Review can PATCH the real row.
   const [createdPlatform, setCreatedPlatform] = useState<string | null>(null)
   const [creatingStore, setCreatingStore] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -872,10 +762,7 @@ export default function SellerFormClient({
   const [manualResult, setManualResult] = useState<TestExtractorProductResult | null>(null)
 
   // Normalizes whatever the extractor API hands back into the full
-  // SampleProduct shape ProductCard expects. The field-mapping UI already
-  // canonicalizes on id/name/price/image/category/sizes/color, so this is
-  // mostly a passthrough with a couple of common alternate-key fallbacks —
-  // adjust here if the real API response uses different key names.
+  // SampleProduct shape ProductCard expects.
   const normalizeProduct = (raw: unknown): SampleProduct | null => {
     if (!raw || typeof raw !== 'object') return null
     const r = raw as Record<string, unknown>
@@ -991,8 +878,7 @@ export default function SellerFormClient({
       setCurrencyDetected(true)
     }
 
-    // Local tally — see lastRunPassed's declaration for why this can't
-    // just read back from checkStates/summary after the loop.
+    // Local tally — see lastRunPassed's declaration for why.
     const localOutcomes: Record<string, CheckOutcome> = {}
 
     for (let i = 0; i < CHECKS.length; i++) {
@@ -1017,17 +903,13 @@ export default function SellerFormClient({
     setLastRunPassed(passedCleanly)
 
     // Auto-promote a seller sitting unverified the moment it clears this
-    // bar — covers BOTH modes now that ADD mode also creates its record
-    // early (at the Method -> Test & verify transition, see goNext) rather
-    // than only at the very end of the wizard:
+    // bar — covers BOTH modes:
     //   - EDIT mode: `seller.platform` is the saved slug.
     //   - ADD mode: `createdPlatform` is set once createSellerRecord() has
-    //     run; before that there's nothing to PATCH yet, so this simply
-    //     no-ops and the Review step's own status logic takes over.
-    // We never auto-DEMOTE an already-active seller just because a later
-    // run happens to fail (a temporarily-down store shouldn't silently
-    // vanish from the storefront) — that stays a manual "Deactivate"
-    // decision.
+    //     run; before that there's nothing to PATCH yet.
+    // We never auto-DEMOTE an already-active seller just because a later run
+    // fails (a temporarily-down store shouldn't silently vanish from the
+    // storefront) — that stays a manual "Deactivate" decision.
     const platformToPromote = isNew ? createdPlatform : seller?.platform
     if (platformToPromote && form.status === 'pending_review' && passedCleanly) {
       try {
@@ -1038,15 +920,12 @@ export default function SellerFormClient({
         })
         if (res.ok) setForm((prev) => ({ ...prev, status: 'active' as SellerStatus }))
       } catch {
-        // Non-fatal — the admin can still see the passing test result and
-        // will get promoted on the next successful run.
+        // Non-fatal — promoted on the next successful run.
       }
     }
   }
 
-  // Auto-run the checklist once when the ADD wizard reaches the "Test &
-  // verify" step, so an admin who never touches "Run all checks" still
-  // gets a real verification attempt before Review.
+  // Auto-run the checklist once when the ADD wizard reaches "Test & verify".
   useEffect(() => {
     if (isNew && step === 2 && providerType !== 'mock' && canRunSimulation && !simHasRunRef.current && !simRunning) {
       runSimulation()
@@ -1054,9 +933,7 @@ export default function SellerFormClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
-  // Auto-run once on load for an EDIT-mode seller that's still unverified,
-  // so simply opening the page is enough to retry promotion — no
-  // dedicated "verify" screen needed.
+  // Auto-run once on load for an EDIT-mode seller that's still unverified.
   useEffect(() => {
     if (!isNew && seller && form.status === 'pending_review' && providerType !== 'mock' && canRunSimulation) {
       runSimulation()
@@ -1065,9 +942,7 @@ export default function SellerFormClient({
   }, [])
 
   const simHasRun = Object.keys(checkStates).length > 0
-  // Ref mirror of simHasRun for the step-change effect above, which fires
-  // on step transitions and shouldn't re-trigger a run just because
-  // checkStates (and therefore a re-render) changed while it's in flight.
+  // Ref mirror of simHasRun for the step-change effect above.
   const simHasRunRef = useRef(simHasRun)
   simHasRunRef.current = simHasRun
 
@@ -1085,9 +960,6 @@ export default function SellerFormClient({
     providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape'
 
   // ---- ADD mode: wizard ----
-  // (step/setStep is declared earlier, alongside lastRunPassed — see the
-  // comment there for why.)
-
   const methodValid =
     providerType === 'mock'
       ? true
@@ -1097,21 +969,17 @@ export default function SellerFormClient({
 
   const stepValid = [profileValid && logoValid, methodValid, true, canSubmit]
 
-  // What status a brand-new seller gets created with, or ends up at once
-  // Test & verify has had its say. Nothing here BLOCKS creation — an
-  // untested or failing feed still becomes a real seller row — this only
-  // decides whether it lands as `active` or `pending_review`.
+  // What status a brand-new seller ends up at once Test & verify has had
+  // its say. Nothing BLOCKS creation — this only decides `active` vs
+  // `pending_review`.
   const derivedStatus = (): SellerStatus => {
     if (providerType === 'mock') return 'active'
     return lastRunPassed ? 'active' : 'pending_review'
   }
 
-  // Fires exactly once: the moment the admin confirms Method and moves
-  // into Test & verify. This is the real INSERT — from here on the wizard
-  // is editing an actual saved row (in `pending_review`, or `active` for
-  // mock), the same way the EDIT-mode page does, rather than holding
-  // everything in local state until a final submit. Returns whether it
-  // succeeded so goNext knows whether to advance.
+  // Fires exactly once: the moment the admin confirms Method and moves into
+  // Test & verify. This is the real INSERT — from here on the wizard edits
+  // an actual saved row.
   const createSellerRecord = async (): Promise<boolean> => {
     if (!profileValid || !logoValid) {
       if (!logoValid) setLogoRequiredTouched(true)
@@ -1131,15 +999,13 @@ export default function SellerFormClient({
           contactEmail: form.contactEmail,
           contactPhone: form.contactPhone,
           notes: form.notes,
-          // storeLogo is a data URL for now (see MAX_LOGO_BYTES above) — a
-          // real backend should expose a proper upload endpoint returning a
-          // hosted URL instead of inlining base64 into this payload.
+          // Data URLs for now (see the branding note at the top) — a real
+          // backend should upload to storage and keep only the hosted URL.
           logoUrl: resolveLogoUrl(storeLogo, form.storeName || form.platform),
+          coverUrl: storeCover,
           providerConfig: buildProviderConfigPayload(),
-          // No test has run yet at this point (we're just entering Test &
-          // verify) — mock has nothing to verify so it's active straight
-          // away, everything else starts pending_review and gets promoted
-          // by runSimulation's auto-promote logic if/when it passes.
+          // No test has run yet — mock is active straight away, everything
+          // else starts pending_review and gets promoted by runSimulation.
           status: providerType === 'mock' ? 'active' : 'pending_review',
         }),
       })
@@ -1157,11 +1023,8 @@ export default function SellerFormClient({
   }
 
   // If the admin has already created the record and then steps BACK to
-  // Profile or Method to change something, push that change to the
-  // backend before moving forward again — otherwise the saved row would
-  // silently drift from what's on screen (and, on the platform slug
-  // specifically, from what the URL /admin/sellers/{platform} they'll be
-  // redirected to actually is — see the disabled platform field below).
+  // Profile or Method to change something, push that change to the backend
+  // before moving forward again.
   const syncCreatedRecord = async () => {
     if (!createdPlatform) return
     try {
@@ -1176,13 +1039,12 @@ export default function SellerFormClient({
           contactPhone: form.contactPhone,
           notes: form.notes,
           logoUrl: resolveLogoUrl(storeLogo, form.storeName),
+          coverUrl: storeCover,
           providerConfig: buildProviderConfigPayload(),
         }),
       })
     } catch {
-      // Non-fatal — worst case Review shows what's on screen but the
-      // backend briefly lags behind; handleFinish's own sync below is a
-      // second chance to catch it up before redirecting.
+      // Non-fatal — handleFinish's own sync is a second chance to catch up.
     }
   }
 
@@ -1205,17 +1067,15 @@ export default function SellerFormClient({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const submitting = creatingStore
 
-  // The Review step's "Finish" action. By this point the seller row
-  // already exists (created back at the Method -> Test & verify
-  // transition) — this just makes sure it has the latest Profile/Method
-  // edits and the right final status, then hands off to the normal seller
-  // detail page. It does NOT create a second record.
+  // The Review step's "Finish" action. The seller row already exists —
+  // this just makes sure it has the latest edits and the right final
+  // status, then hands off to the seller detail page. It does NOT create a
+  // second record.
   const handleFinish = async () => {
     setSubmitError(null)
     let platform = createdPlatform
     if (!platform) {
-      // Defensive fallback only — shouldn't happen since goNext always
-      // creates on the way into step 2.
+      // Defensive fallback only — goNext always creates on the way into step 2.
       const ok = await createSellerRecord()
       if (!ok) return
       platform = form.platform
@@ -1241,21 +1101,15 @@ export default function SellerFormClient({
   }
 
   // ---- Collections this seller belongs to (EDIT mode only) ----
-  // Now sourced entirely LIVE from the seller's own store via
-  // /api/admin/sellers/[platform]/collections — see the module comment
-  // at the top of this file. No curated site-wide `collections` table is
-  // involved. Rendered inside the Method card so that card's height can
-  // be padded out to match Profile's.
+  // Sourced LIVE from the seller's own store via
+  // /api/admin/sellers/[platform]/collections — see the module comment.
   const [collections, setCollections] = useState<SellerCollection[]>([])
   const [collectionsLoading, setCollectionsLoading] = useState(!isNew)
   const [collectionsError, setCollectionsError] = useState<string | null>(null)
-  // Non-fatal note from the route (e.g. "couldn't reach this seller's
-  // live feed") — distinct from collectionsError, which means the
-  // request to OUR OWN API route itself failed. This means the route
-  // succeeded but had to report a degraded/partial result.
+  // Non-fatal note from the route (e.g. "couldn't reach this seller's live
+  // feed") — distinct from collectionsError, which means OUR route failed.
   const [collectionsWarning, setCollectionsWarning] = useState<string | null>(null)
-  // Only shown once the list is long enough to need it (see the `> 6`
-  // check in the render below).
+  // Only shown once the list is long enough to need it (see `> 6` below).
   const [collectionsFilter, setCollectionsFilter] = useState('')
 
   useEffect(() => {
@@ -1288,14 +1142,12 @@ export default function SellerFormClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, seller?.platform])
 
-  // Display-layer cleanup of the raw live collections list — see the
-  // module comment at the top of this file for why these two steps
-  // (de-dupe by name, drop size-filter collections) live here rather
-  // than in the API route, which stays a faithful mirror of the store.
+  // Display-layer cleanup of the raw live collections list: de-dupe by name
+  // (keep the higher count) and drop size-filter collections.
   const visibleCollections = useMemo(() => {
     const byName = new Map<string, SellerCollection>()
     for (const c of collections) {
-      if (SIZE_COLLECTION_PATTERN.test(c.name)) continue // drop size-filter buckets entirely
+      if (SIZE_COLLECTION_PATTERN.test(c.name)) continue
       const existing = byName.get(c.name)
       if (!existing || c.productCount > existing.productCount) byName.set(c.name, c)
     }
@@ -1311,11 +1163,11 @@ export default function SellerFormClient({
 
   const cancelEditingProfile = () => {
     setEditingProfile(false)
-    // Discard any unsaved logo change along with the rest of the form —
-    // otherwise a picked-then-cancelled logo would linger in state and
-    // quietly get sent on the NEXT save.
+    // Discard any unsaved logo/cover change along with the rest of the
+    // form — otherwise a picked-then-cancelled image would linger in state
+    // and quietly get sent on the NEXT save.
     setStoreLogo(seller?.store.logo || null)
-    setLogoError(null)
+    setStoreCover(savedCover)
   }
 
   // ---- Not found (EDIT mode, bad slug) ----
@@ -1340,12 +1192,29 @@ export default function SellerFormClient({
 
   // -------------------------------------------------------------------
   // Shared blocks reused by both the wizard steps (ADD) and the edit
-  // cards (EDIT), so the two modes never drift the way the old separate
-  // /new page and detail page did.
+  // cards (EDIT), so the two modes never drift.
   // -------------------------------------------------------------------
 
   const profileFields = (
     <div className="flex flex-col gap-5">
+      {/* Logo (profile picture) + cover banner, previewed like the storefront. */}
+      <StoreBrandingEditor
+        logo={storeLogo}
+        cover={storeCover}
+        onLogoChange={(next) => {
+          setStoreLogo(next)
+          setProfileSaved(false)
+        }}
+        onCoverChange={(next) => {
+          setStoreCover(next)
+          setProfileSaved(false)
+        }}
+        logoRequired={isNew}
+        logoRequiredError={
+          isNew && logoRequiredTouched && !storeLogo ? 'A store logo is required before this seller can be added.' : null
+        }
+      />
+
       <Field label="Store name" required>
         <input
           type="text"
@@ -1368,8 +1237,8 @@ export default function SellerFormClient({
           />
           <p className="mt-1 text-xs text-ink/40">
             {createdPlatform
-              ? 'Locked \u2014 this seller has already been created under this slug.'
-              : `Used internally (feed config, storefront URL /stores/${form.platform || '...'}) \u2014 auto-filled from the store name, editable if needed.`}
+              ? 'Locked — this seller has already been created under this slug.'
+              : `Used internally (feed config, storefront URL /stores/${form.platform || '...'}) — auto-filled from the store name, editable if needed.`}
           </p>
         </Field>
       )}
@@ -1428,7 +1297,7 @@ export default function SellerFormClient({
     <>
       {detection.status === 'idle' && (
         <p className={`p-3.5 text-xs text-ink/45 border-dashed ${groupClass}`}>
-          Add a Store URL in Profile and we&rsquo;ll check it automatically \u2014 no need to know which platform it
+          Add a Store URL in Profile and we&rsquo;ll check it automatically — no need to know which platform it
           runs on.
         </p>
       )}
@@ -1436,7 +1305,7 @@ export default function SellerFormClient({
       {detection.status === 'checking' && (
         <p className="flex items-center gap-2 rounded-xl border border-indigo/20 bg-indigo/[0.05] p-3.5 text-xs font-semibold text-indigo">
           <Loader2 size={14} className="animate-spin" />
-          Checking whether that store runs on Shopify or WooCommerce\u2026
+          Checking whether that store runs on Shopify or WooCommerce…
         </p>
       )}
 
@@ -1463,14 +1332,14 @@ export default function SellerFormClient({
           <DetectedProviderBadge src={PROVIDER_LOGO[detection.type]} />
           <div className="min-w-0 pt-0.5">
             <p className="text-xs font-semibold text-teal-deep">
-              This store runs on {EXTRACTOR_TYPE_LABEL[detection.type]} \u2014 set up below automatically.
+              This store runs on {EXTRACTOR_TYPE_LABEL[detection.type]} — set up below automatically.
             </p>
             <p className="mt-1 text-xs text-ink/45">
               {detection.confidence === 'high'
                 ? 'High confidence match.'
                 : detection.confidence === 'medium'
-                ? 'Likely match \u2014 worth a quick look below before testing.'
-                : 'Best guess \u2014 double-check the details below before testing.'}
+                ? 'Likely match — worth a quick look below before testing.'
+                : 'Best guess — double-check the details below before testing.'}
             </p>
             {detection.signals.length > 0 && (
               <button
@@ -1497,7 +1366,7 @@ export default function SellerFormClient({
         <div className={`p-3.5 border-dashed ${groupClass}`}>
           <p className="text-xs font-semibold text-ink/60">We couldn&rsquo;t automatically detect Shopify or WooCommerce for that URL.</p>
           <p className="mt-1 text-xs text-ink/45">
-            {detection.reason ?? 'This may be a custom-built store.'} Pick manually below \u2014 if it has its own
+            {detection.reason ?? 'This may be a custom-built store.'} Pick manually below — if it has its own
             JSON feed or you want to scrape its pages, choose that option; otherwise products can be added by hand.
           </p>
         </div>
@@ -1552,7 +1421,7 @@ export default function SellerFormClient({
                   </p>
                 )}
                 {currencyDetectError && !detectingCurrency && !currencyDetected && (
-                  <p className="mt-1 text-[11px] text-ink/40">Couldn&rsquo;t auto-detect a currency \u2014 enter it manually.</p>
+                  <p className="mt-1 text-[11px] text-ink/40">Couldn&rsquo;t auto-detect a currency — enter it manually.</p>
                 )}
               </>
             )}
@@ -1564,12 +1433,12 @@ export default function SellerFormClient({
         <div className={`flex flex-col gap-3 p-4 ${groupClass}`}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold text-ink/50">
-              Category mapping \u2014 map your site categories to this store&rsquo;s real Shopify collections.
+              Category mapping — map your site categories to this store&rsquo;s real Shopify collections.
             </p>
             {collectionsFetching && (
               <span className="flex items-center gap-1 text-xs font-semibold text-indigo">
                 <Loader2 size={11} className="animate-spin" />
-                Fetching collections\u2026
+                Fetching collections…
               </span>
             )}
           </div>
@@ -1592,13 +1461,13 @@ export default function SellerFormClient({
             <p className="text-xs text-ink/40">
               {baseUrl.trim()
                 ? 'No collections found on this store yet.'
-                : 'Enter a base URL above to load this store\u2019s collections.'}
+                : 'Enter a base URL above to load this store’s collections.'}
             </p>
           )}
 
           {categoryMapping.length === 0 ? (
             <p className="text-xs text-ink/40">
-              No categories mapped yet \u2014 without a mapping, category filtering falls back to matching each
+              No categories mapped yet — without a mapping, category filtering falls back to matching each
               product&rsquo;s own type field.
             </p>
           ) : (
@@ -1618,7 +1487,7 @@ export default function SellerFormClient({
                     className={inputClass}
                     disabled={shopifyCollections.length === 0}
                   >
-                    <option value="">Select a collection\u2026</option>
+                    <option value="">Select a collection…</option>
                     {shopifyCollections.map((c) => (
                       <option key={c.handle} value={c.handle}>
                         {c.title} ({c.handle})
@@ -1656,7 +1525,7 @@ export default function SellerFormClient({
       {providerType === 'jsonapi' && (
         <div className={`flex flex-col gap-3 p-4 ${groupClass}`}>
           <p className="text-xs font-semibold text-ink/50">
-            JSON field mapping \u2014 confirm each against a real response before {isNew ? 'testing' : 'saving'}.
+            JSON field mapping — confirm each against a real response before {isNew ? 'testing' : 'saving'}.
           </p>
           <SelectorField label="List endpoint" value={jsonFields.listEndpoint} onChange={setJsonField('listEndpoint')} placeholder="/products/" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1788,7 +1657,7 @@ export default function SellerFormClient({
         <div className={`flex flex-col items-center justify-center gap-3 p-10 text-center border-dashed ${groupClass}`}>
           <Package size={26} className="text-ink/20" strokeWidth={1.5} />
           <p className="max-w-xs text-xs leading-relaxed text-ink/45">
-            No live feed configured for this provider type \u2014 there&rsquo;s nothing to test. Catalogue entries{' '}
+            No live feed configured for this provider type — there&rsquo;s nothing to test. Catalogue entries{' '}
             {isNew ? 'will be added' : 'here are added'} by hand.
           </p>
         </div>
@@ -1817,7 +1686,7 @@ export default function SellerFormClient({
                 className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_28px_-10px_rgba(37,41,120,0.5)] transition-all hover:bg-indigo-deep active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:shadow-none disabled:active:scale-100"
               >
                 {simRunning ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                {simRunning ? 'Running checks\u2026' : simHasRun ? 'Run again' : 'Run all checks'}
+                {simRunning ? 'Running checks…' : simHasRun ? 'Run again' : 'Run all checks'}
               </button>
 
               {simHasRun && !simRunning && (
@@ -1831,21 +1700,21 @@ export default function SellerFormClient({
               {simHasRun && !simRunning && lastRunPassed && (isNew ? true : form.status === 'active') && (
                 <p className="flex items-center gap-1 text-xs font-semibold text-teal-deep">
                   <Check size={12} />
-                  {isNew ? 'Verified \u2014 will be created as Active.' : 'Verified \u2014 seller is Active.'}
+                  {isNew ? 'Verified — will be created as Active.' : 'Verified — seller is Active.'}
                 </p>
               )}
 
               {simHasRun && !simRunning && !lastRunPassed && (
                 <p className="text-xs font-semibold text-gold-deep">
                   {isNew
-                    ? 'Not verified yet \u2014 you can still add this seller; it\u2019ll be created as Pending review.'
-                    : 'Still failing \u2014 fix the Method card and save to retry.'}
+                    ? 'Not verified yet — you can still add this seller; it’ll be created as Pending review.'
+                    : 'Still failing — fix the Method card and save to retry.'}
                 </p>
               )}
 
               {simHasRun && resultsStale && !simRunning && (
                 <p className="flex items-center gap-1 text-xs font-semibold text-gold-deep">
-                  Config changed since this ran \u2014 re-run to confirm.
+                  Config changed since this ran — re-run to confirm.
                 </p>
               )}
             </div>
@@ -1916,9 +1785,9 @@ export default function SellerFormClient({
               <ClipboardCheck size={26} className="text-ink/20" strokeWidth={1.5} />
               <p className="max-w-sm text-xs leading-relaxed text-ink/45">
                 {simRunning
-                  ? 'Running the checklist against the real feed\u2026'
+                  ? 'Running the checklist against the real feed…'
                   : canRunSimulation
-                  ? 'Checks will run automatically \u2014 or click above to run them again \u2014 covering reachability, field mapping, variants, stock, images, categories, and response time.'
+                  ? 'Checks will run automatically — or click above to run them again — covering reachability, field mapping, variants, stock, images, categories, and response time.'
                   : 'Fill in the base URL (and field mapping, if this is a JSON feed) to unlock the checklist.'}
               </p>
             </div>
@@ -1936,10 +1805,8 @@ export default function SellerFormClient({
                 )}
               </div>
 
-              {/* Full width now means every check can sit on screen at once
-                  instead of paging through them one at a time — running
-                  checks light up in place as they resolve, so the whole
-                  pass is scannable without any nav. */}
+              {/* Every check sits on screen at once; running checks light up
+                  in place as they resolve, so the whole pass is scannable. */}
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
                 {CHECKS.map((check) => {
                   const outcome = checkStates[check.id]
@@ -2014,20 +1881,20 @@ export default function SellerFormClient({
         {isNew ? (
           <>
             <div className="mt-4 flex items-start gap-4">
-              <LogoPicker
-                storeLogo={storeLogo}
-                onChange={handleLogoChange}
-                onRemove={handleRemoveLogo}
-                error={logoError}
-                size={56}
-                required
-                requiredError={logoRequiredTouched && !storeLogo ? 'A store logo is required before this seller can be added.' : null}
-              />
+              {/* Read-only preview — the logo is picked in the Profile step. */}
+              <span className="grid h-14 w-14 flex-none place-items-center overflow-hidden rounded-full border border-ink/10 bg-white text-teal-deep">
+                {storeLogo ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- data-URL preview, not a static asset
+                  <img src={storeLogo} alt="" className="h-full w-full object-contain p-1" />
+                ) : (
+                  <UserPlus size={22} strokeWidth={1.75} />
+                )}
+              </span>
               <div>
                 <h1 className="font-display text-3xl text-ink">Add a seller</h1>
                 <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink/60">
                   Enter the store details and how products get pulled in. We&rsquo;ll test the feed automatically and
-                  create the seller either way \u2014 verified sellers go live immediately, others come in as Pending
+                  create the seller either way — verified sellers go live immediately, others come in as Pending
                   review until the config is fixed.
                 </p>
               </div>
@@ -2069,23 +1936,14 @@ export default function SellerFormClient({
           <>
             <div className={`mt-4 flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between ${panelClass}`}>
               <div className="flex items-center gap-4">
-                {editingProfile ? (
-                  <LogoPicker
-                    storeLogo={storeLogo}
-                    onChange={handleLogoChange}
-                    onRemove={handleRemoveLogo}
-                    error={logoError}
-                    size={48}
-                  />
-                ) : (
-                  <Image
-                    src={resolveLogoUrl(storeLogo, seller!.store.name)}
-                    alt=""
-                    width={48}
-                    height={48}
-                    className="h-12 w-12 flex-none rounded-full border border-ink/10 object-cover"
-                  />
-                )}
+                {/* The logo is edited in the Profile card (Edit -> branding editor). */}
+                <Image
+                  src={resolveLogoUrl(storeLogo, seller!.store.name)}
+                  alt=""
+                  width={48}
+                  height={48}
+                  className="h-12 w-12 flex-none rounded-full border border-ink/10 bg-white object-contain"
+                />
                 <div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <h1 className="font-display text-3xl leading-tight text-ink">{seller!.store.name}</h1>
@@ -2099,7 +1957,7 @@ export default function SellerFormClient({
                     {form.status === 'pending_review' && (simRunning || (isLiveProvider && !simHasRun)) && (
                       <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-indigo/10 px-2 py-0.5 text-[11px] font-semibold text-indigo">
                         <Loader2 size={10} className="animate-spin" />
-                        Verifying\u2026
+                        Verifying…
                       </span>
                     )}
                   </p>
@@ -2109,7 +1967,7 @@ export default function SellerFormClient({
               <div className="grid flex-none grid-cols-3 gap-3 sm:min-w-[320px]">
                 <Stat
                   label={isLiveFeedStats ? 'Products (live)' : 'Products'}
-                  value={!isLiveFeedStats ? seller!.store.itemCount ?? 0 : live.loading ? '\u2026' : live.error ? seller!.store.itemCount ?? 0 : live.count ?? 0}
+                  value={!isLiveFeedStats ? seller!.store.itemCount ?? 0 : live.loading ? '…' : live.error ? seller!.store.itemCount ?? 0 : live.count ?? 0}
                 />
                 <Stat label="Orders" value={seller!.admin.ordersReceived} />
                 <Stat label="Pending" value={seller!.admin.ordersPending} />
@@ -2138,7 +1996,7 @@ export default function SellerFormClient({
             <section className={`p-6 ${panelClass}`}>
               {step === 0 && (
                 <>
-                  <SectionHeading title="Profile" subtitle="Who this seller is and how to reach them." />
+                  <SectionHeading title="Profile" subtitle="Who this seller is, their logo and cover, and how to reach them." />
                   <div className="mt-5">{profileFields}</div>
                 </>
               )}
@@ -2150,7 +2008,7 @@ export default function SellerFormClient({
               )}
               {step === 2 && (
                 <>
-                  <SectionHeading title="Test & verify" subtitle="Runs automatically against the real feed \u2014 pass or fail, you can still continue." />
+                  <SectionHeading title="Test & verify" subtitle="Runs automatically against the real feed — pass or fail, you can still continue." />
                   <div className="mt-5">{testPanel}</div>
                 </>
               )}
@@ -2159,30 +2017,37 @@ export default function SellerFormClient({
                   <SectionHeading title="Review" subtitle="Check everything over before adding this seller." />
                   <div className="mt-5 flex flex-col gap-4">
                     <ReviewRow label="Profile" onEdit={() => setStep(0)}>
+                      {storeCover && (
+                        // eslint-disable-next-line @next/next/no-img-element -- data-URL preview, not a static asset
+                        <img src={storeCover} alt="" className="mb-3 h-16 w-full max-w-md rounded-lg border border-ink/10 object-cover" />
+                      )}
                       <div className="flex items-center gap-3">
                         {storeLogo ? (
                           // eslint-disable-next-line @next/next/no-img-element -- data-URL preview, not a static asset
-                          <img src={storeLogo} alt="" className="h-9 w-9 flex-none rounded-lg border border-ink/10 object-cover" />
+                          <img src={storeLogo} alt="" className="h-9 w-9 flex-none rounded-full border border-ink/10 bg-white object-contain p-0.5" />
                         ) : (
-                          <span className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-dashed border-red-600/30 text-red-600/60">
+                          <span className="grid h-9 w-9 flex-none place-items-center rounded-full border border-dashed border-red-600/30 text-red-600/60">
                             <UserPlus size={14} />
                           </span>
                         )}
                         <div>
-                          <p className="text-sm font-semibold text-ink">{form.storeName || '\u2014'}</p>
-                          <p className="text-xs text-ink/50">/stores/{form.platform || '\u2014'}</p>
+                          <p className="text-sm font-semibold text-ink">{form.storeName || '—'}</p>
+                          <p className="text-xs text-ink/50">/stores/{form.platform || '—'}</p>
                         </div>
                       </div>
                       <p className="mt-2 text-xs text-ink/50">{form.contactEmail || 'No contact email yet'}</p>
                       {form.storeUrl && <p className="mt-1 text-xs text-ink/40">{form.storeUrl}</p>}
                       {storeLogo ? (
                         <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-teal-deep">
-                          <Check size={11} /> Store logo verified
+                          <Check size={11} /> Store logo added
                         </p>
                       ) : (
                         <p className="mt-1.5 text-xs font-semibold text-red-700">
-                          Store logo missing \u2014 go back to Profile to add one before this seller can be added.
+                          Store logo missing — go back to Profile to add one before this seller can be added.
                         </p>
+                      )}
+                      {!storeCover && (
+                        <p className="mt-1 text-xs text-ink/40">No cover banner — the store page will show the Wishdrop gradient.</p>
                       )}
                     </ReviewRow>
 
@@ -2194,11 +2059,11 @@ export default function SellerFormClient({
 
                     <ReviewRow label="Verification" onEdit={() => setStep(2)}>
                       {providerType === 'mock' ? (
-                        <p className="text-xs font-semibold text-teal-deep">Nothing to verify \u2014 already Active.</p>
+                        <p className="text-xs font-semibold text-teal-deep">Nothing to verify — already Active.</p>
                       ) : simRunning ? (
                         <p className="flex items-center gap-1.5 text-xs font-semibold text-indigo">
                           <Loader2 size={11} className="animate-spin" />
-                          Still verifying\u2026
+                          Still verifying…
                         </p>
                       ) : simHasRun ? (
                         <>
@@ -2209,17 +2074,17 @@ export default function SellerFormClient({
                           </p>
                           <p className={`mt-1 text-xs font-semibold ${lastRunPassed ? 'text-teal-deep' : 'text-gold-deep'}`}>
                             {lastRunPassed
-                              ? 'Verified \u2014 will finish as Active.'
-                              : 'Not verified \u2014 will finish as Pending review. You can fix the Method card and re-test any time after this.'}
+                              ? 'Verified — will finish as Active.'
+                              : 'Not verified — will finish as Pending review. You can fix the Method card and re-test any time after this.'}
                           </p>
                         </>
                       ) : (
-                        <p className="text-xs text-ink/45">Not tested yet \u2014 will finish as Pending review.</p>
+                        <p className="text-xs text-ink/45">Not tested yet — will finish as Pending review.</p>
                       )}
                     </ReviewRow>
 
                     <p className="text-xs text-ink/40">
-                      This seller was already added (as {STATUS_LABEL[form.status]}) back when Method was confirmed \u2014
+                      This seller was already added (as {STATUS_LABEL[form.status]}) back when Method was confirmed —
                       Finish below just locks in any later edits and its final status.
                     </p>
                   </div>
@@ -2248,9 +2113,9 @@ export default function SellerFormClient({
                   className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment shadow-[0_10px_28px_-10px_rgba(11,114,128,0.55)] transition-all hover:bg-teal active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:shadow-none disabled:active:scale-100"
                 >
                   {step === 1 && !createdPlatform && creatingStore
-                    ? 'Adding seller\u2026'
+                    ? 'Adding seller…'
                     : creatingStore
-                    ? 'Saving\u2026'
+                    ? 'Saving…'
                     : 'Continue'}
                 </button>
               ) : (
@@ -2260,7 +2125,7 @@ export default function SellerFormClient({
                   disabled={!canSubmit || submitting}
                   className="rounded-xl bg-teal-deep px-4 py-2.5 text-sm font-semibold text-parchment shadow-[0_10px_28px_-10px_rgba(11,114,128,0.55)] transition-all hover:bg-teal active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:shadow-none disabled:active:scale-100"
                 >
-                  {submitting ? 'Finishing\u2026' : 'Finish'}
+                  {submitting ? 'Finishing…' : 'Finish'}
                 </button>
               )}
             </div>
@@ -2268,16 +2133,14 @@ export default function SellerFormClient({
         ) : (
           // ------------------------------------------------------------ EDIT MODE
           <div className="mt-6 flex flex-col gap-6">
-            {/* items-stretch (was items-start) so both cards in the row are
-                stretched to the row's tallest instead of each sizing to its
-                own content — Method's collections list below is capped at a
-                fixed max-height rather than relying on this stretch, but the
-                stretch still keeps both cards' bottom borders aligned. */}
+            {/* items-stretch so both cards in the row are stretched to the
+                row's tallest; Method's collections list is capped at a fixed
+                max-height rather than relying on this stretch. */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 items-stretch">
               {/* ---- Profile card ---- */}
               <section className={`flex flex-col gap-5 p-6 ${panelClass}`}>
                 <div className="flex items-start justify-between gap-3">
-                  <SectionHeading title="Profile" subtitle="Store details, contact, and account status." />
+                  <SectionHeading title="Profile" subtitle="Branding, store details, contact, and account status." />
                   {!editingProfile && (
                     <button
                       type="button"
@@ -2322,13 +2185,32 @@ export default function SellerFormClient({
                   </>
                 ) : (
                   <>
+                    {/* Read-only branding preview, laid out like the storefront. */}
+                    <div className="relative pb-9">
+                      <div className="aspect-[16/5] w-full overflow-hidden rounded-2xl border border-ink/10 bg-[radial-gradient(120%_140%_at_0%_0%,var(--color-teal)_0%,var(--color-indigo)_55%,var(--color-indigo-deep)_100%)]">
+                        {storeCover && (
+                          // eslint-disable-next-line @next/next/no-img-element -- data-URL / remote preview
+                          <img src={storeCover} alt="Cover banner" className="h-full w-full object-cover object-center" />
+                        )}
+                      </div>
+                      <span className="absolute bottom-0 left-4 grid h-20 w-20 place-items-center overflow-hidden rounded-full border-4 border-parchment bg-white shadow-sm">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- data-URL / remote preview */}
+                        <img src={resolveLogoUrl(storeLogo, form.storeName)} alt="Store logo" className="h-full w-full object-contain p-1.5" />
+                      </span>
+                      {!storeCover && (
+                        <p className="absolute bottom-0 left-28 pb-1 text-xs text-ink/40">
+                          No cover yet — the store page shows the gradient.
+                        </p>
+                      )}
+                    </div>
+
                     <dl className="flex flex-col gap-3.5 text-sm">
                       <SummaryRow term="Store name" value={form.storeName} />
-                      <SummaryRow term="Store URL" value={form.storeUrl || '\u2014'} />
+                      <SummaryRow term="Store URL" value={form.storeUrl || '—'} />
                       <SummaryRow term="Contact email" value={form.contactEmail} />
-                      <SummaryRow term="Contact name" value={form.contactName || '\u2014'} />
-                      <SummaryRow term="Contact phone" value={form.contactPhone || '\u2014'} />
-                      <SummaryRow term="Notes" value={form.notes || '\u2014'} multiline />
+                      <SummaryRow term="Contact name" value={form.contactName || '—'} />
+                      <SummaryRow term="Contact phone" value={form.contactPhone || '—'} />
+                      <SummaryRow term="Notes" value={form.notes || '—'} multiline />
                     </dl>
                     <div className="flex items-center justify-between gap-2 border-t border-ink/10 pt-5">
                       {form.status !== 'active' && form.status !== 'pending_review' ? (
@@ -2382,7 +2264,7 @@ export default function SellerFormClient({
                     <div className="flex items-center justify-end gap-2 border-t border-ink/10 pt-5">
                       {configSaved && (
                         <span className="mr-auto flex items-center gap-1 text-xs font-semibold text-teal-deep">
-                          <Check size={13} /> Saved \u2014 re-verifying
+                          <Check size={13} /> Saved — re-verifying
                         </span>
                       )}
                       {configSaveError && (
@@ -2410,10 +2292,10 @@ export default function SellerFormClient({
                   <>
                     <dl className="flex flex-col gap-3.5 text-sm">
                       <SummaryRow term="Method" value={EXTRACTOR_TYPE_LABEL[providerType]} />
-                      {providerType !== 'mock' && <SummaryRow term="Base URL" value={baseUrl || '\u2014'} mono />}
+                      {providerType !== 'mock' && <SummaryRow term="Base URL" value={baseUrl || '—'} mono />}
                       {currency && <SummaryRow term="Currency" value={currency} />}
-                      {providerType === 'jsonapi' && <SummaryRow term="List endpoint" value={jsonFields.listEndpoint || '\u2014'} mono />}
-                      {providerType === 'html-scrape' && <SummaryRow term="Listing page" value={listingUrl || '\u2014'} mono />}
+                      {providerType === 'jsonapi' && <SummaryRow term="List endpoint" value={jsonFields.listEndpoint || '—'} mono />}
+                      {providerType === 'html-scrape' && <SummaryRow term="Listing page" value={listingUrl || '—'} mono />}
                       {providerType === 'html-scrape' && htmlSelectors.pageParam && (
                         <SummaryRow term="Paginated via" value={`?${htmlSelectors.pageParam}=N`} mono />
                       )}
@@ -2425,12 +2307,10 @@ export default function SellerFormClient({
                       )}
                     </dl>
 
-                    {/* Collections this seller's products currently sit in
-                        -- LIVE from the seller's own store (see the module
-                        comment up top). Fixed max-height + internal scroll
-                        so a store with 20-30+ collections never grows this
-                        card past Profile's height, however long the raw
-                        list is. */}
+                    {/* Collections this seller's products currently sit in —
+                        LIVE from the seller's own store. Fixed max-height +
+                        internal scroll so a store with 20-30+ collections
+                        never grows this card past Profile's height. */}
                     <div className="flex flex-col border-t border-ink/10 pt-5">
                       <p className="text-xs font-semibold text-ink/50">
                         Collections
@@ -2446,7 +2326,7 @@ export default function SellerFormClient({
                       {collectionsLoading ? (
                         <p className="mt-3 flex items-center gap-1.5 text-xs text-ink/40">
                           <Loader2 size={11} className="animate-spin" />
-                          Loading collections\u2026
+                          Loading collections…
                         </p>
                       ) : collectionsError ? (
                         <p className="mt-3 text-xs font-medium text-red-600">{collectionsError}</p>
@@ -2464,7 +2344,7 @@ export default function SellerFormClient({
                                 type="text"
                                 value={collectionsFilter}
                                 onChange={(e) => setCollectionsFilter(e.target.value)}
-                                placeholder="Filter collections\u2026"
+                                placeholder="Filter collections…"
                                 className="w-full rounded-lg border border-ink/10 py-1.5 pl-7 pr-2.5 text-xs text-ink placeholder:text-ink/30 focus:border-teal-deep/40 focus:outline-none"
                               />
                             </div>
@@ -2508,7 +2388,7 @@ export default function SellerFormClient({
                 title="Test & verify"
                 subtitle={
                   form.status === 'pending_review'
-                    ? 'Runs automatically while this seller is Pending review \u2014 a clean pass promotes it to Active. Never affects saved config.'
+                    ? 'Runs automatically while this seller is Pending review — a clean pass promotes it to Active. Never affects saved config.'
                     : 'Runs against the real feed. Never affects saved config.'
                 }
               />
@@ -2528,7 +2408,7 @@ export default function SellerFormClient({
               {createdLogin ? (
                 <div className={`flex flex-col gap-3 p-4 ${groupClass} border-teal-deep/25`}>
                   <p className="text-sm font-semibold text-teal-deep">
-                    Login created \u2014 share these with the seller now. The password won&rsquo;t be shown again.
+                    Login created — share these with the seller now. The password won&rsquo;t be shown again.
                   </p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
@@ -2557,7 +2437,7 @@ export default function SellerFormClient({
                     disabled={resettingLogin}
                     className="flex-none rounded-xl border border-ink/15 bg-card px-4 py-2 text-sm font-semibold text-ink/70 transition-colors hover:border-ink/30 hover:text-ink disabled:opacity-50"
                   >
-                    {resettingLogin ? 'Resetting\u2026' : 'Reset password'}
+                    {resettingLogin ? 'Resetting…' : 'Reset password'}
                   </button>
                   {loginError && <p className="text-xs font-semibold text-red-700 sm:basis-full">{loginError}</p>}
                 </div>
@@ -2581,7 +2461,7 @@ export default function SellerFormClient({
                     >
                       {creatingLogin ? (
                         <>
-                          <Loader2 size={14} className="animate-spin" /> Creating\u2026
+                          <Loader2 size={14} className="animate-spin" /> Creating…
                         </>
                       ) : (
                         <>
@@ -2593,7 +2473,7 @@ export default function SellerFormClient({
                   {loginError && <p className="text-xs font-semibold text-red-700">{loginError}</p>}
                   <p className="text-xs text-ink/40">
                     Creates a real account for this seller and links it to this store. Defaults to the contact email
-                    above \u2014 change it first if products should be managed by someone else.
+                    above — change it first if products should be managed by someone else.
                   </p>
                 </>
               )}
@@ -2606,94 +2486,12 @@ export default function SellerFormClient({
 }
 
 /**
- * Shared logo upload control for both ADD mode (empty until picked) and
- * EDIT mode (seeded from the saved seller, shown only while the Profile
- * card is in its editing state). Deliberately dumb — all the actual state
- * (storeLogo / logoError) lives in the parent and is passed in, so ADD and
- * EDIT can never drift into two different upload behaviors.
- */
-function LogoPicker({
-  storeLogo,
-  onChange,
-  onRemove,
-  error,
-  size = 56,
-  required = false,
-  requiredError = null,
-}: {
-  storeLogo: string | null
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-  onRemove: (e: React.MouseEvent) => void
-  error: string | null
-  size?: number
-  /** ADD mode: renders a "required" hint and accepts requiredError below. */
-  required?: boolean
-  /** Shown only once the admin has tried to proceed without a logo yet. */
-  requiredError?: string | null
-}) {
-  const dims = size >= 56 ? 'h-14 w-14' : 'h-11 w-11'
-  const missing = required && !storeLogo
-  return (
-    <div className="flex-none">
-      <label
-        htmlFor="seller-logo-upload"
-        title={storeLogo ? 'Change logo' : "Add the store's logo"}
-        className={`group relative grid ${dims} cursor-pointer place-items-center overflow-hidden rounded-2xl border bg-card text-teal-deep shadow-[0_1px_2px_rgba(32,36,43,0.04),0_16px_40px_-24px_rgba(14,140,156,0.4)] transition-transform active:scale-[0.96] ${
-          requiredError ? 'border-red-600/40' : 'border-ink/10'
-        }`}
-      >
-        <input id="seller-logo-upload" type="file" accept="image/*" onChange={onChange} className="sr-only" />
-        {storeLogo ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element -- data-URL preview, not a static asset */}
-            <img src={storeLogo} alt="" className="h-full w-full object-cover" />
-            <span className="absolute inset-0 flex items-center justify-center bg-ink/50 opacity-0 transition-opacity group-hover:opacity-100">
-              <Pencil size={16} className="text-white" />
-            </span>
-            <button
-              type="button"
-              onClick={onRemove}
-              title="Remove logo"
-              className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-ink/10 bg-white text-ink/50 shadow-[0_1px_3px_rgba(32,36,43,0.15)] transition-colors hover:bg-red-600/10 hover:text-red-600"
-            >
-              <X size={11} />
-            </button>
-          </>
-        ) : (
-          <>
-            <UserPlus size={22} strokeWidth={1.75} className="transition-opacity group-hover:opacity-0" />
-            <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:bg-teal-deep/[0.06] group-hover:opacity-100">
-              <ImagePlus size={18} strokeWidth={1.75} />
-            </span>
-          </>
-        )}
-      </label>
-      <p className="mt-1 text-xs text-ink/35">
-        {storeLogo
-          ? 'Click the logo to change it.'
-          : missing
-          ? "Click the icon to add the store's logo (required)."
-          : "Click the icon to add the store's logo (optional)."}
-      </p>
-      {/* File-level problems (wrong type, too large, couldn't read) always
-          take priority over the plain "you haven't picked one yet" nudge. */}
-      {error ? (
-        <p className="mt-1 text-xs font-medium text-red-600">{error}</p>
-      ) : (
-        requiredError && <p className="mt-1 text-xs font-medium text-red-600">{requiredError}</p>
-      )}
-    </div>
-  )
-}
-
-/**
  * The logo reveal for a successful store-detection match. Mounts already
  * shrunk/rotated/transparent, then flips to its resting state one frame
  * later so the transition classes actually animate instead of snapping in
- * at t=0 \u2014 a plain requestAnimationFrame handoff rather than pulling in
- * an animation library for one moment. The checkmark badge is delayed
- * slightly behind the logo so it reads as "found it, then confirmed" in
- * two beats instead of one flat pop.
+ * at t=0 — a plain requestAnimationFrame handoff rather than pulling in an
+ * animation library for one moment. The checkmark badge is delayed slightly
+ * behind the logo so it reads as "found it, then confirmed".
  */
 function DetectedProviderBadge({ src }: { src: string }) {
   const [entered, setEntered] = useState(false)
