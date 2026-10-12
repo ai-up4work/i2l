@@ -2315,7 +2315,7 @@ export default function SellerFormClient({
                         LIVE from the seller's own store. Fixed max-height +
                         internal scroll so a store with 20-30+ collections
                         never grows this card past Profile's height. */}
-                    <div className="flex flex-col border-t border-ink/10 pt-5">
+                    <div className="flex min-h-0 flex-1 flex-col border-t border-ink/10 pt-5">
                       <p className="text-xs font-semibold text-ink/50">
                         Collections
                         {!collectionsLoading && collections.length > 0 && (
@@ -2354,7 +2354,8 @@ export default function SellerFormClient({
                             </div>
                           )}
 
-                          <ul className="mt-2.5 max-h-56 overflow-y-auto pr-1">
+                          <div className="relative mt-2.5 min-h-56 flex-1">
+                            <ul className="absolute inset-0 overflow-y-auto pr-1">
                             {visibleCollections.map((c) => (
                               <li
                                 key={c.id}
@@ -2377,7 +2378,8 @@ export default function SellerFormClient({
                                 No collections match &ldquo;{collectionsFilter}&rdquo;.
                               </li>
                             )}
-                          </ul>
+                            </ul>
+                          </div>
                         </>
                       )}
                     </div>
