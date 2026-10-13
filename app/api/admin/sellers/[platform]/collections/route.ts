@@ -11,7 +11,8 @@
 //                      count stat is (paged /collections/{handle}/products.json).
 //   - woocommerce   -> real WooCommerce product categories
 //                      (fetchWooCommerceCategories), which already
-//                      returns each category's live product count.
+//                      returns each category's live product count, plus
+//                      its thumbnail image when the category has one.
 //   - jsonapi       -> real distinct values of the store's own
 //                      categoryField (fetchJsonApiCategories), derived
 //                      from actually fetching every live product -- also
@@ -45,6 +46,8 @@ interface SellerCollectionRow {
   id: string
   name: string
   productCount: number
+  /** Thumbnail URL when the source store provides one (WooCommerce), else null. */
+  image: string | null
 }
 
 const HEADERS = {
@@ -85,7 +88,9 @@ async function fetchShopifyCollectionsWithCounts(
         if (count < pageSize) break
         page += 1
       }
-      return { id: c.handle, name: c.title, productCount: total }
+      // Shopify collection images aren't returned by fetchShopifyCollections
+      // yet, so these stay text-only for now.
+      return { id: c.handle, name: c.title, productCount: total, image: null }
     })
   )
 
@@ -110,7 +115,7 @@ async function fetchAnishkaCollectionsWithCounts(platform: string): Promise<Sell
           search: '',
           sort: 'newest',
         })
-        return { id: category, name: category, productCount: result.total }
+        return { id: category, name: category, productCount: result.total, image: null }
       } catch {
         return null // one category's page being briefly unreachable shouldn't blank out the rest
       }
@@ -165,7 +170,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
       const categories = await fetchWooCommerceCategories(providerConfig)
       const collections: SellerCollectionRow[] = categories
         .filter((c) => c.count > 0)
-        .map((c) => ({ id: String(c.id), name: c.name, productCount: c.count }))
+        .map((c) => ({ id: String(c.id), name: c.name, productCount: c.count, image: c.image }))
       return NextResponse.json({ collections })
     }
 
@@ -175,6 +180,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
         id: c.value,
         name: c.value,
         productCount: c.count,
+        image: null,
       }))
       return NextResponse.json({ collections })
     }

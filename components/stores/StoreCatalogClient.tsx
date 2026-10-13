@@ -42,12 +42,15 @@ interface LiveCollectionsResponse {
   platform: string;
   baseUrl: string;
   count: number;
-  collections: { handle: string; title: string }[];
+  // `image` is a plain URL string (or null). The API route must flatten
+  // WooCommerce's { src, thumbnail, ... } object into one URL.
+  collections: { handle: string; title: string; image?: string | null }[];
 }
 
 interface CategoryFilter {
   handle: string;
   title: string;
+  image?: string | null;
 }
 
 // A valid SortKey guard for values pulled straight out of the URL, which
@@ -96,6 +99,31 @@ function ProductSkeleton() {
       <div className="h-3.5 w-3/4 rounded bg-ink/10 mb-2" />
       <div className="h-3 w-1/3 rounded bg-ink/10" />
     </div>
+  );
+}
+
+// ─── Category thumbnail ───────────────────────────────────────────────────────
+// Rounded image shown on the right of a category row. Renders nothing when
+// the category has no image or the image fails to load, so rows without an
+// image stay text-only and no broken icons appear.
+// Plain <img> so no remotePatterns entry is needed for every store's domain.
+
+function CategoryThumb({ src, size = 28 }: { src?: string | null; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="shrink-0 rounded-full object-cover object-top border border-ink/10 bg-card"
+      style={{ width: size, height: size }}
+    />
   );
 }
 
@@ -487,11 +515,12 @@ function MobileCategorySheet({
                 type="button"
                 onClick={() => { onSelectCategory(c); onClose(); }}
                 className={
-                  'font-body w-full text-left px-4 py-3 rounded-xl text-sm transition-colors ' +
+                  'font-body w-full flex items-center justify-between gap-3 text-left px-4 py-2.5 rounded-xl text-sm transition-colors ' +
                   (category === (c.handle || c.title) ? 'bg-ink text-parchment font-bold' : 'text-ink/70 hover:bg-teal/10')
                 }
               >
-                {c.title || 'All'}
+                <span className="min-w-0 truncate">{c.title || 'All'}</span>
+                <CategoryThumb src={c.image} size={36} />
               </button>
             ))}
           </div>
@@ -609,7 +638,11 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as LiveCollectionsResponse;
         if (cancelled) return;
-        setLiveCategories(data.collections?.length ? data.collections.map((c) => ({ handle: c.handle, title: c.title })) : null);
+        setLiveCategories(
+          data.collections?.length
+            ? data.collections.map((c) => ({ handle: c.handle, title: c.title, image: c.image ?? null }))
+            : null
+        );
       } catch {
         if (!cancelled) setLiveCategories(null);
       }
@@ -618,9 +651,9 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     return () => { cancelled = true; };
   }, [platform]);
 
-  // Prefer the live-fetched {handle, title} pairs; fall back to the
-  // static `store.categories` (titles only, no real handle) when live
-  // data isn't available.
+  // Prefer the live-fetched {handle, title, image} entries; fall back to the
+  // static `store.categories` (titles only, no real handle, no image) when
+  // live data isn't available.
   const effectiveCategories: CategoryFilter[] = liveCategories
     ?? store.categories.map((title) => ({ handle: '', title }));
 
@@ -791,18 +824,19 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
             </button>
 
             {showCategoryMenu && (
-              <div className="absolute right-0 top-full z-20 mt-1.5 hidden max-h-64 min-w-[160px] overflow-y-auto rounded-xl border border-ink/10 bg-card py-1 shadow-xl sm:block">
+              <div className="absolute right-0 top-full z-20 mt-1.5 hidden max-h-64 min-w-[200px] overflow-y-auto rounded-xl border border-ink/10 bg-card py-1 shadow-xl sm:block">
                 {categoryFilters.map((c) => (
                   <button
                     key={c.handle || c.title || 'all'}
                     type="button"
                     onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
                     className={
-                      'font-body w-full whitespace-nowrap px-4 py-2.5 text-left text-xs transition-colors hover:bg-teal/10 ' +
+                      'font-body flex w-full items-center justify-between gap-4 whitespace-nowrap px-4 py-2 text-left text-xs transition-colors hover:bg-teal/10 ' +
                       (category === (c.handle || c.title) ? 'font-bold text-ink' : 'text-ink/55')
                     }
                   >
-                    {c.title || 'All'}
+                    <span>{c.title || 'All'}</span>
+                    <CategoryThumb src={c.image} size={28} />
                   </button>
                 ))}
               </div>

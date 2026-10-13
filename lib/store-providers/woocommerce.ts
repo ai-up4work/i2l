@@ -3,6 +3,9 @@ import type { StoreProduct, StoreProductOption } from '@/lib/store.types';
 import type { WooCommerceProviderConfig } from '@/lib/store-config';
 import type { ProviderFetchParams, ProviderFetchResult } from './types';
 import { extractColors, extractSizes, stripHtml } from './types';
+// Hardened fetch (browser headers, retries, per-host throttling, optional relay).
+// Shadows the global fetch so every request in this file goes through it.
+import { storeFetch as fetch } from './http';
 
 const CACHE_SECONDS = 60 * 10;
 
@@ -539,6 +542,33 @@ export interface WooCategorySummary {
   name: string;
   slug: string;
   count: number;
+  /**
+   * Category thumbnail URL, or null when the category has no image set.
+   * Flattened from WooCommerce's image object: the Store API returns
+   * { src, thumbnail, ... } (thumbnail is ~430px), wc/v3 returns
+   * { src, ... } only. Thumbnail is preferred so we never ship a
+   * 2000px+ original into a 28–36px avatar.
+   */
+  image: string | null;
+}
+
+/** Raw category row as returned by both wc/v3 and the Store API. */
+interface WooRawCategory {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+  image?: { src?: string; thumbnail?: string } | null;
+}
+
+function toCategorySummary(c: WooRawCategory): WooCategorySummary {
+  return {
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    count: c.count,
+    image: c.image?.thumbnail || c.image?.src || null,
+  };
 }
 
 /**
@@ -547,8 +577,8 @@ export interface WooCategorySummary {
  * default, matching the same unauthenticated pattern as
  * fetchWooCommerceProducts' store_v1 branch; falls back to wc_v3 only if
  * credentials are configured AND apiMode explicitly forces it, since the
- * public endpoint already returns everything needed (id/name/slug/count)
- * without requiring secrets.
+ * public endpoint already returns everything needed (id/name/slug/count/
+ * image) without requiring secrets.
  *
  * Use this output to build categoryMap in store-config.ts and `categories`
  * in data/stores/data.ts from real data, instead of hand-typing labels
@@ -580,8 +610,8 @@ export async function fetchWooCommerceCategories(
           next: { revalidate: CACHE_SECONDS },
         });
         if (!res.ok) break;
-        const batch = (await res.json()) as { id: number; name: string; slug: string; count: number }[];
-        categories.push(...batch.map((c) => ({ id: c.id, name: c.name, slug: c.slug, count: c.count })));
+        const batch = (await res.json()) as WooRawCategory[];
+        categories.push(...batch.map(toCategorySummary));
         if (batch.length < perPage) break;
         page += 1;
         if (page > 20) break; // safety cap
@@ -597,8 +627,8 @@ export async function fetchWooCommerceCategories(
           next: { revalidate: CACHE_SECONDS },
         });
         if (!res.ok) break;
-        const batch = (await res.json()) as { id: number; name: string; slug: string; count: number }[];
-        categories.push(...batch.map((c) => ({ id: c.id, name: c.name, slug: c.slug, count: c.count })));
+        const batch = (await res.json()) as WooRawCategory[];
+        categories.push(...batch.map(toCategorySummary));
         if (batch.length < perPage) break;
         page += 1;
         if (page > 20) break;
