@@ -120,7 +120,6 @@ function browserHeaders(origin: string): Record<string, string> {
     Accept: 'application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
     Referer: `${origin}/`,
-    Origin: origin,
     'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
@@ -208,6 +207,27 @@ async function looksLikeFirewallBlock(res: Response): Promise<boolean> {
   }
   const server = (res.headers.get('server') ?? '').toLowerCase();
   return /cloudflare|sucuri|imunify|akamai/.test(server) && res.status === 403;
+}
+
+async function isJsonBody(res: Response): Promise<boolean> {
+  try {
+    const body = (await res.clone().text()).trimStart();
+    return body.startsWith('{') || body.startsWith('[');
+  } catch {
+    return false;
+  }
+}
+
+// A WordPress REST endpoint that answers with HTML instead of JSON is almost
+// always a firewall / security-plugin page (some return it with status 200, which
+// looksLikeFirewallBlock() ignores). Treat it as a block so the fallback runs
+// instead of res.json() throwing a SyntaxError in the provider.
+async function looksLikeNonJsonApi(target: URL, res: Response): Promise<boolean> {
+  if (!target.pathname.includes('/wp-json/')) return false;
+  const okOrBlockStatus = (res.status >= 200 && res.status < 300) || [403, 429, 503].includes(res.status);
+  if (!okOrBlockStatus) return false;
+  if ((res.headers.get('content-type') ?? '').toLowerCase().includes('json')) return false;
+  return !(await isJsonBody(res));
 }
 
 // ── Firecrawl ───────────────────────────────────────────────────────────────
@@ -416,9 +436,14 @@ async function cacheGet(redis: Redis, key: string): Promise<CachedEntry | null> 
   }
 }
 
-async function cacheSet(redis: Redis, key: string, entry: CachedEntry): Promise<void> {
+async function cacheSet(
+  redis: Redis,
+  key: string,
+  entry: CachedEntry,
+  ttlSeconds: number = numEnv('SCRAPEDO_STALE_SECONDS', 604800),
+): Promise<void> {
   try {
-    await redis.set(key, JSON.stringify(entry), 'EX', numEnv('SCRAPEDO_STALE_SECONDS', 604800));
+    await redis.set(key, JSON.stringify(entry), 'EX', ttlSeconds);
   } catch {
     /* cache write failures are non-fatal */
   }
@@ -503,6 +528,8 @@ async function directRequest(
         // retrying only makes the traffic look more like a bot. Fail fast.
         if (res.headers.get('cf-mitigated') === 'challenge') break;
         if (failFastOnBlock && (await looksLikeFirewallBlock(res))) break;
+        // A real API error (JSON body, e.g. bad wc/v3 key): retrying can't fix it.
+        if (res.status === 403 && (await isJsonBody(res))) break;
         if (attempt < MAX_RETRIES) await sleep(retryDelayMs(attempt, res));
       } catch (err) {
         if (attempt === MAX_RETRIES) throw err;
@@ -545,6 +572,17 @@ async function firecrawlRequest(target: URL, init: NextInit): Promise<Response> 
   const key = cacheKey(target, pickForwardHeaders(init.headers));
   const ttlMs = freshSeconds(target) * 1000;
 
+  // Short negative cache: a URL that keeps failing must not spend a Firecrawl
+  // credit on every visitor. Kept brief so recovery is quick.
+  const negKey = `${key}:neg`;
+  const negMs = numEnv('FIRECRAWL_NEGATIVE_CACHE_SECONDS', 90) * 1000;
+  const neg = await cacheGet(redis, negKey);
+  if (neg && Date.now() - neg.t < negMs) {
+    if (DEBUG()) console.log('[storeFetch] negative cache HIT', target.pathname + target.search);
+    const stale = await cacheGet(redis, key); // prefer an old good copy over the cached error
+    return entryToResponse(stale ?? neg);
+  }
+
   const cached = await cacheGet(redis, key);
   if (cached && Date.now() - cached.t < ttlMs) {
     if (DEBUG()) console.log('[storeFetch] cache HIT', target.pathname + target.search);
@@ -566,6 +604,11 @@ async function firecrawlRequest(target: URL, init: NextInit): Promise<Response> 
         if (cached) {
           console.warn('[storeFetch] serving STALE copy after status', entry.s, target.pathname);
           return cached;
+        }
+        // 401 (bad key) and 402 (out of credits) are config problems: don't
+        // cache them, so fixing the config takes effect immediately.
+        if (entry.s !== 401 && entry.s !== 402) {
+          await cacheSet(redis, negKey, entry, Math.ceil(negMs / 1000));
         }
         return entry;
       } catch (err) {
@@ -611,7 +654,7 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
   const res = await directRequest(target, init, baseVia, fallback);
 
   // C. blocked by a firewall -> retry through Firecrawl
-  if (fallback && (await looksLikeFirewallBlock(res))) {
+  if (fallback && ((await looksLikeFirewallBlock(res)) || (await looksLikeNonJsonApi(target, res)))) {
     markHostBlocked(host);
     console.warn('[storeFetch] direct request blocked, falling back to Firecrawl:', host);
     return firecrawlRequest(target, init);
