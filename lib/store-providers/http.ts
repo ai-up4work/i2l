@@ -6,52 +6,65 @@
 // Why it exists: a seller's firewall (Cloudflare, Imunify360, Wordfence,
 // Sucuri...) often returns 403 / a "Just a moment..." challenge to requests
 // from Vercel's datacenter IPs even though the same request works from a
-// home connection. This helper tries, in order:
+// home connection.
 //
-//   1. Firecrawl  (if FIRECRAWL_API_KEY is set and the host is enabled):
-//        the request is made by Firecrawl's scrape API. Results are cached
-//        in Redis (see below) because every request costs credits.
-//   2. A relay    (if STORE_PROXY_URL is set and the host is enabled):
-//        see relay/cloudflare-worker.js or your own home relay.
-//   3. Direct     with full browser headers, per-host throttling and
-//        retries for 403 / 429 / 5xx.
+// Routing, per request:
 //
-// On a final failure it logs WHO blocked you (server, cf-ray, body snippet).
+//   A. FIRECRAWL (always)   host is listed in FIRECRAWL_HOSTS (or "*") and
+//                           FIRECRAWL_API_KEY is set. Cached in Redis.
+//   B. DIRECT / RELAY       everything else: browser headers, per-host
+//                           throttling, retries (via STORE_PROXY_URL if the
+//                           host is enabled for the relay).
+//   C. AUTO FALLBACK        if (B) is answered by a firewall block
+//                           (Cloudflare challenge, Sucuri, Imunify360, ...)
+//                           and FIRECRAWL_API_KEY is set, the request is
+//                           retried through Firecrawl automatically. The host
+//                           is then remembered as "blocked" for a while so the
+//                           next requests skip the doomed direct attempt.
+//                           Credits are only spent when a block really
+//                           happens. Turn off with FIRECRAWL_AUTO_FALLBACK=false.
 //
-// IMPORTANT differences from a transparent proxy (Scrape.do):
-//   - Firecrawl does NOT return the seller's response headers, so
-//     `x-wp-total` / `x-wp-totalpages` are NOT available on Firecrawl
-//     responses. Paginate until a page comes back shorter than `per_page`.
+// The first request to each host logs one "[storeFetch] route" line showing
+// which route was chosen and whether the key / host list were seen, so a
+// missing env var is visible straight away.
+//
+// IMPORTANT differences from a transparent proxy:
+//   - Firecrawl does NOT return the seller's response headers. For list
+//     requests with `per_page`, x-wp-total / x-wp-totalpages are rebuilt when
+//     the page is shorter than per_page (exact for the last page). On a full
+//     page they are unknown: paginate until a page is shorter than per_page.
 //   - The seller's body comes back inside a JSON envelope. This helper
 //     unwraps it and rebuilds a normal Response (status from
 //     data.metadata.statusCode), so `res.ok` / `res.json()` keep working.
 //
-// Env (all optional):
-//   FIRECRAWL_API_KEY       Firecrawl API key (fc-...)
-//   FIRECRAWL_HOSTS         comma list of hostnames to send through Firecrawl,
-//                           or "*" for all. Unset = Firecrawl is not used.
-//                           Tip: list only the sellers that actually get blocked,
-//                           every request through Firecrawl costs credits.
-//   FIRECRAWL_PROXY         "basic" | "stealth" | "auto". Default "auto":
-//                           tries basic first and retries with stealth only if
-//                           needed (stealth costs more credits per request).
-//   FIRECRAWL_CONCURRENCY   max parallel Firecrawl requests per host on one
-//                           instance. Default 2 (the free plan's concurrency).
+// Env (all optional except the key):
+//   FIRECRAWL_API_KEY              Firecrawl API key (fc-...)
+//   FIRECRAWL_HOSTS                hostnames to ALWAYS send through Firecrawl,
+//                                  or "*". Tolerates https://, www., paths,
+//                                  spaces and capitals. Optional now: with a
+//                                  key set, blocked hosts fall back anyway.
+//   FIRECRAWL_AUTO_FALLBACK        "false" to disable route C. Default on.
+//   FIRECRAWL_PROXY                "basic" | "stealth" | "auto". Default "auto"
+//                                  (basic first, stealth only if needed;
+//                                  stealth costs more credits).
+//   FIRECRAWL_CONCURRENCY          parallel Firecrawl requests per host per
+//                                  instance. Default 2 (free plan).
+//   FIRECRAWL_BLOCKED_MEMORY_SECONDS  how long a blocked host skips the direct
+//                                  attempt. Default 600.
 //
-//   WISH_DROP_REDIS_URL           Redis connection string. When set, Firecrawl
-//                                 responses are cached here. STRONGLY
-//                                 recommended: without it nothing is cached
-//                                 and every call spends credits.
-//   SCRAPEDO_CACHE_SECONDS        fresh time for lists/categories. Default 86400 (1 day).
-//   SCRAPEDO_SEARCH_CACHE_SECONDS fresh time for search requests. Default 3600 (1 hour).
-//                                 (every distinct search term is its own entry)
-//   SCRAPEDO_STALE_SECONDS        how long an expired entry is kept so it can be
-//                                 served if Firecrawl fails. Default 604800 (7 days).
-//                                 (the SCRAPEDO_* cache names are kept so your
-//                                 existing env config keeps working)
+//   WISH_DROP_REDIS_URL            Redis connection string. When set, Firecrawl
+//                                  responses are cached here. STRONGLY
+//                                  recommended: without it every call spends
+//                                  credits.
+//   SCRAPEDO_CACHE_SECONDS         fresh time for lists/categories. Default 86400.
+//   SCRAPEDO_SEARCH_CACHE_SECONDS  fresh time for search requests. Default 3600.
+//   SCRAPEDO_STALE_SECONDS         how long an expired entry is kept so it can
+//                                  be served if Firecrawl fails. Default 604800.
+//                                  (SCRAPEDO_* names kept so existing config
+//                                  keeps working)
 //
-//   STORE_PROXY_URL / STORE_PROXY_SECRET / STORE_PROXY_HOSTS   relay (see above)
-//   STORE_DEBUG       "1" to log cache hits/misses and Firecrawl status codes.
+//   STORE_PROXY_URL / STORE_PROXY_SECRET / STORE_PROXY_HOSTS   relay
+//   STORE_DEBUG        "1" to log cache hits/misses and Firecrawl statuses.
 //
 // Needs the Node.js runtime (not Edge) because of ioredis and node:zlib.
 //   npm i ioredis
@@ -76,27 +89,27 @@ const DEBUG = () => process.env.STORE_DEBUG === '1';
 const active = new Map<string, number>();
 const waiters = new Map<string, Array<() => void>>();
 
-async function acquire(host: string, limit: number): Promise<void> {
-  const current = active.get(host) ?? 0;
+async function acquire(slot: string, limit: number): Promise<void> {
+  const current = active.get(slot) ?? 0;
   if (current < limit) {
-    active.set(host, current + 1);
+    active.set(slot, current + 1);
     return;
   }
   await new Promise<void>((resolve) => {
-    const q = waiters.get(host) ?? [];
+    const q = waiters.get(slot) ?? [];
     q.push(resolve);
-    waiters.set(host, q);
+    waiters.set(slot, q);
   });
 }
 
-function release(host: string): void {
-  const q = waiters.get(host);
+function release(slot: string): void {
+  const q = waiters.get(slot);
   const next = q?.shift();
   if (next) {
     next(); // hand the slot straight to the next waiter (count unchanged)
     return;
   }
-  active.set(host, Math.max(0, (active.get(host) ?? 1) - 1));
+  active.set(slot, Math.max(0, (active.get(slot) ?? 1) - 1));
 }
 
 // ── Headers ─────────────────────────────────────────────────────────────────
@@ -123,26 +136,83 @@ function mergeHeaders(origin: string, extra?: HeadersInit): Headers {
   return h;
 }
 
-// ── Host lists ──────────────────────────────────────────────────────────────
-function hostEnabled(listEnv: string | undefined, host: string): boolean {
-  const list = (listEnv ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!list.length) return false;
-  return list.includes('*') || list.includes(host);
+// ── Env helpers / host lists ────────────────────────────────────────────────
+function numEnv(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function shouldUseFirecrawl(host: string): boolean {
-  return !!process.env.FIRECRAWL_API_KEY && hostEnabled(process.env.FIRECRAWL_HOSTS, host);
+/** "https://www.Shop.com/path" -> "shop.com" ; used for BOTH list entries and request hosts */
+function normaliseHost(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/[/?#].*$/, '')
+    .replace(/:\d+$/, '')
+    .replace(/^www\./, '');
 }
+
+function hostEnabled(listEnv: string | undefined, host: string): boolean {
+  const list = (listEnv ?? '')
+    .split(/[,\s;]+/)
+    .map(normaliseHost)
+    .filter(Boolean);
+  if (!list.length) return false;
+  return list.includes('*') || list.includes(normaliseHost(host));
+}
+
+const firecrawlKey = () => (process.env.FIRECRAWL_API_KEY ?? '').trim();
+const autoFallbackOn = () => !!firecrawlKey() && process.env.FIRECRAWL_AUTO_FALLBACK !== 'false';
 
 function shouldRelay(host: string): boolean {
   return !!process.env.STORE_PROXY_URL && hostEnabled(process.env.STORE_PROXY_HOSTS, host);
 }
 
+// Hosts that recently got a firewall block on the direct route.
+const blockedHosts = new Map<string, number>();
+const isHostBlocked = (host: string) => (blockedHosts.get(host) ?? 0) > Date.now();
+const markHostBlocked = (host: string) =>
+  blockedHosts.set(host, Date.now() + numEnv('FIRECRAWL_BLOCKED_MEMORY_SECONDS', 600) * 1000);
+
+// One log line per host per instance: which route, and what config was seen.
+const routeLogged = new Set<string>();
+function logRouteOnce(host: string, route: string): void {
+  if (routeLogged.has(host)) return;
+  routeLogged.add(host);
+  console.log('[storeFetch] route', {
+    host,
+    route,
+    firecrawlKeySet: !!firecrawlKey(),
+    firecrawlHosts: process.env.FIRECRAWL_HOSTS ?? null,
+    autoFallback: autoFallbackOn(),
+    redis: !!process.env.WISH_DROP_REDIS_URL,
+  });
+}
+
+// ── Block detection ─────────────────────────────────────────────────────────
+// True only for a FIREWALL block (challenge / deny page). A genuine API error
+// from the store (JSON body, e.g. WooCommerce "invalid key") is NOT a block,
+// so it never spends Firecrawl credits.
+const BLOCK_BODY = /just a moment|cf-chl|attention required|access denied|sucuri|imunify360|wordfence|you have been blocked|captcha/i;
+
+async function looksLikeFirewallBlock(res: Response): Promise<boolean> {
+  if (![403, 429, 503].includes(res.status)) return false;
+  if (res.headers.get('cf-mitigated') || res.headers.get('x-sucuri-id')) return true;
+  try {
+    const body = (await res.clone().text()).trim().slice(0, 4000);
+    if (body.startsWith('{') || body.startsWith('[')) return false; // real API error
+    if (BLOCK_BODY.test(body)) return true;
+  } catch {
+    /* fall through */
+  }
+  const server = (res.headers.get('server') ?? '').toLowerCase();
+  return /cloudflare|sucuri|imunify|akamai/.test(server) && res.status === 403;
+}
+
 // ── Firecrawl ───────────────────────────────────────────────────────────────
-// We only forward headers the seller actually needs: Authorization (wc/v3
-// keys) and any x-* header (for example the x-wishdrop-key secret used by a
-// Cloudflare skip rule). Firecrawl sends its own browser fingerprint, so our
-// browser defaults are NOT forwarded.
+// Only headers the seller needs are forwarded: Authorization (wc/v3 keys) and
+// any x-* header (e.g. an x-wishdrop-key secret for a Cloudflare skip rule).
 function pickForwardHeaders(init: HeadersInit | undefined): Headers {
   const out = new Headers();
   if (!init) return out;
@@ -164,9 +234,9 @@ function decodeEntities(s: string): string {
     .replace(/&amp;/g, '&'); // must be last
 }
 
-// For a JSON endpoint, Firecrawl may hand back the bare JSON, or a browser
-// "JSON viewer" page with the JSON inside <pre>. Return plain JSON in both
-// cases; leave real HTML pages untouched.
+// For a JSON endpoint Firecrawl may return bare JSON, or a browser "JSON
+// viewer" page with the JSON inside <pre>. Return plain JSON in both cases;
+// leave real HTML pages untouched.
 function extractBody(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed;
@@ -196,6 +266,27 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
+// Rebuild WooCommerce pagination headers when they can be known for sure:
+// a page shorter than per_page is the last page.
+function paginationHeaders(target: URL, text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const perRaw = target.searchParams.get('per_page');
+  if (!perRaw || !text.startsWith('[')) return out;
+  const per = Number(perRaw);
+  const page = Math.max(1, Number(target.searchParams.get('page') ?? 1) || 1);
+  if (!Number.isFinite(per) || per <= 0) return out;
+  try {
+    const arr = JSON.parse(text);
+    if (Array.isArray(arr) && arr.length < per) {
+      out['x-wp-total'] = String((page - 1) * per + arr.length);
+      out['x-wp-totalpages'] = String(arr.length === 0 ? Math.max(1, page - 1) : page);
+    }
+  } catch {
+    /* not JSON: no headers */
+  }
+  return out;
+}
+
 async function firecrawlScrape(target: URL, init: NextInit): Promise<Response> {
   const forward: Record<string, string> = {};
   pickForwardHeaders(init.headers).forEach((v, k) => {
@@ -214,7 +305,7 @@ async function firecrawlScrape(target: URL, init: NextInit): Promise<Response> {
     cache: 'no-store',
     signal: init.signal,
     headers: {
-      Authorization: `Bearer ${process.env.FIRECRAWL_API_KEY ?? ''}`,
+      Authorization: `Bearer ${firecrawlKey()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -233,7 +324,8 @@ async function firecrawlScrape(target: URL, init: NextInit): Promise<Response> {
   const data = env.data ?? {};
   const raw = data.rawHtml ?? data.html ?? data.markdown ?? '';
   const code = data.metadata?.statusCode;
-  const status = Number.isInteger(code) && (code as number) >= 200 && (code as number) <= 599 ? (code as number) : 200;
+  const status =
+    Number.isInteger(code) && (code as number) >= 200 && (code as number) <= 599 ? (code as number) : 200;
 
   if (DEBUG()) console.log('[storeFetch] firecrawl ->', status, target.pathname + target.search);
 
@@ -242,16 +334,14 @@ async function firecrawlScrape(target: URL, init: NextInit): Promise<Response> {
   const noBody = status === 204 || status === 205 || status === 304;
   return new Response(noBody ? null : text, {
     status,
-    headers: { 'content-type': looksJson ? 'application/json' : 'text/html; charset=utf-8' },
+    headers: {
+      'content-type': looksJson ? 'application/json' : 'text/html; charset=utf-8',
+      ...(status < 300 ? paginationHeaders(target, text) : {}),
+    },
   });
 }
 
 // ── Cache durations ─────────────────────────────────────────────────────────
-function numEnv(name: string, fallback: number): number {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 function freshSeconds(target: URL): number {
   const isSearch = target.searchParams.has('search') || target.searchParams.has('q');
   return isSearch
@@ -386,81 +476,73 @@ async function logBlocked(url: string, res: Response, via: string) {
   }
 }
 
-// ── Public API ──────────────────────────────────────────────────────────────
-export async function storeFetch(input: string | URL, init: NextInit = {}): Promise<Response> {
-  const target = new URL(typeof input === 'string' ? input : input.toString());
+// ── Route B: direct / relay ─────────────────────────────────────────────────
+async function directRequest(
+  target: URL,
+  init: NextInit,
+  via: 'direct' | 'relay',
+  failFastOnBlock: boolean,
+): Promise<Response> {
   const host = target.hostname;
-
-  const useFirecrawl = shouldUseFirecrawl(host);
-  const useRelay = !useFirecrawl && shouldRelay(host);
-  const via = useFirecrawl ? 'firecrawl' : useRelay ? 'relay' : 'direct';
-
-  const redis = useFirecrawl ? getRedis() : null;
-
   let requestUrl = target.toString();
-  let headers: Headers;
-  let forward = new Headers();
-
-  if (useFirecrawl) {
-    forward = pickForwardHeaders(init.headers);
-    headers = forward; // unused for the Firecrawl call itself
-  } else {
-    headers = mergeHeaders(target.origin, init.headers);
-    if (useRelay) {
-      requestUrl = `${process.env.STORE_PROXY_URL}?url=${encodeURIComponent(target.toString())}`;
-      headers.set('x-proxy-secret', process.env.STORE_PROXY_SECRET ?? '');
-    }
+  const headers = mergeHeaders(target.origin, init.headers);
+  if (via === 'relay') {
+    requestUrl = `${process.env.STORE_PROXY_URL}?url=${encodeURIComponent(target.toString())}`;
+    headers.set('x-proxy-secret', process.env.STORE_PROXY_SECRET ?? '');
   }
 
-  // Firecrawl bills per request, so don't multiply the cost by retrying on
-  // our side.
-  const maxRetries = useFirecrawl ? 0 : MAX_RETRIES;
-  const concurrency = useFirecrawl
-    ? Math.max(1, Math.floor(numEnv('FIRECRAWL_CONCURRENCY', 2)))
-    : MAX_CONCURRENT_PER_HOST;
-
-  // The actual network call (with throttling + retries). Returns the final
-  // Response, which may be a failure that the caller still has to handle.
-  const runRequest = async (): Promise<Response> => {
-    await acquire(host, concurrency);
-    try {
-      let lastRes: Response | undefined;
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          const res = useFirecrawl
-            ? await firecrawlScrape(target, init)
-            : await fetch(requestUrl, { ...init, headers });
-          if (!RETRY_STATUSES.has(res.status)) return res;
-          lastRes = res;
-          // A Cloudflare managed challenge ("Just a moment...") can't be
-          // passed by retrying, and retrying only makes the traffic look
-          // more like a bot. Fail fast; the seller must exempt this traffic.
-          if (res.headers.get('cf-mitigated') === 'challenge') break;
-          if (attempt < maxRetries) await sleep(retryDelayMs(attempt, res));
-        } catch (err) {
-          if (attempt === maxRetries) throw err;
-          await sleep(retryDelayMs(attempt));
-        }
+  await acquire(host, MAX_CONCURRENT_PER_HOST);
+  try {
+    let lastRes: Response | undefined;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(requestUrl, { ...init, headers });
+        if (!RETRY_STATUSES.has(res.status)) return res;
+        lastRes = res;
+        // A Cloudflare managed challenge can't be passed by retrying, and
+        // retrying only makes the traffic look more like a bot. Fail fast.
+        if (res.headers.get('cf-mitigated') === 'challenge') break;
+        if (failFastOnBlock && (await looksLikeFirewallBlock(res))) break;
+        if (attempt < MAX_RETRIES) await sleep(retryDelayMs(attempt, res));
+      } catch (err) {
+        if (attempt === MAX_RETRIES) throw err;
+        await sleep(retryDelayMs(attempt));
       }
-      // Out of retries: log who is blocking, then hand the response back so
-      // callers keep their existing `if (!res.ok)` handling.
-      if (lastRes) await logBlocked(target.toString(), lastRes, via);
-      return lastRes as Response;
+    }
+    // Out of retries: log who is blocking, then hand the response back so
+    // callers keep their existing `if (!res.ok)` handling.
+    if (lastRes) await logBlocked(target.toString(), lastRes, via);
+    return lastRes as Response;
+  } finally {
+    release(host);
+  }
+}
+
+// ── Route A: Firecrawl (+ Redis cache) ──────────────────────────────────────
+async function firecrawlRequest(target: URL, init: NextInit): Promise<Response> {
+  const host = target.hostname;
+  const slot = `fc:${host}`;
+  const limit = Math.max(1, Math.floor(numEnv('FIRECRAWL_CONCURRENCY', 2)));
+
+  // Firecrawl bills per request: no automatic retries on our side.
+  const runRequest = async (): Promise<Response> => {
+    await acquire(slot, limit);
+    try {
+      const res = await firecrawlScrape(target, init);
+      if (RETRY_STATUSES.has(res.status)) await logBlocked(target.toString(), res, 'firecrawl');
+      return res;
     } finally {
-      release(host);
+      release(slot);
     }
   };
 
-  // No Redis (or not a Firecrawl request): plain path.
+  const redis = getRedis();
   if (!redis) {
-    if (useFirecrawl) {
-      console.warn('[storeFetch] Firecrawl without Redis: responses are NOT cached, every call spends credits');
-    }
+    console.warn('[storeFetch] Firecrawl without Redis: responses are NOT cached, every call spends credits');
     return runRequest();
   }
 
-  // ── Firecrawl + Redis ─────────────────────────────────────────────────────
-  const key = cacheKey(target, forward);
+  const key = cacheKey(target, pickForwardHeaders(init.headers));
   const ttlMs = freshSeconds(target) * 1000;
 
   const cached = await cacheGet(redis, key);
@@ -500,4 +582,40 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
   }
 
   return entryToResponse(await pending);
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
+export async function storeFetch(input: string | URL, init: NextInit = {}): Promise<Response> {
+  const target = new URL(typeof input === 'string' ? input : input.toString());
+  const host = target.hostname;
+
+  const key = firecrawlKey();
+  const listed = !!key && hostEnabled(process.env.FIRECRAWL_HOSTS, host);
+  const fallback = autoFallbackOn();
+  const baseVia: 'direct' | 'relay' = shouldRelay(host) ? 'relay' : 'direct';
+
+  // A. always through Firecrawl
+  if (listed) {
+    logRouteOnce(host, 'firecrawl');
+    return firecrawlRequest(target, init);
+  }
+
+  // C (memory). this host was just blocked: skip the doomed direct attempt
+  if (fallback && isHostBlocked(host)) {
+    logRouteOnce(host, 'firecrawl (blocked-host memory)');
+    return firecrawlRequest(target, init);
+  }
+
+  // B. direct / relay
+  logRouteOnce(host, fallback ? `${baseVia} + firecrawl fallback` : baseVia);
+  const res = await directRequest(target, init, baseVia, fallback);
+
+  // C. blocked by a firewall -> retry through Firecrawl
+  if (fallback && (await looksLikeFirewallBlock(res))) {
+    markHostBlocked(host);
+    console.warn('[storeFetch] direct request blocked, falling back to Firecrawl:', host);
+    return firecrawlRequest(target, init);
+  }
+
+  return res;
 }
