@@ -10,7 +10,8 @@
 //
 //   1. Scrape.do  (if SCRAPEDO_TOKEN is set and the host is enabled):
 //        the request goes through their residential/mobile proxy network,
-//        which is what gets past Cloudflare managed challenges.
+//        which is what gets past Cloudflare managed challenges. Results are
+//        cached in Redis (see below) because every request costs credits.
 //   2. A relay    (if STORE_PROXY_URL is set and the host is enabled):
 //        see relay/cloudflare-worker.js or your own home relay.
 //   3. Direct     with full browser headers, per-host throttling and
@@ -27,18 +28,38 @@
 //   SCRAPEDO_SUPER    "false" to turn off residential/mobile IPs (cheaper,
 //                     but usually NOT enough for a Cloudflare challenge).
 //                     Default: on.
+//
+//   WISH_DROP_REDIS_URL           Redis connection string. When set, Scrape.do
+//                                 responses are cached here. Unset = falls back
+//                                 to Next's own fetch cache.
+//   SCRAPEDO_CACHE_SECONDS        fresh time for lists/categories. Default 86400 (1 day).
+//   SCRAPEDO_SEARCH_CACHE_SECONDS fresh time for search requests. Default 3600 (1 hour).
+//                                 (every distinct search term is its own entry)
+//   SCRAPEDO_STALE_SECONDS        how long an expired entry is kept so it can be
+//                                 served if Scrape.do fails. Default 604800 (7 days).
+//
 //   STORE_PROXY_URL / STORE_PROXY_SECRET / STORE_PROXY_HOSTS   relay (see above)
-//   STORE_DEBUG       "1" to log the response header names from Scrape.do,
-//                     useful to confirm x-wp-total is passed through.
+//   STORE_DEBUG       "1" to log cache hits/misses and the response header
+//                     names from Scrape.do (useful to confirm x-wp-total
+//                     is passed through).
+//
+// Needs the Node.js runtime (not Edge) because of ioredis and node:zlib.
+//   npm i ioredis
 //
 // Usage: in a provider file, replace the global fetch with this one:
 //   import { storeFetch as fetch } from './http';
+
+import { createHash } from 'node:crypto';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import Redis from 'ioredis';
 
 type NextInit = RequestInit & { next?: { revalidate?: number | false; tags?: string[] } };
 
 const RETRY_STATUSES = new Set([403, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 2;
 const MAX_CONCURRENT_PER_HOST = 4;
+
+const DEBUG = () => process.env.STORE_DEBUG === '1';
 
 // ── Per-host concurrency limiter ────────────────────────────────────────────
 const active = new Map<string, number>();
@@ -149,13 +170,120 @@ function normaliseScrapeDoResponse(res: Response): Response {
     const m = key.toLowerCase().match(/(x-wp-total(?:pages)?)$/);
     if (m && !headers.has(m[1])) headers.set(m[1], value);
   });
-  if (process.env.STORE_DEBUG === '1') {
+  if (DEBUG()) {
     const names: string[] = [];
     res.headers.forEach((_v, k) => names.push(k));
     console.log('[storeFetch] scrape.do response headers:', names.join(', '));
   }
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
+
+// ── Cache durations ─────────────────────────────────────────────────────────
+function numEnv(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function freshSeconds(target: URL): number {
+  const isSearch = target.searchParams.has('search') || target.searchParams.has('q');
+  return isSearch
+    ? numEnv('SCRAPEDO_SEARCH_CACHE_SECONDS', 3600)
+    : numEnv('SCRAPEDO_CACHE_SECONDS', 86400);
+}
+
+// ── Redis cache (Scrape.do responses only) ──────────────────────────────────
+// A Redis failure must NEVER break a request: every call below is wrapped and
+// falls through to a normal fetch.
+interface CachedEntry {
+  /** HTTP status of the seller's response */
+  s: number;
+  /** the few response headers callers rely on */
+  h: Record<string, string>;
+  /** gzip + base64 of the response body */
+  b: string;
+  /** saved-at, ms epoch */
+  t: number;
+}
+
+const KEPT_HEADERS = ['content-type', 'x-wp-total', 'x-wp-totalpages'];
+
+const globalForRedis = globalThis as unknown as { __storeRedis?: Redis | null };
+let redisErrorLogged = false;
+
+function getRedis(): Redis | null {
+  const url = process.env.WISH_DROP_REDIS_URL;
+  if (!url) return null;
+  if (globalForRedis.__storeRedis !== undefined) return globalForRedis.__storeRedis;
+  try {
+    const client = new Redis(url, {
+      lazyConnect: true,
+      connectTimeout: 2000,
+      commandTimeout: 2000,
+      maxRetriesPerRequest: 1,
+    });
+    client.on('error', (e) => {
+      if (redisErrorLogged) return; // don't spam the logs
+      redisErrorLogged = true;
+      console.error('[storeFetch] redis error (cache disabled until it recovers):', e.message);
+    });
+    client.on('ready', () => {
+      redisErrorLogged = false;
+    });
+    client.connect().catch(() => {
+      /* handled by the 'error' listener */
+    });
+    globalForRedis.__storeRedis = client;
+    return client;
+  } catch {
+    globalForRedis.__storeRedis = null;
+    return null;
+  }
+}
+
+function cacheKey(target: URL, forward: Headers): string {
+  const fwd = [...forward.entries()]
+    .map(([k, v]) => `${k.toLowerCase()}=${v}`)
+    .sort()
+    .join('&');
+  const hash = createHash('sha256').update(`${target.toString()}|${fwd}`).digest('hex');
+  return `storefetch:v1:${target.hostname}:${hash}`;
+}
+
+async function cacheGet(redis: Redis, key: string): Promise<CachedEntry | null> {
+  try {
+    const raw = await redis.get(key);
+    return raw ? (JSON.parse(raw) as CachedEntry) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheSet(redis: Redis, key: string, entry: CachedEntry): Promise<void> {
+  try {
+    await redis.set(key, JSON.stringify(entry), 'EX', numEnv('SCRAPEDO_STALE_SECONDS', 604800));
+  } catch {
+    /* cache write failures are non-fatal */
+  }
+}
+
+async function responseToEntry(res: Response): Promise<CachedEntry> {
+  const body = await res.text();
+  const h: Record<string, string> = {};
+  for (const name of KEPT_HEADERS) {
+    const v = res.headers.get(name);
+    if (v != null) h[name] = v;
+  }
+  return { s: res.status, h, b: gzipSync(Buffer.from(body, 'utf8')).toString('base64'), t: Date.now() };
+}
+
+function entryToResponse(entry: CachedEntry): Response {
+  const body = gunzipSync(Buffer.from(entry.b, 'base64')).toString('utf8');
+  return new Response(body, { status: entry.s, headers: entry.h });
+}
+
+// Concurrent identical requests on one instance share a single upstream call,
+// so a cold cache + a burst of visitors doesn't burn credits N times.
+const inflight = new Map<string, Promise<CachedEntry>>();
 
 // ── Utilities ───────────────────────────────────────────────────────────────
 function sleep(ms: number) {
@@ -198,13 +326,17 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
   const useRelay = !useScrapeDo && shouldRelay(host);
   const via = useScrapeDo ? 'scrape.do' : useRelay ? 'relay' : 'direct';
 
+  const redis = useScrapeDo ? getRedis() : null;
+
   let requestUrl = target.toString();
   let headers: Headers;
+  let forward = new Headers();
 
   if (useScrapeDo) {
     const req = buildScrapeDoRequest(target, init);
     requestUrl = req.url;
     headers = req.headers;
+    forward = req.headers;
   } else {
     headers = mergeHeaders(target.origin, init.headers);
     if (useRelay) {
@@ -217,29 +349,91 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
   // multiply the cost by retrying on our side.
   const maxRetries = useScrapeDo ? 0 : MAX_RETRIES;
 
-  await acquire(host);
-  try {
-    let lastRes: Response | undefined;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const res = await fetch(requestUrl, { ...init, headers });
-        if (!RETRY_STATUSES.has(res.status)) return useScrapeDo ? normaliseScrapeDoResponse(res) : res;
-        lastRes = res;
-        // A Cloudflare managed challenge ("Just a moment...") can't be passed
-        // by retrying, and retrying only makes the traffic look more like a
-        // bot. Fail fast; the seller must exempt this traffic (see log).
-        if (res.headers.get('cf-mitigated') === 'challenge') break;
-        if (attempt < maxRetries) await sleep(retryDelayMs(attempt, res));
-      } catch (err) {
-        if (attempt === maxRetries) throw err;
-        await sleep(retryDelayMs(attempt));
-      }
+  // When Redis is our cache, bypass Next's fetch cache for the Scrape.do call
+  // (otherwise the same response would be cached twice, with two lifetimes).
+  // Without Redis, fall back to Next's cache using the long Scrape.do lifetime.
+  let fetchInit: NextInit = init;
+  if (useScrapeDo) {
+    if (redis) {
+      const { next: _next, ...rest } = init;
+      fetchInit = { ...rest, cache: 'no-store' };
+    } else {
+      fetchInit = { ...init, next: { ...init.next, revalidate: freshSeconds(target) } };
     }
-    // Out of retries: log who is blocking, then hand the response back so
-    // callers keep their existing `if (!res.ok)` handling.
-    if (lastRes) await logBlocked(target.toString(), lastRes, via);
-    return (useScrapeDo && lastRes ? normaliseScrapeDoResponse(lastRes) : lastRes) as Response;
-  } finally {
-    release(host);
   }
+
+  // The actual network call (with throttling + retries). Returns the final
+  // Response, which may be a failure that the caller still has to handle.
+  const runRequest = async (): Promise<Response> => {
+    await acquire(host);
+    try {
+      let lastRes: Response | undefined;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await fetch(requestUrl, { ...fetchInit, headers });
+          if (!RETRY_STATUSES.has(res.status)) return useScrapeDo ? normaliseScrapeDoResponse(res) : res;
+          lastRes = res;
+          // A Cloudflare managed challenge ("Just a moment...") can't be
+          // passed by retrying, and retrying only makes the traffic look
+          // more like a bot. Fail fast; the seller must exempt this traffic.
+          if (res.headers.get('cf-mitigated') === 'challenge') break;
+          if (attempt < maxRetries) await sleep(retryDelayMs(attempt, res));
+        } catch (err) {
+          if (attempt === maxRetries) throw err;
+          await sleep(retryDelayMs(attempt));
+        }
+      }
+      // Out of retries: log who is blocking, then hand the response back so
+      // callers keep their existing `if (!res.ok)` handling.
+      if (lastRes) await logBlocked(target.toString(), lastRes, via);
+      return (useScrapeDo && lastRes ? normaliseScrapeDoResponse(lastRes) : lastRes) as Response;
+    } finally {
+      release(host);
+    }
+  };
+
+  // No Redis (or not a Scrape.do request): plain path.
+  if (!redis) return runRequest();
+
+  // ── Scrape.do + Redis ─────────────────────────────────────────────────────
+  const key = cacheKey(target, forward);
+  const ttlMs = freshSeconds(target) * 1000;
+
+  const cached = await cacheGet(redis, key);
+  if (cached && Date.now() - cached.t < ttlMs) {
+    if (DEBUG()) console.log('[storeFetch] cache HIT', target.pathname + target.search);
+    return entryToResponse(cached);
+  }
+
+  let pending = inflight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      if (DEBUG()) console.log('[storeFetch] cache MISS', target.pathname + target.search);
+      try {
+        const res = await runRequest();
+        const entry = await responseToEntry(res);
+        if (entry.s >= 200 && entry.s < 300) {
+          await cacheSet(redis, key, entry); // only successes are cached
+          return entry;
+        }
+        // Scrape.do/seller failed: prefer an expired copy over an error page.
+        if (cached) {
+          console.warn('[storeFetch] serving STALE copy after status', entry.s, target.pathname);
+          return cached;
+        }
+        return entry;
+      } catch (err) {
+        if (cached) {
+          console.warn('[storeFetch] serving STALE copy after error', (err as Error).message);
+          return cached;
+        }
+        throw err;
+      }
+    })().finally(() => {
+      inflight.delete(key);
+    });
+    inflight.set(key, pending);
+  }
+
+  return entryToResponse(await pending);
 }
