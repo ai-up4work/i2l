@@ -5,7 +5,7 @@ import type { ProviderFetchParams, ProviderFetchResult } from './types';
 import { extractColors, extractSizes, stripHtml } from './types';
 // Hardened fetch (browser headers, retries, per-host throttling, optional relay).
 // Shadows the global fetch so every request in this file goes through it.
-import { storeFetch as fetch } from './http';
+import { storeFetch as fetch, hostUsesFirecrawl } from './http';
 
 const CACHE_SECONDS = 60 * 10;
 
@@ -674,10 +674,10 @@ export async function fetchWooCommerceCurrency(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ADDITIVE: catalog cache ("fetch the whole catalog once, filter locally")
+// Catalog cache ("fetch the whole catalog once, filter locally")
 //
-// Nothing above this line was changed. Everything below is new and is only
-// used if a caller switches to the *Cached functions:
+// Everything above this line is the original live-request behaviour.
+// Everything below is only used if a caller switches to the *Cached functions:
 //
 //   fetchWooCommerceProducts  ->  fetchWooCommerceProductsCached
 //   fetchWooCommerceProduct   ->  fetchWooCommerceProductCached
@@ -691,8 +691,11 @@ export async function fetchWooCommerceCurrency(
 // prices/stock still need one request, and that is memoised too.
 //
 // Safety nets: if the catalog can't be used (request failed, store too large,
-// product not in the catalog yet) every function falls back to the original
-// live behaviour above, so nothing gets worse than today.
+// product not in the catalog yet) the functions fall back to the original
+// live behaviour — EXCEPT when the store is behind Firecrawl. In that case a
+// live fallback costs a credit per page and trips the rate limit, so the
+// functions throw (or return null for an unknown slug) instead. See
+// liveFallbackAllowed().
 //
 // Env (all optional):
 //   WOO_CATALOG_TTL_SECONDS               fresh time in memory. Default 600.
@@ -719,6 +722,20 @@ const envNumber = (name: string, fallback: number): number => {
 
 const catalogTtlMs = () => envNumber('WOO_CATALOG_TTL_SECONDS', 600) * 1000;
 const catalogStaleMs = () => envNumber('WOO_CATALOG_STALE_SECONDS', 86400) * 1000;
+
+/**
+ * Whether a per-page live request is an acceptable fallback when the catalog
+ * is unavailable. When the store is behind Firecrawl it is NOT: every live
+ * request is a paid credit and, during an outage, N visitors become N calls
+ * that trip the rate limit. Better to fail visibly (or 404 an unknown slug).
+ */
+const liveFallbackAllowed = (config: WooCommerceProviderConfig): boolean => {
+  try {
+    return !hostUsesFirecrawl(new URL(config.baseUrl).hostname);
+  } catch {
+    return true;
+  }
+};
 
 // ── tiny in-memory memo: in-flight dedupe + serve-stale-on-error ────────────
 const memoStore = new Map<string, { value: unknown; at: number }>();
@@ -943,7 +960,8 @@ function queryWooCatalog(
 /**
  * Drop-in for fetchWooCommerceProducts: same arguments, same result shape,
  * but answered from the cached catalog. Falls back to the live request when
- * the catalog is unavailable or too large.
+ * the catalog is unavailable or too large — unless the store is behind
+ * Firecrawl, where it throws instead (see liveFallbackAllowed).
  */
 export async function fetchWooCommerceProductsCached(
   platform: string,
@@ -960,10 +978,16 @@ export async function fetchWooCommerceProductsCached(
   try {
     catalog = await getWooCatalog(platform, config);
   } catch (err) {
+    if (!liveFallbackAllowed(config)) throw err;
     console.warn(`[woo catalog] ${platform}: catalog unavailable, using live request:`, (err as Error).message);
     return fetchWooCommerceProducts(platform, config, params);
   }
-  if (catalog.tooLarge) return fetchWooCommerceProducts(platform, config, params);
+  if (catalog.tooLarge) {
+    if (!liveFallbackAllowed(config)) {
+      throw new Error(`WooCommerce catalog for ${platform} is too large to cache`);
+    }
+    return fetchWooCommerceProducts(platform, config, params);
+  }
 
   return queryWooCatalog(catalog, config, params);
 }
@@ -972,7 +996,9 @@ export async function fetchWooCommerceProductsCached(
  * Drop-in for fetchWooCommerceProduct: finds the product in the cached
  * catalog by slug (no request of its own), then loads its per-variation
  * price/stock (memoised). A slug that isn't in the catalog yet falls back to
- * the live lookup, so products added after the last refresh still resolve.
+ * the live lookup so products added after the last refresh still resolve —
+ * except for Firecrawl-backed stores, where it returns null (404) so random
+ * or bot-generated URLs can't cost credits.
  */
 export async function fetchWooCommerceProductCached(
   platform: string,
@@ -983,10 +1009,16 @@ export async function fetchWooCommerceProductCached(
   try {
     catalog = await getWooCatalog(platform, config);
   } catch (err) {
+    if (!liveFallbackAllowed(config)) throw err;
     console.warn(`[woo catalog] ${platform}: catalog unavailable, using live request:`, (err as Error).message);
     return fetchWooCommerceProduct(platform, config, handle);
   }
-  if (catalog.tooLarge) return fetchWooCommerceProduct(platform, config, handle);
+  if (catalog.tooLarge) {
+    if (!liveFallbackAllowed(config)) {
+      throw new Error(`WooCommerce catalog for ${platform} is too large to cache`);
+    }
+    return fetchWooCommerceProduct(platform, config, handle);
+  }
 
   const currency = config.currency ?? 'USD';
   const ttl = catalogTtlMs();
@@ -1002,7 +1034,7 @@ export async function fetchWooCommerceProductCached(
 
   if (catalog.mode === 'wc_v3') {
     const found = catalog.raw.find((p) => p.slug === handle);
-    if (!found) return fetchWooCommerceProduct(platform, config, handle);
+    if (!found) return liveFallbackAllowed(config) ? fetchWooCommerceProduct(platform, config, handle) : null;
 
     // Normalise fresh: the original code mutates `variants`, and the catalog's copy is shared.
     const product = normaliseV3(found, platform, currency, config.baseUrl);
@@ -1030,7 +1062,7 @@ export async function fetchWooCommerceProductCached(
   }
 
   const found = catalog.raw.find((p) => p.slug === handle);
-  if (!found) return fetchWooCommerceProduct(platform, config, handle);
+  if (!found) return liveFallbackAllowed(config) ? fetchWooCommerceProduct(platform, config, handle) : null;
 
   const product = normaliseStoreApi(found, platform, config.baseUrl);
   if (product.variants?.length) {

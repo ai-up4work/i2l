@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useSearchParams, usePathname } from 'next/navigation';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
@@ -145,14 +145,21 @@ function ProductCard({
   const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform]);
   const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id);
   const pricing = getProductPricing(product);
+  const productHref = `/stores/${platform}/product/${product.handle}`;
 
   return (
     <div className="group flex flex-col">
       {/* Fixed 3:4 frame so every card in a row is the same height and
           prices line up, regardless of each source image's own shape.
-          object-top keeps faces/heads in frame when a photo is cropped. */}
+          object-top keeps faces/heads in frame when a photo is cropped.
+
+          prefetch={false} on BOTH links: in production Next prefetches every
+          <Link> that scrolls into view, and each prefetch renders the product
+          page on the server (which calls the store provider). With 24 cards
+          x 2 links that was a burst of upstream requests nobody asked for. */}
       <Link
-        href={`/stores/${platform}/product/${product.handle}`}
+        href={productHref}
+        prefetch={false}
         className="relative block aspect-[3/4] overflow-hidden rounded-2xl bg-card border border-ink/10 mb-3"
       >
         <Image
@@ -212,7 +219,11 @@ function ProductCard({
         </div>
       </Link>
 
-      <Link href={`/stores/${platform}/product/${product.handle}`} className="flex flex-col flex-1 hover:opacity-75 transition-opacity">
+      <Link
+        href={productHref}
+        prefetch={false}
+        className="flex flex-col flex-1 hover:opacity-75 transition-opacity"
+      >
         <p className="text-[10px] text-ink/45 uppercase tracking-wider font-semibold mb-0.5">
           {product.category}
         </p>
@@ -550,6 +561,7 @@ function MobileCategorySheet({
                     <Link
                       key={s.platform}
                       href={`/stores/${s.platform}`}
+                      prefetch={false}
                       onClick={onClose}
                       className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-teal/10 transition-colors"
                     >
@@ -585,7 +597,6 @@ function MobileCategorySheet({
 // Router, or Next throws a build-time error.
 function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   const platform = store.platform;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -668,8 +679,11 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, liveCategories]);
 
-  // Keeps the URL in sync with every filter. Uses replace (not push) so
-  // clicking a filter doesn't spam browser history.
+  // Keeps the URL in sync with every filter. Uses the History API directly
+  // (Next 14.1+ integrates it with useSearchParams) instead of
+  // router.replace, which is a real navigation: it can re-run this page's
+  // server component and re-trigger link prefetching. The equality check
+  // skips the no-op write on first render, when the URL already matches.
   useEffect(() => {
     const qs = new URLSearchParams();
     if (category) qs.set('category', category);
@@ -678,8 +692,9 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     if (page > 1) qs.set('page', String(page));
 
     const query = qs.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const next = query ? `${pathname}?${query}` : pathname;
+    const current = window.location.pathname + window.location.search;
+    if (next !== current) window.history.replaceState(null, '', next);
   }, [category, search, sortBy, page, pathname]);
 
   const clearCart = () => { writeCart(platform, []); setCart([]); };
@@ -999,6 +1014,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
             ) : (
               <Link
                 href="/stores"
+                prefetch={false}
                 className="mt-5 rounded-full border border-ink/15 bg-card px-4 py-1.5 font-body text-xs font-semibold text-ink/65 transition-colors hover:text-ink"
               >
                 Browse other stores

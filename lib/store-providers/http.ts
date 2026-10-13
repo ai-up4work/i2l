@@ -56,11 +56,14 @@
 //                                  instance. Default 2 (free plan).
 //   FIRECRAWL_BLOCKED_MEMORY_SECONDS  how long a blocked host skips the direct
 //                                  attempt. Default 600.
+//   FIRECRAWL_ALLOW_UNCACHED       "true" to let Firecrawl calls go out even
+//                                  when Redis is unavailable (every call then
+//                                  spends a credit). Default: refuse with a 503
+//                                  so a broken cache can't silently burn credits.
 //
 //   WISH_DROP_REDIS_URL            Redis connection string. When set, Firecrawl
-//                                  responses are cached here. STRONGLY
-//                                  recommended: without it every call spends
-//                                  credits.
+//                                  responses are cached here. REQUIRED unless
+//                                  FIRECRAWL_ALLOW_UNCACHED=true.
 //   SCRAPEDO_CACHE_SECONDS         fresh time for lists/categories. Default 86400.
 //   SCRAPEDO_SEARCH_CACHE_SECONDS  fresh time for search requests. Default 3600.
 //   SCRAPEDO_STALE_SECONDS         how long an expired entry is kept so it can
@@ -178,6 +181,15 @@ const blockedHosts = new Map<string, number>();
 const isHostBlocked = (host: string) => (blockedHosts.get(host) ?? 0) > Date.now();
 const markHostBlocked = (host: string) =>
   blockedHosts.set(host, Date.now() + numEnv('FIRECRAWL_BLOCKED_MEMORY_SECONDS', 600) * 1000);
+
+/**
+ * True when requests to this host are (or just were) routed through
+ * Firecrawl. Providers use this to avoid "fall back to one live request per
+ * page" strategies, which cost a credit each and trip Firecrawl's rate limit.
+ */
+export function hostUsesFirecrawl(host: string): boolean {
+  return !!firecrawlKey() && (hostEnabled(process.env.FIRECRAWL_HOSTS, host) || isHostBlocked(host));
+}
 
 // One log line per host per instance: which route, and what config was seen.
 const routeLogged = new Set<string>();
@@ -423,6 +435,28 @@ function getRedis(): Redis | null {
   }
 }
 
+/**
+ * Like getRedis(), but only returns a client that is actually connected.
+ * Waits briefly for a cold connection; returns null if Redis isn't usable
+ * (not configured, DNS failure, reconnecting, ...).
+ */
+async function redisReady(): Promise<Redis | null> {
+  const r = getRedis();
+  if (!r) return null;
+  if (r.status === 'ready') return r;
+  if (r.status === 'connecting' || r.status === 'wait') {
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 1500);
+      r.once('ready', () => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+  }
+  const status = r.status as string;
+  return status === 'ready' ? r : null;
+}
+
 function cacheKey(target: URL, forward: Headers): string {
   const fwd = [...forward.entries()]
     .map(([k, v]) => `${k.toLowerCase()}=${v}`)
@@ -496,7 +530,7 @@ async function firecrawlBudget(): Promise<{ ok: boolean; retryAfterSec: number }
     return { ok: false, retryAfterSec: Math.ceil((fcLocal.cooldownUntil - now) / 1000) };
   }
 
-  const redis = getRedis();
+  const redis = await redisReady();
   if (redis) {
     try {
       const cooldown = Number(await redis.get('firecrawl:cooldown'));
@@ -531,7 +565,7 @@ async function noteFirecrawlRateLimit(res: Response): Promise<void> {
     const until = Date.now() + seconds * 1000;
     fcLocal.cooldownUntil = until;
     console.warn(`[storeFetch] Firecrawl rate limit hit: pausing Firecrawl calls for ${seconds}s`);
-    const redis = getRedis();
+    const redis = await redisReady();
     if (redis) await redis.set('firecrawl:cooldown', String(until), 'EX', seconds).catch(() => undefined);
   } catch {
     /* never throw from bookkeeping */
@@ -636,10 +670,16 @@ async function firecrawlRequest(target: URL, init: NextInit): Promise<Response> 
     }
   };
 
-  const redis = getRedis();
+  const redis = await redisReady();
   if (!redis) {
-    console.warn('[storeFetch] Firecrawl without Redis: responses are NOT cached, every call spends credits');
-    return runRequest();
+    // Without a working cache every call would spend a credit, and the rate
+    // guard would only be per-instance. Refuse unless explicitly allowed.
+    if (process.env.FIRECRAWL_ALLOW_UNCACHED === 'true') {
+      console.warn('[storeFetch] Firecrawl without Redis: responses are NOT cached, every call spends credits');
+      return runRequest();
+    }
+    console.error('[storeFetch] Redis unavailable: refusing to spend Firecrawl credits uncached', target.pathname);
+    return jsonResponse({ error: 'Cache unavailable' }, 503);
   }
 
   const key = cacheKey(target, pickForwardHeaders(init.headers));
