@@ -8,10 +8,9 @@
 // from Vercel's datacenter IPs even though the same request works from a
 // home connection. This helper tries, in order:
 //
-//   1. Scrape.do  (if SCRAPEDO_TOKEN is set and the host is enabled):
-//        the request goes through their residential/mobile proxy network,
-//        which is what gets past Cloudflare managed challenges. Results are
-//        cached in Redis (see below) because every request costs credits.
+//   1. Firecrawl  (if FIRECRAWL_API_KEY is set and the host is enabled):
+//        the request is made by Firecrawl's scrape API. Results are cached
+//        in Redis (see below) because every request costs credits.
 //   2. A relay    (if STORE_PROXY_URL is set and the host is enabled):
 //        see relay/cloudflare-worker.js or your own home relay.
 //   3. Direct     with full browser headers, per-host throttling and
@@ -19,29 +18,40 @@
 //
 // On a final failure it logs WHO blocked you (server, cf-ray, body snippet).
 //
-// Env (all optional):
-//   SCRAPEDO_TOKEN    Scrape.do API token
-//   SCRAPEDO_HOSTS    comma list of hostnames to send through Scrape.do,
-//                     or "*" for all. Unset = Scrape.do is not used.
-//                     Tip: list only the sellers that actually get blocked,
-//                     every request through Scrape.do costs credits.
-//   SCRAPEDO_SUPER    "false" to turn off residential/mobile IPs (cheaper,
-//                     but usually NOT enough for a Cloudflare challenge).
-//                     Default: on.
+// IMPORTANT differences from a transparent proxy (Scrape.do):
+//   - Firecrawl does NOT return the seller's response headers, so
+//     `x-wp-total` / `x-wp-totalpages` are NOT available on Firecrawl
+//     responses. Paginate until a page comes back shorter than `per_page`.
+//   - The seller's body comes back inside a JSON envelope. This helper
+//     unwraps it and rebuilds a normal Response (status from
+//     data.metadata.statusCode), so `res.ok` / `res.json()` keep working.
 //
-//   WISH_DROP_REDIS_URL           Redis connection string. When set, Scrape.do
-//                                 responses are cached here. Unset = falls back
-//                                 to Next's own fetch cache.
+// Env (all optional):
+//   FIRECRAWL_API_KEY       Firecrawl API key (fc-...)
+//   FIRECRAWL_HOSTS         comma list of hostnames to send through Firecrawl,
+//                           or "*" for all. Unset = Firecrawl is not used.
+//                           Tip: list only the sellers that actually get blocked,
+//                           every request through Firecrawl costs credits.
+//   FIRECRAWL_PROXY         "basic" | "stealth" | "auto". Default "auto":
+//                           tries basic first and retries with stealth only if
+//                           needed (stealth costs more credits per request).
+//   FIRECRAWL_CONCURRENCY   max parallel Firecrawl requests per host on one
+//                           instance. Default 2 (the free plan's concurrency).
+//
+//   WISH_DROP_REDIS_URL           Redis connection string. When set, Firecrawl
+//                                 responses are cached here. STRONGLY
+//                                 recommended: without it nothing is cached
+//                                 and every call spends credits.
 //   SCRAPEDO_CACHE_SECONDS        fresh time for lists/categories. Default 86400 (1 day).
 //   SCRAPEDO_SEARCH_CACHE_SECONDS fresh time for search requests. Default 3600 (1 hour).
 //                                 (every distinct search term is its own entry)
 //   SCRAPEDO_STALE_SECONDS        how long an expired entry is kept so it can be
-//                                 served if Scrape.do fails. Default 604800 (7 days).
+//                                 served if Firecrawl fails. Default 604800 (7 days).
+//                                 (the SCRAPEDO_* cache names are kept so your
+//                                 existing env config keeps working)
 //
 //   STORE_PROXY_URL / STORE_PROXY_SECRET / STORE_PROXY_HOSTS   relay (see above)
-//   STORE_DEBUG       "1" to log cache hits/misses and the response header
-//                     names from Scrape.do (useful to confirm x-wp-total
-//                     is passed through).
+//   STORE_DEBUG       "1" to log cache hits/misses and Firecrawl status codes.
 //
 // Needs the Node.js runtime (not Edge) because of ioredis and node:zlib.
 //   npm i ioredis
@@ -58,6 +68,7 @@ type NextInit = RequestInit & { next?: { revalidate?: number | false; tags?: str
 const RETRY_STATUSES = new Set([403, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 2;
 const MAX_CONCURRENT_PER_HOST = 4;
+const FIRECRAWL_ENDPOINT = 'https://api.firecrawl.dev/v2/scrape';
 
 const DEBUG = () => process.env.STORE_DEBUG === '1';
 
@@ -65,9 +76,9 @@ const DEBUG = () => process.env.STORE_DEBUG === '1';
 const active = new Map<string, number>();
 const waiters = new Map<string, Array<() => void>>();
 
-async function acquire(host: string): Promise<void> {
+async function acquire(host: string, limit: number): Promise<void> {
   const current = active.get(host) ?? 0;
-  if (current < MAX_CONCURRENT_PER_HOST) {
+  if (current < limit) {
     active.set(host, current + 1);
     return;
   }
@@ -119,20 +130,19 @@ function hostEnabled(listEnv: string | undefined, host: string): boolean {
   return list.includes('*') || list.includes(host);
 }
 
-function shouldUseScrapeDo(host: string): boolean {
-  return !!process.env.SCRAPEDO_TOKEN && hostEnabled(process.env.SCRAPEDO_HOSTS, host);
+function shouldUseFirecrawl(host: string): boolean {
+  return !!process.env.FIRECRAWL_API_KEY && hostEnabled(process.env.FIRECRAWL_HOSTS, host);
 }
 
 function shouldRelay(host: string): boolean {
   return !!process.env.STORE_PROXY_URL && hostEnabled(process.env.STORE_PROXY_HOSTS, host);
 }
 
-// ── Scrape.do ───────────────────────────────────────────────────────────────
-// Scrape.do sends its own realistic browser headers, so we do NOT forward our
-// browser defaults (mismatched headers can hurt). We only forward headers the
-// seller actually needs: Authorization (wc/v3 keys) and any x-* header (for
-// example the x-wishdrop-key secret used by a Cloudflare skip rule). That
-// needs `customHeaders=true`, which makes Scrape.do pass these through.
+// ── Firecrawl ───────────────────────────────────────────────────────────────
+// We only forward headers the seller actually needs: Authorization (wc/v3
+// keys) and any x-* header (for example the x-wishdrop-key secret used by a
+// Cloudflare skip rule). Firecrawl sends its own browser fingerprint, so our
+// browser defaults are NOT forwarded.
 function pickForwardHeaders(init: HeadersInit | undefined): Headers {
   const out = new Headers();
   if (!init) return out;
@@ -143,39 +153,97 @@ function pickForwardHeaders(init: HeadersInit | undefined): Headers {
   return out;
 }
 
-function buildScrapeDoRequest(target: URL, init: NextInit): { url: string; headers: Headers } {
-  const qs = new URLSearchParams({
-    token: process.env.SCRAPEDO_TOKEN ?? '',
-    url: target.toString(),
-    // Return the seller's real status code / headers instead of Scrape.do's
-    // own wrapper, so existing `res.ok` / `x-wp-total` handling keeps working.
-    transparentResponse: 'true',
-  });
-  if (process.env.SCRAPEDO_SUPER !== 'false') qs.set('super', 'true');
-
-  const forward = pickForwardHeaders(init.headers);
-  let headers = new Headers();
-  if ([...forward.keys()].length) {
-    qs.set('customHeaders', 'true');
-    headers = forward;
-  }
-  return { url: `https://api.scrape.do/?${qs.toString()}`, headers };
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&amp;/g, '&'); // must be last
 }
 
-// If Scrape.do prefixes the seller's headers, copy WooCommerce's pagination
-// headers back to their plain names so `res.headers.get('x-wp-total')` works.
-function normaliseScrapeDoResponse(res: Response): Response {
-  const headers = new Headers(res.headers);
-  res.headers.forEach((value, key) => {
-    const m = key.toLowerCase().match(/(x-wp-total(?:pages)?)$/);
-    if (m && !headers.has(m[1])) headers.set(m[1], value);
-  });
-  if (DEBUG()) {
-    const names: string[] = [];
-    res.headers.forEach((_v, k) => names.push(k));
-    console.log('[storeFetch] scrape.do response headers:', names.join(', '));
+// For a JSON endpoint, Firecrawl may hand back the bare JSON, or a browser
+// "JSON viewer" page with the JSON inside <pre>. Return plain JSON in both
+// cases; leave real HTML pages untouched.
+function extractBody(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed;
+  const m = trimmed.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+  if (m) {
+    const inner = decodeEntities(m[1]).trim();
+    if (inner.startsWith('{') || inner.startsWith('[')) return inner;
   }
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+  return raw;
+}
+
+interface FirecrawlEnvelope {
+  success?: boolean;
+  error?: string;
+  data?: {
+    rawHtml?: string;
+    html?: string;
+    markdown?: string;
+    metadata?: { statusCode?: number; error?: string };
+  };
+}
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+async function firecrawlScrape(target: URL, init: NextInit): Promise<Response> {
+  const forward: Record<string, string> = {};
+  pickForwardHeaders(init.headers).forEach((v, k) => {
+    forward[k] = v;
+  });
+
+  const body: Record<string, unknown> = {
+    url: target.toString(),
+    formats: ['rawHtml'],
+    proxy: process.env.FIRECRAWL_PROXY ?? 'auto',
+  };
+  if (Object.keys(forward).length) body.headers = forward;
+
+  const res = await fetch(FIRECRAWL_ENDPOINT, {
+    method: 'POST',
+    cache: 'no-store',
+    signal: init.signal,
+    headers: {
+      Authorization: `Bearer ${process.env.FIRECRAWL_API_KEY ?? ''}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const env = (await res.json().catch(() => null)) as FirecrawlEnvelope | null;
+
+  // Firecrawl itself refused / failed (bad key, out of credits, rate limit...)
+  if (!res.ok || !env || env.success === false) {
+    const status = res.ok ? 502 : res.status;
+    if (status === 402) console.error('[storeFetch] Firecrawl: out of credits (402)');
+    if (status === 401) console.error('[storeFetch] Firecrawl: invalid API key (401)');
+    return jsonResponse({ error: env?.error ?? res.statusText ?? 'firecrawl error' }, status);
+  }
+
+  const data = env.data ?? {};
+  const raw = data.rawHtml ?? data.html ?? data.markdown ?? '';
+  const code = data.metadata?.statusCode;
+  const status = Number.isInteger(code) && (code as number) >= 200 && (code as number) <= 599 ? (code as number) : 200;
+
+  if (DEBUG()) console.log('[storeFetch] firecrawl ->', status, target.pathname + target.search);
+
+  const text = extractBody(raw);
+  const looksJson = text.startsWith('{') || text.startsWith('[');
+  const noBody = status === 204 || status === 205 || status === 304;
+  return new Response(noBody ? null : text, {
+    status,
+    headers: { 'content-type': looksJson ? 'application/json' : 'text/html; charset=utf-8' },
+  });
 }
 
 // ── Cache durations ─────────────────────────────────────────────────────────
@@ -191,7 +259,7 @@ function freshSeconds(target: URL): number {
     : numEnv('SCRAPEDO_CACHE_SECONDS', 86400);
 }
 
-// ── Redis cache (Scrape.do responses only) ──────────────────────────────────
+// ── Redis cache (Firecrawl responses only) ──────────────────────────────────
 // A Redis failure must NEVER break a request: every call below is wrapped and
 // falls through to a normal fetch.
 interface CachedEntry {
@@ -278,7 +346,8 @@ async function responseToEntry(res: Response): Promise<CachedEntry> {
 
 function entryToResponse(entry: CachedEntry): Response {
   const body = gunzipSync(Buffer.from(entry.b, 'base64')).toString('utf8');
-  return new Response(body, { status: entry.s, headers: entry.h });
+  const noBody = entry.s === 204 || entry.s === 205 || entry.s === 304;
+  return new Response(noBody ? null : body, { status: entry.s, headers: entry.h });
 }
 
 // Concurrent identical requests on one instance share a single upstream call,
@@ -322,21 +391,19 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
   const target = new URL(typeof input === 'string' ? input : input.toString());
   const host = target.hostname;
 
-  const useScrapeDo = shouldUseScrapeDo(host);
-  const useRelay = !useScrapeDo && shouldRelay(host);
-  const via = useScrapeDo ? 'scrape.do' : useRelay ? 'relay' : 'direct';
+  const useFirecrawl = shouldUseFirecrawl(host);
+  const useRelay = !useFirecrawl && shouldRelay(host);
+  const via = useFirecrawl ? 'firecrawl' : useRelay ? 'relay' : 'direct';
 
-  const redis = useScrapeDo ? getRedis() : null;
+  const redis = useFirecrawl ? getRedis() : null;
 
   let requestUrl = target.toString();
   let headers: Headers;
   let forward = new Headers();
 
-  if (useScrapeDo) {
-    const req = buildScrapeDoRequest(target, init);
-    requestUrl = req.url;
-    headers = req.headers;
-    forward = req.headers;
+  if (useFirecrawl) {
+    forward = pickForwardHeaders(init.headers);
+    headers = forward; // unused for the Firecrawl call itself
   } else {
     headers = mergeHeaders(target.origin, init.headers);
     if (useRelay) {
@@ -345,33 +412,25 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
     }
   }
 
-  // Scrape.do already retries internally and bills per request, so don't
-  // multiply the cost by retrying on our side.
-  const maxRetries = useScrapeDo ? 0 : MAX_RETRIES;
-
-  // When Redis is our cache, bypass Next's fetch cache for the Scrape.do call
-  // (otherwise the same response would be cached twice, with two lifetimes).
-  // Without Redis, fall back to Next's cache using the long Scrape.do lifetime.
-  let fetchInit: NextInit = init;
-  if (useScrapeDo) {
-    if (redis) {
-      const { next: _next, ...rest } = init;
-      fetchInit = { ...rest, cache: 'no-store' };
-    } else {
-      fetchInit = { ...init, next: { ...init.next, revalidate: freshSeconds(target) } };
-    }
-  }
+  // Firecrawl bills per request, so don't multiply the cost by retrying on
+  // our side.
+  const maxRetries = useFirecrawl ? 0 : MAX_RETRIES;
+  const concurrency = useFirecrawl
+    ? Math.max(1, Math.floor(numEnv('FIRECRAWL_CONCURRENCY', 2)))
+    : MAX_CONCURRENT_PER_HOST;
 
   // The actual network call (with throttling + retries). Returns the final
   // Response, which may be a failure that the caller still has to handle.
   const runRequest = async (): Promise<Response> => {
-    await acquire(host);
+    await acquire(host, concurrency);
     try {
       let lastRes: Response | undefined;
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-          const res = await fetch(requestUrl, { ...fetchInit, headers });
-          if (!RETRY_STATUSES.has(res.status)) return useScrapeDo ? normaliseScrapeDoResponse(res) : res;
+          const res = useFirecrawl
+            ? await firecrawlScrape(target, init)
+            : await fetch(requestUrl, { ...init, headers });
+          if (!RETRY_STATUSES.has(res.status)) return res;
           lastRes = res;
           // A Cloudflare managed challenge ("Just a moment...") can't be
           // passed by retrying, and retrying only makes the traffic look
@@ -386,16 +445,21 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
       // Out of retries: log who is blocking, then hand the response back so
       // callers keep their existing `if (!res.ok)` handling.
       if (lastRes) await logBlocked(target.toString(), lastRes, via);
-      return (useScrapeDo && lastRes ? normaliseScrapeDoResponse(lastRes) : lastRes) as Response;
+      return lastRes as Response;
     } finally {
       release(host);
     }
   };
 
-  // No Redis (or not a Scrape.do request): plain path.
-  if (!redis) return runRequest();
+  // No Redis (or not a Firecrawl request): plain path.
+  if (!redis) {
+    if (useFirecrawl) {
+      console.warn('[storeFetch] Firecrawl without Redis: responses are NOT cached, every call spends credits');
+    }
+    return runRequest();
+  }
 
-  // ── Scrape.do + Redis ─────────────────────────────────────────────────────
+  // ── Firecrawl + Redis ─────────────────────────────────────────────────────
   const key = cacheKey(target, forward);
   const ttlMs = freshSeconds(target) * 1000;
 
@@ -416,7 +480,7 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
           await cacheSet(redis, key, entry); // only successes are cached
           return entry;
         }
-        // Scrape.do/seller failed: prefer an expired copy over an error page.
+        // Firecrawl/seller failed: prefer an expired copy over an error page.
         if (cached) {
           console.warn('[storeFetch] serving STALE copy after status', entry.s, target.pathname);
           return cached;
