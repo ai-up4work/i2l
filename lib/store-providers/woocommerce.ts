@@ -672,3 +672,379 @@ export async function fetchWooCommerceCurrency(
     return null;
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADDITIVE: catalog cache ("fetch the whole catalog once, filter locally")
+//
+// Nothing above this line was changed. Everything below is new and is only
+// used if a caller switches to the *Cached functions:
+//
+//   fetchWooCommerceProducts  ->  fetchWooCommerceProductsCached
+//   fetchWooCommerceProduct   ->  fetchWooCommerceProductCached
+//
+// Why: on a firewalled store every distinct URL is a separate paid Firecrawl
+// call (each page / sort / search / category combination is its own cache
+// key). This layer downloads the catalog once (per_page=100, so a 250-product
+// store is 3 requests), keeps it in memory, and answers search, sort,
+// category and pagination locally. A product page is then looked up in the
+// catalog by slug instead of costing its own request; only the per-variation
+// prices/stock still need one request, and that is memoised too.
+//
+// Safety nets: if the catalog can't be used (request failed, store too large,
+// product not in the catalog yet) every function falls back to the original
+// live behaviour above, so nothing gets worse than today.
+//
+// Env (all optional):
+//   WOO_CATALOG_TTL_SECONDS               fresh time in memory. Default 600.
+//   WOO_CATALOG_STALE_SECONDS             serve an expired copy this long if the
+//                                         refresh fails. Default 86400.
+//   WOO_CATALOG_MAX_PAGES                 pages of 100 to download before giving
+//                                         up and using live requests. Default 10.
+//   WOO_CATALOG_FAILURE_COOLDOWN_SECONDS  after a failed load, don't retry the
+//                                         catalog for this long. Default 30.
+//   WOO_CATALOG_LOCAL_CATEGORY=false      send category-filtered lists to the live
+//                                         path instead of filtering locally.
+// ═══════════════════════════════════════════════════════════════════════════
+
+type WooRawProduct = WooV3Product | WooStoreApiProduct;
+
+type WooCatalog =
+  | { mode: 'wc_v3'; raw: WooV3Product[]; products: StoreProduct[]; tooLarge: boolean }
+  | { mode: 'store_v1'; raw: WooStoreApiProduct[]; products: StoreProduct[]; tooLarge: boolean };
+
+const envNumber = (name: string, fallback: number): number => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+const catalogTtlMs = () => envNumber('WOO_CATALOG_TTL_SECONDS', 600) * 1000;
+const catalogStaleMs = () => envNumber('WOO_CATALOG_STALE_SECONDS', 86400) * 1000;
+
+// ── tiny in-memory memo: in-flight dedupe + serve-stale-on-error ────────────
+const memoStore = new Map<string, { value: unknown; at: number }>();
+const memoInflight = new Map<string, Promise<unknown>>();
+const MEMO_MAX_ENTRIES = 1000;
+
+async function memoAsync<T>(key: string, ttlMs: number, staleMs: number, loader: () => Promise<T>): Promise<T> {
+  const hit = memoStore.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.value as T;
+
+  const running = memoInflight.get(key);
+  if (running) return running as Promise<T>;
+
+  const promise = (async () => {
+    try {
+      const value = await loader();
+      if (memoStore.size >= MEMO_MAX_ENTRIES) {
+        const oldest = memoStore.keys().next().value;
+        if (oldest !== undefined) memoStore.delete(oldest);
+      }
+      memoStore.set(key, { value, at: Date.now() });
+      return value;
+    } catch (err) {
+      if (hit && Date.now() - hit.at < staleMs) {
+        console.warn('[woo catalog] refresh failed, serving stale copy:', (err as Error).message);
+        return hit.value as T;
+      }
+      throw err;
+    } finally {
+      memoInflight.delete(key);
+    }
+  })();
+  memoInflight.set(key, promise);
+  return promise;
+}
+
+// ── catalog loading ─────────────────────────────────────────────────────────
+async function loadWooCatalog(
+  platform: string,
+  config: WooCommerceProviderConfig,
+  mode: 'wc_v3' | 'store_v1'
+): Promise<WooCatalog> {
+  const currency = config.currency ?? 'USD';
+  const perPage = 100;
+  const maxPages = Math.max(1, Math.floor(envNumber('WOO_CATALOG_MAX_PAGES', 10)));
+
+  let headers: Record<string, string>;
+  let path: string;
+  if (mode === 'wc_v3') {
+    const key = process.env[config.consumerKeyEnv!]!;
+    const secret = process.env[config.consumerSecretEnv!]!;
+    const auth = Buffer.from(`${key}:${secret}`).toString('base64');
+    headers = { ...HEADERS, Authorization: `Basic ${auth}`, ...config.headers };
+    path = '/wp-json/wc/v3/products';
+  } else {
+    headers = { ...HEADERS, ...config.headers };
+    path = '/wp-json/wc/store/v1/products';
+  }
+
+  const rows: { id: number }[] = [];
+  const seen = new Set<number>();
+  let tooLarge = false;
+
+  for (let page = 1; ; page += 1) {
+    if (page > maxPages) {
+      tooLarge = true;
+      break;
+    }
+    // Same query as the live list (newest first), so catalog order == live 'newest' order.
+    const qs = new URLSearchParams({ page: String(page), per_page: String(perPage), orderby: 'date', order: 'desc' });
+    const res = await fetch(`${config.baseUrl}${path}?${qs}`, { headers, next: { revalidate: CACHE_SECONDS } });
+    if (!res.ok) throw new Error(`WooCommerce catalog (${mode}) for ${platform} returned ${res.status}`);
+
+    const batch = (await res.json()) as unknown;
+    if (!Array.isArray(batch)) throw new Error(`WooCommerce catalog (${mode}) for ${platform} returned a non-list response`);
+    for (const row of batch as { id: number }[]) {
+      // A product published mid-download can shift pages and repeat a row.
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      rows.push(row);
+    }
+
+    if (batch.length < perPage) break; // short page = last page (the only signal Firecrawl responses give)
+    const totalPages = parseInt(res.headers.get('x-wp-totalpages') ?? '', 10);
+    if (Number.isFinite(totalPages) && totalPages > 0 && page >= totalPages) break;
+  }
+
+  if (mode === 'wc_v3') {
+    const raw = tooLarge ? [] : (rows as WooV3Product[]);
+    return {
+      mode,
+      raw,
+      products: raw.map((p) => normaliseV3(p, platform, currency, config.baseUrl)),
+      tooLarge,
+    };
+  }
+  const raw = tooLarge ? [] : (rows as WooStoreApiProduct[]);
+  return {
+    mode,
+    raw,
+    products: raw.map((p) => normaliseStoreApi(p, platform, config.baseUrl)),
+    tooLarge,
+  };
+}
+
+const catalogCooldown = new Map<string, number>();
+
+async function getWooCatalog(platform: string, config: WooCommerceProviderConfig): Promise<WooCatalog> {
+  const mode = resolveApiMode(config);
+  if (mode === 'wc_v3' && !hasCredentials(config)) {
+    throw new Error(`WooCommerce apiMode 'wc_v3' set for ${platform} but credentials are missing`);
+  }
+  const key = `catalog|${config.baseUrl}|${mode}`;
+  if ((catalogCooldown.get(key) ?? 0) > Date.now()) {
+    throw new Error(`WooCommerce catalog for ${platform} is cooling down after a failed load`);
+  }
+  try {
+    return await memoAsync(key, catalogTtlMs(), catalogStaleMs(), () => loadWooCatalog(platform, config, mode));
+  } catch (err) {
+    catalogCooldown.set(key, Date.now() + envNumber('WOO_CATALOG_FAILURE_COOLDOWN_SECONDS', 30) * 1000);
+    throw err;
+  }
+}
+
+/** Drops the cached catalog (and variation details) for one store, or everything when no baseUrl is given. */
+export function invalidateWooCommerceCatalog(baseUrl?: string): void {
+  for (const key of Array.from(memoStore.keys())) {
+    if (!baseUrl || key.includes(`|${baseUrl}|`)) memoStore.delete(key);
+  }
+  for (const key of Array.from(catalogCooldown.keys())) {
+    if (!baseUrl || key.includes(`|${baseUrl}|`)) catalogCooldown.delete(key);
+  }
+}
+
+/** The whole catalog, normalised (newest first). Throws if it can't be loaded or is too large. */
+export async function fetchWooCommerceCatalog(
+  platform: string,
+  config: WooCommerceProviderConfig
+): Promise<StoreProduct[]> {
+  const catalog = await getWooCatalog(platform, config);
+  if (catalog.tooLarge) throw new Error(`WooCommerce catalog for ${platform} is too large to cache (WOO_CATALOG_MAX_PAGES)`);
+  return catalog.products;
+}
+
+// ── local query: search / category / sort / pagination ──────────────────────
+function rawCategories(p: WooRawProduct): { id: number; name: string; slug?: string }[] {
+  return (p.categories ?? []) as { id: number; name: string; slug?: string }[];
+}
+
+const haystackCache = new WeakMap<object, string>();
+function searchHaystack(p: WooRawProduct): string {
+  const cached = haystackCache.get(p);
+  if (cached !== undefined) return cached;
+  const tags = ((p as WooV3Product).tags ?? []).map((t) => t.name);
+  const text = [p.name, stripHtml(p.short_description ?? ''), p.sku ?? '', ...rawCategories(p).map((c) => c.name), ...tags]
+    .join(' ')
+    .toLowerCase();
+  haystackCache.set(p, text);
+  return text;
+}
+
+function queryWooCatalog(
+  catalog: WooCatalog,
+  config: WooCommerceProviderConfig,
+  params: ProviderFetchParams
+): ProviderFetchResult {
+  const raws = catalog.raw as WooRawProduct[];
+  const categoryValue =
+    (params.category ? config.categoryMap?.[params.category] : undefined) ?? config.fixedCategoryValue;
+  const wantedCategories =
+    categoryValue == null
+      ? []
+      : String(categoryValue)
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+  const terms = (params.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+
+  let rows = catalog.products.map((product, i) => ({ product, raw: raws[i] }));
+
+  if (wantedCategories.length) {
+    rows = rows.filter(({ raw }) =>
+      rawCategories(raw).some(
+        (c) => wantedCategories.includes(String(c.id)) || (!!c.slug && wantedCategories.includes(c.slug.toLowerCase()))
+      )
+    );
+  }
+  if (terms.length) {
+    rows = rows.filter(({ raw }) => {
+      const haystack = searchHaystack(raw);
+      return terms.every((t) => haystack.includes(t));
+    });
+  }
+
+  if (params.sort === 'price-asc') {
+    rows = [...rows].sort((a, b) => a.product.price - b.product.price);
+  } else if (params.sort === 'price-desc') {
+    rows = [...rows].sort((a, b) => b.product.price - a.product.price);
+  } else if (params.sort === 'sale') {
+    // Mirrors the live behaviour: wc/v3 filters to on-sale, the Store API only sorts on-sale first.
+    rows =
+      catalog.mode === 'wc_v3'
+        ? rows.filter(({ product }) => !!product.onSale)
+        : [...rows].sort((a, b) => Number(!!b.product.onSale) - Number(!!a.product.onSale));
+  }
+  // 'newest' (and anything else) keeps catalog order, which is already newest first.
+
+  const perPage = Math.max(1, params.perPage);
+  const page = Math.max(1, params.page);
+  const total = rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const start = (page - 1) * perPage;
+
+  return {
+    products: rows.slice(start, start + perPage).map((r) => r.product),
+    total,
+    totalPages,
+    totalIsExact: true,
+  };
+}
+
+/**
+ * Drop-in for fetchWooCommerceProducts: same arguments, same result shape,
+ * but answered from the cached catalog. Falls back to the live request when
+ * the catalog is unavailable or too large.
+ */
+export async function fetchWooCommerceProductsCached(
+  platform: string,
+  config: WooCommerceProviderConfig,
+  params: ProviderFetchParams
+): Promise<ProviderFetchResult> {
+  const categoryRequested =
+    ((params.category ? config.categoryMap?.[params.category] : undefined) ?? config.fixedCategoryValue) != null;
+  if (categoryRequested && process.env.WOO_CATALOG_LOCAL_CATEGORY === 'false') {
+    return fetchWooCommerceProducts(platform, config, params);
+  }
+
+  let catalog: WooCatalog;
+  try {
+    catalog = await getWooCatalog(platform, config);
+  } catch (err) {
+    console.warn(`[woo catalog] ${platform}: catalog unavailable, using live request:`, (err as Error).message);
+    return fetchWooCommerceProducts(platform, config, params);
+  }
+  if (catalog.tooLarge) return fetchWooCommerceProducts(platform, config, params);
+
+  return queryWooCatalog(catalog, config, params);
+}
+
+/**
+ * Drop-in for fetchWooCommerceProduct: finds the product in the cached
+ * catalog by slug (no request of its own), then loads its per-variation
+ * price/stock (memoised). A slug that isn't in the catalog yet falls back to
+ * the live lookup, so products added after the last refresh still resolve.
+ */
+export async function fetchWooCommerceProductCached(
+  platform: string,
+  config: WooCommerceProviderConfig,
+  handle: string
+): Promise<StoreProduct | null> {
+  let catalog: WooCatalog;
+  try {
+    catalog = await getWooCatalog(platform, config);
+  } catch (err) {
+    console.warn(`[woo catalog] ${platform}: catalog unavailable, using live request:`, (err as Error).message);
+    return fetchWooCommerceProduct(platform, config, handle);
+  }
+  if (catalog.tooLarge) return fetchWooCommerceProduct(platform, config, handle);
+
+  const currency = config.currency ?? 'USD';
+  const ttl = catalogTtlMs();
+  const stale = catalogStaleMs();
+
+  // An empty variation result usually means that request failed (the helpers
+  // return an empty Map on error) — don't keep it for the whole TTL.
+  const memoVariations = async <T extends Map<string, unknown>>(key: string, loader: () => Promise<T>): Promise<T> => {
+    const result = await memoAsync(key, ttl, stale, loader);
+    if (result.size === 0) memoStore.delete(key);
+    return result;
+  };
+
+  if (catalog.mode === 'wc_v3') {
+    const found = catalog.raw.find((p) => p.slug === handle);
+    if (!found) return fetchWooCommerceProduct(platform, config, handle);
+
+    // Normalise fresh: the original code mutates `variants`, and the catalog's copy is shared.
+    const product = normaliseV3(found, platform, currency, config.baseUrl);
+    if (found.type === 'variable') {
+      const detailMap = await memoVariations(`variations|${config.baseUrl}|wc_v3|${found.id}`, () =>
+        fetchWooV3VariationDetails(config, found.id)
+      );
+      if (detailMap.size) {
+        product.variants = Array.from(detailMap.entries()).map(([id, d]) => ({
+          id,
+          title: d.title,
+          price: d.price,
+          compareAtPrice: d.compareAtPrice,
+          available: d.available,
+          options: product.options
+            ? product.options.map(
+                (attr) =>
+                  d.attributes.find((va) => va.name.toLowerCase() === attr.name.toLowerCase())?.option ?? null
+              )
+            : d.attributes.map((a) => a.option),
+        }));
+      }
+    }
+    return product;
+  }
+
+  const found = catalog.raw.find((p) => p.slug === handle);
+  if (!found) return fetchWooCommerceProduct(platform, config, handle);
+
+  const product = normaliseStoreApi(found, platform, config.baseUrl);
+  if (product.variants?.length) {
+    const detailMap = await memoVariations(`variations|${config.baseUrl}|store_v1|${found.id}`, () =>
+      fetchStoreApiVariationDetails(config, found.id)
+    );
+    if (detailMap.size) {
+      product.variants = product.variants.map((v) => {
+        const detail = detailMap.get(v.id);
+        return detail
+          ? { ...v, price: detail.price, compareAtPrice: detail.compareAtPrice, available: detail.available }
+          : v;
+      });
+    }
+  }
+  return product;
+}

@@ -47,6 +47,11 @@
 //   FIRECRAWL_PROXY                "basic" | "stealth" | "auto". Default "auto"
 //                                  (basic first, stealth only if needed;
 //                                  stealth costs more credits).
+//   FIRECRAWL_MAX_PER_MINUTE       local cap on Firecrawl calls per minute, shared
+//                                  across instances via Redis. Keep it a little
+//                                  under your plan's limit (free plan: 20).
+//                                  Default 15. Over the cap: serve a stale copy,
+//                                  else a quick 429, instead of calling Firecrawl.
 //   FIRECRAWL_CONCURRENCY          parallel Firecrawl requests per host per
 //                                  instance. Default 2 (free plan).
 //   FIRECRAWL_BLOCKED_MEMORY_SECONDS  how long a blocked host skips the direct
@@ -474,6 +479,65 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// ── Firecrawl rate guard ────────────────────────────────────────────────────
+// Firecrawl limits requests per minute per ACCOUNT, and every serverless
+// instance shares that one limit, so the counter lives in Redis when it is
+// available (in-memory per instance otherwise). A real 429 from Firecrawl also
+// starts a shared cooldown so other requests stop hitting it until it resets.
+const fcLocal = { minute: 0, count: 0, cooldownUntil: 0 };
+
+async function firecrawlBudget(): Promise<{ ok: boolean; retryAfterSec: number }> {
+  const limit = Math.floor(numEnv('FIRECRAWL_MAX_PER_MINUTE', 15));
+  const now = Date.now();
+  const minute = Math.floor(now / 60000);
+  const secondsToNextMinute = Math.max(1, Math.ceil((minute + 1) * 60 - now / 1000));
+
+  if (fcLocal.cooldownUntil > now) {
+    return { ok: false, retryAfterSec: Math.ceil((fcLocal.cooldownUntil - now) / 1000) };
+  }
+
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const cooldown = Number(await redis.get('firecrawl:cooldown'));
+      if (Number.isFinite(cooldown) && cooldown > now) {
+        fcLocal.cooldownUntil = cooldown;
+        return { ok: false, retryAfterSec: Math.ceil((cooldown - now) / 1000) };
+      }
+      const key = `firecrawl:rate:${minute}`;
+      const count = await redis.incr(key);
+      if (count === 1) await redis.expire(key, 90);
+      return count > limit ? { ok: false, retryAfterSec: secondsToNextMinute } : { ok: true, retryAfterSec: 0 };
+    } catch {
+      /* Redis trouble: fall through to the in-memory counter */
+    }
+  }
+
+  if (fcLocal.minute !== minute) {
+    fcLocal.minute = minute;
+    fcLocal.count = 0;
+  }
+  fcLocal.count += 1;
+  return fcLocal.count > limit ? { ok: false, retryAfterSec: secondsToNextMinute } : { ok: true, retryAfterSec: 0 };
+}
+
+// Called when Firecrawl itself answers 429 (not when the seller's site does).
+async function noteFirecrawlRateLimit(res: Response): Promise<void> {
+  try {
+    const body = (await res.clone().text()).slice(0, 1000);
+    if (!/rate limit exceeded|firecrawl\.dev\/pricing/i.test(body)) return; // the seller's 429, not ours
+    const m = body.match(/retry after (\d+)\s*s/i);
+    const seconds = Math.min(120, Math.max(5, m ? Number(m[1]) : Number(res.headers.get('retry-after')) || 30));
+    const until = Date.now() + seconds * 1000;
+    fcLocal.cooldownUntil = until;
+    console.warn(`[storeFetch] Firecrawl rate limit hit: pausing Firecrawl calls for ${seconds}s`);
+    const redis = getRedis();
+    if (redis) await redis.set('firecrawl:cooldown', String(until), 'EX', seconds).catch(() => undefined);
+  } catch {
+    /* never throw from bookkeeping */
+  }
+}
+
 function retryDelayMs(attempt: number, res?: Response): number {
   const retryAfter = res?.headers.get('retry-after');
   if (retryAfter) {
@@ -555,7 +619,16 @@ async function firecrawlRequest(target: URL, init: NextInit): Promise<Response> 
   const runRequest = async (): Promise<Response> => {
     await acquire(slot, limit);
     try {
+      const budget = await firecrawlBudget();
+      if (!budget.ok) {
+        console.warn(`[storeFetch] Firecrawl guard: not calling Firecrawl for ${budget.retryAfterSec}s`, target.pathname);
+        return new Response(JSON.stringify({ error: 'Firecrawl rate-limit guard: try again shortly' }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after': String(budget.retryAfterSec) },
+        });
+      }
       const res = await firecrawlScrape(target, init);
+      if (res.status === 429) await noteFirecrawlRateLimit(res);
       if (RETRY_STATUSES.has(res.status)) await logBlocked(target.toString(), res, 'firecrawl');
       return res;
     } finally {
@@ -605,9 +678,10 @@ async function firecrawlRequest(target: URL, init: NextInit): Promise<Response> 
           console.warn('[storeFetch] serving STALE copy after status', entry.s, target.pathname);
           return cached;
         }
-        // 401 (bad key) and 402 (out of credits) are config problems: don't
-        // cache them, so fixing the config takes effect immediately.
-        if (entry.s !== 401 && entry.s !== 402) {
+        // 401 (bad key), 402 (out of credits) and 429 (rate limit, which the
+        // guard/cooldown already handles) are not cached, so recovery takes
+        // effect immediately.
+        if (entry.s !== 401 && entry.s !== 402 && entry.s !== 429) {
           await cacheSet(redis, negKey, entry, Math.ceil(negMs / 1000));
         }
         return entry;
