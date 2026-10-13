@@ -903,15 +903,26 @@ function queryWooCatalog(
   params: ProviderFetchParams
 ): ProviderFetchResult {
   const raws = catalog.raw as WooRawProduct[];
-  const categoryValue =
-    (params.category ? config.categoryMap?.[params.category] : undefined) ?? config.fixedCategoryValue;
-  const wantedCategories =
-    categoryValue == null
-      ? []
-      : String(categoryValue)
-          .split(',')
-          .map((s) => s.trim().toLowerCase())
-          .filter(Boolean);
+
+  // Which categories to keep. The client sends the REAL category handle
+  // (slug) taken from the live category list, which is usually NOT a key in
+  // config.categoryMap. Previously an unmapped handle resolved to
+  // `undefined`, no filter was applied, and every category showed the full
+  // catalog. Resolution order now:
+  //   1. categoryMap[params.category]   (explicit mapping, may be "1,2,3")
+  //   2. params.category itself         (real slug / id / name from the UI)
+  //   3. config.fixedCategoryValue      (store-wide restriction, no UI choice)
+  const mapped = params.category ? config.categoryMap?.[params.category] : undefined;
+  let wantedCategories: string[];
+  if (mapped != null) {
+    wantedCategories = String(mapped).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  } else if (params.category) {
+    wantedCategories = [params.category.trim().toLowerCase()];
+  } else if (config.fixedCategoryValue != null) {
+    wantedCategories = String(config.fixedCategoryValue).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  } else {
+    wantedCategories = [];
+  }
   const terms = (params.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
 
   let rows = catalog.products.map((product, i) => ({ product, raw: raws[i] }));
@@ -919,7 +930,10 @@ function queryWooCatalog(
   if (wantedCategories.length) {
     rows = rows.filter(({ raw }) =>
       rawCategories(raw).some(
-        (c) => wantedCategories.includes(String(c.id)) || (!!c.slug && wantedCategories.includes(c.slug.toLowerCase()))
+        (c) =>
+          wantedCategories.includes(String(c.id)) ||
+          (!!c.slug && wantedCategories.includes(c.slug.toLowerCase())) ||
+          (!!c.name && wantedCategories.includes(c.name.trim().toLowerCase()))
       )
     );
   }
@@ -969,6 +983,7 @@ export async function fetchWooCommerceProductsCached(
   params: ProviderFetchParams
 ): Promise<ProviderFetchResult> {
   const categoryRequested =
+    !!params.category ||
     ((params.category ? config.categoryMap?.[params.category] : undefined) ?? config.fixedCategoryValue) != null;
   if (categoryRequested && process.env.WOO_CATALOG_LOCAL_CATEGORY === 'false') {
     return fetchWooCommerceProducts(platform, config, params);
