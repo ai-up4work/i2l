@@ -5,7 +5,12 @@ import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview';
 import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
-import { fetchWooCommerceCategories, fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
+// WooCommerce list requests go through the CATALOG-CACHED function: it
+// downloads the catalog once and filters category / search / sort locally.
+// The plain fetchWooCommerceProducts only forwards a category when the slug
+// is a key in config.categoryMap, so an unmapped handle such as
+// "askeladd-vinland-saga" silently returned the full, unfiltered list.
+import { fetchWooCommerceCategories, fetchWooCommerceProductsCached } from '@/lib/store-providers/woocommerce';
 import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
 import { fetchCatalogueCategories, fetchCatalogueProducts } from '@/lib/store-providers/catalogue';
 import { fetchAnishkaCreationProducts, ANISHKA_BASE_URL, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation';
@@ -15,11 +20,20 @@ import type { StoreApiResponse, StoreApiError } from '@/lib/store.types';
 const PER_PAGE_DEFAULT = 12;
 const PER_PAGE_MAX = 48;
 
+const SORTS: ProviderFetchParams['sort'][] = ['newest', 'price-asc', 'price-desc', 'sale'];
+
 // Shape the client's LiveCollectionsResponse expects, regardless of which
 // provider actually produced the data.
 interface LiveCollection {
   handle: string;
   title: string;
+  image?: string | null;
+}
+
+/** parseInt that never returns NaN (NaN would break pagination maths downstream). */
+function intParam(value: string | null, fallback: number): number {
+  const n = parseInt(value ?? '', 10);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 export async function GET(
@@ -86,7 +100,7 @@ export async function GET(
         // dead-end filter button.
         collections = live
           .filter((c) => c.count > 0)
-          .map((c) => ({ handle: c.slug, title: c.name }));
+          .map((c) => ({ handle: c.slug, title: c.name, image: c.image }));
       } else if (config.type === 'jsonapi') {
         // No dedicated category endpoint on this provider — derive the
         // distinct set from a single large page of real products instead
@@ -137,12 +151,13 @@ export async function GET(
       }, preview ? { headers: PREVIEW_CACHE_HEADERS } : undefined);
     }
 
+    const sortRaw = searchParams.get('sort') as ProviderFetchParams['sort'] | null;
     const fetchParams: ProviderFetchParams = {
-      page: Math.max(1, parseInt(searchParams.get('page') ?? '1', 10)),
-      perPage: Math.min(PER_PAGE_MAX, parseInt(searchParams.get('per_page') ?? String(PER_PAGE_DEFAULT), 10)),
+      page: Math.max(1, intParam(searchParams.get('page'), 1)),
+      perPage: Math.min(PER_PAGE_MAX, Math.max(1, intParam(searchParams.get('per_page'), PER_PAGE_DEFAULT))),
       category: searchParams.get('category') ?? '',
       search: (searchParams.get('search') ?? '').toLowerCase().trim(),
-      sort: (searchParams.get('sort') as ProviderFetchParams['sort']) ?? 'newest',
+      sort: sortRaw && SORTS.includes(sortRaw) ? sortRaw : 'newest',
     };
 
     const config = seller.config;
@@ -153,7 +168,7 @@ export async function GET(
         : config.type === 'shopify'
         ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
         : config.type === 'woocommerce'
-        ? await fetchWooCommerceProducts(platform, config, fetchParams)
+        ? await fetchWooCommerceProductsCached(platform, config, fetchParams)
         : config.type === 'jsonapi'
         ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
         : config.type === 'html-scrape'
