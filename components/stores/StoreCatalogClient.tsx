@@ -91,6 +91,34 @@ function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistPr
   };
 }
 
+// Closes a dropdown when the user clicks/taps outside the element the
+// returned ref is attached to, or presses Escape. Attach the ref to the
+// wrapper that contains BOTH the toggle button and the menu, so clicking
+// the toggle still works normally instead of closing and reopening.
+function useClickOutside<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, onClose]);
+
+  return ref;
+}
+
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function ProductSkeleton() {
@@ -632,6 +660,14 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   const [showSort,    setShowSort]    = useState(false);
   const [showCategoryMenu, setShowCategoryMenu] = useState(false);
 
+  // Close the category + sort dropdowns when the user clicks outside them
+  // (or presses Escape). The refs go on the wrapper <div> that holds each
+  // toggle button AND its menu, so the toggle itself still works normally.
+  const closeCategoryMenu = useCallback(() => setShowCategoryMenu(false), []);
+  const closeSort         = useCallback(() => setShowSort(false), []);
+  const categoryMenuRef   = useClickOutside<HTMLDivElement>(showCategoryMenu, closeCategoryMenu);
+  const sortRef           = useClickOutside<HTMLDivElement>(showSort, closeSort);
+
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
@@ -837,7 +873,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
           {/* Follow + category picker live with the identity row on every viewport. */}
           <div className="flex shrink-0 items-center gap-2 pb-1">
             <FollowButton slug={platform} />
-            <div className="relative">
+            <div className="relative" ref={categoryMenuRef}>
             <button
               type="button"
               onClick={() => setShowCategoryMenu((v) => !v)}
@@ -979,7 +1015,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
                 items
               </p>
             )}
-            <div className="relative">
+            <div className="relative" ref={sortRef}>
               <button
                 type="button"
                 onClick={() => setShowSort((v) => !v)}
