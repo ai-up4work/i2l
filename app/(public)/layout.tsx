@@ -5,6 +5,7 @@ import Header from '@/components/shared/Header'
 import Footer from '@/components/landing/Footer'
 import ChatButton from '@/components/shared/ChatButton'
 import ChatPanel from '@/components/shared/ChatPanel'
+import PublicMobileNav from '@/components/shared/PublicMobileNav'
 
 // Header is `fixed`, so it doesn't reserve space in normal document flow —
 // anything rendered below it would otherwise sit underneath it. Rather than
@@ -58,6 +59,9 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
 
       <Footer />
+
+      {/* Phone bottom bar: Home, Orders, + request, Stores, Account. */}
+      <PublicMobileNav />
 
       {/* FIX: positionClassName now matches AccountShell's exactly
           (`bottom-24 right-6 lg:bottom-8` — see app/account/layout.tsx),

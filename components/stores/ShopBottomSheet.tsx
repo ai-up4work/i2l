@@ -7,6 +7,8 @@ import { ShopMegaMenuMobile } from "@/components/stores/ShopMegaMenu"
 interface ShopBottomSheetProps {
   open: boolean
   onClose: () => void
+  /** Shows the "Buy anything with a link" card; called after the sheet closes. */
+  onAddRequest?: () => void
 }
 
 const ANIM_MS = 320
@@ -18,7 +20,7 @@ const ANIM_MS = 320
  * accordion. Backdrop tap or the X closes it; scroll is locked on the
  * page behind while it's open.
  */
-export default function ShopBottomSheet({ open, onClose }: ShopBottomSheetProps) {
+export default function ShopBottomSheet({ open, onClose, onAddRequest }: ShopBottomSheetProps) {
   const [mounted, setMounted] = useState(false)
   const [visible, setVisible] = useState(false)
 
@@ -56,7 +58,7 @@ export default function ShopBottomSheet({ open, onClose }: ShopBottomSheetProps)
 
       {/* Sheet */}
       <div
-        className={`ease-nav-spring absolute inset-x-0 bottom-0 flex max-h-[82vh] flex-col rounded-t-3xl border-t border-teal/20 bg-parchment shadow-[0_-8px_30px_rgba(13,29,65,0.25)] transition-transform duration-[420ms] ${
+        className={`ease-nav-spring absolute inset-x-0 bottom-0 flex max-h-[88vh] flex-col rounded-t-3xl border-t border-teal/20 bg-parchment shadow-[0_-8px_30px_rgba(13,29,65,0.25)] transition-transform duration-[420ms] ${
           visible ? "translate-y-0" : "translate-y-full"
         }`}
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -67,7 +69,7 @@ export default function ShopBottomSheet({ open, onClose }: ShopBottomSheetProps)
         </div>
 
         <div className="flex items-center justify-between px-6 pb-3 pt-1">
-          <h2 className="font-display text-lg font-semibold text-ink">Shop</h2>
+          <h2 className="font-display text-2xl text-ink">Shop</h2>
           <button
             type="button"
             aria-label="Close"
@@ -78,8 +80,17 @@ export default function ShopBottomSheet({ open, onClose }: ShopBottomSheetProps)
           </button>
         </div>
 
-        <div className="nav-scroll min-h-0 flex-1 overflow-y-auto pb-4">
-          <ShopMegaMenuMobile />
+        <div className="nav-scroll min-h-0 flex-1 overflow-y-auto pb-6">
+          <ShopMegaMenuMobile
+            onAddRequest={
+              onAddRequest
+                ? () => {
+                    onClose()
+                    onAddRequest()
+                  }
+                : undefined
+            }
+          />
         </div>
       </div>
 

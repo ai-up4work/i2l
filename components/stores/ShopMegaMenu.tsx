@@ -11,8 +11,12 @@ import {
   Baby,
   Heart,
   Package,
+  ChevronRight,
+  Link2,
+  Search,
 } from "lucide-react"
 import { useAffiliatedStores } from "@/hooks/useAffiliatedStores"
+import { followedFirst, useFollowedStores } from "@/hooks/useFollowedStores"
 import type { AffiliatedStore } from "@/data/stores/data"
 import Flag from "@/components/ui/Flag"
 import { INNER_H } from "@/components/shared/headerMetrics"
@@ -341,56 +345,206 @@ export function ShopMegaMenuPanel({
 }
 
 /** Mobile accordion body — same two groups, stacked instead of side by side. */
-export function ShopMegaMenuMobile() {
-  const { stores } = useAffiliatedStores()
+/** Square logo tile for the phone sheet: logo on top, name below. */
+function SheetStoreTile({ store, followed }: { store: AffiliatedStore; followed?: boolean }) {
+  const isLocal = store.storeType === "local"
+  const isExternal = !isLocal && Boolean(store.url)
+  const href = isExternal ? store.url! : `/stores/${store.platform}`
+  return (
+    <a
+      href={href}
+      {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      className="group flex min-w-0 flex-col items-center gap-1.5 rounded-2xl px-1 py-2 text-center transition-colors active:bg-teal/10"
+    >
+      <span
+        className={`relative grid h-14 w-14 place-items-center overflow-hidden bg-card shadow-[0_2px_8px_-2px_rgba(32,36,43,0.15)] ring-1 transition-transform duration-150 group-active:scale-95 ${
+          isLocal ? "rounded-2xl" : "rounded-full"
+        } ${followed ? "ring-2 ring-teal" : "ring-ink/10"}`}
+        style={isLocal ? store.bannerStyle : undefined}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={store.logo} alt="" className={`h-full w-full ${isLocal ? "object-cover" : "object-contain p-1.5"}`} />
+      </span>
+      <span className="w-full truncate font-body text-[11px] font-medium text-ink/80">{store.name}</span>
+      {followed ? (
+        <span className="-mt-1 font-body text-[9px] font-bold uppercase tracking-wider text-teal-deep">Following</span>
+      ) : store.isNew ? (
+        <span className="-mt-1 font-body text-[9px] font-bold uppercase tracking-wider text-gold-deep">New</span>
+      ) : null}
+    </a>
+  )
+}
+
+function SheetHeading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-5 pb-2 pt-5">
+      <h3 className="font-body text-[11px] font-bold uppercase tracking-[0.14em] text-ink/45">{children}</h3>
+      {action}
+    </div>
+  )
+}
+
+/**
+ * The phone "Shop" sheet (ShopBottomSheet): paste-a-link, search, stores
+ * the shopper follows, categories, affiliated stores and marketplaces.
+ * `onAddRequest` shows the "Buy with a link" card (opens the request form).
+ */
+export function ShopMegaMenuMobile({ onAddRequest }: { onAddRequest?: () => void } = {}) {
+  const { stores, loading } = useAffiliatedStores()
+  const { followedAt } = useFollowedStores()
+  const [q, setQ] = useState("")
   const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
-  // FIX: same split as ShopMegaMenuPanel above — see the comment there.
   const localStores = useMemo(() => stores.filter((s) => s.storeType === "local"), [stores])
-  const featuredLocalStores = useMemo(() => localStores.slice(0, 24), [localStores])
+  const followed = useMemo(
+    () => followedFirst(localStores.filter((s) => followedAt.has(s.platform)), (s) => s.platform, followedAt),
+    [localStores, followedAt],
+  )
+  const term = q.trim().toLowerCase()
+  const matches = useMemo(
+    () => (term ? stores.filter((s) => s.name.toLowerCase().includes(term) || s.categories?.some((c) => c.toLowerCase().includes(term))) : []),
+    [stores, term],
+  )
+  const featured = useMemo(
+    () => [...localStores.filter((s) => s.isNew && !followedAt.has(s.platform)), ...localStores.filter((s) => !s.isNew && !followedAt.has(s.platform))].slice(0, 12),
+    [localStores, followedAt],
+  )
 
   return (
-    <div className="bg-teal/[0.06] px-2 pb-3">
-      <div className="px-4 pb-2 pt-3 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
-        Shop by category
+    <div className="pb-2">
+      {/* Search */}
+      <div className="px-5 pt-1">
+        <label className="flex items-center gap-2 rounded-2xl bg-card px-4 py-3 ring-1 ring-ink/10 focus-within:ring-2 focus-within:ring-teal/40">
+          <Search className="h-4 w-4 flex-none text-ink/40" aria-hidden />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search stores or categories"
+            className="w-full bg-transparent font-body text-sm text-ink outline-none placeholder:text-ink/40"
+          />
+        </label>
       </div>
-      <div className="grid grid-cols-2 gap-1 px-2">
-        {categoryIcons.map(({ name, icon: Icon }) => (
-          <a
-            key={name}
-            href={`/stores?category=${encodeURIComponent(name)}`}
-            className="flex items-center gap-2 rounded-xl px-3 py-2.5 font-body"
+
+      {term ? (
+        <>
+          <SheetHeading>{matches.length ? `${matches.length} found` : "No stores found"}</SheetHeading>
+          <div className="grid grid-cols-4 gap-1 px-3">
+            {matches.map((store) => (
+              <SheetStoreTile key={store.platform} store={store} followed={followedAt.has(store.platform)} />
+            ))}
+          </div>
+          {!matches.length && onAddRequest && (
+            <p className="px-5 font-body text-sm text-ink/55">
+              Can&rsquo;t find it? Paste the product link and we&rsquo;ll buy it for you.
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Buy with a link */}
+          {onAddRequest && (
+            <div className="px-5 pt-4">
+              <button
+                type="button"
+                onClick={onAddRequest}
+                className="relative flex w-full items-center gap-3 overflow-hidden rounded-2xl bg-indigo p-4 text-left transition-transform active:scale-[0.99]"
+              >
+                <span className="absolute inset-x-0 top-0 h-[3px] bg-gold" aria-hidden />
+                <span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-gold/15 text-gold">
+                  <Link2 className="h-5 w-5" strokeWidth={2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-base text-white">Buy anything with a link</span>
+                  <span className="block font-body text-xs text-parchment/65">Paste a product link from any store. We buy it and deliver it.</span>
+                </span>
+                <ChevronRight className="h-4 w-4 flex-none text-parchment/50" aria-hidden />
+              </button>
+            </div>
+          )}
+
+          {/* Stores you follow */}
+          {followed.length > 0 && (
+            <>
+              <SheetHeading
+                action={
+                  <a href="/account/my-following" className="font-body text-xs font-semibold text-teal-deep">
+                    Manage
+                  </a>
+                }
+              >
+                Stores you follow
+              </SheetHeading>
+              <div className="flex gap-1 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {followed.map((store) => (
+                  <div key={store.platform} className="w-[22%] flex-none">
+                    <SheetStoreTile store={store} followed />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Categories */}
+          <SheetHeading>Shop by category</SheetHeading>
+          <div className="grid grid-cols-4 gap-2 px-5">
+            {categoryIcons.map(({ name, icon: Icon }) => (
+              <a
+                key={name}
+                href={`/stores?category=${encodeURIComponent(name)}`}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-card px-1 py-3 text-center ring-1 ring-ink/8 transition-colors active:bg-teal/10"
+              >
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-teal/10">
+                  <Icon className="h-[18px] w-[18px] text-teal-deep" strokeWidth={1.9} />
+                </span>
+                <span className="w-full truncate px-0.5 font-body text-[11px] font-medium leading-tight text-ink/80">{name}</span>
+              </a>
+            ))}
+          </div>
+
+          {/* Affiliated stores */}
+          <SheetHeading
+            action={
+              <a href="/stores" className="font-body text-xs font-semibold text-teal-deep">
+                See all
+              </a>
+            }
           >
-            <Icon className="h-4 w-4 shrink-0 text-teal-deep" strokeWidth={2} />
-            <span className="text-sm font-medium text-ink">{name}</span>
-          </a>
-        ))}
-      </div>
+            Affiliated stores
+          </SheetHeading>
+          <div className="grid grid-cols-4 gap-1 px-3">
+            {loading && !featured.length
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1.5 py-2">
+                    <span className="h-14 w-14 animate-pulse rounded-2xl bg-ink/8" />
+                    <span className="h-2.5 w-10 animate-pulse rounded bg-ink/8" />
+                  </div>
+                ))
+              : featured.map((store) => <SheetStoreTile key={store.platform} store={store} />)}
+          </div>
 
-      <div className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
-        Marketplaces
-      </div>
-      <div className="grid grid-cols-2 gap-x-1 gap-y-0.5 px-2">
-        {marketplaceStores.map((store) => (
-          <StoreRow key={store.platform} store={store} />
-        ))}
-      </div>
+          {/* Marketplaces */}
+          {marketplaceStores.length > 0 && (
+            <>
+              <SheetHeading>Marketplaces</SheetHeading>
+              <div className="flex gap-1 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {marketplaceStores.map((store) => (
+                  <div key={store.platform} className="w-[22%] flex-none">
+                    <SheetStoreTile store={store} />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
-      <div className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
-        Affiliated Stores
-      </div>
-      <div className="grid grid-cols-2 gap-x-1 gap-y-0.5 px-2">
-        {featuredLocalStores.map((store) => (
-          <StoreRow key={store.platform} store={store} />
-        ))}
-      </div>
-
-      <a
-        href="/stores"
-        className="mx-2 mt-2 block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-deep font-body"
-      >
-        {/* FIX: was {stores.length} (marketplaces + local combined) */}
-        Browse all {localStores.length} affiliated stores →
-      </a>
+          <div className="px-5 pt-5">
+            <a
+              href="/stores"
+              className="flex items-center justify-center gap-1.5 rounded-full bg-teal py-3 font-body text-sm font-semibold text-white transition-colors active:bg-teal-deep"
+            >
+              Browse all {localStores.length || ""} stores <ChevronRight className="h-4 w-4" aria-hidden />
+            </a>
+          </div>
+        </>
+      )}
     </div>
   )
 }

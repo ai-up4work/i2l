@@ -221,7 +221,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           onOpenAddRequest={handleOpenAddRequest}
           isAddRequestOpen={addRequestOpen}
         />
-        <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} />
+        <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} onAddRequest={handleOpenAddRequest} />
         <AddRequestOverlay
           open={addRequestOpen}
           onClose={() => setAddRequestOpen(false)}
