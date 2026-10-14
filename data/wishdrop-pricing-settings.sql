@@ -38,3 +38,6 @@ create index if not exists pricing_settings_history_changed_at_idx
 
 alter table public.pricing_settings enable row level security;
 alter table public.pricing_settings_history enable row level security;
+
+-- Make the API see the new tables/columns straight away.
+notify pgrst, 'reload schema';

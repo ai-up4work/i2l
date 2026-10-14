@@ -8,6 +8,8 @@ import HiddenStoreBanner from '@/components/stores/social/HiddenStoreBanner'
 import StoreUnavailable from '@/components/stores/StoreUnavailable'
 import StoreCatalogClient from '@/components/stores/StoreCatalogClient'
 import SocialStoreClient from '@/components/stores/social/SocialStoreClient'
+import { hasStoreModule } from '@/lib/store-modules'
+import { ModuleStorefront } from '@/lib/store-modules/storefronts'
 import JsonLd, { breadcrumbSchema } from '@/components/seo/JsonLd'
 import { pageMetadata } from '@/lib/seo'
 
@@ -79,7 +81,14 @@ export default async function StoreLandingPage({
       {preview && viewer && <HiddenStoreBanner slug={store.platform} isSocial={store.isSocial} viewer={viewer} />}
       {/* Custom (Instagram / Facebook) sellers get the photo-and-video
           storefront; every other store keeps the standard catalogue page. */}
-      {store.isSocial ? <SocialStoreClient store={store} /> : <StoreCatalogClient store={store} />}
+      {/* Custom stores with their own page (lib/store-modules), e.g. Case Craft. */}
+      {hasStoreModule(store.platform) ? (
+        <ModuleStorefront store={store} />
+      ) : store.isSocial ? (
+        <SocialStoreClient store={store} />
+      ) : (
+        <StoreCatalogClient store={store} />
+      )}
     </>
   )
 }

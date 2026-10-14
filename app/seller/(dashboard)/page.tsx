@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { AlertTriangle, Check, ChevronRight, Film, Package, Plus } from 'lucide-react'
 import { getCurrentSeller } from '@/lib/supabase/seller-auth'
+import { hasStoreModule, sellerHomeFor } from '@/lib/store-modules'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { imageThumb, videoPoster } from '@/lib/media'
 
@@ -24,6 +25,8 @@ type ProductRow = {
 export default async function SellerOverviewPage() {
   const seller = await getCurrentSeller()
   if (!seller) redirect('/seller/login')
+  // Custom stores have their own portal sections (lib/store-modules).
+  if (hasStoreModule(seller.platform)) redirect(sellerHomeFor(seller.platform))
   const admin = createServiceRoleClient()
 
   const [{ data: profile }, productsResult] = await Promise.all([

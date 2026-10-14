@@ -216,6 +216,13 @@ export async function middleware(request: NextRequest) {
       return supabaseResponse
     }
     const role = await getStaffRole(user.id, user.email)
+    // Super Admins and Managers can open any store's seller portal with
+    // their own login (they pick the store on /seller/stores). That's
+    // where staff-only settings of custom stores live, such as Case
+    // Craft's margin (lib/supabase/seller-auth.ts, staff view).
+    if (role === 'super_admin' || role === 'manager') {
+      return supabaseResponse
+    }
     if (role) {
       return redirectTo(request, DASHBOARD_HREF[role], false)
     }

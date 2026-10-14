@@ -20,6 +20,12 @@ export const dynamic = 'force-dynamic'
 
 const MIGRATION_HINT = 'The database needs an update first: run data/wishdrop-pricing-settings.sql in Supabase.'
 
+/** Table missing: Postgres 42P01, or PostgREST's "Could not find the table … in the schema cache" (PGRST205). */
+function isMissingTable(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false
+  return error.code === '42P01' || error.code === 'PGRST205' || /schema cache|does not exist/i.test(error.message ?? '')
+}
+
 type HistoryRow = { id: number; changed_at: string; changed_by_name: string | null; note: string | null; settings: unknown; previous: unknown }
 
 export async function GET() {
@@ -48,7 +54,7 @@ export async function GET() {
         settings: normalizePricingSettings(h.settings),
         previous: h.previous ? normalizePricingSettings(h.previous) : null,
       })),
-      needsMigration: error?.code === '42P01',
+      needsMigration: isMissingTable(error),
       canEdit: auth.role === 'super_admin',
     },
     { headers: { 'Cache-Control': 'no-store' } },
@@ -79,7 +85,7 @@ export async function PUT(req: NextRequest) {
     .from('pricing_settings')
     .upsert({ id: 1, settings: settingsJson, updated_at: now, updated_by: staff.user_id ?? null, updated_by_name: name })
   if (error) {
-    if (error.code === '42P01') return NextResponse.json({ error: MIGRATION_HINT }, { status: 500 })
+    if (isMissingTable(error)) return NextResponse.json({ error: MIGRATION_HINT }, { status: 500 })
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

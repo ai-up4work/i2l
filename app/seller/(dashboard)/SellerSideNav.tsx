@@ -8,17 +8,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ExternalLink, LogOut, MessageCircle, Plus } from 'lucide-react'
-import { SELLER_NAV_ITEMS as items, isActiveNav as isActive } from './seller-nav-items'
+import { SELLER_NAV_ICONS, isActiveNav as isActive } from './seller-nav-items'
+import type { SellerNavItem } from '@/lib/store-modules'
 import { useAuth } from '@/contexts/AuthContext'
 
 const WHATSAPP = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '').replace(/\D/g, '')
 
-export default function SellerSideNav({ storeSlug, live }: { storeSlug: string; live: boolean }) {
+export default function SellerSideNav({ storeSlug, live, items, showAddProduct = true }: { storeSlug: string; live: boolean; items: SellerNavItem[]; showAddProduct?: boolean }) {
   const pathname = usePathname()
   const { logout } = useAuth()
   return (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Seller portal">
-      {items.map(({ href, label, icon: Icon, exact }) => {
+      {items.map(({ href, label, icon, exact }) => {
+        const Icon = SELLER_NAV_ICONS[icon]
         const on = isActive(pathname, href, exact)
         return (
           <Link
@@ -34,12 +36,12 @@ export default function SellerSideNav({ storeSlug, live }: { storeSlug: string; 
           </Link>
         )
       })}
-      <Link
+      {showAddProduct && <Link
         href="/seller/products?new=1"
         className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-gold px-3 py-2.5 font-body text-sm font-semibold text-indigo transition-colors hover:bg-parchment"
       >
         <Plus size={16} /> Add product
-      </Link>
+      </Link>}
 
       <div className="mt-auto flex flex-col gap-1 border-t border-parchment/10 pt-4">
         <a

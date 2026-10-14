@@ -111,3 +111,6 @@ from public.sellers s
 where p.seller_id = s.id
   and s.store_source = 'social'
   and p.currency is distinct from (case when s.store_origin = 'LK' then 'LKR' else 'INR' end);
+
+-- Make the API see the new tables/columns straight away.
+notify pgrst, 'reload schema';

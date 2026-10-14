@@ -1,6 +1,7 @@
 // app/stores/page.tsx
 'use client';
 
+import { hasStoreModule } from '@/lib/store-modules';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -200,6 +201,9 @@ function MarketplacesCarousel({ stores }: { stores: AffiliatedStore[] }) {
 
 function ItemCount({ store, live }: { store: StoreWithProvider; live?: LiveCountEntry }) {
   const cached = store.itemCount || null;
+
+  // Custom stores with their own page (lib/store-modules) have no item count.
+  if (hasStoreModule(store.slug)) return <>Made to order</>;
 
   if (store.providerType === 'mock' && store.slug !== 'anishka-creation') {
     return <>{cached ?? 0} items</>;

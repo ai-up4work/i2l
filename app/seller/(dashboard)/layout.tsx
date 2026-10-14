@@ -5,7 +5,9 @@
 // bottom tab bar. Only signed-in sellers get past this layout.
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { getCurrentSeller } from '@/lib/supabase/seller-auth'
+import { getCurrentSeller, getStaffPortalUser } from '@/lib/supabase/seller-auth'
+import { hasStoreModule, sellerNavFor } from '@/lib/store-modules'
+import StaffViewBar from './StaffViewBar'
 import { imageThumb } from '@/lib/media'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import SellerSideNav from './SellerSideNav'
@@ -35,8 +37,14 @@ function StoreBadge({ name, logo, live, dark }: { name: string; logo: string | n
 
 export default async function SellerLayout({ children }: { children: React.ReactNode }) {
   const seller = await getCurrentSeller()
-  if (!seller) redirect('/seller/login')
+  if (!seller) {
+    // Staff with no store picked yet choose one first.
+    if (await getStaffPortalUser()) redirect('/seller/stores')
+    redirect('/seller/login')
+  }
   const live = seller.status === 'active'
+  const navItems = sellerNavFor(seller.platform)
+  const showAddProduct = !hasStoreModule(seller.platform)
 
   return (
     <div className="min-h-screen bg-parchment lg:grid lg:grid-cols-[264px_minmax(0,1fr)]">
@@ -50,7 +58,7 @@ export default async function SellerLayout({ children }: { children: React.React
           <div className="rounded-2xl bg-parchment/5 p-3 ring-1 ring-parchment/10">
             <StoreBadge name={seller.name} logo={seller.logoUrl} live={live} dark />
           </div>
-          <SellerSideNav storeSlug={seller.platform} live={live} />
+          <SellerSideNav storeSlug={seller.platform} live={live} items={navItems} showAddProduct={showAddProduct} />
         </div>
       </aside>
 
@@ -66,6 +74,8 @@ export default async function SellerLayout({ children }: { children: React.React
           </div>
         </header>
 
+        {seller.staffView && <StaffViewBar storeName={seller.name} staffName={seller.staffView.name} />}
+
         {!live && (
           <div className="border-b border-gold/40 bg-gold/15 px-4 py-2.5 font-body text-sm text-ink sm:px-8">
             <span className="font-semibold">Your store isn&rsquo;t live yet.</span>{' '}
@@ -76,7 +86,7 @@ export default async function SellerLayout({ children }: { children: React.React
         <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 sm:px-8 sm:pt-8 lg:pb-12">{children}</main>
       </div>
 
-      <SellerTabBar />
+      <SellerTabBar items={navItems} showAddProduct={showAddProduct} />
     </div>
   )
 }
