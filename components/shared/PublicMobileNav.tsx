@@ -12,6 +12,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
 import AddRequestOverlay from '@/components/dashboard/AddRequestOverlay'
 import ShopBottomSheet from '@/components/stores/ShopBottomSheet'
+import Sidebar from '@/components/dashboard/Sidebar'
+import { useAuth } from '@/contexts/AuthContext'
 import { pathForView } from '@/components/dashboard/routes'
 import type { View } from '@/components/dashboard/types'
 
@@ -33,6 +35,8 @@ export default function PublicMobileNav() {
   const [shopOpen, setShopOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [link, setLink] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const { logout } = useAuth()
 
   if (hidesPublicMobileNav(pathname)) return null
 
@@ -62,7 +66,29 @@ export default function PublicMobileNav() {
         onOpenShop={() => setShopOpen(true)}
         onOpenAddRequest={() => setAddOpen(true)}
         isAddRequestOpen={addOpen}
+        onOpenMenu={() => setMenuOpen(true)}
+        isMenuOpen={menuOpen}
       />
+      {/* The account side menu as a phone drawer (desktop never shows it here). */}
+      <div className="lg:hidden">
+        <Sidebar
+          view={viewForPublicPath(pathname)}
+          onNavigate={(v) => {
+            setMenuOpen(false)
+            navigate(v)
+          }}
+          onLogoClick={() => {
+            setMenuOpen(false)
+            router.push('/')
+          }}
+          onSignOut={() => {
+            setMenuOpen(false)
+            void logout()
+          }}
+          mobileOpen={menuOpen}
+          onMobileClose={() => setMenuOpen(false)}
+        />
+      </div>
       <ShopBottomSheet open={shopOpen} onClose={() => setShopOpen(false)} onAddRequest={() => setAddOpen(true)} />
       <AddRequestOverlay open={addOpen} onClose={() => setAddOpen(false)} link={link} setLink={setLink} onSubmit={submit} />
     </>

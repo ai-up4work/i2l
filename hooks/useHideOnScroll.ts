@@ -20,6 +20,12 @@ const THRESHOLD = 8
 const TOP_ZONE = 64
 
 let hidden = false
+// After the header/bar move, the page can shift by itself (the account
+// area's content moves up into the freed space, and the browser then
+// nudges the scroll position). Those shifts are not the shopper
+// scrolling, so they're ignored until the slide has finished.
+const SETTLE_MS = 450
+let settleUntil = 0
 const listeners = new Set<() => void>()
 const lastTop = new WeakMap<EventTarget, number>()
 let installed = false
@@ -27,12 +33,20 @@ let installed = false
 function set(next: boolean) {
   if (hidden === next) return
   hidden = next
+  settleUntil = Date.now() + SETTLE_MS
   listeners.forEach((l) => l())
 }
 
 function topOf(target: EventTarget | null): number {
   if (!target || target === document || target === window) return window.scrollY
   return (target as HTMLElement).scrollTop ?? 0
+}
+
+/** Furthest the target can scroll. */
+function maxOf(target: EventTarget): number {
+  if (target === window) return document.documentElement.scrollHeight - window.innerHeight
+  const el = target as HTMLElement
+  return el.scrollHeight - el.clientHeight
 }
 
 function onScroll(e: Event) {
@@ -49,6 +63,24 @@ function onScroll(e: Event) {
     return
   }
   const top = topOf(target)
+  const max = maxOf(target)
+  // Rubber-band bounce past either end (phones), and the last few pixels
+  // at the bottom where the page settles: remember the position but don't
+  // treat it as a change of direction.
+  if (top <= 0) {
+    lastTop.set(target, 0)
+    set(false)
+    return
+  }
+  if (top >= max - 4) {
+    lastTop.set(target, Math.max(0, Math.min(top, max)))
+    return
+  }
+  // The header/bar are still sliding and the page is settling.
+  if (Date.now() < settleUntil) {
+    lastTop.set(target, top)
+    return
+  }
   const prev = lastTop.get(target)
   if (prev === undefined) {
     lastTop.set(target, top)

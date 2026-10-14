@@ -431,7 +431,7 @@ export default function Header({
               ) : (
                 <div
                   className={`items-center cursor-pointer group min-w-0 ${
-                    isAccount ? "hidden lg:flex" : "flex"
+                    isAccount && onMenuClick ? "hidden lg:flex" : "flex"
                   }`}
                 >
                   <BrandMark className="h-8 w-32 lg:h-9 lg:w-36" />

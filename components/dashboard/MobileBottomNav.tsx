@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, Package, Plus, Store, User } from 'lucide-react'
+import { Home, Menu, Package, Plus, Store, User } from 'lucide-react'
 import type { View } from './types'
 import { useHideOnScroll } from '@/hooks/useHideOnScroll'
 
@@ -38,6 +38,10 @@ const tabs: Tab[] = [...leftTabs, ...rightTabs]
 // (ShopMegaMenuMobile), consistent with desktop.
 const SHOP_TAB_VIEW: View = 'affiliatedStores'
 
+/** Pseudo-view for the "Menu" tab, which opens the side menu. */
+const MENU_VIEW = '__menu' as View
+const MENU_TAB: Tab = { label: 'Menu', icon: Menu, view: MENU_VIEW }
+
 type MobileBottomNavProps = {
   view: View
   onNavigate: (view: View) => void
@@ -52,6 +56,10 @@ type MobileBottomNavProps = {
   /** Whether AddRequestOverlay is currently open, so the center button
    *  can reflect active state without relying on `view`. */
   isAddRequestOpen?: boolean
+  /** When set, the first tab is "Menu" (opens the side menu) instead of
+   *  Home. The menu used to be a button in the phone header. */
+  onOpenMenu?: () => void
+  isMenuOpen?: boolean
 }
 
 export default function MobileBottomNav({
@@ -60,15 +68,24 @@ export default function MobileBottomNav({
   onOpenShop,
   onOpenAddRequest,
   isAddRequestOpen = false,
+  onOpenMenu,
+  isMenuOpen = false,
 }: MobileBottomNavProps) {
   // Slides away while scrolling down, back when scrolling up — together
   // with the header (hooks/useHideOnScroll.ts).
-  const hidden = useHideOnScroll() && !isAddRequestOpen
-  const activeIndex = tabs.findIndex((t) => view === t.view || t.alsoActiveFor?.includes(view))
+  const hidden = useHideOnScroll() && !isAddRequestOpen && !isMenuOpen
+  const left: Tab[] = onOpenMenu ? [MENU_TAB, leftTabs[1]] : leftTabs
+  const activeIndex = isMenuOpen
+    ? 0
+    : [...left, ...rightTabs].findIndex((t) => t.view !== MENU_VIEW && (view === t.view || t.alsoActiveFor?.includes(view)))
   // Position in the 5-slot row (2 tabs, centre button, 2 tabs).
   const activeVisualIndex = activeIndex < 0 ? -1 : activeIndex < 2 ? activeIndex : activeIndex + 1
 
   function handleTabClick(tabView: View) {
+    if (tabView === MENU_VIEW) {
+      onOpenMenu?.()
+      return
+    }
     if (tabView === SHOP_TAB_VIEW) {
       onOpenShop()
       return
@@ -77,7 +94,7 @@ export default function MobileBottomNav({
   }
 
   function renderTab({ label, icon: Icon, view: tabView, alsoActiveFor }: Tab) {
-    const isActive = view === tabView || alsoActiveFor?.includes(view)
+    const isActive = tabView === MENU_VIEW ? isMenuOpen : view === tabView || alsoActiveFor?.includes(view)
     return (
       <button
         key={label}
@@ -119,7 +136,7 @@ export default function MobileBottomNav({
           />
         )}
 
-        {leftTabs.map(renderTab)}
+        {left.map(renderTab)}
 
         {/* Centre: paste a link / add a request. Raised out of the dock. */}
         <div className="relative z-10 flex flex-1 items-start justify-center">

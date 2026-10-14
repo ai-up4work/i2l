@@ -162,7 +162,6 @@ function AccountShell({ children }: { children: React.ReactNode }) {
         view={view}
         showBackButton={showBackButton}
         onBack={handleBack}
-        onMenuClick={() => setSidebarOpen(true)}
       />
 
       <main
@@ -226,6 +225,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           onOpenShop={() => setShopSheetOpen(true)}
           onOpenAddRequest={handleOpenAddRequest}
           isAddRequestOpen={addRequestOpen}
+          onOpenMenu={() => setSidebarOpen(true)}
+          isMenuOpen={sidebarOpen}
         />
         <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} onAddRequest={handleOpenAddRequest} />
         <AddRequestOverlay

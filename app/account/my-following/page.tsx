@@ -18,6 +18,7 @@ import { imageThumb } from '@/lib/media'
 import { hasStoreModule } from '@/lib/store-modules'
 import type { AffiliatedStore } from '@/data/stores/data'
 import type { StoreProduct } from '@/lib/store.types'
+import { AccountPage, AccountPageHeader, btnSecondary } from '@/components/account/AccountPageKit'
 
 function since(iso: string | undefined): string | null {
   if (!iso) return null
@@ -47,21 +48,21 @@ export default function FollowingPage() {
   const ready = !loading && !storesLoading
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pb-16 pt-4 sm:px-6 lg:px-10 lg:pt-8">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="font-body text-xs font-semibold uppercase tracking-[0.14em] text-teal-deep">My favourites</p>
-          <h1 className="mt-1 font-display text-3xl text-ink sm:text-4xl">Stores I follow</h1>
-          <p className="mt-1.5 max-w-xl text-sm text-ink/55">
-            {ready && followedAt.size > 0
-              ? `${followedAt.size} ${followedAt.size === 1 ? 'store' : 'stores'}. They come first in Stores for you and the store list.`
-              : 'Follow stores you love and they’ll come first wherever you browse.'}
-          </p>
-        </div>
-        <Link href="/stores" className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-card px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-teal/40 hover:text-teal-deep">
-          Browse stores <ArrowRight size={14} />
-        </Link>
-      </header>
+    <AccountPage>
+      <AccountPageHeader
+        eyebrow="My favourites"
+        title="Stores I follow"
+        subtitle={
+          ready && followedAt.size > 0
+            ? `${followedAt.size} ${followedAt.size === 1 ? 'store' : 'stores'}. They come first in Stores for you and the store list.`
+            : 'Follow stores you love and they’ll come first wherever you browse.'
+        }
+        actions={
+          <Link href="/stores" className={btnSecondary}>
+            Browse stores <ArrowRight size={14} />
+          </Link>
+        }
+      />
 
       <div className="mt-6 flex flex-col gap-3">
         {!ready ? (
@@ -97,7 +98,7 @@ export default function FollowingPage() {
           </div>
         </section>
       )}
-    </div>
+    </AccountPage>
   )
 }
 

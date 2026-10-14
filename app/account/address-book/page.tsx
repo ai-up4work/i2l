@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, MapPin, Pencil, Trash2, Star, Loader2, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
+import { AccountEmpty, AccountPage, AccountPageHeader, btnPrimary, btnSecondary, fieldClass, labelClass } from '@/components/account/AccountPageKit'
 
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
@@ -56,10 +57,7 @@ function formatAddress(address: Address): string {
     .join(', ')
 }
 
-const inputClass =
-  'w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-ink/35 transition-colors focus:border-teal-deep focus:outline-none focus:ring-2 focus:ring-teal/20'
-
-const labelClass = 'mb-1 block text-xs font-semibold text-ink/55'
+const inputClass = fieldClass
 
 // Common shipping destinations. Extend as your service area grows —
 // keeping this an explicit list (rather than free text) avoids typos
@@ -86,73 +84,78 @@ function AddressCard({
   onDelete: () => void
   onSetDefault?: () => void
 }) {
+  const [confirming, setConfirming] = useState(false)
   return (
-    <div className="relative rounded-2xl border border-ink/10 bg-card p-5">
-      {address.isDefault && (
-        <span className="absolute right-5 top-5 rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-semibold text-teal-deep">
-          Default
+    <div
+      className={`relative flex flex-col rounded-3xl bg-card p-5 ring-1 transition-shadow hover:shadow-[0_10px_28px_-16px_rgba(32,36,43,0.3)] sm:p-6 ${
+        address.isDefault ? 'ring-2 ring-teal/40' : 'ring-ink/10'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <span className={`grid h-10 w-10 flex-none place-items-center rounded-xl ${address.isDefault ? 'bg-teal text-white' : 'bg-teal/10 text-teal-deep'}`}>
+          <MapPin size={18} strokeWidth={1.9} />
         </span>
-      )}
-
-      <div className="flex items-start gap-3 pr-20">
-        <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-ink/[0.05] text-ink/45">
-          <MapPin size={16} strokeWidth={1.8} />
-        </span>
-        <div className="min-w-0">
-          <p className="font-semibold text-ink">{address.fullName}</p>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-display text-lg leading-tight text-ink">{address.fullName}</p>
+            {address.isDefault && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-teal/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-deep">
+                <Star size={10} className="fill-current" /> Default
+              </span>
+            )}
+          </div>
           <p className="mt-0.5 text-sm text-ink/55">{address.phone}</p>
-          <p className="mt-2 text-sm leading-snug text-ink/70">{formatAddress(address)}</p>
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-4 border-t border-ink/[0.06] pt-3.5 pl-12 text-sm font-semibold">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="flex items-center gap-1.5 text-ink/60 transition-colors hover:text-teal-deep"
-        >
-          <Pencil size={14} strokeWidth={1.8} />
-          Edit
+      <p className="mt-4 flex-1 rounded-2xl bg-parchment/70 px-4 py-3 text-sm leading-relaxed text-ink/75 ring-1 ring-ink/5">{formatAddress(address)}</p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onEdit} className={btnSecondary}>
+          <Pencil size={14} strokeWidth={1.9} /> Edit
         </button>
         {!address.isDefault && onSetDefault && (
-          <button
-            type="button"
-            onClick={onSetDefault}
-            className="flex items-center gap-1.5 text-ink/60 transition-colors hover:text-teal-deep"
-          >
-            <Star size={14} strokeWidth={1.8} />
-            Set as default
+          <button type="button" onClick={onSetDefault} className={btnSecondary}>
+            <Star size={14} strokeWidth={1.9} /> Make default
           </button>
         )}
-        <button
-          type="button"
-          onClick={onDelete}
-          className="ml-auto flex items-center gap-1.5 text-ink/60 transition-colors hover:text-red-600"
-        >
-          <Trash2 size={14} strokeWidth={1.8} />
-          Delete
-        </button>
+        {confirming ? (
+          <span className="ml-auto flex items-center gap-1.5">
+            <button type="button" onClick={() => setConfirming(false)} className="rounded-full px-3 py-2 text-sm font-semibold text-ink/55 hover:text-ink">
+              Keep
+            </button>
+            <button type="button" onClick={onDelete} className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+              Delete
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            aria-label="Delete address"
+            className="ml-auto grid h-9 w-9 place-items-center rounded-full text-ink/45 ring-1 ring-ink/10 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <Trash2 size={15} strokeWidth={1.9} />
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
-function EmptyState({ onAddAddress }: { onAddAddress: () => void }) {
+function AddTile({ onClick }: { onClick: () => void }) {
   return (
-    <div className="mx-auto mt-6 flex max-w-2xl flex-col items-center gap-3 rounded-2xl border border-dashed border-ink/15 px-6 py-16 text-center">
-      <span className="grid size-12 place-items-center rounded-full bg-teal/10 text-teal-deep/40">
-        <MapPin size={20} strokeWidth={1.8} />
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-ink/15 p-6 text-center transition-colors hover:border-teal/50 hover:bg-teal/[0.03]"
+    >
+      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-teal/10 text-teal-deep">
+        <Plus size={22} strokeWidth={2} />
       </span>
-      <p className="text-sm text-ink/55">You haven&apos;t saved any addresses yet.</p>
-      <button
-        type="button"
-        onClick={onAddAddress}
-        className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
-      >
-        <Plus size={14} strokeWidth={2} />
-        Add your first address
-      </button>
-    </div>
+      <span className="font-semibold text-ink">Add an address</span>
+      <span className="text-xs text-ink/50">Home, work, or a friend&rsquo;s place</span>
+    </button>
   )
 }
 
@@ -209,7 +212,7 @@ function Modal({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[120] flex items-end justify-center sm:items-center sm:p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -217,7 +220,7 @@ function Modal({
         >
           {/* Backdrop — solid, opaque, no page content bleeding through */}
           <div
-            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-ink/50 backdrop-blur-sm"
             onClick={onClose}
             aria-hidden="true"
           />
@@ -228,14 +231,14 @@ function Modal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
-            initial={{ opacity: 0, scale: 0.97, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.97, y: 8 }}
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
             transition={{ duration: 0.18, ease: EASE_OUT_EXPO }}
-            className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            className="relative z-10 max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-parchment pb-[env(safe-area-inset-bottom)] shadow-2xl sm:rounded-3xl"
           >
             <div className="flex items-center justify-between px-6 pt-6">
-              <h2 id="modal-title" className="font-display text-lg text-ink">
+              <h2 id="modal-title" className="font-display text-2xl text-ink">
                 {title}
               </h2>
               <button
@@ -257,20 +260,14 @@ function Modal({
 
 function AddressBookSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl px-6 pb-16 lg:px-10" aria-hidden="true">
-      <div className="mt-10 flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-2">
-          <div className="h-6 w-40 animate-pulse rounded bg-ink/[0.06]" />
-          <div className="h-4 w-56 animate-pulse rounded bg-ink/[0.06]" />
-        </div>
-        <div className="h-11 w-40 animate-pulse rounded-full bg-ink/[0.06]" />
-      </div>
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+    <AccountPage>
+      <div className="h-10 w-56 animate-pulse rounded-xl bg-ink/5" aria-hidden="true" />
+      <div className="mt-6 grid gap-4 sm:grid-cols-2" aria-hidden="true">
         {[0, 1].map((i) => (
-          <div key={i} className="h-[168px] w-full animate-pulse rounded-2xl bg-ink/[0.04]" />
+          <div key={i} className="h-52 animate-pulse rounded-3xl bg-ink/5" />
         ))}
       </div>
-    </div>
+    </AccountPage>
   )
 }
 
@@ -428,51 +425,49 @@ export default function AddressBookPage() {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: EASE_OUT_EXPO }}
-      className="mx-auto max-w-6xl px-6 pb-16 lg:px-10"
-    >
-      <div className="mt-10 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-xl text-ink sm:text-2xl">My Address Book</h1>
-          <p className="mt-1 text-[13px] text-ink/40">
-            Manage the addresses your orders ship to.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={openAddDialog}
-          className="flex items-center gap-2 rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
-        >
-          <Plus size={16} strokeWidth={2} />
-          Add new address
-        </button>
-      </div>
+    <AccountPage>
+      <AccountPageHeader
+        eyebrow="My account"
+        title="Address book"
+        subtitle="Where your orders are delivered. The default address is picked first at checkout."
+        actions={
+          hasAddresses ? (
+            <button type="button" onClick={openAddDialog} className={btnPrimary}>
+              <Plus size={16} strokeWidth={2} /> Add address
+            </button>
+          ) : undefined
+        }
+      />
 
-      {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
+      {error && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">{error}</p>}
 
-      {hasAddresses ? (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.05, ease: EASE_OUT_EXPO }}
-          className="mt-8 grid gap-4 sm:grid-cols-2"
-        >
-          {addresses.map((address) => (
-            <AddressCard
-              key={address.id}
-              address={address}
-              onEdit={() => openEditDialog(address)}
-              onDelete={() => handleDelete(address.id)}
-              onSetDefault={address.isDefault ? undefined : () => handleSetDefault(address.id)}
-            />
-          ))}
-        </motion.div>
-      ) : (
-        <EmptyState onAddAddress={openAddDialog} />
-      )}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: EASE_OUT_EXPO }} className="mt-6">
+        {hasAddresses ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {addresses.map((address) => (
+              <AddressCard
+                key={address.id}
+                address={address}
+                onEdit={() => openEditDialog(address)}
+                onDelete={() => handleDelete(address.id)}
+                onSetDefault={address.isDefault ? undefined : () => handleSetDefault(address.id)}
+              />
+            ))}
+            <AddTile onClick={openAddDialog} />
+          </div>
+        ) : (
+          <AccountEmpty
+            icon={MapPin}
+            title="No addresses yet"
+            body="Save where you'd like your orders delivered, so checkout is quicker."
+            action={
+              <button type="button" onClick={openAddDialog} className={btnPrimary}>
+                <Plus size={16} strokeWidth={2} /> Add your first address
+              </button>
+            }
+          />
+        )}
+      </motion.div>
 
       <Modal
         open={dialogOpen}
@@ -605,7 +600,7 @@ export default function AddressBookPage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="flex items-center gap-2 rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                className={btnPrimary}
               >
                 {saving && <Loader2 size={14} className="animate-spin" />}
                 {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add address'}
@@ -613,6 +608,6 @@ export default function AddressBookPage() {
             </div>
           </form>
       </Modal>
-    </motion.div>
+    </AccountPage>
   )
 }

@@ -40,7 +40,7 @@ function Row({
   )
 }
 
-export default function NotificationSettings({ className = '' }: { className?: string }) {
+export default function NotificationSettings({ className = '', bare = false }: { className?: string; /** Rows only, no heading or top rule (inside an account card). */ bare?: boolean }) {
   const { status, busy, error, enable, disable } = usePushNotifications()
   const [offers, setOffers] = useState<boolean | null>(null)
   const [offersSaving, setOffersSaving] = useState(false)
@@ -121,14 +121,22 @@ export default function NotificationSettings({ className = '' }: { className?: s
   }
 
   return (
-    <section className={`border-t border-ink/10 pt-8 ${className}`} aria-labelledby="profile-notifications-heading">
-      <h2 id="profile-notifications-heading" className="font-display text-xl text-ink">
-        Notifications
-      </h2>
-      <p className="mt-1 text-sm text-ink/55">How we reach you about replies, orders and offers.</p>
+    <section
+      className={bare ? className : `border-t border-ink/10 pt-8 ${className}`}
+      aria-labelledby={bare ? undefined : 'profile-notifications-heading'}
+      aria-label={bare ? 'Notifications' : undefined}
+    >
+      {!bare && (
+        <>
+          <h2 id="profile-notifications-heading" className="font-display text-xl text-ink">
+            Notifications
+          </h2>
+          <p className="mt-1 text-sm text-ink/55">How we reach you about replies, orders and offers.</p>
+        </>
+      )}
 
-      <div className="mt-12 lg:grid lg:grid-cols-2 lg:gap-x-16">
-        <div>
+      <div className={bare ? 'divide-y divide-ink/10' : 'mt-12 lg:grid lg:grid-cols-2 lg:gap-x-16'}>
+        <div className={bare ? 'pb-5' : ''}>
           <Row icon={BellRing} title="Notifications on this device" action={deviceAction}>
             {deviceDescription}
             {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
@@ -136,7 +144,7 @@ export default function NotificationSettings({ className = '' }: { className?: s
         </div>
         {/* Right column with a left rule on lg, mirroring the Account
             security section's layout above. */}
-        <div className="mt-6 border-t border-ink/10 pt-6 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-16 lg:pt-0">
+        <div className={bare ? 'pt-5' : 'mt-6 border-t border-ink/10 pt-6 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-16 lg:pt-0'}>
           <Row
             icon={Tag}
             title="Offers and promotions"
