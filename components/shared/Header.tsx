@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
+import { revealChrome, useHideOnScroll } from "@/hooks/useHideOnScroll"
 import {
   ArrowLeft,
   Bell,
@@ -173,6 +174,12 @@ export default function Header({
   const shopLink = visibleNavLinks[0]
 
   const pathname = usePathname()
+  // Phones: slide away while scrolling down, back when scrolling up
+  // (hooks/useHideOnScroll.ts, shared with the bottom bar).
+  const chromeHidden = useHideOnScroll()
+  useEffect(() => {
+    revealChrome()
+  }, [pathname])
   const navRef = useRef<HTMLElement>(null)
   const actionsRef = useRef<HTMLDivElement>(null)
   const SHOP_PANEL_ID = "shop-mega-menu-panel"
@@ -364,7 +371,11 @@ export default function Header({
 
   return (
     <>
-      <header className="fixed top-0 left-0 w-full z-50">
+      <header
+        className={`fixed top-0 left-0 w-full z-50 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+          chromeHidden ? "max-lg:-translate-y-full" : ""
+        }`}
+      >
         <AirmailStripe />
 
         <div className="relative w-full" style={{ height: OUTER_H }}>

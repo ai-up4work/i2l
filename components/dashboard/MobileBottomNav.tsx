@@ -1,7 +1,8 @@
 'use client'
 
-import { Bookmark, Home, Plus, Store, User } from 'lucide-react'
+import { Home, Package, Plus, Store, User } from 'lucide-react'
 import type { View } from './types'
+import { useHideOnScroll } from '@/hooks/useHideOnScroll'
 
 type Tab = { label: string; icon: typeof Home; view: View; alsoActiveFor?: View[] }
 
@@ -21,7 +22,7 @@ export const MOBILE_BOTTOM_NAV_HEIGHT = 76
 // shape, always navigates to the same view regardless of "active" state).
 const leftTabs: Tab[] = [
   { label: 'Home', icon: Home, view: 'home' },
-  { label: 'Orders', icon: Bookmark, view: 'ordersHub', alsoActiveFor: ['requests', 'biddingRequests', 'shipmentOrders', 'preview'] },
+  { label: 'Orders', icon: Package, view: 'ordersHub', alsoActiveFor: ['requests', 'biddingRequests', 'shipmentOrders', 'preview'] },
 ]
 
 const rightTabs: Tab[] = [
@@ -60,14 +61,12 @@ export default function MobileBottomNav({
   onOpenAddRequest,
   isAddRequestOpen = false,
 }: MobileBottomNavProps) {
-  const activeIndex = tabs.findIndex(
-    (t) => view === t.view || t.alsoActiveFor?.includes(view)
-  )
-  // Index within the visual 5-slot row (2 left tabs, center button, 2
-  // right tabs) — used only to position the sliding pill under the
-  // correct flat tab; the center slot never carries the pill.
+  // Slides away while scrolling down, back when scrolling up — together
+  // with the header (hooks/useHideOnScroll.ts).
+  const hidden = useHideOnScroll() && !isAddRequestOpen
+  const activeIndex = tabs.findIndex((t) => view === t.view || t.alsoActiveFor?.includes(view))
+  // Position in the 5-slot row (2 tabs, centre button, 2 tabs).
   const activeVisualIndex = activeIndex < 0 ? -1 : activeIndex < 2 ? activeIndex : activeIndex + 1
-  const isAddRequestActive = isAddRequestOpen
 
   function handleTabClick(tabView: View) {
     if (tabView === SHOP_TAB_VIEW) {
@@ -79,33 +78,21 @@ export default function MobileBottomNav({
 
   function renderTab({ label, icon: Icon, view: tabView, alsoActiveFor }: Tab) {
     const isActive = view === tabView || alsoActiveFor?.includes(view)
-
     return (
       <button
         key={label}
         type="button"
         onClick={() => handleTabClick(tabView)}
         aria-current={isActive ? 'page' : undefined}
-        className="group relative flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-transform duration-150 active:scale-90"
+        className="relative z-10 flex h-full flex-1 flex-col items-center justify-center gap-1 transition-transform duration-150 active:scale-90"
       >
-        <span
-          key={isActive ? `${label}-on` : `${label}-off`}
-          className={`relative grid size-11 shrink-0 place-items-center rounded-2xl transition-colors duration-300 ${
-            isActive ? 'text-teal-deep animate-nav-pop' : 'text-ink/40'
-          }`}
+        <Icon
+          size={20}
+          strokeWidth={isActive ? 2.3 : 1.8}
+          className={`transition-colors duration-300 ${isActive ? 'text-gold' : 'text-parchment/55'}`}
           aria-hidden="true"
-        >
-          <span className="absolute inset-x-2 top-1.5 h-px bg-current opacity-15" />
-          <Icon size={19} strokeWidth={1.8} />
-          <span className="absolute bottom-1.5 h-0.5 w-2 rounded-full bg-current opacity-25" />
-        </span>
-
-        <span
-          key={isActive ? `${label}-label-on` : `${label}-label-off`}
-          className={`text-[10.5px] font-semibold leading-none transition-colors duration-300 ${
-            isActive ? 'text-teal-deep animate-nav-rise' : 'text-ink/50'
-          }`}
-        >
+        />
+        <span className={`font-body text-[10px] font-semibold leading-none tracking-wide transition-colors duration-300 ${isActive ? 'text-parchment' : 'text-parchment/50'}`}>
           {label}
         </span>
       </button>
@@ -115,46 +102,36 @@ export default function MobileBottomNav({
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-ink/10 bg-parchment/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
+      className={`pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(10px,env(safe-area-inset-bottom))] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:hidden ${
+        hidden ? 'translate-y-[calc(100%+40px)]' : ''
+      }`}
     >
-      <div className="relative flex items-stretch">
-        {/* sliding selection pill — glides beneath the active flat tab.
-            Never shown under the center Add Request button, which has
-            its own always-on filled treatment instead. top-1 keeps it
-            vertically centered against the tabs' py-2 padding (was top-1.5
-            for py-2.5, before the bar was shortened). */}
+      {/* Floating dock: indigo glass with a hairline gold edge on top. */}
+      <div className="pointer-events-auto relative mx-auto flex h-16 max-w-md items-stretch rounded-[26px] bg-indigo/95 px-1.5 shadow-[0_14px_34px_-10px_rgba(8,39,79,0.6),0_2px_6px_rgba(8,39,79,0.25)] ring-1 ring-white/10 backdrop-blur-xl">
+        <span className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-gold/60 to-transparent" aria-hidden="true" />
+
+        {/* Sliding highlight behind the current tab. */}
         {activeVisualIndex >= 0 && (
           <span
-            className="pointer-events-none absolute top-1 h-11 rounded-2xl border border-teal/20 bg-gold/10 shadow-[0_4px_10px_rgba(14,140,156,0.12)] transition-[left] duration-500 ease-nav-spring"
-            style={{
-              left: `calc(${(activeVisualIndex / 5) * 100}% + ${100 / 5 / 2}% - 22px)`,
-              width: '44px',
-            }}
+            className="ease-nav-spring pointer-events-none absolute top-2 h-12 rounded-[18px] bg-white/[0.08] ring-1 ring-white/10 transition-[left] duration-500"
+            style={{ left: `calc(6px + (100% - 12px) * ${activeVisualIndex} / 5 + 6px)`, width: 'calc((100% - 12px) / 5 - 12px)' }}
             aria-hidden="true"
           />
         )}
 
         {leftTabs.map(renderTab)}
 
-        {/* Raised center Add Request button — opens AddRequestOverlay as
-            an overlay on top of the current page instead of navigating
-            to a dedicated route, so users don't lose their place (e.g.
-            mid-browse in Stores) just to submit a link. -mt-7 (was -mt-6)
-            pulls it up a bit further so it protrudes more above the
-            now-shorter bar. */}
-        <div className="flex flex-1 items-center justify-center">
+        {/* Centre: paste a link / add a request. Raised out of the dock. */}
+        <div className="relative z-10 flex flex-1 items-start justify-center">
           <button
             type="button"
             onClick={onOpenAddRequest}
             aria-label="Add request"
-            aria-current={isAddRequestActive ? 'page' : undefined}
-            className={`relative -mt-7 flex h-14 w-14 items-center justify-center rounded-full shadow-[0_6px_16px_rgba(14,140,156,0.35)] ring-4 ring-parchment transition-transform duration-150 active:scale-90 ${
-              isAddRequestActive
-                ? 'bg-teal-deep'
-                : 'bg-teal hover:bg-teal-deep'
-            }`}
+            aria-current={isAddRequestOpen ? 'page' : undefined}
+            className="relative -mt-5 grid h-[58px] w-[58px] place-items-center rounded-full bg-gradient-to-br from-teal to-teal-deep text-parchment shadow-[0_10px_22px_-6px_rgba(14,140,156,0.7)] ring-[5px] ring-parchment transition-transform duration-200 active:scale-90"
           >
-            <Plus size={24} strokeWidth={2.25} className="text-parchment" />
+            <span className="absolute inset-0 rounded-full bg-gradient-to-b from-white/25 to-transparent" aria-hidden="true" />
+            <Plus size={26} strokeWidth={2.4} className={`relative transition-transform duration-300 ${isAddRequestOpen ? 'rotate-45' : ''}`} />
           </button>
         </div>
 
@@ -162,36 +139,6 @@ export default function MobileBottomNav({
       </div>
 
       <style jsx>{`
-        @keyframes nav-pop {
-          0% {
-            transform: scale(0.6) rotate(-10deg);
-          }
-          55% {
-            transform: scale(1.2) rotate(4deg);
-          }
-          80% {
-            transform: scale(0.95) rotate(-1deg);
-          }
-          100% {
-            transform: scale(1) rotate(0deg);
-          }
-        }
-        @keyframes nav-rise {
-          0% {
-            opacity: 0;
-            transform: translateY(5px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-nav-pop {
-          animation: nav-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .animate-nav-rise {
-          animation: nav-rise 0.3s ease-out 0.05s both;
-        }
         .ease-nav-spring {
           transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
         }

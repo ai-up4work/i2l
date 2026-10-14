@@ -426,17 +426,22 @@ export interface Database {
         Relationships: []
       }
       wishlist_items: {
+        // item_key / product: data/wishdrop-account-sync.sql
         Row: {
           id: string
           user_id: string
-          product_snapshot_id: string
+          product_snapshot_id: string | null
           added_at: string
+          item_key: string | null
+          product: Json | null
         }
         Insert: {
           id?: string
           user_id: string
-          product_snapshot_id: string
+          product_snapshot_id?: string | null
           added_at?: string
+          item_key?: string | null
+          product?: Json | null
         }
         Update: Partial<Database['public']['Tables']['wishlist_items']['Insert']>
         Relationships: []
@@ -452,6 +457,7 @@ export interface Database {
           position: number
           created_at: string
           updated_at: string
+          items: Json
         }
         Insert: {
           id?: string
@@ -463,6 +469,7 @@ export interface Database {
           position?: number
           created_at?: string
           updated_at?: string
+          items?: Json
         }
         Update: Partial<Database['public']['Tables']['boards']['Insert']>
         Relationships: []
@@ -492,23 +499,30 @@ export interface Database {
         Relationships: []
       }
       cart_items: {
+        // line_key / product / updated_at: data/wishdrop-account-sync.sql
         Row: {
           id: string
           user_id: string
-          product_snapshot_id: string
+          product_snapshot_id: string | null
           quantity: number
           selected_options: Json | null
           added_at: string
           source: string | null
+          line_key: string | null
+          product: Json | null
+          updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          product_snapshot_id: string
+          product_snapshot_id?: string | null
           quantity?: number
           selected_options?: Json | null
           added_at?: string
           source?: string | null
+          line_key?: string | null
+          product?: Json | null
+          updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['cart_items']['Insert']>
         Relationships: []

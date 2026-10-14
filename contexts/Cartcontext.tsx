@@ -12,7 +12,8 @@ import {
 } from 'react'
 import { useAuth } from './AuthContext'
 import { createClient } from '@/lib/supabase/client'
-import { ensureProductSnapshot, findSnapshotId } from '@/lib/supabase/product-snapshots'
+import { cacheKeyFor, readCache, removeCache, useAccountRefresh, writeCache } from '@/lib/account-sync'
+import type { Json } from '@/lib/supabase/types'
 
 /**
  * A trimmed, serializable snapshot of whatever product the shopper added —
@@ -61,205 +62,232 @@ type CartContextValue = {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
-const STORAGE_KEY = 'Wishdrop:cart'
+// ---------------------------------------------------------------------------
+// Account-based cart (lib/account-sync.ts).
+//
+// Signed in: cart_items in the database is the source of truth. The local
+// copy (per account) is only a cache shown instantly on load, then replaced
+// with the database's version. Every add / quantity change / remove is
+// applied on screen and written to the database at once (the exact
+// quantity, never a merge of the whole local cart), and other devices pick
+// it up through Realtime or when their tab is focused.
+//
+// Signed out: a guest cart on this device. On sign-in, guest lines are
+// added to the account once (lines already in the account are left as they
+// are) and the guest cart is emptied.
+//
+// Needs data/wishdrop-account-sync.sql.
+// ---------------------------------------------------------------------------
 
-function loadInitialItems(): CartLineItem[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
+const BASE_KEY = 'Wishdrop:cart'
+/** Before this change the cart was one device-wide key. */
+const LEGACY_KEY = 'Wishdrop:cart'
+
+type CartRow = {
+  line_key: string
+  quantity: number
+  product: CartProduct | null
+  selected_options: Record<string, string> | null
+  source: string | null
+  added_at: string
+}
+
+function rowToLine(row: CartRow): CartLineItem | null {
+  if (!row.product || !row.line_key) return null
+  return {
+    product: {
+      ...row.product,
+      id: row.line_key,
+      selectedOptions: row.product.selectedOptions ?? row.selected_options ?? undefined,
+      source: row.product.source ?? ((row.source as CartProduct['source']) || 'link'),
+    },
+    qty: Math.max(1, row.quantity),
+    addedAt: new Date(row.added_at).getTime(),
   }
+}
+
+function lineToRow(line: CartLineItem, userId: string) {
+  return {
+    user_id: userId,
+    line_key: line.product.id,
+    quantity: line.qty,
+    product: line.product as unknown as Json,
+    selected_options: line.product.selectedOptions ?? null,
+    source: line.product.source ?? 'link',
+    added_at: new Date(line.addedAt).toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+}
+
+function readLines(key: string): CartLineItem[] {
+  const v = readCache<unknown>(key, [])
+  return Array.isArray(v) ? (v as CartLineItem[]) : []
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth()
   const supabase = useMemo(() => createClient(), [])
+  const userId = user?.id ?? null
 
-  const [items, setItems] = useState<CartLineItem[]>([])
-  const [hydrated, setHydrated] = useState(false)
-  const dbSyncedForUserId = useRef<string | null>(null)
+  // Items together with the cache key they belong to, so switching account
+  // can never write one account's cart into another's cache.
+  const [state, setState] = useState<{ key: string | null; items: CartLineItem[] }>({ key: null, items: [] })
+  const items = state.items
+  const hydrated = state.key !== null
+  const itemsRef = useRef<CartLineItem[]>([])
+  itemsRef.current = items
+  // Bumped on every local change: a database read that started before a
+  // change is thrown away (and read again), so it can't undo that change.
+  const version = useRef(0)
+  // Writes still on their way to the database. A read is only trusted
+  // when none are in flight, or it could show the old value for a moment.
+  const pending = useRef(0)
+  const userIdRef = useRef<string | null>(null)
+  userIdRef.current = userId
 
-  useEffect(() => {
-    setItems(loadInitialItems())
-    setHydrated(true)
+  const setItems = useCallback((next: CartLineItem[]) => {
+    setState((cur) => ({ ...cur, items: next }))
   }, [])
 
+  // Keep the cache in step with what's on screen.
   useEffect(() => {
-    if (!hydrated) return
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-    } catch {
-      // Storage can fail (quota, private mode) — losing persistence isn't
-      // worth crashing the cart over.
-    }
-  }, [items, hydrated])
+    if (state.key) writeCache(state.key, state.items)
+  }, [state])
 
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (e.key !== STORAGE_KEY) return
-      try {
-        const parsed = e.newValue ? JSON.parse(e.newValue) : []
-        setItems(Array.isArray(parsed) ? parsed : [])
-      } catch {
-        // ignore malformed cross-tab payloads
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  // ---- Supabase sync -------------------------------------------------
-  // Pushes a single line up to cart_items (creating/reusing its
-  // product_snapshot). Fire-and-forget from the caller's point of view —
-  // local state is the source of truth for rendering; this just keeps the
-  // account's server-side cart in step so it survives a device switch.
-  const pushLineToDb = useCallback(
-    async (line: CartLineItem, userId: string) => {
-      try {
-        const snapshotId = await ensureProductSnapshot(supabase, {
-          id: line.product.id,
-          title: line.product.title,
-          image: line.product.image,
-          currencyCode: line.product.currencyCode,
-          price: line.product.sourcePrice,
-          site: line.product.site,
-        })
-        await supabase.from('cart_items').upsert(
-          {
-            user_id: userId,
-            product_snapshot_id: snapshotId,
-            quantity: line.qty,
-            selected_options: line.product.selectedOptions ?? null,
-            source: line.product.source ?? 'link',
-          },
-          { onConflict: 'user_id,product_snapshot_id' },
-        )
-      } catch (err) {
-        console.error('[cart] failed to sync line to db', err)
-      }
-    },
-    [supabase],
-  )
-
-  const removeLineFromDb = useCallback(
-    async (productId: string, userId: string) => {
-      try {
-        const snapshotId = await findSnapshotId(supabase, productId)
-        if (!snapshotId) return
-        await supabase.from('cart_items').delete().eq('user_id', userId).eq('product_snapshot_id', snapshotId)
-      } catch (err) {
-        console.error('[cart] failed to remove line from db', err)
-      }
-    },
-    [supabase],
-  )
-
-  // On login: push whatever's currently in the local (possibly guest) cart
-  // up to the DB first — so nothing added before signing in is lost — then
-  // pull the merged server-side cart back down as the new source of truth.
-  // Skips only while local state is non-empty and already synced for this
-  // user — see the guard below for why "synced once" alone isn't enough.
-  useEffect(() => {
-    if (authLoading || !hydrated) return
-    if (!user) {
-      dbSyncedForUserId.current = null
+  const refreshFromDb = useCallback(async () => {
+    const uid = userIdRef.current
+    if (!uid) {
+      setState({ key: cacheKeyFor(BASE_KEY, null), items: readLines(cacheKeyFor(BASE_KEY, null)) })
       return
     }
-    // Only skip if we've already synced AND there's still something in
-    // local state. Previously this compared dbSyncedForUserId.current
-    // to user.id alone, which meant that once synced, this effect would
-    // NEVER check the DB again for the rest of the session — even if
-    // local state later ended up empty (cleared storage, a bug, etc)
-    // while the DB still had real data. Requiring items.length > 0 too
-    // means a future run of this effect (e.g. a fresh mount) will still
-    // re-sync instead of trusting a stale "already done" flag.
-    if (dbSyncedForUserId.current === user.id && items.length > 0) return
-    dbSyncedForUserId.current = user.id
+    if (pending.current > 0) {
+      setTimeout(() => void refreshFromDb(), 300)
+      return
+    }
+    const started = version.current
+    const { data, error } = await supabase
+      .from('cart_items')
+      .select('line_key, quantity, product, selected_options, source, added_at')
+      .eq('user_id', uid)
+      .order('added_at', { ascending: true })
+    if (error) {
+      console.error('[cart] could not read the cart', error.message)
+      return // keep showing the cache
+    }
+    if (userIdRef.current !== uid) return
+    if (version.current !== started || pending.current > 0) {
+      // Something changed while reading: read again so nothing is lost.
+      setTimeout(() => void refreshFromDb(), 250)
+      return
+    }
+    const lines = ((data ?? []) as unknown as CartRow[]).map(rowToLine).filter((l): l is CartLineItem => l !== null)
+    setState({ key: cacheKeyFor(BASE_KEY, uid), items: lines })
+  }, [supabase])
+
+  // Load: cache first (instant), then the database.
+  useEffect(() => {
+    if (authLoading) return
+    const key = cacheKeyFor(BASE_KEY, userId)
+
+    if (!userId) {
+      // Old device-wide cart (before accounts were the source of truth)
+      // becomes this device's guest cart.
+      const legacy = readLines(LEGACY_KEY)
+      if (legacy.length && !readLines(key).length) writeCache(key, legacy)
+      removeCache(LEGACY_KEY)
+      setState({ key, items: readLines(key) })
+      return
+    }
+
+    // A signed-in account already had its cart saved to the database by
+    // the old code, so the old device-wide copy is dropped, not re-added
+    // (re-adding it is what brought removed items back).
+    removeCache(LEGACY_KEY)
+    setState({ key, items: readLines(key) })
 
     let cancelled = false
     ;(async () => {
-      for (const line of items) {
-        await pushLineToDb(line, user.id)
+      const guestKey = cacheKeyFor(BASE_KEY, null)
+      const guest = readLines(guestKey)
+      if (guest.length) {
+        // Add what the shopper put in the bag before signing in; lines the
+        // account already has are left as they are.
+        const { error } = await supabase
+          .from('cart_items')
+          .upsert(guest.map((l) => lineToRow(l, userId)), { onConflict: 'user_id,line_key', ignoreDuplicates: true })
+        if (!error) removeCache(guestKey)
+        else console.error('[cart] could not add the guest cart to the account', error.message)
       }
-
-      const { data, error } = await supabase
-        .from('cart_items')
-        .select(
-          'quantity, selected_options, added_at, source, product_snapshots(url, site, title, image_url, currency, price)',
-        )
-        .eq('user_id', user.id)
-
-      if (cancelled || error || !data) return
-
-      const merged: CartLineItem[] = data
-        .filter((row: any) => row.product_snapshots?.url)
-        .map((row: any) => ({
-          product: {
-            id: row.product_snapshots.url,
-            url: row.product_snapshots.url,
-            site: row.product_snapshots.site,
-            title: row.product_snapshots.title,
-            image: row.product_snapshots.image_url,
-            currencyCode: row.product_snapshots.currency,
-            sourcePrice: row.product_snapshots.price != null ? String(row.product_snapshots.price) : null,
-            selectedOptions: row.selected_options ?? undefined,
-            // Was hardcoded to 'link' here — cart_items now has a real
-            // source column (see Wishdrop-cart-items-source-column.sql)
-            // to read back instead. Rows written before that migration
-            // still have source = null, hence the 'link' fallback (the
-            // same default this always used, just now only applied to
-            // genuinely unknown/pre-migration rows instead of everything).
-            source: (row.source as 'catalogue' | 'link' | null) ?? 'link',
-          },
-          qty: row.quantity,
-          addedAt: new Date(row.added_at).getTime(),
-        }))
-
-      setItems(merged)
+      if (!cancelled) await refreshFromDb()
     })()
-
     return () => {
       cancelled = true
     }
-    // Keyed on user?.id, not user — see ChatContext.tsx / Ordercontexts.tsx
-    // for the full explanation: AuthContext hands out a brand-new user
-    // object on every auth event, including the session refresh Supabase
-    // fires on tab-focus, so keying on the object itself refetched the
-    // whole cart every time the tab regained focus.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, authLoading, hydrated])
+  }, [userId, authLoading, supabase, refreshFromDb])
+
+  useAccountRefresh({ userId, tables: ['cart_items'], cacheKey: state.key, refresh: () => void refreshFromDb() })
+
+  // ---- writes ------------------------------------------------------------
+
+  const saveLine = useCallback(
+    async (line: CartLineItem) => {
+      const uid = userIdRef.current
+      if (!uid) return
+      pending.current++
+      const { error } = await supabase
+        .from('cart_items')
+        .upsert(lineToRow(line, uid), { onConflict: 'user_id,line_key' })
+        .then((r) => r, (e) => ({ error: e as { message: string } }))
+      pending.current--
+      if (error) {
+        console.error('[cart] could not save', error.message)
+        void refreshFromDb()
+      }
+    },
+    [supabase, refreshFromDb],
+  )
+
+  const deleteLines = useCallback(
+    async (ids: string[] | 'all') => {
+      const uid = userIdRef.current
+      if (!uid) return
+      let q = supabase.from('cart_items').delete().eq('user_id', uid)
+      if (ids !== 'all') q = q.in('line_key', ids)
+      pending.current++
+      const { error } = await q.then((r) => r, (e) => ({ error: e as { message: string } }))
+      pending.current--
+      if (error) {
+        console.error('[cart] could not remove', error.message)
+        void refreshFromDb()
+      }
+    },
+    [supabase, refreshFromDb],
+  )
 
   const addItem = useCallback(
     (product: CartProduct, qty: number = 1) => {
       if (qty <= 0) return
-      let nextLine: CartLineItem | null = null
-      setItems((prev) => {
-        const existingIndex = prev.findIndex((line) => line.product.id === product.id)
-        if (existingIndex === -1) {
-          nextLine = { product, qty, addedAt: Date.now() }
-          return [...prev, nextLine]
-        }
-        const next = [...prev]
-        const existing = next[existingIndex]
-        nextLine = { ...existing, product, qty: existing.qty + qty }
-        next[existingIndex] = nextLine
-        return next
-      })
-      if (user && nextLine) pushLineToDb(nextLine, user.id)
+      version.current++
+      const prev = itemsRef.current
+      const i = prev.findIndex((line) => line.product.id === product.id)
+      const line: CartLineItem = i === -1 ? { product, qty, addedAt: Date.now() } : { ...prev[i], product, qty: prev[i].qty + qty }
+      const next = i === -1 ? [...prev, line] : prev.map((l, j) => (j === i ? line : l))
+      itemsRef.current = next
+      setItems(next)
+      void saveLine(line)
     },
-    [user, pushLineToDb],
+    [setItems, saveLine],
   )
 
   const removeItem = useCallback(
     (id: string) => {
-      setItems((prev) => prev.filter((line) => line.product.id !== id))
-      if (user) removeLineFromDb(id, user.id)
+      version.current++
+      const next = itemsRef.current.filter((line) => line.product.id !== id)
+      itemsRef.current = next
+      setItems(next)
+      void deleteLines([id])
     },
-    [user, removeLineFromDb],
+    [setItems, deleteLines],
   )
 
   const updateQty = useCallback(
@@ -268,26 +296,24 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeItem(id)
         return
       }
-      let updatedLine: CartLineItem | undefined
-      setItems((prev) =>
-        prev.map((line) => {
-          if (line.product.id !== id) return line
-          updatedLine = { ...line, qty }
-          return updatedLine
-        }),
-      )
-      if (user && updatedLine) pushLineToDb(updatedLine, user.id)
+      const cur = itemsRef.current.find((line) => line.product.id === id)
+      if (!cur || cur.qty === qty) return
+      version.current++
+      const line = { ...cur, qty }
+      const next = itemsRef.current.map((l) => (l.product.id === id ? line : l))
+      itemsRef.current = next
+      setItems(next)
+      void saveLine(line)
     },
-    [user, pushLineToDb, removeItem],
+    [setItems, saveLine, removeItem],
   )
 
   const clearCart = useCallback(() => {
-    const idsToRemove = items.map((line) => line.product.id)
+    version.current++
+    itemsRef.current = []
     setItems([])
-    if (user) {
-      idsToRemove.forEach((id) => removeLineFromDb(id, user.id))
-    }
-  }, [items, user, removeLineFromDb])
+    void deleteLines('all')
+  }, [setItems, deleteLines])
 
   const isInCart = useCallback(
     (id: string) => items.some((line) => line.product.id === id),

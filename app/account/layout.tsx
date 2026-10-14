@@ -5,6 +5,7 @@ import { useState } from 'react'
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 import Sidebar from '@/components/dashboard/Sidebar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
+import { useHideOnScroll } from '@/hooks/useHideOnScroll'
 import AddRequestOverlay from '@/components/dashboard/AddRequestOverlay'
 import WelcomeBanner from '@/components/dashboard/WelcomeBanner'
 import { pathForView, viewForPath } from '@/components/dashboard/routes'
@@ -21,6 +22,7 @@ import { AdminDataProvider } from '@/contexts/AdminDataContext'
 
 function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const chromeHidden = useHideOnScroll()
   const pathname = usePathname()
   const view = viewForPath(pathname)
   const isMobile = useIsMobile()
@@ -164,7 +166,11 @@ function AccountShell({ children }: { children: React.ReactNode }) {
       />
 
       <main
-        className="flex min-h-0 flex-1 overflow-hidden bg-parchment pt-[var(--account-header-h-mobile)] lg:pt-[var(--account-header-h-desktop)]"
+        className={`flex min-h-0 flex-1 overflow-hidden bg-parchment transition-[padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:pt-[var(--account-header-h-desktop)] ${
+          // Phones: the header slides away while scrolling down
+          // (hooks/useHideOnScroll.ts), and the content moves up with it.
+          chromeHidden ? 'pt-0' : 'pt-[var(--account-header-h-mobile)]'
+        }`}
         style={{
           ['--account-header-h-mobile' as string]: `${effectiveHeaderHeightMobile}px`,
           ['--account-header-h-desktop' as string]: `${effectiveHeaderHeightDesktop}px`,
