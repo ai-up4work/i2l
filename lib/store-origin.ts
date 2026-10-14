@@ -104,6 +104,24 @@ export function withStorePricing<T extends object>(product: T, info: StorePricin
 }
 
 /**
+ * The handling fee split across a local shop's units in this order, so it
+ * can be shown as part of each item's service charge. slug -> LKR per unit.
+ */
+export function localServiceShares(
+  lines: { storeSlug?: string | null; origin?: StoreOrigin | null; qty: number }[],
+  settings: PricingSettings = getPricingSettings(),
+): Map<string, number> {
+  const units = new Map<string, number>()
+  for (const line of lines) {
+    if (line.origin !== 'LK') continue
+    const key = line.storeSlug || '(unknown store)'
+    units.set(key, (units.get(key) ?? 0) + Math.max(1, line.qty))
+  }
+  const fee = localPickupFeeLKR(settings)
+  return new Map([...units].map(([slug, n]) => [slug, fee / n]))
+}
+
+/**
  * The pickup charge for one order: localPickupFeeLKR() for every
  * different local store in it. `lines` are the order's lines; each needs
  * its store slug and whether that store is local.

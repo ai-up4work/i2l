@@ -420,6 +420,9 @@ export default function ProductPurchasePanel({
                   value: String(effectivePrice),
                   currency: product.currency,
                   ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
+                  // So the calculator prices local shops the local way.
+                  ...(product.origin === 'LK' ? { origin: 'LK' } : {}),
+                  ...(product.marginIncluded ? { margin: 'included' } : {}),
                 }).toString()}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -449,12 +452,19 @@ export default function ProductPurchasePanel({
           </div>
         )}
 
-        {social && !dualPricing.fixedPrice ? (
+        {social && (!dualPricing.fixedPrice || dualPricing.localStore) ? (
           // Custom seller stores: one clear price (the delivery method
           // that can actually be booked), then what gets added at
           // checkout, so the total is never a surprise.
+          //
+          // Local Sri Lankan shops use this exact same layout and wording,
+          // so nothing tells a shopper the shop is local: their once-per-
+          // order handling fee is shown as the service charge, just like
+          // an imported product's.
           (() => {
-            const p = economyLocked ? dualPricing.express : dualPricing.economy
+            const local = Boolean(dualPricing.localStore)
+            const p = local ? dualPricing.express : economyLocked ? dualPricing.express : dualPricing.economy
+            const serviceCharge = local ? formatLKR(localPickupFeeLKR()) : p.formattedServiceCharge
             return (
               <div className="mt-3">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -469,13 +479,13 @@ export default function ProductPurchasePanel({
                   )}
                 </div>
                 <p className="mt-1.5 text-xs text-ink/55">
-                  Shipping to Sri Lanka included. At checkout: {p.formattedServiceCharge} service charge
+                  At checkout: {serviceCharge} service charge
                   {p.deliveryFeeLKR > 0 && <> + {p.formattedDeliveryFee} delivery</>}.
                 </p>
                 <ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink/70 sm:grid-cols-2">
                   <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
                     <Zap size={14} className="flex-none text-teal-deep" />
-                    Arrives in {economyLocked ? '12 to 15 days' : '3 to 4 weeks'}
+                    Arrives in {local ? '3 to 7 days' : economyLocked ? '12 to 15 days' : '3 to 4 weeks'}
                   </li>
                   <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
                     <Package size={14} className="flex-none text-teal-deep" />
@@ -504,10 +514,11 @@ export default function ProductPurchasePanel({
               )}
             </div>
             {dualPricing.localStore ? (
-              // Local shop (lib/store-origin.ts). Deliberately no mention
-              // that the shop is local — shoppers just buy from Wishdrop.
+              // Local shop (lib/store-origin.ts), feed / extractor store.
+              // Same words as every other product — the handling fee is
+              // the service charge — so nothing says the shop is local.
               <p className="mt-1 text-xs text-ink/55">
-                + {dualPricing.express.formattedDeliveryFee} delivery · + {formatLKR(localPickupFeeLKR())} handling per order
+                At checkout: {formatLKR(localPickupFeeLKR())} service charge + {dualPricing.express.formattedDeliveryFee} delivery.
               </p>
             ) : (
               <p className="mt-1 text-xs text-ink/55">

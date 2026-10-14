@@ -35,6 +35,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useLoyalty, effectiveCouponStatus, type Coupon } from '@/contexts/Loyaltycontext'
 import {
   getDualDeliveryPricing,
+  withExtraServiceCharge,
   formatLKR,
   TERMS_URL,
   TERMS_SUMMARY,
@@ -43,7 +44,7 @@ import {
   type DeliveryPriceOption,
 } from '@/lib/pricing'
 import { useStorePricingLookup } from '@/hooks/useStorePricingLookup'
-import { localPickupFees, type StorePricingInfo } from '@/lib/store-origin'
+import { localPickupFees, localServiceShares, localPickupFeeLKR, type StorePricingInfo } from '@/lib/store-origin'
 import Image from 'next/image'
 
 type DeliveryChoice = 'economy' | 'express'
@@ -259,10 +260,13 @@ function PriceBreakdownOverlay({
   line,
   deliveryChoice,
   onClose,
+  serviceShare = 0,
 }: {
   line: CartLineItem
   deliveryChoice: DeliveryChoice
   onClose: () => void
+  /** Local shops: this item's share of the handling fee, shown as service charge. */
+  serviceShare?: number
 }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -278,7 +282,8 @@ function PriceBreakdownOverlay({
   }, [onClose])
 
   const { lookup } = useStorePricingLookup()
-  const dual = getDualDeliveryPricing(toPriceableItem(line.product, lookup(line.product.site)))
+  const raw = getDualDeliveryPricing(toPriceableItem(line.product, lookup(line.product.site)))
+  const dual = { ...raw, economy: withExtraServiceCharge(raw.economy, serviceShare), express: withExtraServiceCharge(raw.express, serviceShare) }
   const option = deliveryChoice === 'economy' ? dual.economy : dual.express
 
   return (
@@ -378,16 +383,19 @@ function ReviewLine({
   onOpenBreakdown,
   selected,
   onToggleSelected,
+  serviceShare = 0,
 }: {
   line: CartLineItem
   deliveryChoice: DeliveryChoice
   onOpenBreakdown: () => void
   selected: boolean
   onToggleSelected: () => void
+  /** Local shops: this item's share of the handling fee, shown as service charge. */
+  serviceShare?: number
 }) {
   const { lookup } = useStorePricingLookup()
   const dual = getDualDeliveryPricing(toPriceableItem(line.product, lookup(line.product.site)))
-  const option = deliveryChoice === 'economy' ? dual.economy : dual.express
+  const option = withExtraServiceCharge(deliveryChoice === 'economy' ? dual.economy : dual.express, serviceShare)
   const grandLineTotal = option.actualTotalLKR * line.qty
 
   return (
@@ -522,6 +530,27 @@ function CartPageContent() {
   )
   const allSelected = cart.items.length > 0 && selectedLines.length === cart.items.length
 
+  // Each local-shop item's share of its shop's handling fee, shown inside
+  // its service charge (lib/store-origin.ts localServiceShares). Worked out
+  // over the items being checked out; an unselected item shows what it
+  // would carry on its own.
+  const serviceShares = useMemo(
+    () =>
+      localServiceShares(
+        selectedLines.map((line) => ({
+          storeSlug: line.product.site,
+          origin: lookupStorePricing(line.product.site, { origin: line.product.origin ?? undefined }).origin,
+          qty: line.qty,
+        })),
+      ),
+    [selectedLines, lookupStorePricing],
+  )
+  const serviceShareFor = (line: CartLineItem): number => {
+    const origin = lookupStorePricing(line.product.site, { origin: line.product.origin ?? undefined }).origin
+    if (origin !== 'LK') return 0
+    return serviceShares.get(line.product.site || '(unknown store)') ?? localPickupFeeLKR() / Math.max(1, line.qty)
+  }
+
   const toggleLineSelected = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -644,7 +673,9 @@ function CartPageContent() {
     let serviceChargeSubtotalLKR = 0
     let deliverySubtotalLKR = 0
 
-    // Rs 500 shop → warehouse pickup, once per local store in this order.
+    // Shop → warehouse handling, once per local store in this order. It's
+    // shown to shoppers as part of the service charge (split across that
+    // shop's items), never as its own line.
     const pickup = localPickupFees(
       selectedLines.map((line) => ({ storeSlug: line.product.site, origin: lookupStorePricing(line.product.site, { origin: line.product.origin ?? undefined }).origin })),
     )
@@ -1059,6 +1090,7 @@ function CartPageContent() {
                     onOpenBreakdown={() => setBreakdownLineId(line.product.id)}
                     selected={selectedIds.has(line.product.id)}
                     onToggleSelected={() => toggleLineSelected(line.product.id)}
+                    serviceShare={serviceShareFor(line)}
                   />
                 </div>
               ))}
@@ -1119,20 +1151,15 @@ function CartPageContent() {
               </div>
               <div className="flex items-center justify-between text-sm text-ink/50">
                 <span>Service charge</span>
-                <span className="tabular-nums">{formatLKR(serviceChargeSubtotalLKR)}</span>
+                {/* Includes local shops' handling fee (once per shop per
+                    order) — shown as service charge, the same as imported
+                    items, so shoppers aren't told which shops are local. */}
+                <span className="tabular-nums">{formatLKR(serviceChargeSubtotalLKR + pickupLKR)}</span>
               </div>
               <div className="flex items-center justify-between text-sm text-ink/50">
                 <span>Delivery</span>
                 <span className="tabular-nums">{formatLKR(deliverySubtotalLKR)}</span>
               </div>
-              {pickupLKR > 0 && (
-                <div className="flex items-center justify-between text-sm text-ink/50">
-                  {/* Rs 500 per local shop. Neutral label on purpose: shoppers
-                      aren't told which stores are local. */}
-                  <span>Handling fee</span>
-                  <span className="tabular-nums">{formatLKR(pickupLKR)}</span>
-                </div>
-              )}
               {discountLKR > 0 && (
                 <div className="flex items-center justify-between text-sm text-teal-deep">
                   <span>Discount ({appliedCoupon?.code})</span>
@@ -1182,6 +1209,7 @@ function CartPageContent() {
         <PriceBreakdownOverlay
           line={breakdownLine}
           deliveryChoice={deliveryChoice}
+          serviceShare={serviceShareFor(breakdownLine)}
           onClose={() => setBreakdownLineId(null)}
         />
       )}

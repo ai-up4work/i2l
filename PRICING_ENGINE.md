@@ -58,6 +58,13 @@ product pages link) are the same page. It starts from the live rates.
 "Reset to live rates" puts them back. To change rates for the whole site,
 use **Change live rates**, which opens the Pricing engine.
 
+**Local shops in the calculator.** "Indian store / Local shop" switch. Local
+shop mode prices the way the storefront does for local stores: shop price +
+margin (or "margin already in the price" for social stores), local delivery
+per item, handling once per order. No freight, customs clearance or service
+charge. A local product's price-breakdown link opens it in this mode
+(`origin=LK`).
+
 ## Note
 
 Prices are still worked out in the browser, as before. The rates were

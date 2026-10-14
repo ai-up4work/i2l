@@ -363,6 +363,26 @@ function getLocalPriceOption(product: ProductPriceableItem, settings: PricingSet
 }
 
 /**
+ * Adds a per-unit amount to an option's service charge (and its total).
+ * The cart uses this to show a local shop's once-per-order handling fee
+ * as a share of the service charge on each of that shop's items — the
+ * same line every imported item has — so shoppers aren't told which shops
+ * are local and every line still adds up to the cart total.
+ */
+export function withExtraServiceCharge(option: DeliveryPriceOption, perUnitLKR: number): DeliveryPriceOption {
+  if (!perUnitLKR) return option;
+  const serviceChargeLKR = option.serviceChargeLKR + perUnitLKR;
+  const actualTotalLKR = option.actualTotalLKR + perUnitLKR;
+  return {
+    ...option,
+    serviceChargeLKR,
+    formattedServiceCharge: formatLKR(serviceChargeLKR),
+    actualTotalLKR,
+    formattedActualTotal: formatLKR(actualTotalLKR),
+  };
+}
+
+/**
  * Economy AND Express pricing for one product, plus the Express price
  * premium over Economy — for the PDP's delivery-method comparison block
  * and the cart/checkout review panel's Price/Service Charge/Delivery/

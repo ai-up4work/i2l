@@ -44,6 +44,8 @@ type CurrencyOption = string
 
 type Mode = "customs" | "simple"
 
+type Source = "india" | "local"
+
 // The Simple / Customs switch is hidden for now. Flip this to bring it back;
 // ?mode=customs still opens the cascade either way.
 const SHOW_MODE_TOGGLE = false
@@ -128,6 +130,14 @@ function QuoteDemoPage() {
 
   const [mode, setMode] = useState<Mode>(() => parseMode(searchParams.get("mode")))
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(() => parseDeliveryType(searchParams.get("delivery")))
+  // Where the product comes from. A local Sri Lankan shop is never imported:
+  // no freight, customs clearance or service charge — just the shop's price
+  // + margin, delivery, and the handling fee (lib/store-origin.ts).
+  // ?origin=LK comes from a local product's price-breakdown link;
+  // ?margin=included means the price already has Wishdrop's margin in it
+  // (social stores).
+  const [source, setSource] = useState<Source>(() => (searchParams.get("origin") === "LK" ? "local" : "india"))
+  const [marginIncluded, setMarginIncluded] = useState(() => searchParams.get("margin") === "included")
 
   const [pcsPerUnit, setPcsPerUnit] = useState(() => parsePositiveNumber(searchParams.get("pcs"), 1))
   const [valueAmount, setValueAmount] = useState(() => parsePositiveNumber(searchParams.get("value"), 1000))
@@ -176,6 +186,11 @@ function QuoteDemoPage() {
 
   // Simple markup config, Economy only
   const [postalRateOverride, setPostalRateOverride] = useState(live.storefront.economyPostalRatePerKgLKR)
+
+  // Local shop config
+  const [localMarginOverride, setLocalMarginOverride] = useState(live.local.marginPercent)
+  const [localDeliveryOverride, setLocalDeliveryOverride] = useState(live.local.deliveryFeeLKR)
+  const [handlingOverride, setHandlingOverride] = useState(live.local.pickupFeeLKR)
 
   // When the selected HS code changes, re-sync the duty-rate fields to that
   // code's real rates, so "Adjust rates & fees" always starts from the right baseline.
@@ -288,12 +303,46 @@ function QuoteDemoPage() {
     extraMarginOverride,
   ])
 
-  const productPriceLKR = mode === "simple" ? simpleQuote.productCostLKR : customsQuote.productPriceLKR
-  const totalPerUnit = mode === "simple" ? simpleQuote.totalCost : customsQuote.totalLandedCost
-  const orderTotal = mode === "simple" ? simpleQuote.orderTotalCost : customsQuote.orderTotalLandedCost
+  // Local shop: same rule as the storefront (lib/pricing.ts local pricing).
+  const localQuote = useMemo(() => {
+    const pcs = pcsPerUnit || 1
+    const productCostLKR = Math.round((valueAmount || 0) * rateToLKR(valueCurrency) * 100) / 100
+    const marginPercent = marginIncluded ? 0 : localMarginOverride
+    const marginAmount = Math.round(productCostLKR * (marginPercent / 100) * 100) / 100
+    const priceLKR = productCostLKR + marginAmount
+    const perUnit = priceLKR + localDeliveryOverride
+    return {
+      productCostLKR,
+      marginPercent,
+      marginAmount,
+      priceLKR,
+      deliveryFee: localDeliveryOverride,
+      perUnit,
+      handling: handlingOverride,
+      orderTotal: perUnit * pcs + handlingOverride,
+    }
+  }, [pcsPerUnit, valueAmount, valueCurrency, marginIncluded, localMarginOverride, localDeliveryOverride, handlingOverride])
 
-  const rows: ResultRowData[] =
-    mode === "simple"
+  const isLocal = source === "local"
+  const productPriceLKR = isLocal ? localQuote.productCostLKR : mode === "simple" ? simpleQuote.productCostLKR : customsQuote.productPriceLKR
+  const totalPerUnit = isLocal ? localQuote.perUnit : mode === "simple" ? simpleQuote.totalCost : customsQuote.totalLandedCost
+  const orderTotal = isLocal ? localQuote.orderTotal : mode === "simple" ? simpleQuote.orderTotalCost : customsQuote.orderTotalLandedCost
+
+  const rows: ResultRowData[] = isLocal
+    ? [
+        { label: "Shop price (LKR)", value: formatLKR(localQuote.productCostLKR), formula: "= Value entered × exchange rate (1 if already LKR)" },
+        {
+          label: marginIncluded ? "Margin (already in the price)" : `Margin (${localQuote.marginPercent}%)`,
+          value: formatLKR(localQuote.marginAmount),
+          formula: marginIncluded ? "Social store prices already include the margin" : "= Shop price × local margin %",
+        },
+        { label: "Price", value: formatLKR(localQuote.priceLKR), formula: "= Shop price + margin" },
+        { label: "Delivery", value: formatLKR(localQuote.deliveryFee), formula: "Local delivery fee, per item" },
+        { label: "Per unit (price + delivery)", value: formatLKR(localQuote.perUnit) },
+        { label: "Handling (once per order)", value: formatLKR(localQuote.handling), formula: "Shop → warehouse pickup, once per local shop per order" },
+        { label: "Order total", value: formatLKR(localQuote.orderTotal), formula: "= Per unit × PCS + handling", emphasis: true },
+      ]
+    : mode === "simple"
       ? [
           { label: "Product cost (LKR)", value: formatLKR(simpleQuote.productCostLKR), formula: SIMPLE_FORMULAS.productCost },
           {
@@ -401,7 +450,7 @@ function QuoteDemoPage() {
         </div>
 
         {/* ── Toolbar ── */}
-        {(SHOW_MODE_TOGGLE || mode === "simple" || cameFromProductPage) && (
+        {(SHOW_MODE_TOGGLE || mode === "simple" || cameFromProductPage || isLocal) && (
           <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               {SHOW_MODE_TOGGLE && (
@@ -415,7 +464,16 @@ function QuoteDemoPage() {
                   ]}
                 />
               )}
-              {mode === "simple" && (
+              <Segmented<Source>
+                label="Where the product comes from"
+                value={source}
+                onChange={setSource}
+                options={[
+                  { key: "india", label: "Indian store" },
+                  { key: "local", label: "Local shop" },
+                ]}
+              />
+              {mode === "simple" && !isLocal && (
                 <Segmented<DeliveryType>
                   label="Delivery type"
                   value={deliveryType}
@@ -484,6 +542,20 @@ function QuoteDemoPage() {
               )}
             </Field>
 
+            {isLocal ? (
+              <label className="flex items-start gap-2.5 rounded-xl border border-ink/10 bg-parchment/40 px-3 py-2.5 text-sm text-ink/75">
+                <input
+                  type="checkbox"
+                  checked={marginIncluded}
+                  onChange={(e) => setMarginIncluded(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-teal-deep"
+                />
+                <span>
+                  Margin already in the price
+                  <span className="block text-xs text-ink/45">Tick for social store products — their listed price includes the margin.</span>
+                </span>
+              </label>
+            ) : (
             <Field
               label="Weight (kg)"
               htmlFor="quote-weight"
@@ -500,6 +572,7 @@ function QuoteDemoPage() {
                 className={FIELD}
               />
             </Field>
+            )}
 
             {mode === "customs" && (
               <>
@@ -556,7 +629,31 @@ function QuoteDemoPage() {
 
               {showConfig && (
                 <div className="mt-3 space-y-3 rounded-xl border border-ink/10 bg-parchment/40 p-4">
-                  {mode === "simple" ? (
+                  {isLocal ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <ConfigField label="Local margin" value={localMarginOverride} onChange={setLocalMarginOverride} suffix="%" />
+                        <ConfigField label="Delivery fee" value={localDeliveryOverride} onChange={setLocalDeliveryOverride} suffix="LKR" />
+                        <ConfigField label="Handling / order" value={handlingOverride} onChange={setHandlingOverride} suffix="LKR" />
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocalMarginOverride(live.local.marginPercent)
+                            setLocalDeliveryOverride(live.local.deliveryFeeLKR)
+                            setHandlingOverride(live.local.pickupFeeLKR)
+                          }}
+                          className={LINK_BUTTON}
+                        >
+                          Reset to live rates
+                        </button>
+                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+                          Change live rates
+                        </Link>
+                      </div>
+                    </>
+                  ) : mode === "simple" ? (
                     <>
                       <div className="grid grid-cols-2 gap-3">
                         <ConfigField label="Profit" value={profitPercentOverride} onChange={setProfitPercentOverride} suffix="%" />
@@ -622,7 +719,22 @@ function QuoteDemoPage() {
             </p>
           </div>
 
-          {mode === "simple" ? <SimpleDial quote={simpleQuote} /> : <CustomsDial quote={customsQuote} />}
+          {isLocal ? (
+            <BreakdownDialShell
+              data={[
+                { name: "Shop price", value: localQuote.productCostLKR * (pcsPerUnit || 1) },
+                { name: "Margin", value: localQuote.marginAmount * (pcsPerUnit || 1) },
+                { name: "Delivery", value: localQuote.deliveryFee * (pcsPerUnit || 1) },
+                { name: "Handling", value: localQuote.handling },
+              ].filter((d) => d.value > 0)}
+              centerValue={localQuote.orderTotal}
+              centerLabel="Order total"
+            />
+          ) : mode === "simple" ? (
+            <SimpleDial quote={simpleQuote} />
+          ) : (
+            <CustomsDial quote={customsQuote} />
+          )}
         </div>
 
         {/* ── Result cards: full width, independent of the narrower input column ── */}

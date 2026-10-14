@@ -32,7 +32,7 @@ the seller wizard (Profile step) and on the Social Store page.
 | Price | import formula | store price (LKR) + margin (30% for feed/extractor stores; social stores use their own margin, already in the price) |
 | Service charge | Rs 250 | none |
 | Delivery | as before | Rs 450 per item (same as Wishdrop Mall) |
-| Pickup | — | **Rs 500 once per local shop per order**, shown to shoppers as "Handling fee" |
+| Pickup | — | **Rs 500 once per local shop per order**, shown to shoppers as the **service charge** (split across that shop's items in the cart), the same label imported items use |
 
 **Currency of social store prices.** The store decides it, not each
 product: LKR for a local store, INR otherwise. Every save writes the
@@ -45,7 +45,10 @@ boards, header cart) now show the price the shopper actually pays in LKR,
 not the seller's raw price.
 
 **Shoppers are never told a store is local.** No flag, country or "local"
-wording appears on the customer side. Local labels (🇱🇰 Local) appear only
+wording appears on the customer side. A local product's page uses the same
+layout and words as any other ("At checkout: Rs 500 service charge + Rs 450
+delivery"). In the cart, the handling fee is part of the "Service charge"
+line, never its own line. Local labels (🇱🇰 Local) appear only
 in admin.
 
 **Checkout.** A bag with both Indian and local items is placed as two
