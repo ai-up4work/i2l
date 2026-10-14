@@ -217,3 +217,5 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to load store products', detail: msg }, { status: 502 });
   }
 }
+
+// s
