@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, useEffect } from 'react'
 import {
+  Check,
   ChevronRight,
   Plus,
   Package,
@@ -21,6 +22,7 @@ import Image from 'next/image'
 import { useClipboardLink } from '@/hooks/useClipboardLink'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
+import { followedFirst, useFollowedStores } from '@/hooks/useFollowedStores'
 import type { AffiliatedStore } from '@/data/stores/data'
 import Flag from '@/components/ui/Flag'
 import MyOrdersCard, { type MyOrdersCardLatestOrder } from '@/components/dashboard/MyOrdersCard'
@@ -230,7 +232,7 @@ function StoreTileSkeleton() {
 // as ShopMegaMenu's StoreRow — keyed off `storeType`, not just whether
 // `url` happens to be populated on the record — so this tile stays
 // correct on its own terms even if it's ever reused for a mixed list.
-function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
+function SuggestedStoreTile({ store, followed = false }: { store: AffiliatedStore; followed?: boolean }) {
   const isLocal = store.storeType === 'local'
   const isExternal = !isLocal && Boolean(store.url)
   const href = isExternal ? store.url! : `/stores/${store.platform}`
@@ -242,9 +244,9 @@ function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
     >
       <span className="relative">
         <span
-          className={`flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden border border-ink/8 bg-parchment p-1.5 transition-transform duration-150 group-hover:scale-105 ${
+          className={`flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden border bg-parchment p-1.5 transition-transform duration-150 group-hover:scale-105 ${
             isLocal ? 'rounded-xl' : 'rounded-full'
-          }`}
+          } ${followed ? 'border-teal ring-2 ring-teal/25' : 'border-ink/8'}`}
           style={isLocal ? store.bannerStyle : undefined}
         >
           {isLocal ? (
@@ -255,16 +257,23 @@ function SuggestedStoreTile({ store }: { store: AffiliatedStore }) {
             <Image src={store.logo} alt="" className="h-full w-full object-contain" width={64} height={64} />
           )}
         </span>
-        {store.isNew && (
+        {store.isNew && !followed && (
           <span
             className="absolute -right-0.5 -top-0.5 size-3 rounded-full bg-gold ring-2 ring-parchment"
             aria-label="New store"
           />
         )}
+        {/* Stores the shopper follows: teal ring + check, and listed first. */}
+        {followed && (
+          <span className="absolute -bottom-1 -right-1 grid size-5 place-items-center rounded-full bg-teal text-white ring-2 ring-card" aria-label="You follow this store">
+            <Check size={11} strokeWidth={3} />
+          </span>
+        )}
       </span>
       <span className="flex w-full min-w-0 items-center justify-center gap-1 truncate text-[11px] font-medium text-ink/75">
         <span className="truncate">{store.name}</span>
       </span>
+      {followed && <span className="-mt-1 text-[9px] font-bold uppercase tracking-wider text-teal-deep">Following</span>}
     </a>
   )
 }
@@ -327,9 +336,12 @@ function SuggestedStoresCard({
   // recomputes when `affiliatedOnly` itself changes (i.e. once, when the
   // fetch resolves) — so the grid doesn't jump around as rows are
   // added/removed while fitting to targetHeight.
+  // Followed stores first (hooks/useFollowedStores.ts), then new ones,
+  // then the rest.
+  const { followedAt } = useFollowedStores()
   const orderedStores = useMemo<AffiliatedStore[]>(
-    () => [...affiliatedOnly.filter((s) => s.isNew), ...affiliatedOnly.filter((s) => !s.isNew)],
-    [affiliatedOnly],
+    () => followedFirst([...affiliatedOnly.filter((s) => s.isNew), ...affiliatedOnly.filter((s) => !s.isNew)], (s) => s.platform, followedAt),
+    [affiliatedOnly, followedAt],
   )
 
   // Seeded at a flat 2 rows rather than `Math.min(STORE_GRID_COLS * 2,
@@ -382,12 +394,18 @@ function SuggestedStoresCard({
           <Store size={15} strokeWidth={1.8} />
         </span>
       </div>
-      <p className="mt-1 text-xs text-ink/55">No link needed — pricing already confirmed.</p>
+      <p className="mt-1 text-xs text-ink/55">{followedAt.size ? 'Stores you follow come first.' : 'No link needed — pricing already confirmed.'}</p>
+      {followedAt.size > 0 && (
+        <a href="/account/my-following" className="mt-2 inline-flex items-center gap-1 self-start rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-semibold text-teal-deep hover:bg-teal/15">
+          <Check size={11} strokeWidth={3} /> Following {followedAt.size} {followedAt.size === 1 ? 'store' : 'stores'}
+          <ChevronRight size={12} />
+        </a>
+      )}
 
       <div ref={gridRef} className="mt-4 grid grid-cols-4 gap-x-1 gap-y-2 overflow-hidden">
         {loading
           ? Array.from({ length: STORE_GRID_COLS * 2 }).map((_, i) => <StoreTileSkeleton key={i} />)
-          : visibleStores.map((store) => <SuggestedStoreTile key={store.platform} store={store} />)}
+          : visibleStores.map((store) => <SuggestedStoreTile key={store.platform} store={store} followed={followedAt.has(store.platform)} />)}
       </div>
 
       <button
@@ -421,9 +439,12 @@ function MobileStoresStrip({ onBrowseStores }: { onBrowseStores?: () => void }) 
     [stores],
   )
 
+  // Followed stores first (hooks/useFollowedStores.ts), then new ones,
+  // then the rest.
+  const { followedAt } = useFollowedStores()
   const orderedStores = useMemo<AffiliatedStore[]>(
-    () => [...affiliatedOnly.filter((s) => s.isNew), ...affiliatedOnly.filter((s) => !s.isNew)],
-    [affiliatedOnly],
+    () => followedFirst([...affiliatedOnly.filter((s) => s.isNew), ...affiliatedOnly.filter((s) => !s.isNew)], (s) => s.platform, followedAt),
+    [affiliatedOnly, followedAt],
   )
 
   return (
@@ -440,7 +461,13 @@ function MobileStoresStrip({ onBrowseStores }: { onBrowseStores?: () => void }) 
           <ChevronRight size={13} />
         </button>
       </div>
-      <p className="mt-1 text-xs text-ink/55">No link needed — pricing already confirmed.</p>
+      <p className="mt-1 text-xs text-ink/55">{followedAt.size ? 'Stores you follow come first.' : 'No link needed — pricing already confirmed.'}</p>
+      {followedAt.size > 0 && (
+        <a href="/account/my-following" className="mt-2 inline-flex items-center gap-1 self-start rounded-full bg-teal/10 px-2.5 py-1 text-[11px] font-semibold text-teal-deep hover:bg-teal/15">
+          <Check size={11} strokeWidth={3} /> Following {followedAt.size} {followedAt.size === 1 ? 'store' : 'stores'}
+          <ChevronRight size={12} />
+        </a>
+      )}
 
       <div className="mt-4 -mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {loading
@@ -451,7 +478,7 @@ function MobileStoresStrip({ onBrowseStores }: { onBrowseStores?: () => void }) 
             ))
           : orderedStores.map((store) => (
               <div key={store.platform} className="w-20 shrink-0">
-                <SuggestedStoreTile store={store} />
+                <SuggestedStoreTile store={store} followed={followedAt.has(store.platform)} />
               </div>
             ))}
       </div>

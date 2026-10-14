@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import HomePage from '@/components/dashboard/HomePage'
 import { pathForView } from '@/components/dashboard/routes'
@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLoyalty, effectiveCouponStatus } from '@/contexts/Loyaltycontext'
 import { useWishlist } from '@/contexts/Wishlistcontext'
 import { useOrders } from '@/contexts/Ordercontexts'
-import { createClient } from '@/lib/supabase/client'
+import { useFollowedStores } from '@/hooks/useFollowedStores'
 import type { MyOrdersCardLatestOrder } from '@/components/dashboard/MyOrdersCard'
 
 // orders[0] is already the most recent order — OrdersProvider's Supabase
@@ -48,24 +48,10 @@ function AccountHomePageInner() {
   const { count: wishlistCount } = useWishlist()
   const { orders, loading: ordersLoading } = useOrders()
 
-  const [followingCount, setFollowingCount] = useState(0)
-
-  useEffect(() => {
-    if (!user) return
-    let cancelled = false
-    const supabase = createClient()
-    ;(async () => {
-      const { count } = await supabase
-        .from('follows')
-        .select('id', { count: 'exact', head: true })
-        .eq('follower_id', user.id)
-      if (cancelled) return
-      setFollowingCount(count ?? 0)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [user])
+  // Stores this shopper follows (public.store_follows). The old count read
+  // a `follows` table that nothing writes to, so it was always 0.
+  const { followedAt } = useFollowedStores()
+  const followingCount = followedAt.size
 
   const couponsCount = coupons.filter((c) => effectiveCouponStatus(c) === 'unused').length
 

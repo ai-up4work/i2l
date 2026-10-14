@@ -1,12 +1,12 @@
 'use client';
 
-import { Fragment, useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, usePathname } from 'next/navigation';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
-  Sparkles, PackageSearch, SearchX, Check,
+  Sparkles, PackageSearch, SearchX,
 } from 'lucide-react';
 import type { AffiliatedStore as BaseStore } from '@/components/dashboard/data';
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores';
@@ -34,23 +34,6 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 const PER_PAGE = 24;
-
-// Shared look for the desktop dropdown panels (category + sort).
-const DROPDOWN_PANEL =
-  'absolute right-0 top-full z-20 mt-2 origin-top-right overflow-hidden rounded-2xl border border-ink/10 ' +
-  'bg-card/95 p-1.5 shadow-[0_12px_40px_-8px_rgba(0,0,0,0.18)] backdrop-blur-md ' +
-  'animate-[dd-in_150ms_ease-out] motion-reduce:animate-none';
-
-// Slim, rounded scrollbar that only shows a quiet thumb.
-// (Standard props for Firefox/Chrome 121+, ::-webkit-scrollbar for older Safari/Chrome.)
-const THIN_SCROLLBAR =
-  '[scrollbar-width:thin] [scrollbar-color:rgba(0,0,0,0.18)_transparent] ' +
-  '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent ' +
-  '[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-ink/20 ' +
-  'hover:[&::-webkit-scrollbar-thumb]:bg-ink/35';
-
-const DROPDOWN_ITEM =
-  'font-body flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-xl px-3 py-2 text-left text-xs transition-colors ';
 
 const FALLBACK_IMAGE = '/placeholder-product.png';
 
@@ -106,34 +89,6 @@ function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistPr
     currencyCode: product.currency ?? null,
     price: product.price != null ? String(product.price) : null,
   };
-}
-
-// Closes a dropdown when the user clicks/taps outside the element the
-// returned ref is attached to, or presses Escape. Attach the ref to the
-// wrapper that contains BOTH the toggle button and the menu, so clicking
-// the toggle still works normally instead of closing and reopening.
-function useClickOutside<T extends HTMLElement>(open: boolean, onClose: () => void) {
-  const ref = useRef<T>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, onClose]);
-
-  return ref;
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -677,14 +632,6 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   const [showSort,    setShowSort]    = useState(false);
   const [showCategoryMenu, setShowCategoryMenu] = useState(false);
 
-  // Close the category + sort dropdowns when the user clicks outside them
-  // (or presses Escape). The refs go on the wrapper <div> that holds each
-  // toggle button AND its menu, so the toggle itself still works normally.
-  const closeCategoryMenu = useCallback(() => setShowCategoryMenu(false), []);
-  const closeSort         = useCallback(() => setShowSort(false), []);
-  const categoryMenuRef   = useClickOutside<HTMLDivElement>(showCategoryMenu, closeCategoryMenu);
-  const sortRef           = useClickOutside<HTMLDivElement>(showSort, closeSort);
-
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
@@ -820,7 +767,6 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
 
   return (
     <div className="min-h-screen bg-parchment">
-      <style>{`@keyframes dd-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}`}</style>
 
       {/* ── Cover (shared with the social store page) ── */}
       <StoreCover
@@ -891,7 +837,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
           {/* Follow + category picker live with the identity row on every viewport. */}
           <div className="flex shrink-0 items-center gap-2 pb-1">
             <FollowButton slug={platform} />
-            <div className="relative" ref={categoryMenuRef}>
+            <div className="relative">
             <button
               type="button"
               onClick={() => setShowCategoryMenu((v) => !v)}
@@ -904,31 +850,21 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
             </button>
 
             {showCategoryMenu && (
-              <div className={DROPDOWN_PANEL + ' hidden min-w-[220px] sm:block'}>
-                <div className={'max-h-72 overflow-y-auto pr-0.5 ' + THIN_SCROLLBAR}>
-                  {categoryFilters.map((c, idx) => {
-                    const active = category === (c.handle || c.title);
-                    return (
-                      <Fragment key={c.handle || c.title || 'all'}>
-                        <button
-                          type="button"
-                          onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
-                          className={
-                            DROPDOWN_ITEM +
-                            (active ? 'bg-ink/[0.06] font-bold text-ink' : 'text-ink/65 hover:bg-teal/10 hover:text-ink')
-                          }
-                        >
-                          <span className="flex min-w-0 items-center gap-2.5">
-                            <CategoryThumb src={c.image} size={24} />
-                            <span className="truncate">{c.title || 'All categories'}</span>
-                          </span>
-                          {active && <Check size={13} className="shrink-0 text-teal-deep" />}
-                        </button>
-                        {idx === 0 && <div className="mx-2 my-1 h-px bg-ink/10" />}
-                      </Fragment>
-                    );
-                  })}
-                </div>
+              <div className="absolute right-0 top-full z-20 mt-1.5 hidden max-h-64 min-w-[200px] overflow-y-auto rounded-xl border border-ink/10 bg-card py-1 shadow-xl sm:block">
+                {categoryFilters.map((c) => (
+                  <button
+                    key={c.handle || c.title || 'all'}
+                    type="button"
+                    onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
+                    className={
+                      'font-body flex w-full items-center justify-between gap-4 whitespace-nowrap px-4 py-2 text-left text-xs transition-colors hover:bg-teal/10 ' +
+                      (category === (c.handle || c.title) ? 'font-bold text-ink' : 'text-ink/55')
+                    }
+                  >
+                    <span>{c.title || 'All'}</span>
+                    <CategoryThumb src={c.image} size={28} />
+                  </button>
+                ))}
               </div>
             )}
 
@@ -1043,7 +979,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
                 items
               </p>
             )}
-            <div className="relative" ref={sortRef}>
+            <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowSort((v) => !v)}
@@ -1053,24 +989,20 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
                 <ArrowUpDown size={12} />{SORT_OPTIONS.find((s) => s.key === sortBy)?.label}
               </button>
               {showSort && (
-                <div className={DROPDOWN_PANEL + ' min-w-[180px]'}>
-                  {SORT_OPTIONS.map((s) => {
-                    const active = sortBy === s.key;
-                    return (
-                      <button
-                        key={s.key}
-                        type="button"
-                        onClick={() => { setSortBy(s.key); setPage(1); setShowSort(false); }}
-                        className={
-                          DROPDOWN_ITEM +
-                          (active ? 'bg-ink/[0.06] font-bold text-ink' : 'text-ink/65 hover:bg-teal/10 hover:text-ink')
-                        }
-                      >
-                        <span>{s.label}</span>
-                        {active && <Check size={13} className="shrink-0 text-teal-deep" />}
-                      </button>
-                    );
-                  })}
+                <div className="absolute right-0 top-full z-20 mt-1.5 min-w-[160px] rounded-xl border border-ink/10 bg-card py-1 shadow-xl">
+                  {SORT_OPTIONS.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => { setSortBy(s.key); setPage(1); setShowSort(false); }}
+                      className={
+                        'font-body w-full px-4 py-2.5 text-left text-xs transition-colors hover:bg-teal/10 ' +
+                        (sortBy === s.key ? 'font-bold text-ink' : 'text-ink/55')
+                      }
+                    >
+                      {s.label}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

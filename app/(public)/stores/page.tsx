@@ -2,10 +2,11 @@
 'use client';
 
 import { hasStoreModule } from '@/lib/store-modules';
+import { useFollowedStores } from '@/hooks/useFollowedStores';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import {
   FILTERS,
   ALPHABET,
@@ -245,6 +246,8 @@ function AllStores({
 }) {
   const [search,       setSearch]       = useState('');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
+  // Stores this shopper follows: shown first and marked (hooks/useFollowedStores.ts).
+  const { followedAt } = useFollowedStores();
 
   // Reset letter when filter changes
   useEffect(() => { setActiveLetter(null); }, [activeFilter]);
@@ -332,6 +335,35 @@ function AllStores({
         })}
       </div>
 
+      {/* Stores you follow — first, before A–Z, when not narrowing the list */}
+      {!search && !activeLetter && (() => {
+        const followed = [...followedAt.keys()]
+          .map(slug => preFiltered.find(s => s.slug === slug))
+          .filter((s): s is StoreWithProvider => Boolean(s));
+        if (!followed.length) return null;
+        return (
+          <div className="mb-6 sm:mb-8 rounded-2xl bg-teal/5 p-3 sm:p-4 ring-1 ring-teal/15">
+            <h3 className="font-body text-sm font-semibold text-teal-deep mb-2 px-1 flex items-center gap-1.5">
+              <Check size={14} strokeWidth={3} /> Stores you follow
+            </h3>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {followed.map(store => (
+                <Link
+                  key={store.slug}
+                  href={`/stores/${store.slug}`}
+                  className="flex w-20 shrink-0 flex-col items-center gap-1.5 rounded-xl py-2 text-center hover:bg-card"
+                >
+                  <span className="relative block h-14 w-14 overflow-hidden rounded-xl border-2 border-teal" style={store.bannerStyle}>
+                    <Image src={store.logo} alt="" fill className="object-cover object-center" />
+                  </span>
+                  <span className="w-full truncate font-body text-[11px] font-medium text-ink/80">{store.name}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Store list */}
       {sortedLetters.length === 0 ? (
         <div className="py-16 text-center text-ink/50 text-sm font-body">No stores found</div>
@@ -366,6 +398,11 @@ function AllStores({
                         <p className="font-body text-sm font-semibold text-ink group-hover:text-teal-deep transition-colors truncate">
                           {store.name}
                         </p>
+                        {followedAt.has(store.slug) && (
+                          <span className="flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-teal text-white uppercase tracking-wider shrink-0">
+                            <Check size={9} strokeWidth={3.5} /> Following
+                          </span>
+                        )}
                         {store.isNew && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gold/15 text-gold-deep uppercase tracking-wider shrink-0">
                             New

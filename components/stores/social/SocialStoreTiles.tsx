@@ -7,8 +7,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { followedFirst, useFollowedStores } from '@/hooks/useFollowedStores'
 import Link from 'next/link'
-import { Play } from 'lucide-react'
+import { Check, Play } from 'lucide-react'
 import { imageThumb } from '@/lib/media'
 import type { SocialStoreTile } from '@/lib/social-stores'
 
@@ -41,7 +42,10 @@ function TileArt({ tile }: { tile: SocialStoreTile }) {
 }
 
 export default function SocialStoreTiles() {
-  const [tiles, setTiles] = useState<SocialStoreTile[] | null>(null)
+  const [rawTiles, setTiles] = useState<SocialStoreTile[] | null>(null)
+  // Stores the shopper follows come first and are marked (hooks/useFollowedStores.ts).
+  const { followedAt } = useFollowedStores()
+  const tiles = rawTiles && followedFirst(rawTiles, (t) => t.slug, followedAt)
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +85,11 @@ export default function SocialStoreTiles() {
                   <div className="h-full w-full transition-transform duration-700 group-hover:scale-[1.03]">
                     <TileArt tile={tile} />
                   </div>
+                  {followedAt.has(tile.slug) && (
+                    <span className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-full bg-teal px-2 py-1 font-body text-[10px] font-bold text-white">
+                      <Check size={10} strokeWidth={3} /> Following
+                    </span>
+                  )}
                   {tile.videoCount > 0 && (
                     <span className="absolute right-2.5 top-2.5 flex items-center gap-1 rounded-full bg-ink/70 px-2 py-1 font-body text-[10px] font-semibold text-white backdrop-blur-sm">
                       <Play size={10} fill="currentColor" /> {tile.videoCount} video{tile.videoCount === 1 ? '' : 's'}
