@@ -74,6 +74,10 @@ function onScroll(e: Event) {
   }
   if (top >= max - 4) {
     lastTop.set(target, Math.max(0, Math.min(top, max)))
+    // At the very end of the page the bars always tuck away, so the
+    // footer reaches the bottom of the screen (no space is kept for the
+    // bottom bar).
+    if (max > TOP_ZONE) set(true)
     return
   }
   // The header/bar are still sliding and the page is settling.

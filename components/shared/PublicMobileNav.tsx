@@ -58,8 +58,6 @@ export default function PublicMobileNav() {
 
   return (
     <>
-      {/* Room for the bar, so it never covers the end of the page. */}
-      <div aria-hidden className="h-[calc(76px+env(safe-area-inset-bottom))] lg:hidden" />
       <MobileBottomNav
         view={viewForPublicPath(pathname)}
         onNavigate={navigate}
