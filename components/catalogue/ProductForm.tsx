@@ -102,6 +102,9 @@ interface Props {
   submitLabel: string
   onSubmit: (payload: ProductFormPayload) => Promise<void>
   onCancel?: () => void
+  /** Local Sri Lankan store (lib/store-origin.ts): prices are in LKR and
+   *  nothing is shipped internationally. */
+  local?: boolean
 }
 
 // ─── Small building blocks ───────────────────────────────────────────────
@@ -358,7 +361,8 @@ function PhotoButton({ url, label, onClick, size = 'h-10 w-10' }: { url: string;
 
 // ─── Form ────────────────────────────────────────────────────────────────
 
-export default function ProductForm({ initial, marginPercent, staffSellerId, categorySuggestions = [], collectionsUrl, submitLabel, onSubmit, onCancel }: Props) {
+export default function ProductForm({ initial, marginPercent, staffSellerId, categorySuggestions = [], collectionsUrl, submitLabel, onSubmit, onCancel, local = false }: Props) {
+  const cur = local ? 'LKR' : 'INR'
   const staff = Boolean(staffSellerId)
   const startMargin = initial?.margin_percent ?? marginPercent
   const initialVariants = initial?.product_variants ?? []
@@ -583,7 +587,7 @@ export default function ProductForm({ initial, marginPercent, staffSellerId, cat
           <Card title="Pricing" hint={`Enter ${who} price. Wishdrop adds its margin and shipping on top.`}>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className={labelClass}>{staff ? "Seller's price" : 'Your price'} (INR)</span>
+                <span className={labelClass}>{staff ? "Seller's price" : 'Your price'} ({cur})</span>
                 <input type="number" inputMode="decimal" min="0" step="0.01" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0.00" className={inputClass} />
               </label>
               <label className="block">
@@ -594,16 +598,16 @@ export default function ProductForm({ initial, marginPercent, staffSellerId, cat
             <div className="mt-3 rounded-xl bg-parchment/70 px-3.5 py-3 text-sm text-ink/70">
               {validBase ? (
                 <>
-                  Listed at <span className="font-semibold text-ink">INR {fmt(listed(cost))}</span>
+                  Listed at <span className="font-semibold text-ink">{cur} {fmt(listed(cost))}</span>
                   {discount != null && discount > 0 && (
                     <>
                       {' '}
-                      <span className="text-ink/45 line-through">INR {fmt(listed(was as number))}</span>{' '}
+                      <span className="text-ink/45 line-through">{cur} {fmt(listed(was as number))}</span>{' '}
                       <span className="rounded bg-ink px-1.5 py-0.5 text-[11px] font-bold text-white">-{discount}%</span>
                     </>
                   )}
                   <span className="mt-0.5 block text-xs text-ink/50">
-                    {who.charAt(0).toUpperCase() + who.slice(1)} price + {m}% Wishdrop margin. Shoppers see it in rupees (LKR) with shipping to Sri Lanka.
+                    {who.charAt(0).toUpperCase() + who.slice(1)} price + {m}% Wishdrop margin. {local ? 'Delivery is added at checkout.' : 'Shoppers see it in rupees (LKR) with shipping to Sri Lanka.'}
                   </span>
                 </>
               ) : (
@@ -643,7 +647,7 @@ export default function ProductForm({ initial, marginPercent, staffSellerId, cat
             )}
           </Card>
 
-          <Card title="Shipping" hint="Weight decides the shipping charge to Sri Lanka.">
+          <Card title="Shipping" hint={local ? 'Packed weight, for delivery.' : 'Weight decides the shipping charge to Sri Lanka.'}>
             <label className="block max-w-[220px]">
               <span className={labelClass}>Weight (kg)</span>
               <input type="number" inputMode="decimal" min="0" step="0.01" value={weightKg} onChange={(e) => setWeightKg(e.target.value)} placeholder="e.g. 0.4" className={inputClass} />

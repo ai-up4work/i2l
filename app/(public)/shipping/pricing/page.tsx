@@ -1,14 +1,5 @@
 import Link from 'next/link'
-import {
-  FREIGHT_RATE_PER_KG_LKR,
-  SIMPLE_PROFIT_PERCENT,
-  SIMPLE_FREIGHT_RATE_PER_KG,
-  SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG,
-  SIMPLE_WEIGHT_BLOCK_KG,
-  SIMPLE_DELIVERY_FLAT_LKR,
-  SIMPLE_EXTRA_MARGIN_FLAT_LKR,
-  SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR,
-} from '@/lib/quote'
+import { ensurePricingSettings } from '@/lib/pricing-settings-server'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -17,21 +8,23 @@ export const metadata = pageMetadata({
   description: 'How Wishdrop calculates freight, service fees, and delivery pricing by weight and delivery speed.',
 })
 
-const expressRows = [
-  { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
-  { label: 'Freight charge', value: `~LKR ${SIMPLE_FREIGHT_RATE_PER_KG.toLocaleString()} per kg, billed in ${SIMPLE_WEIGHT_BLOCK_KG}kg blocks` },
-  { label: 'Customs clearance', value: `~LKR ${SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG.toLocaleString()} per kg, billed in ${SIMPLE_WEIGHT_BLOCK_KG}kg blocks` },
-  { label: 'Delivery fee', value: `Flat LKR ${SIMPLE_DELIVERY_FLAT_LKR}` },
-  { label: 'Service margin', value: `Flat LKR ${SIMPLE_EXTRA_MARGIN_FLAT_LKR}` },
-]
+export default async function ShippingPricingPage() {
+  // Published rates come straight from the saved pricing settings
+  // (Admin → Pricing engine), so this page can't drift from real prices.
+  const { storefront: sf, customs } = await ensurePricingSettings()
+  const expressRows = [
+    { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
+    { label: 'Freight charge', value: `~LKR ${sf.freightRatePerKgLKR.toLocaleString()} per kg, billed in ${sf.weightBlockKg}kg blocks` },
+    { label: 'Customs clearance', value: `~LKR ${sf.customsClearanceRatePerKgLKR.toLocaleString()} per kg, billed in ${sf.weightBlockKg}kg blocks` },
+    { label: 'Delivery fee', value: `Flat LKR ${sf.deliveryFeeLKR}` },
+    { label: 'Service margin', value: `Flat LKR ${sf.extraMarginLKR}` },
+  ]
+  const economyRows = [
+    { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
+    { label: 'Postal charges', value: `~LKR ${sf.economyPostalRatePerKgLKR.toLocaleString()} per kg (single line, no separate freight/customs split)` },
+    { label: 'Service margin', value: `Flat LKR ${sf.extraMarginLKR}` },
+  ]
 
-const economyRows = [
-  { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
-  { label: 'Postal charges', value: `~LKR ${SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR.toLocaleString()} per kg (single line, no separate freight/customs split)` },
-  { label: 'Service margin', value: `Flat LKR ${SIMPLE_EXTRA_MARGIN_FLAT_LKR}` },
-]
-
-export default function ShippingPricingPage() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-16 lg:px-10 lg:py-24">
       <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
@@ -101,11 +94,11 @@ export default function ShippingPricingPage() {
         <h3 className="font-display text-lg font-semibold text-ink">A note on weight</h3>
         <p className="mt-2 font-body text-sm leading-relaxed text-ink/65">
           Freight, customs-clearance, and postal charges all scale with your item's weight — a 1kg
-          item pays roughly double the {SIMPLE_WEIGHT_BLOCK_KG}kg block rate, and a{' '}
-          {SIMPLE_WEIGHT_BLOCK_KG / 2}kg item pays roughly half. If a seller doesn't list a weight,
+          item pays roughly double the {sf.weightBlockKg}kg block rate, and a{' '}
+          {sf.weightBlockKg / 2}kg item pays roughly half. If a seller doesn't list a weight,
           we apply a reasonable default and adjust once the item is measured at quality check —
           base freight for items priced outside the flat models above is calculated at roughly
-          LKR {FREIGHT_RATE_PER_KG_LKR.toLocaleString()} per kg.
+          LKR {customs.freightRatePerKgLKR.toLocaleString()} per kg.
         </p>
       </div>
 

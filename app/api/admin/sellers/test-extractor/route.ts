@@ -51,6 +51,7 @@ import {
 import { fetchHtmlScrapeProduct, fetchHtmlScrapeProducts, urlToHandle } from '@/lib/store-providers/html-scrape';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreProduct } from '@/lib/store.types';
+import { collectCategoryImages, type CategoryImageCandidate } from '@/lib/category-tiles';
 import type {
   ShopifyProviderConfig,
   WooCommerceProviderConfig,
@@ -115,6 +116,8 @@ interface TestExtractorMeta {
 interface TestExtractorCategory {
   handle: string;
   title: string;
+  /** The store's own image for this category, when it has one. */
+  image?: string | null;
 }
 
 interface TestExtractorResult {
@@ -123,6 +126,9 @@ interface TestExtractorResult {
   meta?: TestExtractorMeta;
   categories?: TestExtractorCategory[];
   categoriesNote?: string;
+  /** Per category: the store's image and a few product photos to choose
+   *  from, for the store page's category tiles (lib/category-tiles.ts). */
+  categoryImages?: CategoryImageCandidate[];
   sampleProducts?: unknown[];
   /** True only when currency was read from the live feed itself (Shopify's
    * /cart.js or WooCommerce's /wp-json/wc/store/v1/cart). False/omitted
@@ -173,6 +179,8 @@ interface RequestBody {
   providerType: 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape' | 'mock';
   baseUrl?: string;
   currency?: string;
+  /** Also return per-category photos (lib/category-tiles.ts). */
+  categoryImages?: boolean;
   jsonFields?: JsonFieldsBody;
   /** html-scrape only \u2014 mirrors HtmlScrapeProviderConfig's own fields,
    * built from whatever the admin currently has typed into the Method
@@ -194,6 +202,26 @@ interface RequestBody {
    * seller's site, or a bare handle/slug/id — see extractHandle below for
    * how each provider type's URL shape is parsed. */
   productInput?: string;
+}
+
+/** One small page of a single category, for its photos. */
+function categoryParams(handle: string): ProviderFetchParams {
+  return { page: 1, perPage: 12, category: handle, search: '', sort: 'newest' };
+}
+
+/** Category images, only when the admin asked for them (they cost one
+ *  request per category), never failing the test itself. */
+async function maybeCategoryImages(
+  wanted: boolean,
+  categories: TestExtractorCategory[] | undefined,
+  fetchCategory: (handle: string) => Promise<StoreProduct[]>,
+): Promise<CategoryImageCandidate[] | undefined> {
+  if (!wanted || !categories?.length) return undefined;
+  try {
+    return await collectCategoryImages(categories, fetchCategory);
+  } catch {
+    return undefined;
+  }
 }
 
 const DEFAULT_PARAMS: ProviderFetchParams = {
@@ -283,6 +311,9 @@ export async function POST(req: NextRequest) {
   }
 
   const { providerType, jsonFields } = body;
+  // Category photos cost one request per category, so the wizard asks for
+  // them in a second call after the checklist has passed.
+  const wantCategoryImages = body.categoryImages === true;
   const baseUrl = body.baseUrl ? stripTrailingSlash(body.baseUrl.trim()) : '';
   // This is only ever the ADMIN-TYPED (or unset) currency. It's used as a
   // fallback when live detection fails — never assumed correct on its
@@ -460,15 +491,19 @@ export async function POST(req: NextRequest) {
       let categoriesNote: string | undefined;
       try {
         const live = await fetchShopifyCollections(baseUrl);
-        categories = live.map((c) => ({ handle: c.handle, title: c.title }));
+        categories = live.map((c) => ({ handle: c.handle, title: c.title, image: c.image ?? null }));
       } catch {
         categoriesNote = "Couldn't fetch this store's collection list separately from the product feed.";
       }
 
       return NextResponse.json<TestExtractorResult>({
         ok: true,
-        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },        categories,
+        meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },
+        categories,
         categoriesNote,
+        categoryImages: await maybeCategoryImages(wantCategoryImages, categories, (h) =>
+          fetchShopifyProducts('__test__', config, 'Test store', categoryParams(h)).then((r) => r.products),
+        ),
         sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
         currencyDetected: detectedCurrency !== null,
       });
@@ -501,7 +536,7 @@ export async function POST(req: NextRequest) {
         const live = await fetchWooCommerceCategories(config);
         const populated = live.filter((c) => c.count > 0);
         if (populated.length > 0) {
-          categories = populated.map((c) => ({ handle: c.slug, title: c.name }));
+          categories = populated.map((c) => ({ handle: c.slug, title: c.name, image: c.image ?? null }));
         } else {
           categoriesNote = 'This feed reported no populated categories.';
         }
@@ -514,6 +549,9 @@ export async function POST(req: NextRequest) {
         meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },
         categories,
         categoriesNote,
+        categoryImages: await maybeCategoryImages(wantCategoryImages, categories, (h) =>
+          fetchWooCommerceProducts('__test__', config, categoryParams(h)).then((r) => r.products),
+        ),
         sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
         currencyDetected: detectedCurrency !== null,
       });
@@ -540,13 +578,17 @@ export async function POST(req: NextRequest) {
       };
 
       const result = await fetchHtmlScrapeProducts('__test__', config, 'Test store', DEFAULT_PARAMS);
+      const htmlCategories = body.categoryMap
+        ? Object.keys(body.categoryMap).map((category) => ({ handle: category, title: category }))
+        : undefined;
 
       return NextResponse.json<TestExtractorResult>({
         ok: true,
         meta: { totalProducts: result.total, totalIsExact: result.totalIsExact ?? false, totalPages: result.totalPages },
-        categories: body.categoryMap
-          ? Object.keys(body.categoryMap).map((category) => ({ handle: category, title: category }))
-          : undefined,
+        categories: htmlCategories,
+        categoryImages: await maybeCategoryImages(wantCategoryImages, htmlCategories, (h) =>
+          fetchHtmlScrapeProducts('__test__', config, 'Test store', categoryParams(h)).then((r) => r.products),
+        ),
         categoriesNote: body.categoryMap ? undefined : 'No category mapping configured — this test covers the default listing page only.',
         sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
         currencyDetected: false,
@@ -621,6 +663,12 @@ export async function POST(req: NextRequest) {
       },
       categories,
       categoriesNote,
+      // No reliable per-category request on an ad-hoc JSON feed — the whole
+      // catalogue comes back in one response anyway, so filter it locally.
+      categoryImages: await maybeCategoryImages(wantCategoryImages, categories, async (h) => {
+        const all = await fetchJsonApiProducts('__test__', config, 'Test store', { ...DEFAULT_PARAMS, perPage: 250 });
+        return all.products.filter((p) => (p.category ?? '').toLowerCase().trim().replace(/\s+/g, '-') === h);
+      }),
       sampleProducts: pickRepresentativeSample(result.products, SAMPLE_PRODUCTS_RETURNED),
       currencyDetected: false,
     });

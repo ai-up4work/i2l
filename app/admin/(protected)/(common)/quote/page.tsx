@@ -1,8 +1,8 @@
-// app/demo/quote/page.tsx
+// app/admin/(protected)/(common)/quote/page.tsx  (also served at /demo/quote)
 "use client"
 
 import { Suspense, useEffect, useId, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Calculator, ChevronDown, SlidersHorizontal } from "lucide-react"
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts"
@@ -10,22 +10,14 @@ import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } 
 import {
   calculateQuote,
   calculateSimpleQuote,
-  HS_CODE_RATES,
-  DEFAULT_WEIGHT_KG,
-  FREIGHT_RATE_PER_KG_LKR,
-  SIMPLE_WEIGHT_BLOCK_KG,
-  SIMPLE_FREIGHT_RATE_PER_KG,
-  SIMPLE_PROFIT_PERCENT,
-  SIMPLE_DELIVERY_FLAT_LKR,
-  SIMPLE_EXTRA_MARGIN_FLAT_LKR,
-  SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR,
-  SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG,
+  ratesForHsCode,
   type QuoteBreakdown,
   type SimpleQuoteBreakdown,
   type QuoteRates,
   type DeliveryType,
 } from "@/lib/quote"
 import { rateToLKR } from "@/lib/currency-config"
+import { getPricingSettings, hsCodeOptions } from "@/lib/pricing-settings"
 
 // Quote calculator: enter what a customer wants to buy and see the landed-cost
 // breakdown Wishdrop would quote them, step by step. Same page recipe as the
@@ -36,14 +28,13 @@ import { rateToLKR } from "@/lib/currency-config"
 // (?mode=simple&delivery=economy&value=...&currency=...&weight=...&pcs=...
 // &hsCode=...). Anything missing or invalid falls back to this tool's own
 // defaults, so a direct visit behaves exactly as before.
+//
+// Every starting rate comes from the LIVE pricing settings (Admin → Pricing
+// engine, lib/pricing-settings.ts) — the same numbers the storefront uses.
+// "Adjust rates & fees" changes them for this calculation only; to change
+// them for the whole site, use the Pricing engine page.
 
-const HS_CODE_OPTIONS = Object.keys(HS_CODE_RATES).filter((code) => code !== "DEFAULT")
-
-const HS_CODE_LABELS: Record<string, string> = {
-  "6109.10": "6109.10 \u2014 Cotton T-shirts",
-  "8517.13": "8517.13 \u2014 Smartphones",
-  "9503.00": "9503.00 \u2014 Toys",
-}
+const PRICING_ENGINE_HREF = "/admin/super-admin/settings/pricing-engine"
 
 // Always-shown currency pills for the Value field. If a product page hands off
 // a currency outside this list (e.g. USD), it's appended at runtime so the
@@ -129,6 +120,11 @@ interface ResultRowData {
 
 function QuoteDemoPage() {
   const searchParams = useSearchParams()
+  const pathname = usePathname()
+
+  // The live rates this calculator starts from (and resets to).
+  const live = getPricingSettings()
+  const HS_CODE_OPTIONS = hsCodeOptions(live)
 
   const [mode, setMode] = useState<Mode>(() => parseMode(searchParams.get("mode")))
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(() => parseDeliveryType(searchParams.get("delivery")))
@@ -155,36 +151,36 @@ function QuoteDemoPage() {
   const [showConfig, setShowConfig] = useState(false)
 
   // Customs cascade config
-  const [freightRateOverride, setFreightRateOverride] = useState(FREIGHT_RATE_PER_KG_LKR)
-  const [defaultWeightOverride, setDefaultWeightOverride] = useState(DEFAULT_WEIGHT_KG)
-  const [dutyPercentOverride, setDutyPercentOverride] = useState(HS_CODE_RATES.DEFAULT.dutyPercent)
-  const [palPercentOverride, setPalPercentOverride] = useState(HS_CODE_RATES.DEFAULT.palPercent)
-  const [cessPercentOverride, setCessPercentOverride] = useState(HS_CODE_RATES.DEFAULT.cessPercent)
-  const [surchargePercentOverride, setSurchargePercentOverride] = useState(HS_CODE_RATES.DEFAULT.surchargePercent)
-  const [ssclPercentOverride, setSsclPercentOverride] = useState(HS_CODE_RATES.DEFAULT.sscLPercent)
-  const [vatPercentOverride, setVatPercentOverride] = useState(HS_CODE_RATES.DEFAULT.vatPercent)
+  const [freightRateOverride, setFreightRateOverride] = useState(live.customs.freightRatePerKgLKR)
+  const [defaultWeightOverride, setDefaultWeightOverride] = useState(live.customs.defaultWeightKg)
+  const [dutyPercentOverride, setDutyPercentOverride] = useState(() => ratesForHsCode(hsCode, live).dutyPercent)
+  const [palPercentOverride, setPalPercentOverride] = useState(() => ratesForHsCode(hsCode, live).palPercent)
+  const [cessPercentOverride, setCessPercentOverride] = useState(() => ratesForHsCode(hsCode, live).cessPercent)
+  const [surchargePercentOverride, setSurchargePercentOverride] = useState(() => ratesForHsCode(hsCode, live).surchargePercent)
+  const [ssclPercentOverride, setSsclPercentOverride] = useState(() => ratesForHsCode(hsCode, live).sscLPercent)
+  const [vatPercentOverride, setVatPercentOverride] = useState(() => ratesForHsCode(hsCode, live).vatPercent)
 
   // Simple markup config, shared between Express and Economy
-  const [profitPercentOverride, setProfitPercentOverride] = useState(SIMPLE_PROFIT_PERCENT)
-  const [weightBlockOverride, setWeightBlockOverride] = useState(SIMPLE_WEIGHT_BLOCK_KG)
-  const [extraMarginOverride, setExtraMarginOverride] = useState(SIMPLE_EXTRA_MARGIN_FLAT_LKR)
+  const [profitPercentOverride, setProfitPercentOverride] = useState(live.storefront.profitPercent)
+  const [weightBlockOverride, setWeightBlockOverride] = useState(live.storefront.weightBlockKg)
+  const [extraMarginOverride, setExtraMarginOverride] = useState(live.storefront.extraMarginLKR)
 
   // Simple markup config, Express only.
   // NOTE: these two are PER-KG values (the UI says "Freight / kg" and they are
   // seeded from the per-kg constants), but calculateSimpleQuote() expects
   // PER-BLOCK rates and does not convert from per-kg itself. They are scaled by
   // weightBlockOverride at the call site below.
-  const [freightBlockRateOverride, setFreightBlockRateOverride] = useState(SIMPLE_FREIGHT_RATE_PER_KG)
-  const [customsBlockRateOverride, setCustomsBlockRateOverride] = useState(SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG)
-  const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(SIMPLE_DELIVERY_FLAT_LKR)
+  const [freightBlockRateOverride, setFreightBlockRateOverride] = useState(live.storefront.freightRatePerKgLKR)
+  const [customsBlockRateOverride, setCustomsBlockRateOverride] = useState(live.storefront.customsClearanceRatePerKgLKR)
+  const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(live.storefront.deliveryFeeLKR)
 
   // Simple markup config, Economy only
-  const [postalRateOverride, setPostalRateOverride] = useState(SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR)
+  const [postalRateOverride, setPostalRateOverride] = useState(live.storefront.economyPostalRatePerKgLKR)
 
   // When the selected HS code changes, re-sync the duty-rate fields to that
   // code's real rates, so "Adjust rates & fees" always starts from the right baseline.
   useEffect(() => {
-    const base: QuoteRates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT
+    const base: QuoteRates = ratesForHsCode(hsCode, getPricingSettings())
     setDutyPercentOverride(base.dutyPercent)
     setPalPercentOverride(base.palPercent)
     setCessPercentOverride(base.cessPercent)
@@ -194,9 +190,9 @@ function QuoteDemoPage() {
   }, [hsCode])
 
   function resetCustomsConfig() {
-    setFreightRateOverride(FREIGHT_RATE_PER_KG_LKR)
-    setDefaultWeightOverride(DEFAULT_WEIGHT_KG)
-    const base: QuoteRates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT
+    setFreightRateOverride(live.customs.freightRatePerKgLKR)
+    setDefaultWeightOverride(live.customs.defaultWeightKg)
+    const base: QuoteRates = ratesForHsCode(hsCode, live)
     setDutyPercentOverride(base.dutyPercent)
     setPalPercentOverride(base.palPercent)
     setCessPercentOverride(base.cessPercent)
@@ -206,14 +202,24 @@ function QuoteDemoPage() {
   }
 
   function resetSimpleConfig() {
-    setProfitPercentOverride(SIMPLE_PROFIT_PERCENT)
-    setFreightBlockRateOverride(SIMPLE_FREIGHT_RATE_PER_KG)
-    setCustomsBlockRateOverride(SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG)
-    setWeightBlockOverride(SIMPLE_WEIGHT_BLOCK_KG)
-    setDeliveryFeeOverride(SIMPLE_DELIVERY_FLAT_LKR)
-    setExtraMarginOverride(SIMPLE_EXTRA_MARGIN_FLAT_LKR)
-    setPostalRateOverride(SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR)
+    setProfitPercentOverride(live.storefront.profitPercent)
+    setFreightBlockRateOverride(live.storefront.freightRatePerKgLKR)
+    setCustomsBlockRateOverride(live.storefront.customsClearanceRatePerKgLKR)
+    setWeightBlockOverride(live.storefront.weightBlockKg)
+    setDeliveryFeeOverride(live.storefront.deliveryFeeLKR)
+    setExtraMarginOverride(live.storefront.extraMarginLKR)
+    setPostalRateOverride(live.storefront.economyPostalRatePerKgLKR)
   }
+
+  // Does anything in the panel differ from the live rates?
+  const simpleAdjusted =
+    profitPercentOverride !== live.storefront.profitPercent ||
+    freightBlockRateOverride !== live.storefront.freightRatePerKgLKR ||
+    customsBlockRateOverride !== live.storefront.customsClearanceRatePerKgLKR ||
+    weightBlockOverride !== live.storefront.weightBlockKg ||
+    deliveryFeeOverride !== live.storefront.deliveryFeeLKR ||
+    extraMarginOverride !== live.storefront.extraMarginLKR ||
+    postalRateOverride !== live.storefront.economyPostalRatePerKgLKR
 
   const customsQuote: QuoteBreakdown = useMemo(() => {
     return calculateQuote({
@@ -367,7 +373,11 @@ function QuoteDemoPage() {
               <h1 className="font-display text-3xl font-semibold leading-tight">Quote calculator</h1>
               <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
                 Enter what a customer wants to buy and see the landed cost breakdown Wishdrop would quote them, step by
-                step.
+                step. Starts from the live rates in the{" "}
+                <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+                  Pricing engine
+                </Link>
+                .
               </p>
             </div>
           </div>
@@ -421,7 +431,7 @@ function QuoteDemoPage() {
             {cameFromProductPage && (
               <p className="text-xs text-ink/45">
                 Pre-filled from a product page
-                <Link href="/demo/quote" className={`ml-2 ${LINK_BUTTON}`}>
+                <Link href={pathname} className={`ml-2 ${LINK_BUTTON}`}>
                   Clear
                 </Link>
               </p>
@@ -500,9 +510,9 @@ function QuoteDemoPage() {
                 >
                   <select id="quote-hs" value={hsCode} onChange={(e) => setHsCode(e.target.value)} className={FIELD}>
                     <option value="">Select HS code…</option>
-                    {HS_CODE_OPTIONS.map((code) => (
-                      <option key={code} value={code}>
-                        {HS_CODE_LABELS[code] ?? code}
+                    {HS_CODE_OPTIONS.map((o) => (
+                      <option key={o.code} value={o.code}>
+                        {o.label}
                       </option>
                     ))}
                   </select>
@@ -537,6 +547,9 @@ function QuoteDemoPage() {
                 <span className="inline-flex items-center gap-2">
                   <SlidersHorizontal size={14} aria-hidden />
                   Adjust rates &amp; fees
+                  {mode === "simple" && simpleAdjusted && (
+                    <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold-deep">Adjusted</span>
+                  )}
                 </span>
                 <ChevronDown size={14} className={`text-ink/40 transition-transform ${showConfig ? "rotate-180" : ""}`} aria-hidden />
               </button>
@@ -564,9 +577,14 @@ function QuoteDemoPage() {
                         )}
                         <ConfigField label="Extra margin" value={extraMarginOverride} onChange={setExtraMarginOverride} suffix="LKR" />
                       </div>
-                      <button type="button" onClick={resetSimpleConfig} className={LINK_BUTTON}>
-                        Reset to defaults
-                      </button>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button type="button" onClick={resetSimpleConfig} className={LINK_BUTTON}>
+                          Reset to live rates
+                        </button>
+                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+                          Change live rates
+                        </Link>
+                      </div>
                     </>
                   ) : (
                     <>
@@ -583,9 +601,14 @@ function QuoteDemoPage() {
                       <p className="text-xs leading-relaxed text-ink/45">
                         Duty rates reset to the selected HS code&rsquo;s schedule whenever you change the HS code above.
                       </p>
-                      <button type="button" onClick={resetCustomsConfig} className={LINK_BUTTON}>
-                        Reset to defaults
-                      </button>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button type="button" onClick={resetCustomsConfig} className={LINK_BUTTON}>
+                          Reset to live rates
+                        </button>
+                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+                          Change live rates
+                        </Link>
+                      </div>
                     </>
                   )}
                 </div>
@@ -595,7 +618,7 @@ function QuoteDemoPage() {
             <p className="text-xs leading-relaxed text-ink/50">
               {valueCurrency === "LKR"
                 ? "Value entered directly in LKR, no conversion applied."
-                : `Exchange rate: 1 ${valueCurrency} = ${rateToLKR(valueCurrency)} LKR, from lib/currency-config.ts (shared with the rest of the site).`}
+                : `Exchange rate: 1 ${valueCurrency} = ${rateToLKR(valueCurrency)} LKR, the live rate from the Pricing engine (same as the rest of the site).`}
             </p>
           </div>
 

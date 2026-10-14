@@ -25,7 +25,9 @@
 
 import { formatPrice } from "./currency";
 import { rateToLKR } from "./currency-config";
-import { MALL_DELIVERY_FEE_LKR, WISHDROP_MALL_SLUG } from "./wishdrop-mall";
+import { mallDeliveryFeeLKR, WISHDROP_MALL_SLUG } from "./wishdrop-mall";
+import { localDeliveryFeeLKR, localStoreMarginPercent, type StoreOrigin } from "./store-origin";
+import { getPricingSettings, type PricingSettings } from "./pricing-settings";
 import {
   getEconomyCatalogPriceLKR,
   calculateEconomyCatalogQuote,
@@ -56,6 +58,12 @@ export interface PriceableItem {
    *  see isFixedPriceItem below. Optional: omit it and the item is
    *  priced through the normal import formula, exactly as before. */
   storeSlug?: string | null;
+  /** Store location (lib/store-origin.ts). 'LK' = local Sri Lankan shop:
+   *  no import formula — see LOCAL STORES below. Absent = India. */
+  origin?: StoreOrigin | null;
+  /** Local stores only: true when `price` already includes Wishdrop's
+   *  margin (social stores), so it isn't added again. */
+  marginIncluded?: boolean;
 }
 
 // ============================================================
@@ -67,7 +75,7 @@ export interface PriceableItem {
 // margin). So NONE of the import formula applies — no exchange-rate
 // markup, profit %, freight, customs clearance, postal charges or
 // service charge. The shopper pays the price as set, plus the flat
-// delivery fee (MALL_DELIVERY_FEE_LKR), and nothing else.
+// delivery fee (mallDeliveryFeeLKR()), and nothing else.
 //
 // Detected by store, not by currency: several affiliated sellers also
 // quote in LKR but DO still go through the import formula.
@@ -78,8 +86,29 @@ export function isFixedPriceItem(item: Pick<PriceableItem, "storeSlug">): boolea
 
 /** The item's own price in LKR — no formula. Mall products are stored in
  *  LKR, so this is normally the price as-is (rate 1). */
-function fixedPriceLKR(price: number, currency: string): number {
-  return Math.round(price * rateToLKR(currency) * 100) / 100;
+function fixedPriceLKR(price: number, currency: string, settings: PricingSettings): number {
+  return Math.round(price * rateToLKR(currency, settings) * 100) / 100;
+}
+
+// ============================================================
+// LOCAL STORES (Sri Lanka)
+// ============================================================
+//
+// A local shop's item never leaves Sri Lanka, so none of the import
+// formula applies (no exchange-rate markup, freight, customs or service
+// charge). The shopper pays the store's price + Wishdrop's margin, plus
+// the normal delivery fee per item. The Rs 500 shop → warehouse pickup is
+// charged once per local store per ORDER, at checkout — see
+// localPickupFees in lib/store-origin.ts — not here, because it doesn't
+// depend on how many items there are.
+
+export function isLocalItem(item: Pick<PriceableItem, "origin" | "storeSlug">): boolean {
+  return item.origin === "LK" && !isFixedPriceItem(item);
+}
+
+function localPriceLKR(price: number, currency: string, marginIncluded: boolean | undefined, settings: PricingSettings): number {
+  const margin = marginIncluded ? 0 : localStoreMarginPercent(settings);
+  return Math.round(price * rateToLKR(currency, settings) * (1 + margin / 100) * 100) / 100;
 }
 
 // ============================================================
@@ -91,8 +120,9 @@ function fixedPriceLKR(price: number, currency: string): number {
  * This is the one function every other helper in this file (and every
  * page on the site) should ultimately go through for a per-unit price.
  */
-export function getDisplayPriceLKR(item: PriceableItem): number {
-  if (isFixedPriceItem(item)) return fixedPriceLKR(item.price, item.currency);
+export function getDisplayPriceLKR(item: PriceableItem, settings: PricingSettings = getPricingSettings()): number {
+  if (isFixedPriceItem(item)) return fixedPriceLKR(item.price, item.currency, settings);
+  if (isLocalItem(item)) return localPriceLKR(item.price, item.currency, item.marginIncluded, settings);
 
   const input: Omit<SimpleQuoteInput, "deliveryType"> = {
     pcsPerUnit: 1,
@@ -102,8 +132,8 @@ export function getDisplayPriceLKR(item: PriceableItem): number {
   };
 
   return DISPLAY_DELIVERY_TYPE === "express"
-    ? calculateExpressCatalogQuote(input).catalogPrice
-    : getEconomyCatalogPriceLKR(input);
+    ? calculateExpressCatalogQuote(input, settings).catalogPrice
+    : getEconomyCatalogPriceLKR(input, settings);
 }
 
 /** Formats a value already in LKR using the site's shared currency formatter. */
@@ -142,12 +172,12 @@ export interface ProductPricing {
  * Economy vs Express comparison block, use getDualDeliveryPricing below
  * instead.
  */
-export function getProductPricing(product: ProductPriceableItem): ProductPricing {
-  const priceLKR = getDisplayPriceLKR(product);
+export function getProductPricing(product: ProductPriceableItem, settings: PricingSettings = getPricingSettings()): ProductPricing {
+  const priceLKR = getDisplayPriceLKR(product, settings);
 
   const showCompareAt = product.compareAtPrice != null && !!product.onSale;
   const compareAtPriceLKR = showCompareAt
-    ? getDisplayPriceLKR({ ...product, price: product.compareAtPrice as number })
+    ? getDisplayPriceLKR({ ...product, price: product.compareAtPrice as number }, settings)
     : null;
 
   const discountPercent =
@@ -221,6 +251,10 @@ export interface DualDeliveryPricing {
    *  are identical — price as set + flat delivery — so UIs should show a
    *  single price instead of a delivery-method comparison. */
   fixedPrice?: boolean;
+  /** True for local Sri Lankan stores: also a single price (no delivery-
+   *  method comparison), and a Rs 500 pickup per store is added at
+   *  checkout. `fixedPrice` is true for these too. */
+  localStore?: boolean;
   /** Express priceLKR - Economy priceLKR. Null if the difference isn't positive. */
   expressPremiumLKR: number | null;
   formattedExpressPremium: string | null;
@@ -254,7 +288,8 @@ function toDeliveryPriceOption(quote: CatalogQuoteBreakdown, compareAtPriceLKR: 
 
 function getDeliveryPriceOption(
   product: ProductPriceableItem,
-  getCatalogQuote: (input: Omit<SimpleQuoteInput, "deliveryType">) => CatalogQuoteBreakdown
+  getCatalogQuote: (input: Omit<SimpleQuoteInput, "deliveryType">, settings: PricingSettings) => CatalogQuoteBreakdown,
+  settings: PricingSettings
 ): DeliveryPriceOption {
   const base: Omit<SimpleQuoteInput, "deliveryType"> = {
     pcsPerUnit: 1,
@@ -263,11 +298,11 @@ function getDeliveryPriceOption(
     weightKg: product.weightKg ?? undefined,
   };
 
-  const quote = getCatalogQuote(base);
+  const quote = getCatalogQuote(base, settings);
 
   const showCompareAt = product.compareAtPrice != null && !!product.onSale;
   const compareAtPriceLKR = showCompareAt
-    ? getCatalogQuote({ ...base, valueINR: product.compareAtPrice as number }).catalogPrice
+    ? getCatalogQuote({ ...base, valueINR: product.compareAtPrice as number }, settings).catalogPrice
     : null;
 
   return toDeliveryPriceOption(quote, compareAtPriceLKR);
@@ -275,14 +310,41 @@ function getDeliveryPriceOption(
 
 /** Wishdrop Mall: price as set + flat delivery. No service charge, no
  *  import charges. Same option for either delivery method. */
-function getFixedPriceOption(product: ProductPriceableItem): DeliveryPriceOption {
-  const priceLKR = fixedPriceLKR(product.price, product.currency);
+function getFixedPriceOption(product: ProductPriceableItem, settings: PricingSettings): DeliveryPriceOption {
+  const priceLKR = fixedPriceLKR(product.price, product.currency, settings);
   const compareAtPriceLKR =
     product.compareAtPrice != null && product.onSale
-      ? fixedPriceLKR(product.compareAtPrice, product.currency)
+      ? fixedPriceLKR(product.compareAtPrice, product.currency, settings)
       : null;
   const showCompare = compareAtPriceLKR != null && compareAtPriceLKR > priceLKR;
-  const deliveryFeeLKR = MALL_DELIVERY_FEE_LKR;
+  const deliveryFeeLKR = mallDeliveryFeeLKR(settings);
+  const actualTotalLKR = priceLKR + deliveryFeeLKR;
+
+  return {
+    priceLKR,
+    compareAtPriceLKR: showCompare ? compareAtPriceLKR : null,
+    discountPercent: showCompare ? Math.round((1 - priceLKR / (compareAtPriceLKR as number)) * 100) : null,
+    formattedPrice: formatLKR(priceLKR),
+    formattedCompareAtPrice: showCompare ? formatLKR(compareAtPriceLKR as number) : null,
+    serviceChargeLKR: 0,
+    formattedServiceCharge: formatLKR(0),
+    deliveryFeeLKR,
+    formattedDeliveryFee: formatLKR(deliveryFeeLKR),
+    actualTotalLKR,
+    formattedActualTotal: formatLKR(actualTotalLKR),
+  };
+}
+
+/** Local store: price + margin, then the normal delivery fee. No
+ *  service charge or import charges. Same option for either method. */
+function getLocalPriceOption(product: ProductPriceableItem, settings: PricingSettings): DeliveryPriceOption {
+  const priceLKR = localPriceLKR(product.price, product.currency, product.marginIncluded, settings);
+  const compareAtPriceLKR =
+    product.compareAtPrice != null && product.onSale
+      ? localPriceLKR(product.compareAtPrice, product.currency, product.marginIncluded, settings)
+      : null;
+  const showCompare = compareAtPriceLKR != null && compareAtPriceLKR > priceLKR;
+  const deliveryFeeLKR = localDeliveryFeeLKR(settings);
   const actualTotalLKR = priceLKR + deliveryFeeLKR;
 
   return {
@@ -306,14 +368,18 @@ function getFixedPriceOption(product: ProductPriceableItem): DeliveryPriceOption
  * and the cart/checkout review panel's Price/Service Charge/Delivery/
  * Total breakdown.
  */
-export function getDualDeliveryPricing(product: ProductPriceableItem): DualDeliveryPricing {
+export function getDualDeliveryPricing(product: ProductPriceableItem, settings: PricingSettings = getPricingSettings()): DualDeliveryPricing {
   if (isFixedPriceItem(product)) {
-    const option = getFixedPriceOption(product);
+    const option = getFixedPriceOption(product, settings);
     return { economy: option, express: option, expressPremiumLKR: null, formattedExpressPremium: null, fixedPrice: true };
   }
+  if (isLocalItem(product)) {
+    const option = getLocalPriceOption(product, settings);
+    return { economy: option, express: option, expressPremiumLKR: null, formattedExpressPremium: null, fixedPrice: true, localStore: true };
+  }
 
-  const economy = getDeliveryPriceOption(product, calculateEconomyCatalogQuote);
-  const express = getDeliveryPriceOption(product, calculateExpressCatalogQuote);
+  const economy = getDeliveryPriceOption(product, calculateEconomyCatalogQuote, settings);
+  const express = getDeliveryPriceOption(product, calculateExpressCatalogQuote, settings);
 
   const rawDelta = express.priceLKR - economy.priceLKR;
   const expressPremiumLKR = rawDelta > 0 ? rawDelta : null;

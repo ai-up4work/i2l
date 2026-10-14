@@ -34,6 +34,7 @@ import {
 } from "@/components/shared/HeaderPanels"
 import { OUTER_H, INNER_H, LEFT_NOTCH, NOTCH_GAP } from "@/components/shared/headerMetrics"
 import Image from "next/image"
+import ShopperPrice from '@/components/shared/ShopperPrice'
 
 
 interface NavItem { name: string; desc: string; href: string }
@@ -637,7 +638,7 @@ export default function Header({
               <p className="truncate text-sm font-semibold text-ink">{entry.title}</p>
               {entry.price && (
                 <p className="text-xs text-ink/55">
-                  {entry.currencyCode ?? ""} {entry.price}
+                  <ShopperPrice price={entry.price} currency={entry.currencyCode} site={entry.site} />
                 </p>
               )}
             </div>
@@ -708,7 +709,14 @@ export default function Header({
                 {line.product.estimatedPrice ? (
                   <span>{line.product.estimatedPrice}</span>
                 ) : line.product.sourcePrice ? (
-                  <span>{line.product.currencyCode ?? ""} {line.product.sourcePrice}</span>
+                  <ShopperPrice
+                    price={line.product.sourcePrice}
+                    currency={line.product.currencyCode}
+                    site={line.product.site}
+                    weightKg={line.product.weightKg}
+                    origin={line.product.origin}
+                    marginIncluded={line.product.marginIncluded}
+                  />
                 ) : null}
                 <span>· Qty {line.qty}</span>
               </div>

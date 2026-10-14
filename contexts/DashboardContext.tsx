@@ -99,6 +99,14 @@ export type CartOrderLine = {
   source?: 'catalogue' | 'link'
   site?: string | null
   selectedOptions?: Record<string, string>
+  /** 'LK' = item from a local Sri Lankan shop (lib/store-origin.ts). */
+  origin?: 'IN' | 'LK'
+}
+
+/** Order-level charges that aren't tied to one line. */
+export type CartOrderExtras = {
+  /** Rs 500 shop → warehouse pickup per local store (localPickupFees). */
+  pickupFeeLKR?: number
 }
 
 export type ConfirmResult = { ok: boolean; error?: string }
@@ -138,7 +146,7 @@ type DashboardContextValue = {
   confirmRequest: () => Promise<ConfirmResult>
   setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
-  confirmCartOrder: (lines: CartOrderLine[], recipient: CheckoutRecipient) => Promise<ConfirmResult>
+  confirmCartOrder: (lines: CartOrderLine[], recipient: CheckoutRecipient, extras?: CartOrderExtras) => Promise<ConfirmResult>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -179,6 +187,19 @@ async function fetchDefaultSiteId(supabase: SupabaseClient): Promise<string | nu
   return data?.id ?? null
 }
 
+/** The warehouse that receives local Sri Lankan shop pickups: the active
+ *  site marked country 'LK' (data/wishdrop-store-types-and-location.sql).
+ *  null → the caller falls back to the default site. */
+async function fetchLocalSiteId(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase.from('sites').select('id').eq('country', 'LK').eq('active', true).limit(1).maybeSingle()
+  if (error) {
+    // Column missing (migration not run) or RLS — use the default site.
+    console.error('[fetchLocalSiteId]', error)
+    return null
+  }
+  return data?.id ?? null
+}
+
 async function createOrderWithRetry(
   supabase: SupabaseClient,
   fields: {
@@ -189,6 +210,8 @@ async function createOrderWithRetry(
     recipient_address_id?: string | null
     chat_thread_id?: string | null
     site_id?: string | null
+    store_origin?: 'IN' | 'LK'
+    pickup_fee_lkr?: number
   },
 ): Promise<string> {
   const MAX_ATTEMPTS = 5
@@ -453,7 +476,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   }, [draft, user, router])
 
   const confirmCartOrder = useCallback(
-    async (lines: CartOrderLine[], recipient: CheckoutRecipient): Promise<ConfirmResult> => {
+    async (lines: CartOrderLine[], recipient: CheckoutRecipient, extras?: CartOrderExtras): Promise<ConfirmResult> => {
       if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
       if (!user) {
         setTimeout(() => {
@@ -517,62 +540,82 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
         const threadId = await getOrCreateGeneralThread(supabase, user.id)
 
-        const total = lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0)
-        const channel: 1 | 2 = lines.every((line) => line.source === 'catalogue') ? 1 : 2
+        // Items from local Sri Lankan shops follow a shorter journey (shop
+        // pickup → quality check → delivery; no export or international
+        // shipping — see lib/order-journey.ts), so a bag that mixes local
+        // and Indian items becomes two orders: one per journey. The Rs 500
+        // pickup charge belongs to the local order.
+        const groups: { origin: 'IN' | 'LK'; lines: CartOrderLine[]; pickupFeeLKR: number }[] = []
+        const indiaLines = lines.filter((line) => line.origin !== 'LK')
+        const localLines = lines.filter((line) => line.origin === 'LK')
+        if (indiaLines.length > 0) groups.push({ origin: 'IN', lines: indiaLines, pickupFeeLKR: 0 })
+        if (localLines.length > 0) groups.push({ origin: 'LK', lines: localLines, pickupFeeLKR: Math.max(0, extras?.pickupFeeLKR ?? 0) })
+
         const defaultSiteId = await fetchDefaultSiteId(supabase)
-        const orderId = await createOrderWithRetry(supabase, {
-          user_id: user.id,
-          channel,
-          currency: 'LKR',
-          total_value: total,
-          recipient_address_id: addressId,
-          chat_thread_id: threadId,
-          site_id: defaultSiteId,
-        })
+        const localSiteId = localLines.length > 0 ? await fetchLocalSiteId(supabase) : null
 
-        const itemRows = await Promise.all(
-          lines.map(async (line) => {
-            const snapshotId = await ensureProductSnapshot(supabase, {
-              id: line.url || line.name,
-              title: line.name,
-              image: line.image,
-              site: line.site ?? null,
-              price: null,
-            })
-            const sellerName = line.site ? cleanSiteLabel(line.site) : undefined
-            const isCatalogue = line.source === 'catalogue'
-            const variantLabel = line.selectedOptions
-              ? Object.keys(line.selectedOptions)
-                  .sort()
-                  .map((k) => `${k}: ${line.selectedOptions![k]}`)
-                  .join(', ') || null
-              : null
-            return {
-              order_id: orderId,
-              product_snapshot_id: snapshotId,
-              title: line.name,
-              variant_label: variantLabel,
-              quantity: line.qty,
-              unit_price: line.unitPriceLKR,
-              seller_name: sellerName ?? null,
-              seller_type: 'store',
-              store_url: isCatalogue ? line.url || null : null,
-              request_link: isCatalogue ? null : line.url || null,
-            }
-          }),
-        )
+        for (const group of groups) {
+          const total = group.lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0) + group.pickupFeeLKR
+          const channel: 1 | 2 = group.lines.every((line) => line.source === 'catalogue') ? 1 : 2
+          const isLocal = group.origin === 'LK'
+          const orderId = await createOrderWithRetry(supabase, {
+            user_id: user.id,
+            channel,
+            currency: 'LKR',
+            total_value: total,
+            recipient_address_id: addressId,
+            chat_thread_id: threadId,
+            site_id: (isLocal ? localSiteId : null) ?? defaultSiteId,
+            // Only sent for local orders, so checkout keeps working on a
+            // database where data/wishdrop-store-types-and-location.sql
+            // hasn't been run yet (as long as no local store exists).
+            ...(isLocal ? { store_origin: 'LK' as const, pickup_fee_lkr: group.pickupFeeLKR } : {}),
+          })
 
-        const { error: itemsError } = await supabase.from('order_items').insert(itemRows)
-        if (itemsError) throw itemsError
-
-        // Deduct Wishdrop Mall stock. The server reads this order's own
-        // rows (never quantities from here) and can't deduct twice. A
-        // failure here must not fail an order that's already placed —
-        // staff see any mismatch in the stock history.
-        if (mallLines.length > 0) {
-          await fetch(`/api/mall/orders/${orderId}/stock`, { method: 'POST' }).catch((err) =>
-            console.error('[dashboard] mall stock deduction failed', err),
+          const itemRows = await Promise.all(
+            group.lines.map(async (line) => {
+              const snapshotId = await ensureProductSnapshot(supabase, {
+                id: line.url || line.name,
+                title: line.name,
+                image: line.image,
+                site: line.site ?? null,
+                price: null,
+              })
+              const sellerName = line.site ? cleanSiteLabel(line.site) : undefined
+              const isCatalogue = line.source === 'catalogue'
+              const variantLabel = line.selectedOptions
+                ? Object.keys(line.selectedOptions)
+                    .sort()
+                    .map((k) => `${k}: ${line.selectedOptions![k]}`)
+                    .join(', ') || null
+                : null
+              return {
+                order_id: orderId,
+                product_snapshot_id: snapshotId,
+                title: line.name,
+                variant_label: variantLabel,
+                quantity: line.qty,
+                unit_price: line.unitPriceLKR,
+                seller_name: sellerName ?? null,
+                seller_type: 'store',
+                store_url: isCatalogue ? line.url || null : null,
+                request_link: isCatalogue ? null : line.url || null,
+              }
+            }),
           )
+
+          const { error: itemsError } = await supabase.from('order_items').insert(itemRows)
+          if (itemsError) throw itemsError
+
+          // Deduct Wishdrop Mall stock. The server reads this order's own
+          // rows (never quantities from here) and can't deduct twice. A
+          // failure here must not fail an order that's already placed —
+          // staff see any mismatch in the stock history.
+          if (group.lines.some((line) => line.url?.startsWith('wishdrop-mall:'))) {
+            await fetch(`/api/mall/orders/${orderId}/stock`, { method: 'POST' }).catch((err) =>
+              console.error('[dashboard] mall stock deduction failed', err),
+            )
+          }
         }
 
         setActiveTab('Requested')

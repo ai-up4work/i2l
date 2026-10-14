@@ -8,13 +8,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Check, Eye, EyeOff, Loader2, Pencil, Search, Trash2, X } from 'lucide-react'
-import { panelClass } from '@/components/admin/seller/shared'
+import { btnPrimary, card } from '@/components/admin/catalogue/ui'
 import { imageThumb } from '@/lib/media'
 
 type Collection = { id: string; name: string; slug: string; active: boolean; product_count?: number }
 type ProductLite = { id: string; name: string; images: string[] | null; active: boolean }
 
-const smallInput = 'rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm outline-none focus:border-teal'
+const smallInput = 'rounded-xl border border-ink/15 bg-white px-3.5 py-2 text-sm outline-none transition-colors focus:border-teal/60 focus:ring-2 focus:ring-teal/10'
 
 export default function StoreCollections({ slug }: { slug: string }) {
   const base = `/api/admin/catalogues/stores/${slug}/collections`
@@ -68,8 +68,8 @@ export default function StoreCollections({ slug }: { slug: string }) {
   }
 
   return (
-    <section id="collections" className={`mt-4 scroll-mt-4 p-6 ${panelClass}`}>
-      <h2 className="font-semibold text-ink">Collections</h2>
+    <section id="collections" className={`scroll-mt-6 p-6 ${card}`}>
+      <h2 className="font-display text-lg font-semibold text-ink">Collections</h2>
       <p className="mt-0.5 text-sm text-ink/55">
         Groups like &ldquo;Eid edit&rdquo; or &ldquo;Under Rs 5,000&rdquo;. Shoppers see them at the top of the store and can filter by them. A product can be in several.
       </p>
@@ -93,7 +93,7 @@ export default function StoreCollections({ slug }: { slug: string }) {
               placeholder="New collection name"
               className={`${smallInput} min-w-0 flex-1`}
             />
-            <button onClick={() => void create()} disabled={busy || !newName.trim()} className="rounded-xl bg-teal-deep px-4 py-2 text-sm font-semibold text-parchment hover:bg-teal disabled:opacity-50">
+            <button onClick={() => void create()} disabled={busy || !newName.trim()} className={btnPrimary}>
               Create
             </button>
           </div>

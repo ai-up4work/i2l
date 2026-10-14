@@ -7,6 +7,7 @@ import { Heart, ImageOff, LayoutGrid, Plus, ShoppingBagIcon, X } from 'lucide-re
 import { useWishlist, type WishlistEntry } from '@/contexts/Wishlistcontext'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
 import Image from 'next/image'
+import ShopperPrice from '@/components/shared/ShopperPrice'
 
 const promoItem = { label: 'Layered Pendant Necklace', price: 'US$5.00' }
 
@@ -296,7 +297,7 @@ function WishlistCard({
       {item.price && (
         <div className="mt-1 flex items-baseline gap-1.5">
           <span className="text-sm font-bold text-ink">
-            {item.currencyCode ?? ''} {item.price}
+            <ShopperPrice price={item.price} currency={item.currencyCode} site={item.site} />
           </span>
         </div>
       )}

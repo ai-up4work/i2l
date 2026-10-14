@@ -11,6 +11,8 @@
 // Purchase only, per the permission matrix. See lib/supabase/admin-auth.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { sourceForWizardConfig, storeSourceOf } from '@/lib/catalogue-stores'
+import { isStoreOrigin, DEFAULT_STORE_ORIGIN } from '@/lib/store-origin'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 
 // Mirrors SellerStatus from data/sellers/data.ts.
@@ -22,18 +24,21 @@ export async function GET() {
   if (!authCheck.ok) return authCheck.response
   const { admin } = authCheck
 
-  // Wishdrop Mall (our own store, provider_type 'catalogue') is managed
-  // from /admin/wishdrop-mall, not the seller wizard — keep it out of this
-  // list. `or` rather than `neq` so rows with a NULL provider_type aren't
-  // dropped too.
+  // Only feed and extractor ("mock") stores live here. Social stores are
+  // managed in Admin → Social Stores and Wishdrop Mall on its own page,
+  // so neither shows up in this list (decided by the saved store type —
+  // lib/catalogue-stores.ts).
   const { data, error } = await admin
     .from('sellers')
     .select('*')
-    .or('provider_type.is.null,provider_type.neq.catalogue')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ sellers: data })
+  const sellers = ((data ?? []) as unknown as Record<string, unknown>[]).filter((row) => {
+    const source = storeSourceOf(row)
+    return source === 'feed' || source === 'extractor'
+  })
+  return NextResponse.json({ sellers })
 }
 
 export async function POST(req: NextRequest) {
@@ -52,6 +57,7 @@ export async function POST(req: NextRequest) {
     notes,
     logoUrl,
     coverUrl, // optional — null/absent means "no cover" (brand gradient)
+    storeOrigin, // 'IN' (default) | 'LK' — lib/store-origin.ts
     providerConfig, // { type: 'mock'|'shopify'|'woocommerce'|'jsonapi'|'html-scrape', ...fields }
     status, // optional — the wizard decides 'active' (mock) vs 'pending_review'
     // (real feed, unverified). Anything invalid/omitted falls back to
@@ -81,6 +87,10 @@ export async function POST(req: NextRequest) {
       notes: notes || null,
       provider_type: providerConfig?.type ?? 'mock',
       provider_config: providerConfig ?? { type: 'mock' },
+      // Saved, never guessed later: a wizard "mock" store is an
+      // extractor store, not a social store (lib/catalogue-stores.ts).
+      store_source: sourceForWizardConfig(providerConfig),
+      store_origin: isStoreOrigin(storeOrigin) ? storeOrigin : DEFAULT_STORE_ORIGIN,
     })
     .select()
     .single()

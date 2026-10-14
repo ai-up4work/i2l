@@ -36,12 +36,30 @@ import { unstable_cache, revalidateTag } from 'next/cache'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { affiliatedStores, type AffiliatedStore } from '@/data/stores/data'
 import { getProviderConfig, type StoreProviderConfig } from '@/lib/store-config'
+import { storeSourceOf, type StoreSource } from '@/lib/catalogue-stores'
+import { storeOriginOf, socialStoreCurrency, DEFAULT_STORE_ORIGIN, type StoreOrigin, type StorePricingInfo } from '@/lib/store-origin'
 
 export type ResolvedSeller = {
   platform: string
   name: string
   url?: string
   config: StoreProviderConfig
+  /** Saved store type — see lib/catalogue-stores.ts. */
+  source: StoreSource
+  /** India (default) or a local Sri Lankan shop — see lib/store-origin.ts. */
+  origin: StoreOrigin
+  /** Social store prices already include Wishdrop's margin. */
+  marginIncluded: boolean
+}
+
+/** The pricing facts to stamp onto this seller's products. */
+export function sellerPricingInfo(seller: ResolvedSeller): StorePricingInfo {
+  return {
+    origin: seller.origin,
+    marginIncluded: seller.marginIncluded,
+    // Social store prices are in the store's currency (LKR when local).
+    ...(seller.source === 'social' ? { currency: socialStoreCurrency(seller.origin) } : {}),
+  }
 }
 
 type SellerRow = {
@@ -62,6 +80,9 @@ function fallbackToHardcoded(platform: string): ResolvedSeller | null {
     name: store.name,
     url: store.url,
     config: getProviderConfig(platform),
+    source: 'feed',
+    origin: DEFAULT_STORE_ORIGIN,
+    marginIncluded: false,
   }
 }
 
@@ -73,6 +94,8 @@ function rowToResolvedSeller(data: {
   outbound_url: string | null
   provider_config: unknown
   type?: string | null
+  store_source?: string | null
+  store_origin?: string | null
 }): ResolvedSeller {
   // provider_config was seeded/saved as the full StoreProviderConfig
   // object (type, baseUrl, currency, etc, plus a non-standard `display`
@@ -81,16 +104,14 @@ function rowToResolvedSeller(data: {
   const { display: _display, ...rawConfig } = (data.provider_config ?? { type: 'mock' }) as Record<string, unknown>
   let config = rawConfig
 
-  // Custom (manual) sellers — no feed; they add products themselves in the
-  // seller portal (/seller/products), which writes to our `products`
-  // table. Their provider_config is 'mock', which only ever served the
-  // hardcoded demo products in data/stores/data.ts, so nothing a seller
-  // added ever reached their store page. Serve them from the DB instead
-  // (lib/store-providers/catalogue.ts, which still falls back to the demo
-  // products for a seller that hasn't added any of their own yet).
-  // anishka-creation is 'mock' too but has its own hardcoded extractor,
-  // dispatched before any provider type is looked at — leave it alone.
-  if (data.type === 'manual' && rawConfig.type === 'mock' && data.platform_slug !== 'anishka-creation') {
+  // The saved store type decides where products come from — never a
+  // guess from 'mock'. A social store always reads our `products` table
+  // (lib/store-providers/catalogue.ts). An extractor store ("mock" in the
+  // seller wizard) keeps its 'mock' config and is served by its own
+  // extractor in code (lib/store-providers/sellers), dispatched by slug.
+  const row = data as unknown as Record<string, unknown>
+  const source = storeSourceOf(row)
+  if (source === 'social' && rawConfig.type !== 'catalogue') {
     config = { ...rawConfig, type: 'catalogue', currency: (rawConfig.currency as string | undefined) ?? 'INR' }
   }
 
@@ -99,6 +120,9 @@ function rowToResolvedSeller(data: {
     name: data.name,
     url: data.outbound_url ?? undefined,
     config: config as unknown as StoreProviderConfig,
+    source,
+    origin: storeOriginOf(row),
+    marginIncluded: source === 'social',
   }
 }
 
@@ -107,7 +131,7 @@ export async function getSellerAndConfig(platform: string): Promise<ResolvedSell
     const supabase = await createClient()
     const { data, error } = await supabase
       .from('sellers')
-      .select('platform_slug, name, outbound_url, provider_type, provider_config, status, type')
+      .select('*')
       .eq('platform_slug', platform)
       .eq('status', 'active')
       .maybeSingle()
@@ -144,7 +168,7 @@ export async function getSellerAndConfigForAdmin(platform: string): Promise<Reso
     const supabase = createServiceRoleClient()
     const { data, error } = await supabase
       .from('sellers')
-      .select('platform_slug, name, outbound_url, provider_type, provider_config, status, type')
+      .select('*')
       .eq('platform_slug', platform)
       .maybeSingle()
 
@@ -179,7 +203,7 @@ const getActiveSellerUrls = unstable_cache(
     const supabase = createServiceRoleClient()
     const { data, error } = await supabase
       .from('sellers')
-      .select('platform_slug, name, outbound_url, provider_type, provider_config, status')
+      .select('*')
       .eq('status', 'active')
       .not('outbound_url', 'is', null)
       // If `sellers` rows always represent local/affiliated sellers only
@@ -253,6 +277,9 @@ export async function matchAffiliatedSellerUrl(rawUrl: string): Promise<Resolved
     name: hardcodedMatch.name,
     url: hardcodedMatch.url,
     config: getProviderConfig(hardcodedMatch.platform),
+    source: 'feed',
+    origin: DEFAULT_STORE_ORIGIN,
+    marginIncluded: false,
   }
 }
 

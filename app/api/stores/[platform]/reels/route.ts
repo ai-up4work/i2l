@@ -5,7 +5,8 @@
 // of store (only catalogue stores hold videos).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSellerAndConfig, getSellerAndConfigForAdmin } from '@/lib/store-config-db'
+import { getSellerAndConfig, getSellerAndConfigForAdmin, sellerPricingInfo } from '@/lib/store-config-db'
+import { withStorePricing } from '@/lib/store-origin'
 import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview'
 import { fetchCatalogueReels } from '@/lib/store-providers/catalogue'
 
@@ -20,8 +21,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
     }
     if (!seller) return NextResponse.json({ error: 'Unknown store platform' }, { status: 404 })
     const products = seller.config.type === 'catalogue' ? await fetchCatalogueReels(platform, seller.name, 16, { includeHidden: preview }) : []
+    const info = sellerPricingInfo(seller)
+    const stamped = products.map((p) => withStorePricing(p, info))
     return NextResponse.json(
-      { products },
+      { products: stamped },
       { headers: preview ? PREVIEW_CACHE_HEADERS : { 'Cache-Control': 's-maxage=60, stale-while-revalidate=60' } },
     )
   } catch (err) {

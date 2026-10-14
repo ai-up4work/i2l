@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth'
 import { WISHDROP_MALL_SLUG } from '@/lib/wishdrop-mall'
+import { hasCustomExtractor } from '@/lib/store-providers/sellers'
 
 type Row = { platform_slug: string; name: string; logo_url: string | null; provider_type: string | null }
 
@@ -31,7 +32,7 @@ export async function GET() {
   const sources = ((data ?? []) as unknown as Row[])
     .filter(
       (r) =>
-        r.platform_slug === 'anishka-creation' ||
+        hasCustomExtractor(r.platform_slug) ||
         (r.provider_type != null && r.provider_type !== 'mock' && r.provider_type !== 'catalogue'),
     )
     .map((r) => ({ platform: r.platform_slug, name: r.name, logo: r.logo_url ?? '' }))

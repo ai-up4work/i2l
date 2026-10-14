@@ -56,3 +56,16 @@ export function DelayedBadge({ compact = false }: { compact?: boolean }) {
     </span>
   )
 }
+/** Local Sri Lankan shop order — picked up from the shop and delivered
+ *  from our Sri Lanka warehouse; skips export and international shipping. */
+export function LocalShopBadge({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      title="Local shop in Sri Lanka: pickup → quality check → delivery. No export or international shipping."
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-teal-deep/25 bg-teal/10 px-2 py-0.5 text-[11px] font-semibold text-teal-deep"
+    >
+      <span aria-hidden>🇱🇰</span>
+      {compact ? "Local" : "Local shop"}
+    </span>
+  )
+}

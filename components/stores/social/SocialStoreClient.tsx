@@ -230,7 +230,8 @@ function Inner({ store }: { store: AffiliatedStore }) {
                     <span className="font-semibold text-ink">{reels.length}</span> video{reels.length === 1 ? '' : 's'}
                   </>
                 )}
-                {store.country && (
+                {/* Never tell shoppers a store is local (lib/store-origin.ts). */}
+                {store.country && store.origin !== 'LK' && (
                   <>
                     {(storeTotal != null || reels.length > 0) && ' · '}
                     {store.country}

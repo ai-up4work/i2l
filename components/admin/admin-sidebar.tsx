@@ -36,6 +36,7 @@ import {
   Plug,
   CreditCard,
   SlidersHorizontal,
+  Calculator,
   FileText,
   Lock,
   Megaphone,
@@ -129,7 +130,7 @@ function getTopItems(role: Role): NavItem[] {
     { label: "Orders", href: "/admin/orders", icon: ClipboardList, roles: ["manager", "sales", "warehouse"] },
     { label: "Customer chat", href: "/admin/chat", icon: MessageCircle, roles: ["manager", "sales"] },
     { label: "WhatsApp verification", href: "/admin/whatsapp-verifications", icon: BadgeCheck, roles: ["manager", "sales"] },
-    { label: "quote", href: "/admin/quote", icon: ClipboardList, roles: ["manager", "sales"] },
+    { label: "Quote calculator", href: "/admin/quote", icon: Calculator, roles: ["manager", "sales", "super_admin"] },
   ]
   return items.filter((item) => canSeeNavItem(item, role))
 }
@@ -195,11 +196,12 @@ function getGroups(role: Role): Group[] {
         { label: "Warehouse Sites", href: "/admin/super-admin/warehouses", icon: Building2, roles: ["super_admin"] },
         { label: "Media cleanup", href: "/admin/super-admin/media-cleanup", icon: HardDrive, roles: ["super_admin"] },
         {
+          // Every rate and fee the prices are built from — see
+          // app/admin/(protected)/super-admin/settings/pricing-engine/page.tsx.
           label: "Pricing engine",
           href: "/admin/super-admin/settings/pricing-engine",
           icon: SlidersHorizontal,
           roles: ["super_admin"],
-          locked: true,
         },
         {
           label: "Templates",

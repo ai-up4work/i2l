@@ -44,13 +44,15 @@ interface LiveCollectionsResponse {
   count: number;
   // `image` is a plain URL string (or null). The API route must flatten
   // WooCommerce's { src, thumbnail, ... } object into one URL.
-  collections: { handle: string; title: string; image?: string | null }[];
+  collections: { handle: string; title: string; image?: string | null; featured?: boolean }[];
 }
 
 interface CategoryFilter {
   handle: string;
   title: string;
   image?: string | null;
+  /** In the "Shop by category" row (saved in the seller wizard — lib/category-tiles.ts). */
+  featured?: boolean;
 }
 
 // A valid SortKey guard for values pulled straight out of the URL, which
@@ -651,7 +653,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
         if (cancelled) return;
         setLiveCategories(
           data.collections?.length
-            ? data.collections.map((c) => ({ handle: c.handle, title: c.title, image: c.image ?? null }))
+            ? data.collections.map((c) => ({ handle: c.handle, title: c.title, image: c.image ?? null, featured: c.featured }))
             : null
         );
       } catch {
@@ -669,6 +671,10 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     ?? store.categories.map((title) => ({ handle: '', title }));
 
   const categoryFilters: CategoryFilter[] = [{ handle: '', title: '' }, ...effectiveCategories];
+
+  // Image tiles: the saved picks (featured), or — for a store saved before
+  // tiles existed — any category that has its own image.
+  const categoryTiles = (liveCategories ?? []).filter((c) => c.image && (c.featured ?? true)).slice(0, 16);
 
   // The URL only stores the raw category value — resolve the readable
   // label once the real collection list is known.
@@ -810,7 +816,12 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
                 </span>
               </div>
               <p className="mt-0.5 flex items-center gap-1.5 font-body text-xs text-ink/55">
-                <Flag flag={store.flag} /> {store.country}
+                {/* Never tell shoppers a store is local (lib/store-origin.ts). */}
+                {store.origin !== 'LK' && (
+                  <>
+                    <Flag flag={store.flag} /> {store.country}
+                  </>
+                )}
                 {totalItems != null && !search && !category && (
                   <>
                     <span aria-hidden="true">·</span>
@@ -885,6 +896,44 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
             <Truck size={14} className="text-teal-deep" /> Shipping to Sri Lanka
           </li>
         </ul>
+
+        {/* ── Shop by category (round photos, same look as social stores) ── */}
+        {categoryTiles.length > 0 && (
+          <section className="mt-7" aria-label="Shop by category">
+            <h2 className="mb-3 font-display text-xl font-bold text-ink">Shop by category</h2>
+            <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+              {categoryTiles.map((c) => {
+                const value = c.handle || c.title;
+                const on = category === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => handleCategory(on ? { handle: '', title: '' } : c)}
+                    aria-pressed={on}
+                    className="group w-24 flex-none snap-start text-center sm:w-28"
+                  >
+                    <span
+                      className={`mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full bg-ink/5 ring-2 transition-colors sm:h-28 sm:w-28 ${
+                        on ? 'ring-ink' : 'ring-transparent group-hover:ring-ink/20'
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={c.image as string}
+                        alt=""
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105"
+                      />
+                    </span>
+                    <span className={`mt-2 line-clamp-2 block font-body text-sm leading-snug ${on ? 'font-bold text-ink' : 'font-medium text-ink/75'}`}>{c.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* ── Toolbar ── */}
         <div className="mb-6 mt-6 flex flex-wrap items-center justify-between gap-3">

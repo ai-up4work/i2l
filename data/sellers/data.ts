@@ -19,6 +19,8 @@
 // excluded from ADMIN_SELLERS.
 
 import { affiliatedStores, type AffiliatedStore } from '@/data/stores/data'
+import { storeSourceOf } from '@/lib/catalogue-stores'
+import { storeOriginOf } from '@/lib/store-origin'
 import {
   getProviderConfig,
   type StoreProviderConfig,
@@ -169,6 +171,8 @@ export function mapDbRowToAdminSeller(row: Record<string, unknown>): AdminSeller
       shipping: display.shipping as string | undefined,
       payment: display.payment as string | undefined,
       tags: display.tags as string[] | undefined,
+      source: storeSourceOf(row),
+      origin: storeOriginOf(row),
     },
     providerConfig: config as unknown as StoreProviderConfig,
     admin: {

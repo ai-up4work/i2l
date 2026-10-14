@@ -10,6 +10,7 @@ import { AlertTriangle, ChevronRight, ClipboardCheck, Inbox, Layers, Search, Sea
 import { useAdminData, isOrderAgeBreached } from "@/contexts/AdminDataContext"
 import { QC_STATUS_LABEL, CHANNEL_LABEL, type QCStatus, type QCLine } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
+import { LocalShopBadge } from "@/components/admin/badges"
 
 // Quality Check queue: items that have been bought and have arrived at this
 // warehouse site, waiting to be inspected. It is the stage before Pack & label.
@@ -67,6 +68,7 @@ const COLUMNS = ["Product", "Seller", "Qty", "Arrived", "Order age", "Photos", "
 interface OrderGroup {
   orderId: string
   orderNumber: string
+  isLocal?: boolean
   customerName: string
   allLines: QCLine[]
   visibleLines: QCLine[]
@@ -115,6 +117,7 @@ export default function QCPage() {
         group = {
           orderId: row.orderId,
           orderNumber: row.orderNumber,
+          isLocal: row.isLocal,
           customerName: row.customerName,
           allLines: [],
           visibleLines: [],
@@ -297,6 +300,7 @@ function OrderGroupCard({ group, onOpenLine }: { group: OrderGroup; onOpenLine: 
           >
             {group.orderNumber}
           </Link>
+          {group.isLocal && <LocalShopBadge />}
           <span className="truncate text-sm text-ink/60">{group.customerName}</span>
           {anyBreached && (
             <span title="Order age limit exceeded" className="flex-none text-rose-600">

@@ -538,6 +538,11 @@ export default function OrderDetailPage() {
                   </Pill>
                 ))}
                 {order.isManualQuote && <Pill tone="amber">Manual quote</Pill>}
+                {order.isLocal && (
+                  <Pill tone="teal">
+                    🇱🇰 Local shop · pickup {order.pickupFeeLKR ? `Rs ${order.pickupFeeLKR.toLocaleString('en-LK')}` : 'fee'} · no export
+                  </Pill>
+                )}
               </div>
 
               <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-ink/[0.07] pt-4 sm:grid-cols-4">

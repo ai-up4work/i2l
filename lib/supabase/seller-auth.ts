@@ -11,6 +11,8 @@ export type SellerSession = {
    *  the seller can't open the store page (see lib/store-preview.ts). */
   status: string
   logoUrl: string | null
+  /** 'LK' = local Sri Lankan store (lib/store-origin.ts). */
+  origin: 'IN' | 'LK'
 }
 
 /** Server-side only. Returns the seller the current auth session owns, or
@@ -24,7 +26,7 @@ export async function getCurrentSeller(): Promise<SellerSession | null> {
 
   const { data } = await supabase
     .from('sellers')
-    .select('id, platform_slug, name, default_margin_percent, status, logo_url')
+    .select('*') // '*' so store_origin comes through once its migration has run
     .eq('owner_user_id', user.id)
     .maybeSingle()
 
@@ -36,6 +38,8 @@ export async function getCurrentSeller(): Promise<SellerSession | null> {
     defaultMarginPercent: Number(data.default_margin_percent ?? 25),
     status: (data as { status?: string }).status ?? 'active',
     logoUrl: (data as { logo_url?: string | null }).logo_url ?? null,
+    /** 'LK' = local Sri Lankan store — prices in LKR (lib/store-origin.ts). */
+    origin: (data as { store_origin?: string | null }).store_origin === 'LK' ? ('LK' as const) : ('IN' as const),
   }
 }
 

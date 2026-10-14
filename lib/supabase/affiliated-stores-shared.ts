@@ -15,7 +15,8 @@
 //   }
 
 import type { AffiliatedStore } from '@/data/stores/data'
-import { isCatalogueStoreRow, isLegacyCustomRow } from '@/lib/catalogue-stores'
+import { isCatalogueStoreRow, storeSourceOf } from '@/lib/catalogue-stores'
+import { storeOriginOf } from '@/lib/store-origin'
 
 /**
  * True for a catalogue store (created in Admin → Catalogues; products,
@@ -24,10 +25,10 @@ import { isCatalogueStoreRow, isLegacyCustomRow } from '@/lib/catalogue-stores'
  * to the seller wizard's "mock" method.
  */
 export function isSocialSellerRow(row: Record<string, unknown>): boolean {
-  // Older hand-managed sellers (made in the seller wizard with "mock")
-  // keep the social storefront too, so nothing changes for them until
-  // they're moved over in Social Stores.
-  return isCatalogueStoreRow(row) || isLegacyCustomRow(row)
+  // Decided by the saved store type only (sellers.store_source). Stores
+  // made in the seller wizard with "mock" are extractor stores and keep
+  // the standard store page.
+  return isCatalogueStoreRow(row)
 }
 
 export function mapRowToAffiliatedStore(row: Record<string, unknown>): AffiliatedStore {
@@ -54,6 +55,8 @@ export function mapRowToAffiliatedStore(row: Record<string, unknown>): Affiliate
     buildType: (display.buildType as AffiliatedStore['buildType']) ?? 'template',
 
     isSocial: isSocialSellerRow(row),
+    source: storeSourceOf(row),
+    origin: storeOriginOf(row),
     cover: (row.cover_url as string | null) ?? undefined,
     tagline: (row.tagline as string | null) ?? undefined,
     instagram: (row.instagram_url as string | null) ?? undefined,

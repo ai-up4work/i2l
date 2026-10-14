@@ -1,6 +1,8 @@
 // app/api/stores/[platform]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getSellerAndConfig, getSellerAndConfigForAdmin } from '@/lib/store-config-db';
+import { getSellerAndConfig, getSellerAndConfigForAdmin, sellerPricingInfo } from '@/lib/store-config-db';
+import { withStorePricing } from '@/lib/store-origin';
+import { applyCategoryTiles } from '@/lib/category-tiles';
 import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview';
 import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
@@ -78,7 +80,9 @@ export async function GET(
           platform,
           baseUrl: ANISHKA_BASE_URL,
           count: Object.keys(ANISHKA_CATEGORY_PATHS).length,
-          collections: Object.keys(ANISHKA_CATEGORY_PATHS).map((title) => ({ handle: title, title })),
+          collections: searchParams.get('raw') === '1'
+            ? Object.keys(ANISHKA_CATEGORY_PATHS).map((title) => ({ handle: title, title, image: null, featured: false }))
+            : applyCategoryTiles(Object.keys(ANISHKA_CATEGORY_PATHS).map((title) => ({ handle: title, title })), seller.config),
         });
       }
 
@@ -92,7 +96,7 @@ export async function GET(
           ...config.headers,
         };
         const live = await fetchShopifyCollections(config.baseUrl, headers);
-        collections = live.map((c) => ({ handle: c.handle, title: c.title }));
+        collections = live.map((c) => ({ handle: c.handle, title: c.title, image: c.image ?? null }));
       } else if (config.type === 'woocommerce') {
         const live = await fetchWooCommerceCategories(config);
         // Only surface categories that actually have products in them —
@@ -143,11 +147,19 @@ export async function GET(
         );
       }
 
+      // Lay the saved category images (seller wizard, provider_config.
+      // categoryTiles) over the live list, and mark which ones go in the
+      // store page's "Shop by category" row. See lib/category-tiles.ts.
+      // ?raw=1 (admin category-image lookup) wants the store's own images only.
+      const withTiles = searchParams.get('raw') === '1'
+        ? collections.map((c) => ({ ...c, image: c.image ?? null, featured: false }))
+        : applyCategoryTiles(collections, config);
+
       return NextResponse.json({
         platform,
         baseUrl: 'baseUrl' in config ? config.baseUrl : null,
-        count: collections.length,
-        collections,
+        count: withTiles.length,
+        collections: withTiles,
       }, preview ? { headers: PREVIEW_CACHE_HEADERS } : undefined);
     }
 
@@ -179,7 +191,7 @@ export async function GET(
 
     return NextResponse.json(
       {
-        products: result.products,
+        products: result.products.map((p) => withStorePricing(p, sellerPricingInfo(seller))),
         total: result.total,
         totalPages: result.totalPages,
         totalIsExact: result.totalIsExact,

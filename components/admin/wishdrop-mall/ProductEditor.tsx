@@ -37,7 +37,7 @@ import {
 import { normalizeDescription } from '@/lib/scrape/normalize-description'
 import { getDualDeliveryPricing } from '@/lib/pricing'
 import {
-  MALL_DELIVERY_FEE_LKR,
+  mallDeliveryFeeLKR,
   approxLKR,
   variantLabel,
   type MallCategory,
@@ -798,10 +798,10 @@ export default function ProductEditor({
               <p className="mt-3 text-sm text-ink/65">
                 {priceValid ? (
                   <>
-                    Customer pays <strong className="text-ink">{formatMoney(priceNum, 'Rs')}</strong> + {formatMoney(MALL_DELIVERY_FEE_LKR, 'Rs')} delivery.
+                    Customer pays <strong className="text-ink">{formatMoney(priceNum, 'Rs')}</strong> + {formatMoney(mallDeliveryFeeLKR(), 'Rs')} delivery.
                   </>
                 ) : (
-                  <>+ {formatMoney(MALL_DELIVERY_FEE_LKR, 'Rs')} delivery. No tax or import charges.</>
+                  <>+ {formatMoney(mallDeliveryFeeLKR(), 'Rs')} delivery. No tax or import charges.</>
                 )}
               </p>
               {reference && (
@@ -812,7 +812,7 @@ export default function ProductEditor({
                   </p>
                   <p>
                     Same item via normal import: {formatMoney(reference.normalTotal, 'Rs')} total
-                    {priceValid && <> · Mall total {formatMoney(priceNum + MALL_DELIVERY_FEE_LKR, 'Rs')}</>}
+                    {priceValid && <> · Mall total {formatMoney(priceNum + mallDeliveryFeeLKR(), 'Rs')}</>}
                   </p>
                 </div>
               )}

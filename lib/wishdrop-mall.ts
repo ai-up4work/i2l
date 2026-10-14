@@ -14,7 +14,7 @@
 // Server-only sourcing logic lives in lib/wishdrop-mall/sourcing.ts.
 
 import { rateToLKR } from './currency-config'
-import { SIMPLE_DELIVERY_FLAT_LKR } from './quote'
+import { getPricingSettings, type PricingSettings } from './pricing-settings'
 
 export const WISHDROP_MALL_SLUG = 'wishdrop-mall'
 export const WISHDROP_MALL_NAME = 'Wishdrop Mall'
@@ -27,9 +27,10 @@ export const WISHDROP_MALL_DESCRIPTION =
 // that price plus this flat delivery fee — nothing else. The storefront
 // side of this lives in lib/pricing.ts (isFixedPriceItem).
 //
-// Reuses the site's existing flat delivery fee so the Mall stays in step
-// if that rate changes. Change it here to give the Mall its own rate.
-export const MALL_DELIVERY_FEE_LKR = SIMPLE_DELIVERY_FLAT_LKR
+// Editable on Admin → Pricing engine (settings.mall.deliveryFeeLKR).
+export function mallDeliveryFeeLKR(settings: PricingSettings = getPricingSettings()): number {
+  return settings.mall.deliveryFeeLKR
+}
 
 /** Currency every Mall product is priced in. */
 export const MALL_CURRENCY = 'LKR'

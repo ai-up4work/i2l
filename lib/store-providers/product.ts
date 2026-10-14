@@ -1,4 +1,5 @@
-import { getSellerAndConfig, getSellerAndConfigForAdmin } from '@/lib/store-config-db';
+import { getSellerAndConfig, getSellerAndConfigForAdmin, sellerPricingInfo, type ResolvedSeller } from '@/lib/store-config-db';
+import { withStorePricing } from '@/lib/store-origin';
 import type { StoreProduct } from '@/lib/store.types';
 import { fetchJsonApiProduct } from './jsonapi';
 import { fetchMockProduct } from './mock';
@@ -8,6 +9,11 @@ import { fetchHtmlScrapeProduct } from './html-scrape';
 import { fetchAnishkaCreationProduct } from './sellers/anishka-creation';
 import { fetchCatalogueProduct } from './catalogue';
 
+/** Stamps the store's location / margin facts onto a fetched product. */
+function stamp(product: StoreProduct | null, seller: ResolvedSeller): StoreProduct | null {
+  return product ? withStorePricing(product, sellerPricingInfo(seller)) : null;
+}
+
 export async function fetchStoreProduct(
   platform: string,
   handle: string,
@@ -16,6 +22,15 @@ export async function fetchStoreProduct(
 ): Promise<StoreProduct | null> {
   const seller = opts.includeHidden ? await getSellerAndConfigForAdmin(platform) : await getSellerAndConfig(platform);
   if (!seller) return null;
+  return stamp(await fetchForSeller(platform, handle, seller, opts), seller);
+}
+
+async function fetchForSeller(
+  platform: string,
+  handle: string,
+  seller: ResolvedSeller,
+  opts: { includeHidden?: boolean },
+): Promise<StoreProduct | null> {
 
   // Hardcoded one-off extractor, checked before the generic provider
   // dispatch below — see lib/store-providers/sellers/anishka-creation.ts's
@@ -56,7 +71,10 @@ export async function fetchStoreProduct(
 export async function fetchStoreProductForRedirectCheck(platform: string, handle: string): Promise<StoreProduct | null> {
   const seller = await getSellerAndConfig(platform);
   if (!seller) return null;
+  return stamp(await fetchForSellerRestOnly(platform, handle, seller), seller);
+}
 
+async function fetchForSellerRestOnly(platform: string, handle: string, seller: ResolvedSeller): Promise<StoreProduct | null> {
   if (platform === 'anishka-creation') {
     return fetchAnishkaCreationProduct(platform, seller.name, handle);
   }

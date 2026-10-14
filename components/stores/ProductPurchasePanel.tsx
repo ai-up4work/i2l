@@ -69,7 +69,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Clock, Package, Star, Weight, Zap } from 'lucide-react'
-import { getDualDeliveryPricing } from '@/lib/pricing'
+import { getDualDeliveryPricing, formatLKR } from '@/lib/pricing'
+import { localPickupFeeLKR } from '@/lib/store-origin'
 import { findMatchingVariant, isMatchableOption } from '@/lib/product-options'
 import { ECONOMY_LOCKED, type VariantStatus } from '@/lib/feature-flags'
 import ProductActions from '@/components/stores/ProductActions'
@@ -502,9 +503,17 @@ export default function ProductPurchasePanel({
                 </span>
               )}
             </div>
-            <p className="mt-1 text-xs text-ink/55">
-              + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
-            </p>
+            {dualPricing.localStore ? (
+              // Local shop (lib/store-origin.ts). Deliberately no mention
+              // that the shop is local — shoppers just buy from Wishdrop.
+              <p className="mt-1 text-xs text-ink/55">
+                + {dualPricing.express.formattedDeliveryFee} delivery · + {formatLKR(localPickupFeeLKR())} handling per order
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-ink/55">
+                + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
+              </p>
+            )}
           </div>
         ) : (
           <>

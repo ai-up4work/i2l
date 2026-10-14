@@ -424,6 +424,7 @@ import {
   markItemQcPassed,
   packOrderReal as realPackOrder,
   markShippedReal as realMarkShipped,
+  markLocalReadyForDeliveryReal as realMarkLocalReadyForDelivery,
   setOrderPackageDetails as realSetOrderPackageDetails,
   setOrderShipping as realSetOrderShipping,
   confirmDelivery as realConfirmDelivery,
@@ -585,6 +586,8 @@ function mapToOrder(
     totalValue: o.totalValue,
     delayed: o.delayed,
     exportHold: o.exportHold,
+    isLocal: o.isLocal,
+    pickupFeeLKR: o.pickupFeeLKR,
     isManualQuote: o.channel === 3,
     warehouseSubstage: o.substage,
     items: o.items.map(mapAdminItemToOrderItem),
@@ -2050,6 +2053,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         return {
           id: `${order.id}:${item.id}`,
           orderId: order.id,
+          isLocal: order.isLocal,
           orderItemId: item.id,
           orderNumber: order.id,
           customerName: order.customerName,
@@ -2341,6 +2345,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         id: p.id,
         purchaseId: p.id,
         orderId: order.id,
+        isLocal: order.isLocal,
         orderItemId: item.id,
         orderNumber: order.id,
         customerName: order.customerName,
@@ -2451,7 +2456,16 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
         const order = orders.find((o) => o.id === purchase.orderId)
         const allItemsPassed = order?.items.every((item) => item.id === purchase.orderItemId || !!item.qcPassedAt)
         if (allItemsPassed) {
-          realSetWarehouseSubstage(realId, "qc_passed", currentUser.id, "All items passed QC")
+          if (order?.isLocal) {
+            // Local Sri Lankan shop order: nothing to pack for export or
+            // ship internationally — it's at our Sri Lanka warehouse
+            // already, so it goes straight to the Shipped ("ready for
+            // delivery") queue. Skips Pack & label, Export bin, In transit.
+            setOrders((prev) => prev.map((o) => (o.id === purchase.orderId && o.stage === "Quality check" ? withStageChange(o, "Shipped") : o)))
+            realMarkLocalReadyForDelivery(realId, currentUser.id)
+          } else {
+            realSetWarehouseSubstage(realId, "qc_passed", currentUser.id, "All items passed QC")
+          }
         }
         loadRealOrders({ silent: true })
       })
@@ -2462,6 +2476,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const packLines = useMemo<PackLine[]>(() => {
     return orders.flatMap((order) => {
+      // Local shop orders are never packed for export (see submitQcResult).
+      if (order.isLocal) return []
       if (order.pickedUpAt) return []
       if (!order.packedAt && order.stage !== "Quality check") return []
 
@@ -2554,6 +2570,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const exportBinLines = useMemo<ExportBinLine[]>(() => {
     return orders.flatMap((order) => {
+      if (order.isLocal) return [] // no export for local shop orders
       if (!order.packedAt || order.pickedUpAt) return []
       const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const packedAgeHours = hoursSince(order.packedAt)
@@ -2620,6 +2637,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
   const inTransitLines = useMemo<InTransitLine[]>(() => {
     return orders.flatMap((order) => {
+      if (order.isLocal) return [] // never shipped internationally
       if (!order.pickedUpAt || order.stage !== "Quality check") return []
       const siteName = sites.find((s) => s.id === order.siteId)?.name ?? order.siteId
       const pickedUpAgeHours = hoursSince(order.pickedUpAt)
@@ -2682,6 +2700,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
       return [{
         id: order.id,
         orderId: order.id,
+        isLocal: order.isLocal,
         orderNumber: order.id,
         customerName: order.customerName,
         siteId: order.siteId,

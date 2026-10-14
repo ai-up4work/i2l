@@ -10,6 +10,7 @@ import { ChevronRight, Inbox, Loader2, Plus, Search, SearchX, ShoppingBag } from
 import { STATUS_LABEL, mapDbRowToAdminSeller, type AdminSeller, type SellerStatus } from "@/data/sellers/data"
 import { useSequentialLiveProductCounts, type LiveCountEntry } from "@/hooks/useSequentialLiveProductCounts"
 import { useSellerPendingOrderCounts, type PendingCountsStatus } from "@/hooks/useSellerPendingOrderCounts"
+import { hasCustomExtractor } from "@/lib/store-providers/sellers"
 
 // Sellers: the affiliated stores feeding the catalogue. Same list recipe as
 // Delivered (table-style rows on a shared GRID), Requests (status tabs with
@@ -162,7 +163,7 @@ export default function SellersListPage() {
   // saved config. Without this OR, its Products count would never join
   // the live-count queue at all.
   const liveFeedPlatforms = useMemo(
-    () => sellers.filter((s) => s.providerConfig.type !== "mock" || s.platform === "anishka-creation").map((s) => s.platform),
+    () => sellers.filter((s) => s.providerConfig.type !== "mock" || hasCustomExtractor(s.platform)).map((s) => s.platform),
     [sellers],
   )
   const { entries: liveCounts, refresh: refreshLiveCount } = useSequentialLiveProductCounts(liveFeedPlatforms)
@@ -579,7 +580,7 @@ function ProductsCell({
   live?: LiveCountEntry
   onRefresh: () => void
 }) {
-  const isLiveFeed = seller.providerConfig.type !== "mock" || seller.platform === "anishka-creation"
+  const isLiveFeed = seller.providerConfig.type !== "mock" || hasCustomExtractor(seller.platform)
   const cached = seller.store.itemCount ?? null
 
   if (!isLiveFeed) {

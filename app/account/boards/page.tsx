@@ -8,6 +8,7 @@ import { Check, ImageOff, LayoutGrid, Plus, X } from "lucide-react"
 import { useWishlist, type BoardProduct, type WishlistEntry } from "@/contexts/Wishlistcontext"
 import { BoardFolder } from "@/components/boards/board-folder"
 import { NewBoardSlot } from "@/components/boards/new-board-slot"
+import ShopperPrice from '@/components/shared/ShopperPrice'
 
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
@@ -366,7 +367,7 @@ function CreateBoardModal({
                       <p className="truncate text-sm font-medium text-ink/80">{item.title}</p>
                       {item.price && (
                         <p className="text-xs text-ink/40">
-                          {item.currencyCode ?? ""} {item.price}
+                          <ShopperPrice price={item.price} currency={item.currencyCode} site={item.site} />
                         </p>
                       )}
                     </span>
@@ -500,7 +501,7 @@ function AddItemsModal({
                       <p className="truncate text-sm font-medium text-ink/80">{item.title}</p>
                       {item.price && (
                         <p className="text-xs text-ink/40">
-                          {item.currencyCode ?? ""} {item.price}
+                          <ShopperPrice price={item.price} currency={item.currencyCode} site={item.site} />
                         </p>
                       )}
                     </span>

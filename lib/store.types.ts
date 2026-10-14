@@ -56,6 +56,11 @@ export interface StoreProduct {
   videos?: string[];
   price: number; // always major units (e.g. 89.00, not 8900)
   currency: string;
+  /** Store location, stamped on by the store routes from the seller row
+   *  (lib/store-origin.ts). Absent = India. */
+  origin?: 'IN' | 'LK';
+  /** True when `price` already includes Wishdrop's margin (social stores). */
+  marginIncluded?: boolean;
   compareAtPrice?: number;
   onSale?: boolean;
   inStock: boolean;

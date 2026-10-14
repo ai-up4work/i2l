@@ -11,6 +11,7 @@ import { STATUS_LABEL, CHANNEL_LABEL } from "@/data/purchases/data"
 import type { PurchaseLine, PurchaseStatus } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { useAdminData } from "@/contexts/AdminDataContext"
+import { LocalShopBadge } from "@/components/admin/badges"
 
 // Purchases: the ops queue for "go buy this item from this seller". Scoped per
 // order line, not per order: an order can span several sellers, and each
@@ -79,6 +80,7 @@ const COLUMNS: { label: string; right?: boolean }[] = [
 interface OrderGroup {
   orderId: string
   orderNumber: string
+  isLocal?: boolean
   customerName: string
   /** Every line on this order visible to the current user, regardless of tab or search. Used for the progress pill. */
   allLines: PurchaseLine[]
@@ -142,6 +144,7 @@ export default function PurchasesPage() {
         group = {
           orderId: line.orderId,
           orderNumber: line.orderNumber,
+          isLocal: line.isLocal,
           customerName: line.customerName,
           allLines: [],
           visibleLines: [],
@@ -301,6 +304,7 @@ function OrderGroupCard({ group }: { group: OrderGroup }) {
           >
             {group.orderNumber}
           </Link>
+          {group.isLocal && <LocalShopBadge />}
           <span className="truncate text-sm text-ink/60">{group.customerName}</span>
         </div>
 

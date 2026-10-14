@@ -4,7 +4,7 @@
 // (app/api/admin/catalogues/stores/**): which columns to read, and the
 // shape sent to the admin UI.
 
-import { isCatalogueStoreRow } from '@/lib/catalogue-stores'
+import { storeOriginOf } from '@/lib/store-origin'
 
 export const STORE_COLUMNS =
   'id, platform_slug, name, type, status, description, logo_url, country, contact_name, contact_email, contact_phone, notes, provider_type, provider_config, owner_user_id, default_margin_percent, created_at'
@@ -20,7 +20,7 @@ export function toAdminStore(row: StoreRow, counts?: { total: number; active: nu
     slug: row.platform_slug as string,
     name: row.name as string,
     status: row.status as string,
-    kind: isCatalogueStoreRow(row) ? ('catalogue' as const) : ('legacy' as const),
+    origin: storeOriginOf(row),
     description: (row.description as string | null) ?? '',
     logoUrl: (row.logo_url as string | null) ?? '',
     coverUrl: (row.cover_url as string | null) ?? '',

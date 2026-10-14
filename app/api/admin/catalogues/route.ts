@@ -15,7 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 import { WISHDROP_MALL_SLUG } from '@/lib/wishdrop-mall'
-import { isCatalogueStoreRow, isLegacyCustomRow } from '@/lib/catalogue-stores'
+import { isCatalogueStoreRow } from '@/lib/catalogue-stores'
+import { socialStoreCurrency, storeOriginOf } from '@/lib/store-origin'
 import { cleanProductInput, createProduct, friendlyDbError, type ProductInput } from '@/lib/catalogue-products'
 
 const LIST_COLUMNS =
@@ -32,7 +33,7 @@ export async function GET() {
 
   const { data: sellerRows, error: sellersError } = await admin
     .from('sellers')
-    .select('id, name, platform_slug, type, provider_type, provider_config, default_margin_percent, owner_user_id, status, logo_url')
+    .select('*')
     .neq('platform_slug', WISHDROP_MALL_SLUG)
     .order('name')
   if (sellersError) return NextResponse.json({ error: sellersError.message }, { status: 500 })
@@ -53,11 +54,9 @@ export async function GET() {
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Catalogue stores, plus hand-managed sellers made the old way
-  // (wizard → mock). Stores with a built-in extractor are not included.
-  const storeRows = ((sellerRows ?? []) as unknown as Record<string, unknown>[]).filter(
-    (r) => isCatalogueStoreRow(r) || isLegacyCustomRow(r),
-  )
+  // Social stores only. Feed and extractor stores (wizard → mock) are
+  // managed in Admin → Sellers and never appear here.
+  const storeRows = ((sellerRows ?? []) as unknown as Record<string, unknown>[]).filter(isCatalogueStoreRow)
   const sellers = (storeRows as unknown as Array<{
     id: string
     name: string
@@ -66,6 +65,8 @@ export async function GET() {
     owner_user_id: string | null
     status: string
     logo_url: string | null
+    cover_url?: string | null
+    tagline?: string | null
   }>).map((s) => ({
     id: s.id,
     name: s.name,
@@ -74,10 +75,20 @@ export async function GET() {
     hasLogin: Boolean(s.owner_user_id),
     status: s.status,
     logoUrl: s.logo_url,
-    kind: isCatalogueStoreRow(s as unknown as Record<string, unknown>) ? 'catalogue' : 'legacy',
+    coverUrl: s.cover_url ?? null,
+    tagline: s.tagline ?? null,
+    origin: storeOriginOf(s as unknown as Record<string, unknown>),
   }))
 
-  return NextResponse.json({ products: data ?? [], sellers, needsMigration }, { headers: { 'Cache-Control': 'no-store' } })
+  // Show every product in its store's currency (LKR for local stores),
+  // even rows saved before the store changed location.
+  const currencyBySeller = new Map(sellers.map((s) => [s.id, socialStoreCurrency(s.origin)]))
+  const products = ((data ?? []) as unknown as { seller_id: string; currency: string }[]).map((p) => ({
+    ...p,
+    currency: currencyBySeller.get(p.seller_id) ?? p.currency,
+  }))
+
+  return NextResponse.json({ products, sellers, needsMigration }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(req: NextRequest) {
@@ -90,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   const { data: sellerRow } = await admin
     .from('sellers')
-    .select('id, platform_slug, type, provider_type, provider_config, default_margin_percent')
+    .select('*')
     .eq('id', body.sellerId)
     .maybeSingle()
   const seller = sellerRow as { id: string; platform_slug: string; default_margin_percent: number | null } | null
@@ -99,7 +110,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Wishdrop Mall products are managed on the Wishdrop Mall page.' }, { status: 400 })
   }
   const record = sellerRow as unknown as Record<string, unknown>
-  if (!isCatalogueStoreRow(record) && !isLegacyCustomRow(record)) {
+  if (!isCatalogueStoreRow(record)) {
     return NextResponse.json({ error: 'This seller gets its products from a feed or extractor, not from here.' }, { status: 400 })
   }
 

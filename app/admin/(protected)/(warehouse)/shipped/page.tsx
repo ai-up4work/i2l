@@ -21,6 +21,7 @@ import { useAdminData } from "@/contexts/AdminDataContext"
 import type { ShippedLine } from "@/types/admin"
 import { SendMessageModal } from "@/components/admin/SendMessageModal"
 import { deliveredMessage } from "@/lib/chat/customerMessageTemplates"
+import { LocalShopBadge } from "@/components/admin/badges"
 
 // Shipped: arrived at the Sri Lanka warehouse, waiting for local delivery.
 // "Mark delivered" lives here rather than on /admin/in-transit so that an order
@@ -418,6 +419,7 @@ function ShippedRow({
           {line.orderNumber}
         </Link>
         <span className="block truncate text-xs text-ink/50">{line.customerName}</span>
+        {line.isLocal && <span className="mt-1 block"><LocalShopBadge compact /></span>}
         {!canAct && <span className="block text-[11px] text-ink/40">View only, different site</span>}
       </div>
 

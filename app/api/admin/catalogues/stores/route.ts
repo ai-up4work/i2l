@@ -15,30 +15,25 @@
 // Gated to SOURCING_ROLES.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { isStoreOrigin, DEFAULT_STORE_ORIGIN } from '@/lib/store-origin'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
-import { isCatalogueStoreRow, isLegacyCustomRow, storeSlugFromName, storeSlugProblem } from '@/lib/catalogue-stores'
-import { PROFILE_COLUMNS, STORE_COLUMNS, toAdminStore, type StoreRow } from '@/lib/catalogue-stores-admin'
+import { isCatalogueStoreRow, storeSlugFromName, storeSlugProblem } from '@/lib/catalogue-stores'
+import { toAdminStore, type StoreRow } from '@/lib/catalogue-stores-admin'
 
 export async function GET() {
   const auth = await requireStaffRole(SOURCING_ROLES)
   if (!auth.ok) return auth.response
   const { admin } = auth
 
-  // Profile columns may not exist yet; fall back so the page still loads.
-  let needsMigration = false
-  let data: unknown[] | null = null
-  const full = await admin.from('sellers').select(`${STORE_COLUMNS}, ${PROFILE_COLUMNS}`).order('created_at', { ascending: false })
-  let error = full.error
-  data = full.data
-  if (error?.code === '42703') {
-    needsMigration = true
-    const basic = await admin.from('sellers').select(STORE_COLUMNS).order('created_at', { ascending: false })
-    error = basic.error
-    data = basic.data
-  }
+  // select('*') so newer columns come through when they exist; a missing
+  // one means a migration hasn't been run yet.
+  const { data, error } = await admin.from('sellers').select('*').order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const rows = ((data ?? []) as unknown as StoreRow[]).filter((r) => isCatalogueStoreRow(r) || isLegacyCustomRow(r))
+  // Social stores only — decided by the saved store type.
+  const rows = ((data ?? []) as unknown as StoreRow[]).filter(isCatalogueStoreRow)
+  const sample = (data ?? [])[0] as StoreRow | undefined
+  const needsMigration = !!sample && (!('cover_url' in sample) || !('store_origin' in sample))
 
   const counts = new Map<string, { total: number; active: number }>()
   if (rows.length) {
@@ -67,6 +62,7 @@ export async function POST(req: NextRequest) {
   const { admin } = auth
 
   const body = (await req.json().catch(() => ({}))) as {
+    storeOrigin?: string
     name?: string
     slug?: string
     contactName?: string
@@ -112,11 +108,13 @@ export async function POST(req: NextRequest) {
       contact_phone: String(body.contactPhone ?? '').trim().slice(0, 30) || null,
       default_margin_percent: margin,
       provider_type: 'catalogue',
-      // Sellers price in INR; the storefront runs it through the normal
-      // import formula (only Wishdrop Mall is fixed-price).
-      provider_config: { type: 'catalogue', currency: 'INR', display: { isNew: true } },
+      store_source: 'social',
+      store_origin: isStoreOrigin(body.storeOrigin) ? body.storeOrigin : DEFAULT_STORE_ORIGIN,
+      // Indian sellers price in INR and go through the import formula;
+      // local Sri Lankan shops price in LKR (lib/store-origin.ts).
+      provider_config: { type: 'catalogue', currency: body.storeOrigin === 'LK' ? 'LKR' : 'INR', display: { isNew: true } },
     })
-    .select(STORE_COLUMNS)
+    .select('*')
     .single()
 
   if (error) {

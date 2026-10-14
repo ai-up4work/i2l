@@ -66,6 +66,10 @@ export type AffiliatedStore = {
    * (components/stores/social/*) instead of the standard catalogue page.
    */
   isSocial?: boolean
+  /** Saved store type — lib/catalogue-stores.ts. */
+  source?: import('@/lib/catalogue-stores').StoreSource
+  /** 'IN' (default) or 'LK' local shop — lib/store-origin.ts. */
+  origin?: import('@/lib/store-origin').StoreOrigin
   /** Wide banner photo on the store page. */
   cover?: string
   /** One short line under the store name. */

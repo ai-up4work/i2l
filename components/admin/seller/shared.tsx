@@ -279,6 +279,7 @@ export interface TestExtractorMeta {
 export interface TestExtractorCategory {
   handle: string
   title: string
+  image?: string | null
 }
 
 export interface TestExtractorResult {
@@ -287,6 +288,8 @@ export interface TestExtractorResult {
   meta?: TestExtractorMeta
   categories?: TestExtractorCategory[]
   categoriesNote?: string
+  /** Only when requested with categoryImages: true (lib/category-tiles.ts). */
+  categoryImages?: import('@/lib/category-tiles').CategoryImageCandidate[]
   sampleProducts?: StoreProduct[]
   currencyDetected?: boolean
 }

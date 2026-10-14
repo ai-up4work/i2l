@@ -14,6 +14,9 @@
 // lib/supabase/admin-auth.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { sourceForWizardConfig } from '@/lib/catalogue-stores'
+import { isStoreOrigin } from '@/lib/store-origin'
+import { categoryTilesOf } from '@/lib/category-tiles'
 import { requireStaffRole, SOURCING_ROLES, DELETE_ROLES } from '@/lib/supabase/admin-auth'
 import type { Database } from '@/lib/supabase/types'
 
@@ -48,6 +51,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
     providerConfig,
     logoUrl,  // string = set; undefined = leave alone
     coverUrl, // string = set; null = clear; undefined = leave alone
+    storeOrigin, // 'IN' | 'LK' — store location, lib/store-origin.ts
+    categoryTiles, // "Shop by category" images only — merged into the saved provider_config
   } = body
 
   const patch: Database['public']['Tables']['sellers']['Update'] = {}
@@ -60,10 +65,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
   if (status !== undefined) patch.status = status
   if (logoUrl !== undefined) patch.logo_url = logoUrl || null
   if (coverUrl !== undefined) patch.cover_url = coverUrl || null
+  if (storeOrigin !== undefined) {
+    if (!isStoreOrigin(storeOrigin)) return NextResponse.json({ error: 'storeOrigin must be "IN" or "LK".' }, { status: 400 })
+    patch.store_origin = storeOrigin
+  }
   if (providerConfig !== undefined) {
+    if (providerConfig?.type === 'catalogue') {
+      return NextResponse.json({ error: 'Social stores are managed in Admin → Social Stores.' }, { status: 400 })
+    }
     patch.provider_type = providerConfig.type
     patch.provider_config = providerConfig
     patch.type = providerConfig.type === 'mock' ? 'manual' : 'feed'
+    patch.store_source = sourceForWizardConfig(providerConfig)
+  }
+
+  if (categoryTiles !== undefined && providerConfig === undefined) {
+    // Only the category images changed: merge them into what's saved, so
+    // nothing else in the provider config (feed settings, display) is touched.
+    const { data: current } = await admin.from('sellers').select('provider_config').eq('platform_slug', platform).maybeSingle()
+    const existing = ((current as { provider_config?: Record<string, unknown> | null } | null)?.provider_config ?? {}) as Record<string, unknown>
+    patch.provider_config = { ...existing, categoryTiles: categoryTilesOf({ categoryTiles }) } as typeof patch.provider_config
   }
 
   if (Object.keys(patch).length === 0) {

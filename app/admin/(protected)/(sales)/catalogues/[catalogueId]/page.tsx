@@ -1,22 +1,45 @@
 // app/admin/(protected)/(sales)/catalogues/[catalogueId]/page.tsx
 //
-// One product from a custom seller's catalogue. Staff can edit everything
-// the seller can (photos, videos, name, price, stock…) plus Wishdrop's
-// margin, hide/show it, and (Manager / Super Admin) delete it for good.
+// One product from a social store. Staff can edit everything the seller
+// can (photos, videos, name, price, stock…) plus Wishdrop's margin,
+// hide/show it, and (Manager / Super Admin) delete it for good.
+//
+// Same layout kit as the rest of Social Stores
+// (components/admin/catalogue/ui.tsx).
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, ExternalLink, EyeOff, Loader2, Trash2 } from 'lucide-react'
-import { panelClass } from '@/components/admin/seller/shared'
+import { ExternalLink, Eye, EyeOff, Package, Trash2 } from 'lucide-react'
 import ProductForm, { type CatalogueProduct, type ProductFormPayload } from '@/components/catalogue/ProductForm'
 import { useCurrentStaff } from '@/hooks/useCurrentStaff'
 import { getDualDeliveryPricing } from '@/lib/pricing'
+import { socialStoreCurrency, storeOriginOf } from '@/lib/store-origin'
+import {
+  BackLink,
+  btnSecondary,
+  card,
+  FullPageLoading,
+  Notice,
+  OriginTag,
+  PageHeader,
+  PageShell,
+  StateShell,
+  StatStrip,
+  StatusPill,
+  StoreAvatar,
+} from '@/components/admin/catalogue/ui'
 
 type Product = CatalogueProduct & {
   handle: string
   seller_id: string
-  sellers: { id: string; name: string; platform_slug: string; default_margin_percent: number | null } | null
+  sellers: ({ id: string; name: string; platform_slug: string; default_margin_percent: number | null; logo_url?: string | null } & Record<string, unknown>) | null
+}
+
+function money(currency: string, value: number | null | undefined): string {
+  if (value == null) return '—'
+  return `${currency} ${Number(value).toLocaleString('en-LK', { maximumFractionDigits: 2 })}`
 }
 
 export default function CatalogueDetailPage() {
@@ -77,131 +100,130 @@ export default function CatalogueDetailPage() {
     setActionError(body.error ?? 'Could not delete the product')
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-full flex-col items-center gap-2 overflow-y-auto py-20 text-ink/50">
-        <Loader2 size={20} className="animate-spin" />
-        <p className="text-sm">Loading product…</p>
-      </div>
-    )
-  }
+  if (loading) return <FullPageLoading label="Loading product…" />
 
   if (!product) {
     return (
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-          <p className="text-sm text-ink/55">Product not found. It may have been removed.</p>
-          <button onClick={() => router.push('/admin/catalogues')} className="mt-3 text-sm font-semibold text-teal-deep">
-            Back to Social Stores
-          </button>
+      <PageShell narrow>
+        <div className={`mt-10 ${card}`}>
+          <StateShell
+            icon={<Package size={22} className="text-ink/25" />}
+            title="Product not found"
+            body="It may have been removed."
+            action={
+              <Link href="/admin/catalogues" className={btnSecondary}>
+                Back to Social Stores
+              </Link>
+            }
+          />
         </div>
-      </div>
+      </PageShell>
     )
   }
 
-  const slug = product.sellers?.platform_slug
+  const seller = product.sellers
+  const slug = seller?.platform_slug
+  const origin = seller ? storeOriginOf(seller) : 'IN'
+  // The store decides the currency (LKR for a local store) — see socialStoreCurrency.
+  const currency = seller ? socialStoreCurrency(origin) : product.currency
   // What a shopper is actually charged in LKR for one unit, through the
-  // same import formula the storefront uses.
+  // same rules the storefront uses (import formula, or local pricing).
+  // Social store prices already include the margin.
   const shopper = getDualDeliveryPricing({
     price: Number(product.price),
-    currency: product.currency,
+    currency,
     weightKg: product.weight_kg,
     storeSlug: slug,
+    origin,
+    marginIncluded: true,
   }).express
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        <button
-          onClick={() => router.push('/admin/catalogues')}
-          className="flex items-center gap-1.5 text-sm font-semibold text-ink/55 hover:text-ink"
-        >
-          <ArrowLeft size={15} /> Social Stores
-        </button>
+    <PageShell>
+      <BackLink href={slug ? `/admin/catalogues?store=${product.seller_id}` : '/admin/catalogues'} label={seller?.name ? `${seller.name} products` : 'Social Stores'} />
 
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-display text-3xl text-ink">{product.name}</h1>
-            <p className="mt-1 text-sm text-ink/55">
-              From {product.sellers?.name ?? 'Unknown seller'}. The seller can edit this too, from their portal; only
-              staff can change the margin.
-            </p>
-          </div>
-          <div className="flex flex-none items-center gap-2">
+      <PageHeader
+        leading={<StoreAvatar name={seller?.name ?? product.name} logoUrl={seller?.logo_url ?? null} size={56} />}
+        title={product.name}
+        badges={
+          <>
+            <StatusPill tone={product.active ? 'live' : 'hidden'}>{product.active ? 'Active' : 'Hidden'}</StatusPill>
+            <OriginTag origin={origin} />
+          </>
+        }
+        meta={
+          <>
+            From{' '}
+            {slug ? (
+              <Link href={`/admin/catalogues/stores/${slug}`} className="font-semibold text-ink/75 hover:text-teal-deep">
+                {seller?.name}
+              </Link>
+            ) : (
+              'an unknown seller'
+            )}
+            . The seller can edit this from their portal too; only staff can change the margin.
+          </>
+        }
+        actions={
+          <>
             {slug && product.active && (
-              <a
-                href={`/stores/${slug}/product/${product.handle}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 rounded-full border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink/65 hover:text-ink"
-              >
-                <ExternalLink size={13} /> View on store
+              <a href={`/stores/${slug}/product/${product.handle}`} target="_blank" rel="noreferrer" className={btnSecondary}>
+                <ExternalLink size={14} aria-hidden /> View on store
               </a>
             )}
-            <button
-              onClick={handleToggleActive}
-              title={product.active ? 'Click to hide from the store' : 'Click to show on the store'}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                product.active ? 'bg-teal/10 text-teal-deep' : 'bg-ink/5 text-ink/40'
-              }`}
-            >
-              {product.active ? 'Active' : 'Hidden'}
+            <button type="button" onClick={handleToggleActive} className={btnSecondary}>
+              {product.active ? <EyeOff size={14} aria-hidden /> : <Eye size={14} aria-hidden />} {product.active ? 'Hide' : 'Show on store'}
             </button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        <div className={`mt-6 grid grid-cols-2 gap-4 p-6 sm:grid-cols-4 ${panelClass}`}>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Seller&rsquo;s price</p>
-            <p className="mt-1 text-sm text-ink">
-              {product.currency} {product.cost_price != null ? Number(product.cost_price).toFixed(2) : '—'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Margin</p>
-            <p className="mt-1 text-sm text-ink">{product.margin_percent ?? '—'}%</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Listed at</p>
-            <p className="mt-1 text-sm font-semibold text-ink">
-              {product.currency} {Number(product.price).toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink/40">Shopper pays</p>
-            <p className="mt-1 text-sm font-semibold text-ink">{shopper.formattedActualTotal}</p>
-            <p className="text-[11px] text-ink/45">per unit, delivered</p>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <ProductForm
-            key={product.id}
-            initial={product}
-            marginPercent={Number(product.margin_percent ?? product.sellers?.default_margin_percent ?? 25)}
-            staffSellerId={product.seller_id}
-            collectionsUrl={product.sellers?.platform_slug ? `/api/admin/catalogues/stores/${product.sellers.platform_slug}/collections` : undefined}
-            submitLabel="Save changes"
-            onSubmit={handleSave}
-          />
-          {saved && <p className="mt-3 text-right text-sm font-semibold text-teal-deep">Saved.</p>}
-        </div>
-
-        {actionError && <p className="mt-3 text-sm font-semibold text-red-700">{actionError}</p>}
-
-        <div className="mt-4 flex flex-wrap gap-5">
-          {product.active && (
-            <button onClick={handleToggleActive} className="flex items-center gap-1.5 text-sm font-semibold text-ink/60 hover:text-ink">
-              <EyeOff size={14} /> Hide from the store
-            </button>
-          )}
-          {canDelete && (
-            <button onClick={handleDelete} className="flex items-center gap-1.5 text-sm font-semibold text-red-700 hover:underline">
-              <Trash2 size={14} /> Delete for good
-            </button>
-          )}
-        </div>
+      <div className="mt-6">
+        <StatStrip
+          stats={[
+            { label: 'Seller’s price', value: money(currency, product.cost_price) },
+            { label: 'Margin', value: `${product.margin_percent ?? '—'}%` },
+            { label: 'Listed at', value: money(currency, Number(product.price)) },
+            { label: 'Shopper pays (1 unit, delivered)', value: shopper.formattedActualTotal },
+          ]}
+        />
       </div>
-    </div>
+
+      {actionError && (
+        <div className="mt-4">
+          <Notice tone="red">{actionError}</Notice>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <ProductForm
+          key={product.id}
+          initial={product}
+          marginPercent={Number(product.margin_percent ?? seller?.default_margin_percent ?? 25)}
+          staffSellerId={product.seller_id}
+          collectionsUrl={slug ? `/api/admin/catalogues/stores/${slug}/collections` : undefined}
+          submitLabel="Save changes"
+          onSubmit={handleSave}
+          local={origin === 'LK'}
+        />
+        {saved && <p className="mt-3 text-right text-sm font-semibold text-teal-deep">Saved.</p>}
+      </div>
+
+      {canDelete && (
+        <section className={`mt-8 flex flex-wrap items-center justify-between gap-4 border-red-200 p-5 ${card}`}>
+          <div>
+            <h2 className="font-display text-base font-semibold text-ink">Delete this product</h2>
+            <p className="mt-0.5 text-xs text-ink/55">Removes it for good. To take it off the store but keep it, hide it instead.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+          >
+            <Trash2 size={14} aria-hidden /> Delete for good
+          </button>
+        </section>
+      )}
+    </PageShell>
   )
 }

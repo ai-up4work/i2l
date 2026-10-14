@@ -18,6 +18,9 @@ more than once.
 | 10 | `data/wishdrop-store-collections.sql` | Collections inside a social store (filter on the store page) | See SOCIAL_STORES.md |
 | 11 | `data/wishdrop-seller-applications.sql` | Saves "Sell on Wishdrop" applications (the form used to save nothing) | Shown in Admin → Social Stores |
 | 12 | `data/wishdrop-media-sweep.sql` | Nightly ghost-media cleanup: finds every photo/video link in the database, lists every uploaded file, keeps a history of cleanups | `CRON_SECRET` on Vercel; turn off the old `weekly-storage-cleanup` job — see MEDIA_CLEANUP.md |
+| 13 | `data/wishdrop-store-types-and-location.sql` | Saves each store's type (feed / extractor / social / mall) instead of guessing, so wizard "mock" stores stop showing up as social stores; adds store location (India / Sri Lanka local) and local-order columns (`orders.store_origin`, `orders.pickup_fee_lkr`, `sites.country`) | Afterwards mark your Sri Lanka warehouse: `update sites set country = 'LK' where name = '…';` |
+| 14 | `data/wishdrop-pricing-settings.sql` | Editable pricing engine: one saved row of every rate and fee (exchange rates, storefront markup, local and Mall fees, HS-code customs schedule) plus a change history. Changes no prices by itself — the built-in defaults are the old hardcoded values | Then edit on Admin → Super Admin → Pricing engine — see PRICING_ENGINE.md |
+
 
 Still open (not done in this work): the database rules on chat messages,
 chat threads, orders, order items and QC issues allow ANY signed-in user,

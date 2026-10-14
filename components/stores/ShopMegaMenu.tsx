@@ -103,7 +103,7 @@ function StoreRow({ store }: { store: AffiliatedStore }) {
         )}
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-medium font-body text-ink">
-        <Flag flag={store.flag} />
+        {store.origin !== 'LK' && <Flag flag={store.flag} />}
         <span className="truncate">{store.name}</span>
       </span>
     </a>

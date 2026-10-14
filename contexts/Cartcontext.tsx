@@ -33,6 +33,11 @@ export type CartProduct = {
   weightKg?: number | null
   source?: 'catalogue' | 'link'
   selectedOptions?: Record<string, string>
+  /** Store location when added ('LK' = local Sri Lankan shop). The cart
+   *  re-checks the live store list (hooks/useStorePricingLookup.ts). */
+  origin?: 'IN' | 'LK' | null
+  /** Price already includes Wishdrop's margin (social stores). */
+  marginIncluded?: boolean
 }
 
 export type CartLineItem = {

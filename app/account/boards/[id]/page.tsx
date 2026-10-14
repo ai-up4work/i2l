@@ -17,6 +17,7 @@ import {
 
 import { useWishlist, type BoardItem } from '@/contexts/Wishlistcontext'
 import { useCart, type CartProduct } from '@/contexts/Cartcontext'
+import ShopperPrice from '@/components/shared/ShopperPrice'
 
 function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
   return (
@@ -271,12 +272,10 @@ function BoardItemCard({
       {item.price && (
         <div className="mt-1 flex items-baseline gap-1.5">
           <span className="text-sm font-bold text-ink">
-            {item.currencyCode ?? ''} {item.price}
+            <ShopperPrice price={item.price} currency={item.currencyCode} site={item.site} />
           </span>
           {item.priceAtSave && item.priceAtSave !== item.price && (
-            <span className="text-xs text-ink/40 line-through">
-              {item.currencyCode ?? ''} {item.priceAtSave}
-            </span>
+            <ShopperPrice className="text-xs text-ink/40 line-through" price={item.priceAtSave} currency={item.currencyCode} site={item.site} />
           )}
         </div>
       )}

@@ -80,6 +80,8 @@ function toCartSnapshot(
     sourcePrice: product.price != null ? String(product.price) : null,
     estimatedPrice: null,
     weightKg: product.weightKg ?? null,
+    origin: product.origin ?? null,
+    marginIncluded: product.marginIncluded,
     source: 'catalogue',
   };
 }

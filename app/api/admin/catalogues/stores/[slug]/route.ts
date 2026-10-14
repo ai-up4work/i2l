@@ -4,35 +4,34 @@
 // PATCH -> edit it: name, profile (logo, cover, tagline, about, social
 //          links), contact details, default margin, and status
 //          ('active' = live, 'inactive' = hidden).
-//          { convert: true } moves a legacy hand-managed seller (wizard →
-//          mock) over to a catalogue store.
+//          storeOrigin: 'IN' | 'LK' sets the store's location
+//          (lib/store-origin.ts).
 //
 // The seller-portal login is created with the existing
 // /api/admin/sellers/[platform]/create-login route.
-// Only catalogue stores and legacy custom sellers can be touched here —
-// never a feed seller, and never Wishdrop Mall.
+// Only social stores can be touched here — never a feed or extractor
+// store, and never Wishdrop Mall.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
-import { isCatalogueStoreRow, isLegacyCustomRow } from '@/lib/catalogue-stores'
+import { isCatalogueStoreRow } from '@/lib/catalogue-stores'
+import { isStoreOrigin, socialStoreCurrency, storeOriginOf } from '@/lib/store-origin'
 import { isOwnCloudinaryUrl } from '@/lib/cloudinary'
-import { PROFILE_COLUMNS, STORE_COLUMNS, toAdminStore, type StoreRow } from '@/lib/catalogue-stores-admin'
+import { toAdminStore, type StoreRow } from '@/lib/catalogue-stores-admin'
 
 type Params = { params: Promise<{ slug: string }> }
 type Admin = Extract<Awaited<ReturnType<typeof requireStaffRole>>, { ok: true }>['admin']
 
-const MIGRATION_HINT = 'The database needs an update first: run data/wishdrop-social-stores.sql in Supabase.'
+const MIGRATION_HINT = 'The database needs an update first: run data/wishdrop-social-stores.sql and data/wishdrop-store-types-and-location.sql in Supabase.'
 
 async function loadStore(admin: Admin, slug: string): Promise<{ row: StoreRow | null; needsMigration: boolean; error?: string }> {
-  let needsMigration = false
-  let { data, error } = await admin.from('sellers').select(`${STORE_COLUMNS}, ${PROFILE_COLUMNS}`).eq('platform_slug', slug).maybeSingle()
-  if (error?.code === '42703') {
-    needsMigration = true
-    ;({ data, error } = await admin.from('sellers').select(STORE_COLUMNS).eq('platform_slug', slug).maybeSingle())
-  }
-  if (error) return { row: null, needsMigration, error: error.message }
+  // select('*') so newer columns (cover_url, store_origin…) come through
+  // when they exist; a missing one means a migration hasn't been run.
+  const { data, error } = await admin.from('sellers').select('*').eq('platform_slug', slug).maybeSingle()
+  if (error) return { row: null, needsMigration: false, error: error.message }
   const row = data as unknown as StoreRow | null
-  if (!row || !(isCatalogueStoreRow(row) || isLegacyCustomRow(row))) return { row: null, needsMigration }
+  const needsMigration = !!row && (!('cover_url' in row) || !('store_origin' in row))
+  if (!row || !isCatalogueStoreRow(row)) return { row: null, needsMigration }
   return { row, needsMigration }
 }
 
@@ -84,11 +83,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const patch: Record<string, unknown> = {}
   const text = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max) || null
 
-  if (body.convert === true) {
-    if (!isLegacyCustomRow(row)) return NextResponse.json({ error: 'This store is already a catalogue store.' }, { status: 400 })
-    const old = (row.provider_config ?? {}) as Record<string, unknown>
-    patch.provider_type = 'catalogue'
-    patch.provider_config = { type: 'catalogue', currency: (old.currency as string | undefined) ?? 'INR', ...(old.display ? { display: old.display } : {}) }
+  if (body.storeOrigin !== undefined) {
+    if (!isStoreOrigin(body.storeOrigin)) return NextResponse.json({ error: 'Choose India or Sri Lanka.' }, { status: 400 })
+    patch.store_origin = body.storeOrigin
+    // Social store prices are entered in the shop's own currency.
+    const config = (row.provider_config ?? {}) as Record<string, unknown>
+    patch.provider_config = { ...config, type: 'catalogue', currency: body.storeOrigin === 'LK' ? 'LKR' : 'INR' }
   }
 
   if (body.name !== undefined) {
@@ -154,6 +154,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'The database needs an update first: run data/seller-status-values.sql in Supabase.' }, { status: 500 })
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Location changed: the store's prices are now in a different currency
+  // (LKR when local). Move every product over so none are left behind in
+  // the old one — otherwise some prices show in INR and some in LKR.
+  if (patch.store_origin !== undefined && patch.store_origin !== storeOriginOf(row)) {
+    const currency = socialStoreCurrency(patch.store_origin as 'IN' | 'LK')
+    await admin.from('products').update({ currency }).eq('seller_id', row.id as string)
   }
 
   const fresh = await loadStore(admin, slug)

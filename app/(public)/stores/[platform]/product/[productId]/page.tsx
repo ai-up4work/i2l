@@ -11,6 +11,7 @@ import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue'
 import { MoreFromStore, StickyBuyBar } from '@/components/stores/social/SocialProductExtras'
 import { getDualDeliveryPricing } from '@/lib/pricing'
+import { ensurePricingSettings } from '@/lib/pricing-settings-server'
 import { ECONOMY_LOCKED } from '@/lib/feature-flags'
 import ProductPurchasePanel from '@/components/stores/ProductPurchasePanel'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
@@ -274,7 +275,9 @@ export default async function ProductDetailPage({
   // helper (same underlying lib/quote.ts math the catalog grid and
   // mini-cart use) so neither number shown here can ever drift from the
   // work-desk calculator.
-  const dualPricing = getDualDeliveryPricing(product)
+  // Saved pricing settings (Admin → Pricing engine) — passed explicitly so
+  // this never depends on render order with the root layout.
+  const dualPricing = getDualDeliveryPricing(product, await ensurePricingSettings())
 
   // Economy is temporarily locked sitewide (see the top-of-file comment)
   // via the shared ECONOMY_LOCKED flag. While it's on, only Express is
@@ -293,7 +296,7 @@ export default async function ProductDetailPage({
   const isSocial = Boolean(store.isSocial)
   const moreFromStore = isSocial
     ? await fetchCatalogueProducts(store.platform, store.name, { page: 1, perPage: 9, category: '', search: '', sort: 'newest' }, { includeHidden: preview })
-        .then((r) => r.products.filter((p) => p.id !== product.id).slice(0, 8))
+        .then((r) => r.products.filter((p) => p.id !== product.id).slice(0, 8).map((p) => ({ ...p, origin: product.origin, marginIncluded: product.marginIncluded, currency: product.currency })))
         .catch(() => [])
     : []
 

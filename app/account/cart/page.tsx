@@ -42,6 +42,8 @@ import {
   type ProductPriceableItem,
   type DeliveryPriceOption,
 } from '@/lib/pricing'
+import { useStorePricingLookup } from '@/hooks/useStorePricingLookup'
+import { localPickupFees, type StorePricingInfo } from '@/lib/store-origin'
 import Image from 'next/image'
 
 type DeliveryChoice = 'economy' | 'express'
@@ -68,10 +70,16 @@ const COMMON_COUNTRIES = [
 // doesn't actually support.
 const KNOWN_WHATSAPP_CODES = ['+94', '+91', '+1', '+44']
 
-function toPriceableItem(product: CartProduct): ProductPriceableItem {
+function toPriceableItem(product: CartProduct, info?: StorePricingInfo): ProductPriceableItem {
   return {
+    // Local Sri Lankan shops are priced without the import formula — see
+    // lib/store-origin.ts. `info` comes from the live store list
+    // (useStorePricingLookup); without it, what the line remembered.
+    origin: info?.origin ?? product.origin ?? null,
+    marginIncluded: info?.marginIncluded ?? product.marginIncluded,
     price: product.sourcePrice != null ? Number(product.sourcePrice) : 0,
-    currency: product.currencyCode ?? 'USD',
+    // Social stores: the store's currency wins over what the line remembered.
+    currency: info?.currency ?? product.currencyCode ?? 'USD',
     weightKg: product.weightKg ?? undefined,
     // Lets lib/pricing.ts recognise fixed-price stores (Wishdrop Mall:
     // price as set + delivery only, no import charges).
@@ -269,7 +277,8 @@ function PriceBreakdownOverlay({
     }
   }, [onClose])
 
-  const dual = getDualDeliveryPricing(toPriceableItem(line.product))
+  const { lookup } = useStorePricingLookup()
+  const dual = getDualDeliveryPricing(toPriceableItem(line.product, lookup(line.product.site)))
   const option = deliveryChoice === 'economy' ? dual.economy : dual.express
 
   return (
@@ -376,7 +385,8 @@ function ReviewLine({
   selected: boolean
   onToggleSelected: () => void
 }) {
-  const dual = getDualDeliveryPricing(toPriceableItem(line.product))
+  const { lookup } = useStorePricingLookup()
+  const dual = getDualDeliveryPricing(toPriceableItem(line.product, lookup(line.product.site)))
   const option = deliveryChoice === 'economy' ? dual.economy : dual.express
   const grandLineTotal = option.actualTotalLKR * line.qty
 
@@ -459,6 +469,7 @@ function CartPageContent() {
   useEffect(() => setMounted(true), [])
 
   const cart = useCart()
+  const { lookup: lookupStorePricing } = useStorePricingLookup()
   const dashboard = useDashboard()
   const loyalty = useLoyalty()
   const router = useRouter()
@@ -621,13 +632,25 @@ function CartPageContent() {
     confirmsRestrictions &&
     confirmsPreowned
 
-  const { priceSubtotalLKR, serviceChargeSubtotalLKR, deliverySubtotalLKR, discountLKR, grandTotalLKR } = useMemo(() => {
+  const {
+    priceSubtotalLKR,
+    serviceChargeSubtotalLKR,
+    deliverySubtotalLKR,
+    pickupLKR,
+    discountLKR,
+    grandTotalLKR,
+  } = useMemo(() => {
     let priceSubtotalLKR = 0
     let serviceChargeSubtotalLKR = 0
     let deliverySubtotalLKR = 0
 
+    // Rs 500 shop → warehouse pickup, once per local store in this order.
+    const pickup = localPickupFees(
+      selectedLines.map((line) => ({ storeSlug: line.product.site, origin: lookupStorePricing(line.product.site, { origin: line.product.origin ?? undefined }).origin })),
+    )
+
     selectedLines.forEach((line) => {
-      const dual = getDualDeliveryPricing(toPriceableItem(line.product))
+      const dual = getDualDeliveryPricing(toPriceableItem(line.product, lookupStorePricing(line.product.site)))
       const option = deliveryChoice === 'economy' ? dual.economy : dual.express
       priceSubtotalLKR += option.priceLKR * line.qty
       serviceChargeSubtotalLKR += option.serviceChargeLKR * line.qty
@@ -652,10 +675,12 @@ function CartPageContent() {
       priceSubtotalLKR,
       serviceChargeSubtotalLKR,
       deliverySubtotalLKR,
+      pickupLKR: pickup.totalLKR,
+      pickupStoreCount: pickup.storeCount,
       discountLKR,
-      grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR - discountLKR,
+      grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR + pickup.totalLKR - discountLKR,
     }
-  }, [selectedLines, deliveryChoice, appliedCoupon])
+  }, [selectedLines, deliveryChoice, appliedCoupon, lookupStorePricing])
 
   const pendingRequestCount = useOrders().orders.length
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
@@ -696,9 +721,11 @@ function CartPageContent() {
     setCheckoutError(null)
 
     const lines = selectedLines.map((line) => {
-      const dual = getDualDeliveryPricing(toPriceableItem(line.product))
+      const info = lookupStorePricing(line.product.site, { origin: line.product.origin ?? undefined, marginIncluded: line.product.marginIncluded })
+      const dual = getDualDeliveryPricing(toPriceableItem(line.product, info))
       const option = deliveryChoice === 'economy' ? dual.economy : dual.express
       return {
+        origin: info.origin,
         name: line.product.title,
         url: line.product.url,
         qty: line.qty,
@@ -719,7 +746,7 @@ function CartPageContent() {
       postalCode: zipCode.trim() || undefined,
       country: country.trim(),
       existingAddressId,
-    })
+    }, { pickupFeeLKR: pickupLKR })
     if (!result.ok) {
       setCheckoutError(result.error ?? 'Something went wrong placing your order. Please try again.')
       setConfirming(false)
@@ -1098,6 +1125,14 @@ function CartPageContent() {
                 <span>Delivery</span>
                 <span className="tabular-nums">{formatLKR(deliverySubtotalLKR)}</span>
               </div>
+              {pickupLKR > 0 && (
+                <div className="flex items-center justify-between text-sm text-ink/50">
+                  {/* Rs 500 per local shop. Neutral label on purpose: shoppers
+                      aren't told which stores are local. */}
+                  <span>Handling fee</span>
+                  <span className="tabular-nums">{formatLKR(pickupLKR)}</span>
+                </div>
+              )}
               {discountLKR > 0 && (
                 <div className="flex items-center justify-between text-sm text-teal-deep">
                   <span>Discount ({appliedCoupon?.code})</span>

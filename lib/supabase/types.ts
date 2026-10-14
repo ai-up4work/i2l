@@ -99,6 +99,8 @@ export interface Database {
           name: string
           type: string
           store_kind: string
+          store_source: string | null
+          store_origin: string
           status: string
           contact_email: string | null
           logo_url: string | null
@@ -129,6 +131,8 @@ export interface Database {
           name: string
           type: string
           store_kind?: string
+          store_source?: string | null
+          store_origin?: string
           status?: string
           contact_email?: string | null
           logo_url?: string | null
@@ -689,6 +693,8 @@ export interface Database {
           stage: string
           currency: string
           total_value: number
+          store_origin: string
+          pickup_fee_lkr: number
           delayed: boolean
           export_hold: boolean
           site_id: string | null
@@ -721,6 +727,8 @@ export interface Database {
           stage?: string
           currency?: string
           total_value?: number
+          store_origin?: string
+          pickup_fee_lkr?: number
           delayed?: boolean
           export_hold?: boolean
           site_id?: string | null
@@ -1236,11 +1244,53 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['chat_whatsapp_handoffs']['Insert']>
         Relationships: []
       }
+      pricing_settings: {
+        // data/wishdrop-pricing-settings.sql — one row (id = 1), settings
+        // shaped like PricingSettings in lib/pricing-settings.ts.
+        Row: {
+          id: number
+          settings: Json
+          updated_at: string
+          updated_by: string | null
+          updated_by_name: string | null
+        }
+        Insert: {
+          id?: number
+          settings: Json
+          updated_at?: string
+          updated_by?: string | null
+          updated_by_name?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['pricing_settings']['Insert']>
+        Relationships: []
+      }
+      pricing_settings_history: {
+        Row: {
+          id: number
+          settings: Json
+          previous: Json | null
+          note: string | null
+          changed_at: string
+          changed_by: string | null
+          changed_by_name: string | null
+        }
+        Insert: {
+          settings: Json
+          previous?: Json | null
+          note?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['pricing_settings_history']['Insert']>
+        Relationships: []
+      }
       sites: {
         Row: {
           id: string
           name: string
           location: string
+          country: string
           headcount: number
           active: boolean
           is_default: boolean
@@ -1249,6 +1299,7 @@ export interface Database {
           id?: string
           name: string
           location: string
+          country?: string
           headcount?: number
           active?: boolean
           is_default?: boolean

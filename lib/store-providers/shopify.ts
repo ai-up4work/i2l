@@ -804,6 +804,9 @@ export async function fetchShopifyProduct(
 export interface ShopifyCollectionSummary {
   handle: string;
   title: string;
+  /** The collection's own image, when the store set one (used for the
+   *  "Shop by category" tiles — see lib/category-tiles.ts). */
+  image?: string | null;
 }
 
 // lib/store-providers/shopify.ts
@@ -821,7 +824,7 @@ export interface ShopifyCollectionSummary {
 async function fetchShopifyCollectionHandlesFromSitemap(
   baseUrl: string,
   headers: Record<string, string> = HEADERS
-): Promise<{ handle: string; title?: string }[]> {
+): Promise<{ handle: string; title?: string; image?: string }[]> {
   try {
     const indexRes = await fetch(`${baseUrl}/sitemap.xml`, { headers, next: { revalidate: CACHE_SECONDS } });
     if (!indexRes.ok) return [];
@@ -832,7 +835,7 @@ async function fetchShopifyCollectionHandlesFromSitemap(
     const sitemapUrls = [...indexXml.matchAll(/<loc>([^<]*sitemap_collections[^<]*)<\/loc>/g)].map((m) => m[1]);
     if (!sitemapUrls.length) return [];
 
-    const results: { handle: string; title?: string }[] = [];
+    const results: { handle: string; title?: string; image?: string }[] = [];
     for (const sitemapUrl of sitemapUrls) {
       const res = await fetch(sitemapUrl, { headers, next: { revalidate: CACHE_SECONDS } });
       if (!res.ok) continue;
@@ -846,7 +849,8 @@ async function fetchShopifyCollectionHandlesFromSitemap(
         if (!locMatch) continue;
         const handle = locMatch[1];
         const titleMatch = block.match(/<image:title>([^<]*)<\/image:title>/);
-        results.push({ handle, title: titleMatch?.[1] });
+        const imageMatch = block.match(/<image:loc>([^<]*)<\/image:loc>/);
+        results.push({ handle, title: titleMatch?.[1], image: imageMatch?.[1] });
       }
     }
     return results;
@@ -872,10 +876,10 @@ async function fetchShopifyCollectionsRest(
       break;
     }
     if (!res.ok) break;
-    const data = (await res.json()) as { collections?: { handle: string; title: string }[] };
+    const data = (await res.json()) as { collections?: { handle: string; title: string; image?: { src?: string } | null }[] };
     const batch = data.collections ?? [];
     for (const c of batch) {
-      if (c.handle && c.title) collections.push({ handle: c.handle, title: c.title });
+      if (c.handle && c.title) collections.push({ handle: c.handle, title: c.title, image: c.image?.src ?? null });
     }
     if (batch.length < pageSize) break;
     page += 1;
@@ -885,14 +889,20 @@ async function fetchShopifyCollectionsRest(
   // Merge in anything the sitemap has that the JSON feed missed.
   const seenHandles = new Set(collections.map((c) => c.handle));
   const sitemapHandles = await fetchShopifyCollectionHandlesFromSitemap(baseUrl, headers);
-  for (const { handle, title } of sitemapHandles) {
-    if (seenHandles.has(handle)) continue;
+  for (const { handle, title, image } of sitemapHandles) {
+    if (seenHandles.has(handle)) {
+      // JSON feed had it, maybe without an image — the sitemap may have one.
+      const existing = collections.find((c) => c.handle === handle);
+      if (existing && !existing.image && image) existing.image = image;
+      continue;
+    }
     seenHandles.add(handle);
     collections.push({
       handle,
       // Humanize the handle as a last resort so the admin UI never shows
       // a bare slug — e.g. "premium-collections" -> "Premium Collections".
       title: title || handle.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      image: image ?? null,
     });
   }
 

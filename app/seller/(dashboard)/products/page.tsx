@@ -18,7 +18,7 @@ import ProductForm, { type CatalogueProduct, type ProductFormPayload } from '@/c
 import { imageThumb, videoPoster } from '@/lib/media'
 
 type ProductRow = CatalogueProduct & { handle?: string }
-type SellerInfo = { id: string; name: string; slug: string; live?: boolean }
+type SellerInfo = { id: string; name: string; slug: string; live?: boolean; local?: boolean }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } })
@@ -154,6 +154,7 @@ function SellerProductsInner() {
             submitLabel={product ? 'Save changes' : 'Add product'}
             onSubmit={handleSave}
             onCancel={() => setEditing(null)}
+            local={Boolean(seller?.local)}
           />
         </div>
       </div>

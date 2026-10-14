@@ -31,7 +31,8 @@ async function rejectMallProduct(admin: AdminClient, productId: string) {
   return null
 }
 
-const PRODUCT_SELECT = `${PRODUCT_EDIT_SELECT}, sellers(id, name, platform_slug, default_margin_percent)`
+// sellers(*) so store_origin comes through once the migration has run.
+const PRODUCT_SELECT = `${PRODUCT_EDIT_SELECT}, sellers(*)`
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ catalogueId: string }> }) {
   const auth = await requireStaffRole(SOURCING_ROLES)

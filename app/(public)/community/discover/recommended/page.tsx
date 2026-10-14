@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { Flame } from 'lucide-react'
 import { mockProducts } from '@/data/stores/data'
 import { formatPrice } from '@/lib/currency'
+import { ensurePricingSettings } from '@/lib/pricing-settings-server'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -15,7 +16,8 @@ export const metadata = pageMetadata({
 // so the page is stable across renders/server vs. client.
 const trending = mockProducts.filter((_, i) => i % 7 === 0).slice(0, 12)
 
-export default function TrendingPage() {
+export default async function TrendingPage() {
+  await ensurePricingSettings() // formatPrice converts with the saved exchange rates
   return (
     <main className="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-24">
       <div className="flex items-center gap-2">

@@ -290,6 +290,12 @@ export interface AdminOrder {
    * customer/address so both go out in one pickup. Toggled from Export
    * bin; has no effect before an order reaches that queue. */
   exportHold: boolean
+  /** Local Sri Lankan shop order (orders.store_origin = 'LK'): picked up
+   *  from the shop, quality-checked at our Sri Lanka warehouse, then
+   *  delivered — it skips Pack & label, Export bin and In transit. */
+  isLocal: boolean
+  /** Rs 500 per local shop, charged once per order (lib/store-origin.ts). */
+  pickupFeeLKR: number
   carrier?: string
   trackingNumber?: string
   estimatedDelivery?: string
@@ -327,6 +333,9 @@ type OrderRow = {
   total_value: number
   delayed: boolean
   export_hold: boolean
+  /** data/wishdrop-store-types-and-location.sql — absent before it runs. */
+  store_origin?: string | null
+  pickup_fee_lkr?: number | null
   site_id: string | null
   request_id: string | null
   chat_thread_id: string | null
@@ -384,6 +393,8 @@ function mapRowToAdminOrder(
     totalValue: row.total_value,
     delayed: row.delayed,
     exportHold: row.export_hold,
+    isLocal: row.store_origin === 'LK',
+    pickupFeeLKR: Number(row.pickup_fee_lkr ?? 0),
     carrier: row.carrier ?? undefined,
     trackingNumber: row.tracking_number ?? undefined,
     estimatedDelivery: row.estimated_delivery ?? undefined,
@@ -438,6 +449,22 @@ const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_v
   order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, request_link, screenshot_url, qc_passed_at, qc_note, product_image_url, product_snapshots ( image_url ) ),
   addresses ( id, recipient_name, address_line1, address_line2, city, country )`
 
+/** ORDER_SELECT plus the local-store columns. Tried first; if the
+ *  database doesn't have them yet (migration not run → 42703) the
+ *  queries fall back to ORDER_SELECT so the admin keeps working. */
+const ORDER_SELECT_WITH_ORIGIN = ORDER_SELECT.replace('export_hold, site_id,', 'export_hold, store_origin, pickup_fee_lkr, site_id,')
+let originColumnsMissing = false
+function orderSelect(): string {
+  return originColumnsMissing ? ORDER_SELECT : ORDER_SELECT_WITH_ORIGIN
+}
+function noteMissingOriginColumns(error: { code?: string } | null): boolean {
+  if (error?.code === '42703' && !originColumnsMissing) {
+    originColumnsMissing = true
+    return true
+  }
+  return false
+}
+
 /**
  * Resolves customer name/email, site name, and substage markers for a
  * batch of orders in a few extra queries (rather than assuming a
@@ -478,11 +505,15 @@ export interface FetchOrdersOptions {
 /** Every order across every customer — the `/admin/orders` queue and the base every other queue filters from. */
 export async function fetchAdminOrders(opts: FetchOrdersOptions = {}): Promise<AdminOrder[]> {
   const supabase = createClient()
-  let query = supabase.from('orders').select(ORDER_SELECT).order('created_at', { ascending: false })
-  if (opts.siteId) query = query.eq('site_id', opts.siteId)
-  if (opts.stages?.length) query = query.in('stage', opts.stages)
+  const run = () => {
+    let query = supabase.from('orders').select(orderSelect()).order('created_at', { ascending: false })
+    if (opts.siteId) query = query.eq('site_id', opts.siteId)
+    if (opts.stages?.length) query = query.in('stage', opts.stages)
+    return query
+  }
 
-  const { data, error } = await query
+  let { data, error } = await run()
+  if (noteMissingOriginColumns(error)) ({ data, error } = await run())
   if (error) {
     console.error('[fetchAdminOrders]', error)
     return []
@@ -515,11 +546,9 @@ export async function fetchOrderIdentity(displayId: string): Promise<{ orderId: 
 /** One order by its `display_id` (the human-facing "WD-..." id used in every admin URL). */
 export async function fetchAdminOrder(displayId: string): Promise<AdminOrder | null> {
   const supabase = createClient()
-  const { data, error } = await supabase
-    .from('orders')
-    .select(ORDER_SELECT)
-    .eq('display_id', displayId)
-    .maybeSingle()
+  const run = () => supabase.from('orders').select(orderSelect()).eq('display_id', displayId).maybeSingle()
+  let { data, error } = await run()
+  if (noteMissingOriginColumns(error)) ({ data, error } = await run())
   if (error || !data) {
     if (error) console.error('[fetchAdminOrder]', error)
     return null
@@ -637,6 +666,14 @@ export async function packOrderReal(orderId: string, staffId: string): Promise<{
 /** In-Transit "Mark shipped": the real enum change ('quality_check' -> 'shipped') — this is what "Shipped" now means: arrived at the Sri Lanka warehouse, not merely packed for export. */
 export async function markShippedReal(orderId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
   return setOrderStage(orderId, 'shipped', staffId, 'Arrived at the Sri Lanka warehouse')
+}
+
+/** Local Sri Lankan shop order: every item passed QC at our Sri Lanka
+ *  warehouse, so it's ready for delivery — straight to 'shipped' (the
+ *  same "at the Sri Lanka warehouse" stage India orders reach after In
+ *  transit), skipping Pack & label, Export bin and In transit. */
+export async function markLocalReadyForDeliveryReal(orderId: string, staffId: string): Promise<{ ok: boolean; error?: string }> {
+  return setOrderStage(orderId, 'shipped', staffId, 'Local order: quality checked at the Sri Lanka warehouse, ready for delivery')
 }
 
 export async function setOrderDelayed(orderId: string, delayed: boolean): Promise<{ ok: boolean; error?: string }> {

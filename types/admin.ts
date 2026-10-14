@@ -143,6 +143,11 @@ export interface Order {
    * customer/address so both go out in one pickup. Toggled from Export
    * bin; has no effect before an order reaches that queue. */
   exportHold: boolean
+  /** Local Sri Lankan shop order — skips Pack & label, Export bin and In
+   *  transit (lib/supabase/orders-admin.ts AdminOrder.isLocal). */
+  isLocal?: boolean
+  /** Rs 500 per local shop, once per order. */
+  pickupFeeLKR?: number
   /** True only for confirmed Channel 3 orders — priced by a human, never lib/pricing.ts */
   isManualQuote: boolean
   /** Real sub-phase within "Quality check" — qc_pending/null is QC
@@ -333,6 +338,8 @@ export interface Purchase {
 export interface PurchaseLine {
   id: string
   orderId: string
+  /** Local Sri Lankan shop order — picked up from the shop, not bought online in India. */
+  isLocal?: boolean
   orderItemId: string
   orderNumber: string
   customerName: string
@@ -410,6 +417,8 @@ export interface QCLine {
   id: string
   purchaseId: string
   orderId: string
+  /** Local Sri Lankan shop order — picked up from the shop, not bought online in India. */
+  isLocal?: boolean
   orderItemId: string
   orderNumber: string
   customerName: string
@@ -579,6 +588,8 @@ export interface ShippedLine {
   /** Same as orderId */
   id: string
   orderId: string
+  /** Local Sri Lankan shop order — picked up from the shop, not bought online in India. */
+  isLocal?: boolean
   orderNumber: string
   customerName: string
   siteId: string

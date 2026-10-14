@@ -48,6 +48,11 @@ import {
 } from '@/components/admin/seller/shared'
 import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/admin/seller/ProductCard'
 import StoreBrandingEditor from '@/components/admin/seller/StoreBrandingEditor'
+import { hasCustomExtractor } from '@/lib/store-providers/sellers'
+import { StoreOriginPicker } from '@/components/admin/StoreOriginPicker'
+import { CategoryTilesPanel } from '@/components/admin/seller/CategoryTilesPanel'
+import { categoryTilesOf, mergeCategoryTiles, type CategoryImageCandidate, type CategoryTile } from '@/lib/category-tiles'
+import { STORE_ORIGIN_LABEL, type StoreOrigin } from '@/lib/store-origin'
 
 // ---------------------------------------------------------------------------
 // /admin/sellers/[sellerId] — Sales & Purchase Executive
@@ -183,6 +188,7 @@ export default function SellerFormClient({
     contactPhone: seller?.admin.contactPhone ?? '',
     notes: seller?.admin.notes ?? '',
     status: seller?.admin.status ?? ('active' as SellerStatus),
+    storeOrigin: (seller?.store.origin ?? 'IN') as StoreOrigin,
   })
   const [profileSaved, setProfileSaved] = useState(false)
 
@@ -248,6 +254,7 @@ export default function SellerFormClient({
           contactName: form.contactName,
           contactEmail: form.contactEmail,
           contactPhone: form.contactPhone,
+          storeOrigin: form.storeOrigin,
           notes: form.notes,
           // Always resolved so we never PATCH an empty logo_url over a
           // perfectly good saved one.
@@ -378,6 +385,37 @@ export default function SellerFormClient({
   const [baseUrlTouched, setBaseUrlTouched] = useState(!isNew)
   const [currency, setCurrency] = useState(cfg?.currency ?? '')
 
+  // "Shop by category" images (lib/category-tiles.ts). Seeded from what's
+  // saved; refreshed after a passing test (or on demand for extractor
+  // stores, whose extractor lives in code). Saved with the provider config.
+  const [categoryTiles, setCategoryTiles] = useState<CategoryTile[]>(() => categoryTilesOf(cfg))
+  const [categoryCandidates, setCategoryCandidates] = useState<CategoryImageCandidate[] | null>(null)
+  const [categoryImagesLoading, setCategoryImagesLoading] = useState(false)
+  const [categoryImagesError, setCategoryImagesError] = useState<string | null>(null)
+  const [categoryTilesSave, setCategoryTilesSave] = useState<'idle' | 'saving' | 'saved'>('idle')
+
+  // EDIT mode only: save just the category images (merged server-side
+  // into the saved provider config). ADD mode saves them on Finish.
+  const saveCategoryTiles = async () => {
+    if (!seller) return
+    setCategoryTilesSave('saving')
+    setCategoryImagesError(null)
+    try {
+      const res = await fetch(`/api/admin/sellers/${seller.platform}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryTiles }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? 'Could not save the category images')
+      setCategoryTilesSave('saved')
+      window.setTimeout(() => setCategoryTilesSave('idle'), 2000)
+    } catch (e) {
+      setCategoryImagesError(e instanceof Error ? e.message : 'Could not save the category images')
+      setCategoryTilesSave('idle')
+    }
+  }
+
   // Keyed off the LIVE `providerType` state, not `seller.providerConfig.type`
   // (the value the server component fetched on first load), so switching a
   // seller between mock and a real feed and saving turns the "Products
@@ -386,7 +424,7 @@ export default function SellerFormClient({
   // anishka-creation is a deliberate exception: its saved provider_config
   // is 'mock', but it has a real hardcoded feed behind it that the
   // live-count route already knows to call by platform slug.
-  const isLiveFeedStats = !isNew && !!seller && (providerType !== 'mock' || seller.platform === 'anishka-creation')
+  const isLiveFeedStats = !isNew && !!seller && (providerType !== 'mock' || hasCustomExtractor(seller.platform))
   const live = useLiveProductCount(seller?.platform ?? '', isLiveFeedStats)
 
   // Currency auto-detection state. `currencyTouched` starts true in EDIT
@@ -591,6 +629,11 @@ export default function SellerFormClient({
   // syncCreatedRecord (ADD mode) — shapes the current Method state into the
   // StoreProviderConfig JSON the sellers table's provider_config column expects.
   const buildProviderConfigPayload = (): Record<string, unknown> => {
+    const tiles = categoryTiles.length > 0 ? { categoryTiles } : {}
+    return { ...buildProviderConfigCore(), ...tiles }
+  }
+
+  const buildProviderConfigCore = (): Record<string, unknown> => {
     if (providerType === 'mock') return { type: 'mock' }
     if (providerType === 'shopify' || providerType === 'woocommerce') {
       return {
@@ -843,6 +886,50 @@ export default function SellerFormClient({
     (providerType !== 'html-scrape' ||
       (!!listingUrl && !!htmlSelectors.productCard && !!htmlSelectors.title && !!htmlSelectors.image && !!htmlSelectors.link))
 
+  // Category photos for the store page's "Shop by category" row. Feed
+  // stores: the extractor test, asked for photos too. Extractor ("mock")
+  // stores: the saved store's own API, since their extractor is in code.
+  const loadCategoryImages = async () => {
+    setCategoryImagesLoading(true)
+    setCategoryImagesError(null)
+    try {
+      let candidates: CategoryImageCandidate[] | undefined
+      if (providerType === 'mock') {
+        const slug = seller?.platform ?? createdPlatform
+        if (!slug) throw new Error('Save the store first, then look for category images.')
+        const res = await fetch(`/api/admin/sellers/${slug}/category-images`)
+        const body = (await res.json().catch(() => ({}))) as { categoryImages?: CategoryImageCandidate[]; error?: string }
+        if (!res.ok) throw new Error(body.error ?? 'Could not read the categories.')
+        candidates = body.categoryImages
+      } else {
+        const res = await fetch('/api/admin/sellers/test-extractor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerType,
+            baseUrl,
+            currency,
+            categoryImages: true,
+            jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
+            listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
+            htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
+            detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
+            categoryMap: providerType === 'html-scrape' ? htmlCategoryMapPayload : undefined,
+          }),
+        })
+        const body = (await res.json()) as TestExtractorResult
+        if (!body.ok) throw new Error(body.error ?? 'Could not read the categories.')
+        candidates = body.categoryImages ?? []
+      }
+      setCategoryCandidates(candidates ?? [])
+      setCategoryTiles((prev) => mergeCategoryTiles(prev, candidates ?? []))
+    } catch (e) {
+      setCategoryImagesError(e instanceof Error ? e.message : 'Could not read the categories.')
+    } finally {
+      setCategoryImagesLoading(false)
+    }
+  }
+
   const runSimulation = async () => {
     setSimRunning(true)
     setTestResult(null)
@@ -897,6 +984,9 @@ export default function SellerFormClient({
     }
 
     setSimRunning(false)
+
+    // Feed is reachable and has categories: go find their images.
+    if (result.ok && result.categories?.length) void loadCategoryImages()
 
     const failCount = Object.values(localOutcomes).filter((o) => o.status === 'fail').length
     const passedCleanly = result.ok && failCount === 0
@@ -998,6 +1088,7 @@ export default function SellerFormClient({
           contactName: form.contactName,
           contactEmail: form.contactEmail,
           contactPhone: form.contactPhone,
+          storeOrigin: form.storeOrigin,
           notes: form.notes,
           // Data URLs for now (see the branding note at the top) — a real
           // backend should upload to storage and keep only the hosted URL.
@@ -1037,6 +1128,7 @@ export default function SellerFormClient({
           contactName: form.contactName,
           contactEmail: form.contactEmail,
           contactPhone: form.contactPhone,
+          storeOrigin: form.storeOrigin,
           notes: form.notes,
           logoUrl: resolveLogoUrl(storeLogo, form.storeName),
           coverUrl: storeCover,
@@ -1267,6 +1359,10 @@ export default function SellerFormClient({
             We&rsquo;ll check this automatically for a Shopify or WooCommerce feed once you move to the next field.
           </p>
         )}
+      </Field>
+
+      <Field label="Store location">
+        <StoreOriginPicker value={form.storeOrigin} onChange={(v) => setForm((prev) => ({ ...prev, storeOrigin: v }))} />
       </Field>
 
       <Field label="Contact email" required>
@@ -1657,10 +1753,23 @@ export default function SellerFormClient({
         <div className={`flex flex-col items-center justify-center gap-3 p-10 text-center border-dashed ${groupClass}`}>
           <Package size={26} className="text-ink/20" strokeWidth={1.5} />
           <p className="max-w-xs text-xs leading-relaxed text-ink/45">
-            No live feed configured for this provider type — there&rsquo;s nothing to test. Catalogue entries{' '}
-            {isNew ? 'will be added' : 'here are added'} by hand.
+            This store uses a custom extractor written in code, so there&rsquo;s no feed checklist to run here.
+            {seller || createdPlatform ? ' You can still pick the images for its categories below.' : ' Save the store, then pick the images for its categories.'}
           </p>
         </div>
+      )}
+
+      {providerType === 'mock' && (seller || createdPlatform) && (
+        <CategoryTilesPanel
+          tiles={categoryTiles}
+          candidates={categoryCandidates}
+          loading={categoryImagesLoading}
+          error={categoryImagesError}
+          onChange={setCategoryTiles}
+          onRefresh={() => void loadCategoryImages()}
+          onSave={isNew ? undefined : () => void saveCategoryTiles()}
+          saveState={categoryTilesSave}
+        />
       )}
 
       {isLiveProvider && (
@@ -1853,6 +1962,19 @@ export default function SellerFormClient({
               )}
             </div>
           )}
+
+          {testResult?.ok && (testResult.categories?.length || categoryTiles.length > 0) ? (
+            <CategoryTilesPanel
+              tiles={categoryTiles}
+              candidates={categoryCandidates}
+              loading={categoryImagesLoading}
+              error={categoryImagesError}
+              onChange={setCategoryTiles}
+              onRefresh={() => void loadCategoryImages()}
+              onSave={isNew ? undefined : () => void saveCategoryTiles()}
+              saveState={categoryTilesSave}
+            />
+          ) : null}
 
           {testResult && !testResult.ok && !simRunning && (
             <div className="rounded-lg border border-red-600/25 bg-red-600/5 px-3 py-2.5 text-sm">
@@ -2214,6 +2336,7 @@ export default function SellerFormClient({
                       <SummaryRow term="Contact email" value={form.contactEmail} />
                       <SummaryRow term="Contact name" value={form.contactName || '—'} />
                       <SummaryRow term="Contact phone" value={form.contactPhone || '—'} />
+                      <SummaryRow term="Store location" value={STORE_ORIGIN_LABEL[form.storeOrigin]} />
                       <SummaryRow term="Notes" value={form.notes || '—'} multiline />
                     </dl>
                     <div className="flex items-center justify-between gap-2 border-t border-ink/10 pt-5">

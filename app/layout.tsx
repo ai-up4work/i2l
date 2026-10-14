@@ -15,6 +15,8 @@ import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
 import PushSync from "@/components/pwa/PushSync";
 import AuthProvider from "@/contexts/AuthContext";
+import { ensurePricingSettings } from "@/lib/pricing-settings-server";
+import { pricingSettingsScript } from "@/lib/pricing-settings";
 import { CartProvider } from "@/contexts/Cartcontext";
 import { WishlistProvider } from "@/contexts/Wishlistcontext";
 import { NotificationProvider } from "@/contexts/Notificationcontext";
@@ -140,11 +142,15 @@ export const viewport: Viewport = {
   colorScheme: "light",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Saved pricing settings (Admin → Pricing engine), installed on the
+  // server and handed to the browser so both price with the same numbers.
+  const pricingSettings = await ensurePricingSettings();
+
   return (
     // suppressHydrationWarning: some browser extensions (password
     // managers, ad blockers, etc.) inject attributes like
@@ -156,6 +162,14 @@ export default function RootLayout({
     // this one element; it does not suppress mismatches in children,
     // so real hydration bugs elsewhere still surface normally.
     <html lang="en-LK" suppressHydrationWarning>
+      <head>
+        {/* Saved pricing settings for the browser — read by
+            getPricingSettings() before any price is shown. */}
+        <script
+          id="wishdrop-pricing-settings"
+          dangerouslySetInnerHTML={{ __html: pricingSettingsScript(pricingSettings) }}
+        />
+      </head>
       <body
         className={`${fraunces.variable} ${spaceGrotesk.variable} font-sans`}
       >

@@ -26,6 +26,7 @@ import { isOwnCloudinaryUrl, MEDIA_LIMITS } from '@/lib/cloudinary'
 import { mallHandle } from '@/lib/wishdrop-mall'
 import type { createServiceRoleClient } from '@/lib/supabase/server'
 import { productCollectionIds, setProductCollections } from '@/lib/store-collections'
+import { socialStoreCurrency, storeOriginOf } from '@/lib/store-origin'
 
 type Admin = ReturnType<typeof createServiceRoleClient>
 
@@ -335,6 +336,17 @@ export async function loadEditableProduct(admin: Admin, productId: string, selle
 
 export type SaveResult = { ok: true; productId: string } | { ok: false; status: number; error: string }
 
+/**
+ * The currency a store's product prices are entered in — decided by the
+ * STORE, never per product: LKR for a local Sri Lankan store, INR
+ * otherwise (lib/store-origin.ts socialStoreCurrency). Every save writes
+ * it, so a store's products can't end up in a mix of currencies.
+ */
+export async function storeCurrencyForSeller(admin: Admin, sellerId: string): Promise<'LKR' | 'INR'> {
+  const { data } = await admin.from('sellers').select('*').eq('id', sellerId).maybeSingle()
+  return socialStoreCurrency(storeOriginOf((data ?? {}) as Record<string, unknown>))
+}
+
 /** Create a product for a seller. `margin` is the seller's (or staff's) margin. */
 export async function createProduct(admin: Admin, sellerId: string, margin: number, clean: CleanProduct): Promise<SaveResult> {
   const f = clean.fields
@@ -343,6 +355,7 @@ export async function createProduct(admin: Admin, sellerId: string, margin: numb
   const track = clean.trackInventory ?? clean.stockCount != null
   const compareAt = clean.compareAtCost != null && clean.compareAtCost > cost ? listedPrice(clean.compareAtCost, margin) : null
   const now = new Date().toISOString()
+  const currency = await storeCurrencyForSeller(admin, sellerId)
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const { data, error } = await admin
@@ -356,7 +369,7 @@ export async function createProduct(admin: Admin, sellerId: string, margin: numb
         price: listedPrice(cost, margin),
         compare_at_price: compareAt,
         stock_count: resolveStock(track, variants, clean.stockCount),
-        currency: 'INR',
+        currency,
         active: f.active ?? true,
         created_at: now,
         updated_at: now,
@@ -405,6 +418,9 @@ export async function updateProduct(
   const margin = opts.newMargin ?? oldMargin
   const cost = f.cost_price ?? row.cost_price
   const patch: Record<string, unknown> = { ...f, updated_at: new Date().toISOString() }
+  // Keep the product in its store's currency (fixes rows saved before a
+  // store changed location).
+  patch.currency = await storeCurrencyForSeller(admin, row.seller_id)
 
   const marginChanged = opts.newMargin !== undefined && opts.newMargin !== oldMargin
   if (f.cost_price !== undefined || marginChanged) {

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { getDualDeliveryPricing } from '@/lib/pricing'
+import { ensurePricingSettings } from '@/lib/pricing-settings-server'
 
 export async function GET(req: NextRequest) {
   const platform = req.nextUrl.searchParams.get('platform')
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 })
     }
 
-    const dual = getDualDeliveryPricing(product)
+    const dual = getDualDeliveryPricing(product, await ensurePricingSettings())
 
     return NextResponse.json({
       title: product.name,

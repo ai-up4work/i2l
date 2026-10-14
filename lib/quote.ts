@@ -1,106 +1,40 @@
 // lib/quote.ts
 //
 // Landed cost / quote calculation for Wishdrop.
-// All rates/constants below are hardcoded placeholders — replace with real
-// values (freight rate, HS code duty schedule) as they change. They can
-// also be overridden per-call (see the `*Override` fields on QuoteInput /
-// SimpleQuoteInput) — the demo page's "Adjust rates & fees" panel uses
-// this to let someone tweak values live without editing code.
 //
-// Currency conversion is NOT duplicated here — it defers to
-// lib/currency-config.ts (the same table formatPrice() uses elsewhere in
-// the app) so there is exactly one place exchange rates live. Update
-// CURRENCY_RATES_TO_LKR there and every price on the site, including
-// quotes, picks it up automatically.
+// Every rate and fee comes from the editable pricing settings
+// (lib/pricing-settings.ts, edited on Admin → Pricing engine) — nothing
+// here is hardcoded any more. Each calculation takes an optional
+// `settings` argument; without it, the live settings are used. The
+// quote calculator's "Adjust rates & fees" panel can still override any
+// single value per call through the `*Override` fields.
+//
+// Currency conversion defers to lib/currency-config.ts (rateToLKR), which
+// reads the same settings, so quotes always match storefront prices.
 
 import { rateToLKR } from "./currency-config";
+import { getPricingSettings, type PricingSettings, type QuoteRates } from "./pricing-settings";
 
-// ============================================================
-// HARDCODED CONFIG — edit these as real values become available
-// ============================================================
+export type { QuoteRates } from "./pricing-settings";
 
-// Freight rate used when freight isn't manually priced (LKR per kg).
-export const FREIGHT_RATE_PER_KG_LKR = 1200;
-
-// Default weight (kg) assumed when the seller/product doesn't specify one.
-export const DEFAULT_WEIGHT_KG = 0.5;
-
-// ---- Simple markup mode (separate from the customs cascade below) ----
-// Flat profit margin applied to product cost.
-export const SIMPLE_PROFIT_PERCENT = 30;
-
-export const SIMPLE_FREIGHT_RATE_PER_KG = 2380;
-export const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG = 2000;
-
-// Freight & customs clearance are priced per 0.5kg "block" and scale
-// proportionally with weight: e.g. 1kg pays double the 0.5kg rate,
-// 0.25kg pays half. Weight defaults to SIMPLE_WEIGHT_BLOCK_KG (0.5kg)
-// when not supplied.
-export const SIMPLE_WEIGHT_BLOCK_KG = 0.5;
-export const SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR = SIMPLE_FREIGHT_RATE_PER_KG / 2;
-export const SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR = SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_KG / 2;
-
-// Flat fees added on top, regardless of weight or value.
-export const SIMPLE_DELIVERY_FLAT_LKR = 450;
-export const SIMPLE_EXTRA_MARGIN_FLAT_LKR = 250;
-
-// ---- Economy delivery (postal) variant of the simple markup mode ----
-// Economy replaces Express's separate Freight Charges + Customs
-// Clearance + flat Delivery Fee with a single "Postal Charges" line
-// (weight x rate/kg), and has no flat delivery fee. The flat Extra
-// Margin still applies on top, same as Express.
-export const SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR = 3500;
-
-// Which delivery method a Simple-markup quote uses. Express = the
-// original freight + customs-clearance + delivery-fee model. Economy =
-// a single postal-charges line and no flat delivery fee.
+// Which delivery method a Simple-markup quote uses. Express = freight +
+// customs-clearance + delivery-fee model. Economy = a single postal-charges
+// line and no flat delivery fee.
 export type DeliveryType = "express" | "economy";
 
-export interface QuoteRates {
-  dutyPercent: number;       // Duty % only
-  palPercent: number;        // PAL % only
-  sscLPercent: number;       // SSCL % only
-  cessPercent: number;       // Cess % only
-  surchargePercent: number;  // Surcharge % only (on Duty)
-  vatPercent: number;        // VAT % only
+/** The customs rates for an HS code (DEFAULT when it isn't listed). */
+export function ratesForHsCode(hsCode: string, settings: PricingSettings = getPricingSettings()): QuoteRates {
+  const codes = settings.customs.hsCodes;
+  const r = codes[hsCode] ?? codes.DEFAULT;
+  return {
+    dutyPercent: r.dutyPercent,
+    palPercent: r.palPercent,
+    sscLPercent: r.sscLPercent,
+    cessPercent: r.cessPercent,
+    surchargePercent: r.surchargePercent,
+    vatPercent: r.vatPercent,
+  };
 }
-
-// HS Code -> duty rate schedule. Add real codes/rates here.
-// "DEFAULT" is used as a fallback for any HS code not explicitly listed.
-export const HS_CODE_RATES: Record<string, QuoteRates> = {
-  DEFAULT: {
-    dutyPercent: 15,
-    palPercent: 10,
-    sscLPercent: 2.5,
-    cessPercent: 10,
-    surchargePercent: 50,
-    vatPercent: 18,
-  },
-  "6109.10": { // e.g. cotton t-shirts
-    dutyPercent: 15,
-    palPercent: 10,
-    sscLPercent: 2.5,
-    cessPercent: 0,
-    surchargePercent: 50,
-    vatPercent: 18,
-  },
-  "8517.13": { // e.g. smartphones
-    dutyPercent: 0,
-    palPercent: 10,
-    sscLPercent: 2.5,
-    cessPercent: 0,
-    surchargePercent: 0,
-    vatPercent: 18,
-  },
-  "9503.00": { // e.g. toys
-    dutyPercent: 15,
-    palPercent: 10,
-    sscLPercent: 2.5,
-    cessPercent: 15,
-    surchargePercent: 50,
-    vatPercent: 18,
-  },
-};
 
 // ============================================================
 // INPUT / OUTPUT SHAPES
@@ -110,14 +44,14 @@ export interface QuoteInput {
   pcsPerUnit: number;      // PCS / Unit — quantity being ordered
   valueINR: number;        // Value — product price per unit, in currencyCode's units
   currencyCode?: string;   // Upstream currency code (e.g. "INR", "USD"). Defaults to "INR".
-  weightKg?: number;       // Weight (kg) — optional, falls back to defaultWeightKgOverride / DEFAULT_WEIGHT_KG
+  weightKg?: number;       // Weight (kg) — optional, falls back to defaultWeightKgOverride / settings.customs.defaultWeightKg
   hsCode: string;          // HS Code (select from dropdown) — determines duty rates
   freightLKR?: number;     // Optional manual freight override, in LKR. If omitted, calculated from weight.
 
   // ---- Live config overrides (all optional; fall back to the constants above) ----
   rateOverrides?: Partial<QuoteRates>;  // merged on top of the selected HS code's rates
-  freightRatePerKgLKR?: number;         // overrides FREIGHT_RATE_PER_KG_LKR
-  defaultWeightKgOverride?: number;     // overrides DEFAULT_WEIGHT_KG (used only when weightKg is omitted)
+  freightRatePerKgLKR?: number;         // overrides settings.customs.freightRatePerKgLKR
+  defaultWeightKgOverride?: number;     // overrides settings.customs.defaultWeightKg (used only when weightKg is omitted)
 }
 
 export interface QuoteBreakdown {
@@ -184,11 +118,10 @@ export interface QuoteBreakdown {
  * Order-level totals multiply the per-unit figures by PCS/Unit.
  *
  * All rates/fees can be overridden per-call via rateOverrides,
- * freightRatePerKgLKR and defaultWeightKgOverride — otherwise the module
- * constants (HS_CODE_RATES, FREIGHT_RATE_PER_KG_LKR, DEFAULT_WEIGHT_KG)
- * are used as before.
+ * freightRatePerKgLKR and defaultWeightKgOverride — otherwise the pricing
+ * settings (settings.customs) are used.
  */
-export function calculateQuote(input: QuoteInput): QuoteBreakdown {
+export function calculateQuote(input: QuoteInput, settings: PricingSettings = getPricingSettings()): QuoteBreakdown {
   const {
     pcsPerUnit,
     valueINR,
@@ -198,11 +131,11 @@ export function calculateQuote(input: QuoteInput): QuoteBreakdown {
 
   const currencyCode = input.currencyCode ?? "INR";
 
-  const freightRatePerKgLKR = input.freightRatePerKgLKR ?? FREIGHT_RATE_PER_KG_LKR;
-  const defaultWeightKg = input.defaultWeightKgOverride ?? DEFAULT_WEIGHT_KG;
+  const freightRatePerKgLKR = input.freightRatePerKgLKR ?? settings.customs.freightRatePerKgLKR;
+  const defaultWeightKg = input.defaultWeightKgOverride ?? settings.customs.defaultWeightKg;
   const weightKg = input.weightKg ?? defaultWeightKg;
 
-  const baseRates = HS_CODE_RATES[hsCode] ?? HS_CODE_RATES.DEFAULT;
+  const baseRates = ratesForHsCode(hsCode, settings);
   const rates: QuoteRates = { ...baseRates, ...(input.rateOverrides ?? {}) };
 
   const {
@@ -217,7 +150,7 @@ export function calculateQuote(input: QuoteInput): QuoteBreakdown {
   // 1. Convert product value to LKR using the shared currency table —
   // same source formatPrice() uses everywhere else, so quotes always
   // match the LKR prices shown on the storefront.
-  const exchangeRateUsed = rateToLKR(currencyCode);
+  const exchangeRateUsed = rateToLKR(currencyCode, settings);
   const productPriceLKR = valueINR * exchangeRateUsed;
 
   // 2. Freight — manual override wins, otherwise derived from weight
@@ -322,10 +255,10 @@ export interface SimpleQuoteInput {
   pcsPerUnit: number;     // PCS / Unit — quantity being ordered
   valueINR: number;       // Product cost per unit, in currencyCode's units
   currencyCode?: string;  // Upstream currency code (e.g. "INR"). Defaults to "INR".
-  weightKg?: number;      // Weight (kg) — optional, falls back to weightBlockKgOverride / SIMPLE_WEIGHT_BLOCK_KG
+  weightKg?: number;      // Weight (kg) — optional, falls back to weightBlockKgOverride / settings.storefront.weightBlockKg
   deliveryType?: DeliveryType; // "express" (default) or "economy"
 
-  // ---- Live config overrides (all optional; fall back to the constants above) ----
+  // ---- Per-call overrides (all optional; fall back to settings.storefront) ----
   profitPercentOverride?: number;
   freightRatePerBlockLKROverride?: number;         // express only
   customsClearanceRatePerBlockLKROverride?: number; // express only
@@ -386,25 +319,25 @@ export interface SimpleQuoteBreakdown {
  * Order-level totals multiply the per-unit Total Cost by PCS/Unit.
  *
  * All rates/fees can be overridden per-call via the *Override fields —
- * otherwise the module constants (SIMPLE_PROFIT_PERCENT,
- * SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR, SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR,
- * etc.) are used as before.
+ * otherwise the pricing settings (settings.storefront) are used.
  */
 export function calculateSimpleQuote(
-  input: SimpleQuoteInput
+  input: SimpleQuoteInput,
+  settings: PricingSettings = getPricingSettings()
 ): SimpleQuoteBreakdown {
+  const sf = settings.storefront;
   const { pcsPerUnit, valueINR } = input;
   const currencyCode = input.currencyCode ?? "INR";
   const deliveryType: DeliveryType = input.deliveryType ?? "express";
 
-  const profitPercent = input.profitPercentOverride ?? SIMPLE_PROFIT_PERCENT;
-  const weightBlockKg = input.weightBlockKgOverride ?? SIMPLE_WEIGHT_BLOCK_KG;
-  const extraMargin = input.extraMarginLKROverride ?? SIMPLE_EXTRA_MARGIN_FLAT_LKR;
+  const profitPercent = input.profitPercentOverride ?? sf.profitPercent;
+  const weightBlockKg = input.weightBlockKgOverride ?? sf.weightBlockKg;
+  const extraMargin = input.extraMarginLKROverride ?? sf.extraMarginLKR;
 
   const weightKg = input.weightKg ?? weightBlockKg;
 
   // 1. Convert to LKR via the shared currency table
-  const exchangeRateUsed = rateToLKR(currencyCode);
+  const exchangeRateUsed = rateToLKR(currencyCode, settings);
   const productCostLKR = valueINR * exchangeRateUsed;
 
   // 2. Profit margin
@@ -417,11 +350,12 @@ export function calculateSimpleQuote(
   let deliveryFee = 0;
 
   if (deliveryType === "express") {
+    // Rates are saved per kg; billed per weight block.
     const freightRatePerBlockLKR =
-      input.freightRatePerBlockLKROverride ?? SIMPLE_FREIGHT_RATE_PER_BLOCK_LKR;
+      input.freightRatePerBlockLKROverride ?? sf.freightRatePerKgLKR * weightBlockKg;
     const customsClearanceRatePerBlockLKR =
       input.customsClearanceRatePerBlockLKROverride ??
-      SIMPLE_CUSTOMS_CLEARANCE_RATE_PER_BLOCK_LKR;
+      sf.customsClearanceRatePerKgLKR * weightBlockKg;
 
     // 3 & 4. Freight and customs clearance, scaled by weight block
     const weightBlocks = weightKg / weightBlockKg;
@@ -429,11 +363,11 @@ export function calculateSimpleQuote(
     customsClearance = weightBlocks * customsClearanceRatePerBlockLKR;
 
     // 6. Flat delivery fee (express only)
-    deliveryFee = input.deliveryFeeLKROverride ?? SIMPLE_DELIVERY_FLAT_LKR;
+    deliveryFee = input.deliveryFeeLKROverride ?? sf.deliveryFeeLKR;
   } else {
     // Economy: single postal-charges line, no flat delivery fee
     const postalRatePerKgLKR =
-      input.postalRatePerKgLKROverride ?? SIMPLE_ECONOMY_POSTAL_RATE_PER_KG_LKR;
+      input.postalRatePerKgLKROverride ?? sf.economyPostalRatePerKgLKR;
     postalCharges = weightKg * postalRatePerKgLKR;
     deliveryFee = 0;
   }
@@ -522,7 +456,8 @@ export interface RequestPreviewQuoteBreakdown {
 }
 
 export function calculateRequestPreviewQuote(
-  input: RequestPreviewQuoteInput
+  input: RequestPreviewQuoteInput,
+  settings: PricingSettings = getPricingSettings()
 ): RequestPreviewQuoteBreakdown {
   const { unitPrice, qty } = input;
   const currencyCode = input.currencyCode ?? "INR";
@@ -540,7 +475,7 @@ export function calculateRequestPreviewQuote(
     deliveryFeeLKROverride: input.deliveryFeeLKROverride,
     postalRatePerKgLKROverride: input.postalRatePerKgLKROverride,
     extraMarginLKROverride: input.extraMarginLKROverride,
-  });
+  }, settings);
 
   const { exchangeRateUsed } = simple;
 
@@ -570,37 +505,6 @@ export function calculateRequestPreviewQuote(
     exchangeRateUsed,
   };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ============================================================
 // CATALOG QUOTE — the price shown on the public catalog/product page.
@@ -671,9 +575,10 @@ export interface CatalogQuoteBreakdown {
  *   Economy: catalogPrice = 5100, serviceFeeLKR = 250 (margin only, no flat delivery fee), actualTotalCost = 5350
  */
 export function calculateCatalogQuote(
-  input: SimpleQuoteInput
+  input: SimpleQuoteInput,
+  settings: PricingSettings = getPricingSettings()
 ): CatalogQuoteBreakdown {
-  const simple = calculateSimpleQuote(input);
+  const simple = calculateSimpleQuote(input, settings);
 
   const deliveryFeeLKR = simple.deliveryFee;
   const extraMarginLKR = simple.extraMargin;
@@ -720,8 +625,8 @@ export function calculateCatalogQuote(
  * calculateEconomyCatalogQuote (or their *PriceLKR one-liners) below
  * instead, so the call site can't accidentally get the wrong method.
  */
-export function getCatalogPriceLKR(input: SimpleQuoteInput): number {
-  return calculateCatalogQuote(input).catalogPrice;
+export function getCatalogPriceLKR(input: SimpleQuoteInput, settings: PricingSettings = getPricingSettings()): number {
+  return calculateCatalogQuote(input, settings).catalogPrice;
 }
 
 // ---- Delivery-type-locked catalog wrappers ----
@@ -734,30 +639,34 @@ export function getCatalogPriceLKR(input: SimpleQuoteInput): number {
 
 /** Same as calculateCatalogQuote, but always priced as Express (Freight Charges + Customs Clearance + flat Delivery Fee), regardless of any deliveryType passed in `input`. */
 export function calculateExpressCatalogQuote(
-  input: Omit<SimpleQuoteInput, "deliveryType">
+  input: Omit<SimpleQuoteInput, "deliveryType">,
+  settings: PricingSettings = getPricingSettings()
 ): CatalogQuoteBreakdown {
-  return calculateCatalogQuote({ ...input, deliveryType: "express" });
+  return calculateCatalogQuote({ ...input, deliveryType: "express" }, settings);
 }
 
 /** Same as calculateCatalogQuote, but always priced as Economy (single Postal Charges line, no flat Delivery Fee), regardless of any deliveryType passed in `input`. */
 export function calculateEconomyCatalogQuote(
-  input: Omit<SimpleQuoteInput, "deliveryType">
+  input: Omit<SimpleQuoteInput, "deliveryType">,
+  settings: PricingSettings = getPricingSettings()
 ): CatalogQuoteBreakdown {
-  return calculateCatalogQuote({ ...input, deliveryType: "economy" });
+  return calculateCatalogQuote({ ...input, deliveryType: "economy" }, settings);
 }
 
 /** Convenience one-liner: Express catalogPrice only, for product cards/PDPs that always show the Express price. */
 export function getExpressCatalogPriceLKR(
-  input: Omit<SimpleQuoteInput, "deliveryType">
+  input: Omit<SimpleQuoteInput, "deliveryType">,
+  settings: PricingSettings = getPricingSettings()
 ): number {
-  return calculateExpressCatalogQuote(input).catalogPrice;
+  return calculateExpressCatalogQuote(input, settings).catalogPrice;
 }
 
 /** Convenience one-liner: Economy catalogPrice only, for product cards/PDPs that always show the Economy price. */
 export function getEconomyCatalogPriceLKR(
-  input: Omit<SimpleQuoteInput, "deliveryType">
+  input: Omit<SimpleQuoteInput, "deliveryType">,
+  settings: PricingSettings = getPricingSettings()
 ): number {
-  return calculateEconomyCatalogQuote(input).catalogPrice;
+  return calculateEconomyCatalogQuote(input, settings).catalogPrice;
 }
 
 // ---- Example usage ----

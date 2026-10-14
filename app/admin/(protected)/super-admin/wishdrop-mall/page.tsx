@@ -42,7 +42,7 @@ import {
   timeAgo,
 } from '@/components/admin/wishdrop-mall/shared'
 import {
-  MALL_DELIVERY_FEE_LKR,
+  mallDeliveryFeeLKR,
   approxLKR,
   WISHDROP_MALL_SLUG,
   type MallCategory,
@@ -181,7 +181,7 @@ export default function WishdropMallPage() {
             </div>
             <p className="mt-1 max-w-lg text-sm leading-relaxed text-ink/60">
               Pick products from any seller or link, set your price in rupees, and sell them under the Wishdrop
-              name. Customers pay your price + {formatMoney(MALL_DELIVERY_FEE_LKR, 'Rs')} delivery — no tax or import charges.
+              name. Customers pay your price + {formatMoney(mallDeliveryFeeLKR(), 'Rs')} delivery — no tax or import charges.
             </p>
             <div className="mt-2 flex flex-wrap gap-4">
               {/* The public store page only shows ACTIVE sellers, so while the
@@ -209,7 +209,7 @@ export default function WishdropMallPage() {
             <Stat label="Live" value={liveCount} />
             <Stat label="Units in stock" value={products.reduce((sum, p) => sum + (p.stock_count ?? 0), 0)} />
             <Stat label="Sold out" value={products.filter((p) => p.stock_count === 0).length} />
-            <Stat label="Delivery fee" value={formatMoney(MALL_DELIVERY_FEE_LKR, 'Rs')} />
+            <Stat label="Delivery fee" value={formatMoney(mallDeliveryFeeLKR(), 'Rs')} />
           </dl>
           <button type="button" onClick={toggleStoreLive} className={isLive ? SECONDARY_BUTTON : PRIMARY_BUTTON}>
             {isLive ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -924,7 +924,7 @@ function SettingsDialog({
         </label>
         <p className="text-xs text-ink/50">
           Pricing: each product&rsquo;s rupee price is set on the product itself. Customers pay that price plus a flat{' '}
-          {formatMoney(MALL_DELIVERY_FEE_LKR, 'Rs')} delivery fee, with no tax or import charges.
+          {formatMoney(mallDeliveryFeeLKR(), 'Rs')} delivery fee, with no tax or import charges.
         </p>
         {error && <p className="text-sm font-semibold text-rose-700">{error}</p>}
       </div>

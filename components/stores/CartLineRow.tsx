@@ -5,6 +5,8 @@ import Image from 'next/image'
 import { Minus, Plus, Trash2, ShoppingBag } from 'lucide-react'
 import type { CartLineItem } from '@/contexts/Cartcontext'
 import { getDualDeliveryPricing, formatLKR, type ProductPriceableItem } from '@/lib/pricing'
+import { useStorePricingLookup } from '@/hooks/useStorePricingLookup'
+import type { StorePricingInfo } from '@/lib/store-origin'
 import type { DeliveryChoice } from './CartDeliveryToggle'
 
 /** Maps one cart line's snapshot onto the shape getDualDeliveryPricing
@@ -13,10 +15,13 @@ import type { DeliveryChoice } from './CartDeliveryToggle'
  * compareAtPrice/onSale on a cart snapshot, so this always shows a
  * straight price, not a "was" price — that comparison only makes sense
  * on the PDP where the live product record still has it. */
-function toPriceableItem(line: CartLineItem): ProductPriceableItem {
+function toPriceableItem(line: CartLineItem, info: StorePricingInfo): ProductPriceableItem {
   return {
+    origin: info.origin,
+    marginIncluded: info.marginIncluded,
     price: line.product.sourcePrice != null ? Number(line.product.sourcePrice) : 0,
-    currency: line.product.currencyCode ?? 'USD',
+    // Social stores: the store's currency wins over what the line remembered.
+    currency: info.currency ?? line.product.currencyCode ?? 'USD',
     weightKg: line.product.weightKg ?? undefined,
     // Fixed-price stores (Wishdrop Mall) skip the import formula — see lib/pricing.ts.
     storeSlug: line.product.site ?? null,
@@ -34,7 +39,10 @@ export default function CartLineRow({
   onUpdateQty: (id: string, qty: number) => void
   onRemove: (id: string) => void
 }) {
-  const dual = useMemo(() => getDualDeliveryPricing(toPriceableItem(line)), [line])
+  const { lookup } = useStorePricingLookup()
+  const info = lookup(line.product.site, { origin: line.product.origin ?? undefined, marginIncluded: line.product.marginIncluded })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dual = useMemo(() => getDualDeliveryPricing(toPriceableItem(line, info)), [line, info.origin, info.marginIncluded, info.currency])
   const option = deliveryChoice === 'economy' ? dual.economy : dual.express
   const lineTotalLKR = option.priceLKR * line.qty
 

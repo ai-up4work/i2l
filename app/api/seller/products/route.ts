@@ -31,7 +31,7 @@ export async function GET() {
   return NextResponse.json({
     products: data ?? [],
     defaultMarginPercent: seller.defaultMarginPercent,
-    seller: { id: seller.id, name: seller.name, slug: seller.platform, live: seller.status === 'active' },
+    seller: { id: seller.id, name: seller.name, slug: seller.platform, live: seller.status === 'active', local: seller.origin === 'LK' },
   })
 }
 
