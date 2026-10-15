@@ -184,25 +184,52 @@ export const community: CommunityPost[] = [
   { img: 'https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?q=80&w=400&auto=format&fit=crop', user: 'ishara.dev', likes: 22 },
 ]
 
-export type Testimonial = { quote: string; name: string; avatar: string }
+// Customer reviews shown on the landing page (components/landing/Testimonials.tsx).
+//
+// Only add REAL reviews, with the customer's permission — e.g. from
+// WhatsApp, Google or Facebook (the section's "Share your experience"
+// button collects them on WhatsApp). Everything except quote and name is
+// optional; the section looks best with 6 or more. `avatar` is a file in
+// public/ (initials are shown when it's missing); `photo` is an optional
+// unboxing photo. `rating` is 1–5 and feeds the average shown above the
+// cards, so leave it out rather than guessing.
+export type Testimonial = {
+  quote: string
+  name: string
+  avatar?: string
+  city?: string
+  /** What they bought, e.g. "Running shoes" */
+  item?: string
+  /** Where from, e.g. "Myntra" */
+  store?: string
+  rating?: 1 | 2 | 3 | 4 | 5
+  /** Where the review was left */
+  source?: 'WhatsApp' | 'Google' | 'Facebook' | 'Instagram'
+  /** e.g. "Sep 2026" */
+  date?: string
+  photo?: string
+}
 
 export const testimonials: Testimonial[] = [
   {
     quote: 'Super service. Very reliable and responsible to deliver the goods on time.',
     name: 'A. Fernando',
     avatar: '/avatars/a_fernando.jpg',
+    rating: 5,
   },
   {
     quote:
       'I have been using this service for a year and three months. The experience has been excellent — customer service is responsive and helpful with every query.',
     name: 'D. Jansz',
     avatar: '/avatars/d_jansz.jpg',
+    rating: 5,
   },
   {
     quote:
       'Shipping is smooth, and pick-up and delivery are usually within the estimated time. Customer service is prompt and genuinely helpful.',
     name: 'N. Silva',
     avatar: '/avatars/n_silva.jpg',
+    rating: 5,
   },
 ]
 
@@ -273,7 +300,7 @@ export const navLinks: NavLink[] = [
     label: 'Support',
     items: [
       { name: 'Service notices', desc: 'Warehouses updates & service alerts', href: '/blog/categories/notices/' },
-      { name: 'Help centres', desc: 'Frequently asked questions by users', href: 'https://help.buyandship.com.my/hc/en-my' },
+      { name: 'Contact us', desc: 'Questions about an order or an item', href: '/contact' },
     ],
   },
 ]

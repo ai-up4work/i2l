@@ -90,13 +90,13 @@ export default function RequestConfirmPage({
 
           <div className="flex flex-col gap-4">
             <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
-              I confirm the products requested do not violate Buy&amp;Ship&apos;s parcel restrictions or contain any{' '}
+              I confirm my request doesn&apos;t include any{' '}
               <a href="/prohibited-items" className="font-semibold text-teal-deep hover:underline">
                 prohibited items
               </a>
-              . I acknowledge the criteria for refunds and returns under Buy&amp;Ship&apos;s{' '}
+              , and I&apos;ve read Wishdrop&apos;s{' '}
               <a href="/refund-policy" className="font-semibold text-teal-deep hover:underline">
-                Purchase Protection plan
+                refund &amp; cancellation policy
               </a>
               .
             </ConfirmCheckbox>

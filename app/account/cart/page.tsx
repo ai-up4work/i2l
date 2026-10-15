@@ -1,9 +1,9 @@
 // app/account/cart/page.tsx
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   ShoppingBag,
@@ -28,11 +28,9 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
-import { useDashboard } from '@/contexts/DashboardContext'
 import { useOrders } from '@/contexts/Ordercontexts'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@/lib/supabase/client'
-import { useLoyalty, effectiveCouponStatus, type Coupon } from '@/contexts/Loyaltycontext'
 import {
   getDualDeliveryPricing,
   withExtraServiceCharge,
@@ -86,6 +84,39 @@ function toPriceableItem(product: CartProduct, info?: StorePricingInfo): Product
     // price as set + delivery only, no import charges).
     storeSlug: product.site ?? null,
   }
+}
+
+/** What POST /api/checkout(/quote) needs per line. Prices sent here are
+ *  only a last resort — the server looks up each item's real price. */
+function toCheckoutLine(line: CartLineItem) {
+  const p = line.product
+  return {
+    id: p.id,
+    url: p.url,
+    site: p.site ?? null,
+    title: p.title,
+    image: p.image ?? null,
+    currencyCode: p.currencyCode ?? null,
+    sourcePrice: p.sourcePrice ?? null,
+    weightKg: p.weightKg ?? null,
+    source: p.source ?? 'link',
+    selectedOptions: p.selectedOptions ?? null,
+    productHandle: p.productHandle ?? null,
+    qty: line.qty,
+  }
+}
+
+/** POST /api/checkout/quote response (lib/checkout/server.ts CheckoutQuote). */
+type ServerQuote = {
+  priceSubtotalLKR: number
+  serviceSubtotalLKR: number
+  deliverySubtotalLKR: number
+  pickupLKR: number
+  discountLKR: number
+  totalLKR: number
+  coupon: { id: string; title: string; label: string } | null
+  couponError: string | null
+  needsReview: boolean
 }
 
 function cleanSiteLabel(site: string): string {
@@ -478,17 +509,20 @@ function CartPageContent() {
 
   const cart = useCart()
   const { lookup: lookupStorePricing } = useStorePricingLookup()
-  const dashboard = useDashboard()
-  const loyalty = useLoyalty()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useAuth()
   // Economy is temporarily locked ("coming soon" — see DeliveryModeToggle),
   // so Express is the only real choice right now and is the sane default.
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryChoice>('express')
   const [confirming, setConfirming] = useState(false)
   const [discountCode, setDiscountCode] = useState('')
-  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null)
+  // The signed coupon code currently applied (lib/coupons). The server
+  // decides whether it's valid and how much it takes off — see `quote`.
+  const [couponToken, setCouponToken] = useState<string | null>(null)
   const [couponError, setCouponError] = useState<string | null>(null)
+  const [quote, setQuote] = useState<ServerQuote | null>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
 
   const [breakdownLineId, setBreakdownLineId] = useState<string | null>(null)
   const breakdownLine = cart.items.find((line) => line.product.id === breakdownLineId) ?? null
@@ -688,109 +722,162 @@ function CartPageContent() {
       deliverySubtotalLKR += option.deliveryFeeLKR * line.qty
     })
 
-    // Discount only ever applies to the product price, never shipping/
-    // service charges — same "coupon value is the product's value, not
-    // the whole order" rule the QC-issue compensation coupons are issued
-    // under (see lib/supabase/qc-issues.ts).
-    let discountLKR = 0
-    if (appliedCoupon && priceSubtotalLKR >= appliedCoupon.minOrderValue) {
-      discountLKR =
-        appliedCoupon.discountType === 'percent'
-          ? Math.round(priceSubtotalLKR * (appliedCoupon.discountValue / 100))
-          : appliedCoupon.discountValue
-      if (appliedCoupon.maxDiscount != null) discountLKR = Math.min(discountLKR, appliedCoupon.maxDiscount)
-      discountLKR = Math.min(discountLKR, priceSubtotalLKR)
+    // These browser-side numbers are only an instant estimate while the
+    // server quote loads. The server's numbers (quote) are what's shown
+    // once available, and what /api/checkout actually charges — including
+    // the coupon discount, which is never worked out here.
+    if (quote) {
+      return {
+        priceSubtotalLKR: quote.priceSubtotalLKR,
+        serviceChargeSubtotalLKR: quote.serviceSubtotalLKR,
+        deliverySubtotalLKR: quote.deliverySubtotalLKR,
+        pickupLKR: quote.pickupLKR,
+        pickupStoreCount: pickup.storeCount,
+        discountLKR: quote.discountLKR,
+        grandTotalLKR: quote.totalLKR,
+      }
     }
-
     return {
       priceSubtotalLKR,
       serviceChargeSubtotalLKR,
       deliverySubtotalLKR,
       pickupLKR: pickup.totalLKR,
       pickupStoreCount: pickup.storeCount,
-      discountLKR,
-      grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR + pickup.totalLKR - discountLKR,
+      discountLKR: 0,
+      grandTotalLKR: priceSubtotalLKR + serviceChargeSubtotalLKR + deliverySubtotalLKR + pickup.totalLKR,
     }
-  }, [selectedLines, deliveryChoice, appliedCoupon, lookupStorePricing])
+  }, [selectedLines, deliveryChoice, quote, lookupStorePricing])
 
   const pendingRequestCount = useOrders().orders.length
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
-  const handleApplyCoupon = () => {
+  // ---- Server quote ------------------------------------------------------
+  // Re-asked whenever the selection, quantities, delivery or coupon change.
+  // A stale reply (an older request finishing late) is ignored.
+  const quoteSeq = useRef(0)
+  const requestQuote = useCallback(
+    async (token: string | null) => {
+      if (selectedLines.length === 0) {
+        setQuote(null)
+        return null
+      }
+      const seq = ++quoteSeq.current
+      setQuoteLoading(true)
+      try {
+        const res = await fetch('/api/checkout/quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lines: selectedLines.map(toCheckoutLine), delivery: deliveryChoice, couponToken: token }),
+        })
+        const body = (await res.json().catch(() => ({}))) as ServerQuote & { error?: string }
+        if (seq !== quoteSeq.current) return null
+        if (!res.ok) {
+          setQuote(null)
+          return null
+        }
+        setQuote(body)
+        return body
+      } catch {
+        if (seq === quoteSeq.current) setQuote(null)
+        return null
+      } finally {
+        if (seq === quoteSeq.current) setQuoteLoading(false)
+      }
+    },
+    [selectedLines, deliveryChoice],
+  )
+
+  useEffect(() => {
+    if (!mounted || !user) return
+    const t = setTimeout(() => {
+      requestQuote(couponToken).then((q) => {
+        // The coupon stopped applying (e.g. an item was unselected and
+        // the minimum is no longer met) — say why and drop it.
+        if (q && couponToken && q.couponError) {
+          setCouponError(q.couponError)
+          setCouponToken(null)
+        }
+      })
+    }, 350)
+    return () => clearTimeout(t)
+  }, [mounted, user, requestQuote, couponToken])
+
+  // "Use now" from My coupons arrives as /account/cart?coupon=<code>.
+  const consumedCouponParam = useRef(false)
+  useEffect(() => {
+    if (consumedCouponParam.current) return
+    const fromLink = searchParams.get('coupon')
+    if (!fromLink) return
+    consumedCouponParam.current = true
+    setDiscountCode(fromLink)
+    setCouponToken(fromLink)
+  }, [searchParams])
+
+  const handleApplyCoupon = async () => {
     setCouponError(null)
     const code = discountCode.trim()
     if (!code) return
-    const match = loyalty.coupons.find((c) => c.code.toLowerCase() === code.toLowerCase())
-    if (!match) {
-      setCouponError('That code isn\u2019t valid.')
+    const q = await requestQuote(code)
+    if (!q) {
+      setCouponError('Couldn’t check that code right now. Please try again.')
       return
     }
-    const status = effectiveCouponStatus(match)
-    if (status === 'used') {
-      setCouponError('You\u2019ve already used that code.')
+    if (q.couponError) {
+      setCouponError(q.couponError)
+      setCouponToken(null)
+      requestQuote(null)
       return
     }
-    if (status === 'expired') {
-      setCouponError('That code has expired.')
-      return
-    }
-    if (priceSubtotalLKR < match.minOrderValue) {
-      setCouponError(`This code needs an order of at least Rs. ${match.minOrderValue.toLocaleString('en-LK')}.`)
-      return
-    }
-    setAppliedCoupon(match)
+    setCouponToken(code)
   }
 
   const handleRemoveCoupon = () => {
-    setAppliedCoupon(null)
+    setCouponToken(null)
+    setDiscountCode('')
     setCouponError(null)
   }
+
+  const appliedCoupon = couponToken && quote?.coupon ? quote.coupon : null
 
   const handleConfirm = async () => {
     if (selectedLines.length === 0 || confirming || !detailsComplete) return
     setConfirming(true)
     setCheckoutError(null)
 
-    const lines = selectedLines.map((line) => {
-      const info = lookupStorePricing(line.product.site, { origin: line.product.origin ?? undefined, marginIncluded: line.product.marginIncluded })
-      const dual = getDualDeliveryPricing(toPriceableItem(line.product, info))
-      const option = deliveryChoice === 'economy' ? dual.economy : dual.express
-      return {
-        origin: info.origin,
-        name: line.product.title,
-        url: line.product.url,
-        qty: line.qty,
-        unitPriceLKR: option.actualTotalLKR,
-        image: line.product.image ?? '',
-        source: line.product.source ?? 'link',
-        site: line.product.site,
-        selectedOptions: line.product.selectedOptions,
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines: selectedLines.map(toCheckoutLine),
+          delivery: deliveryChoice,
+          couponToken,
+          recipient: {
+            fullName: fullName.trim(),
+            phone: `${whatsappCode} ${whatsapp.trim()}`.trim(),
+            addressLine1: addressLine1.trim(),
+            addressLine2: addressLine2.trim() || undefined,
+            city: city.trim(),
+            postalCode: zipCode.trim() || undefined,
+            country: country.trim(),
+            existingAddressId,
+          },
+        }),
+      })
+      const body = (await res.json().catch(() => ({}))) as { checkoutId?: string; error?: string }
+      if (!res.ok || !body.checkoutId) {
+        setCheckoutError(body.error ?? 'Something went wrong placing your order. Please try again.')
+        setConfirming(false)
+        return
       }
-    })
-
-    const result = await dashboard.confirmCartOrder(lines, {
-      fullName: fullName.trim(),
-      phone: `${whatsappCode} ${whatsapp.trim()}`.trim(),
-      addressLine1: addressLine1.trim(),
-      addressLine2: addressLine2.trim() || undefined,
-      city: city.trim(),
-      postalCode: zipCode.trim() || undefined,
-      country: country.trim(),
-      existingAddressId,
-    }, { pickupFeeLKR: pickupLKR })
-    if (!result.ok) {
-      setCheckoutError(result.error ?? 'Something went wrong placing your order. Please try again.')
+      // Only remove what was actually checked out — an item left
+      // unselected on purpose (see selectedIds) stays in the cart.
+      selectedLines.forEach((line) => cart.removeItem(line.product.id))
+      router.push(`/account/pay/${body.checkoutId}`)
+    } catch {
+      setCheckoutError('Couldn’t reach Wishdrop. Check your connection and try again.')
       setConfirming(false)
-      return
     }
-    // Mark the coupon used only after the order actually succeeded —
-    // an order failure shouldn't burn a one-time-use code.
-    if (appliedCoupon) loyalty.useCoupon(appliedCoupon.id)
-    // Only remove what was actually checked out — an item left
-    // unselected on purpose (see selectedIds) should still be sitting in
-    // the cart afterward, not silently wiped along with everything else.
-    selectedLines.forEach((line) => cart.removeItem(line.product.id))
-    router.push('/account/orders')
   }
 
   if (!mounted) {
@@ -1014,13 +1101,13 @@ function CartPageContent() {
             </div>
 
             <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
-              I confirm the products requested do not violate Buy&amp;Ship&apos;s parcel restrictions or contain any{' '}
+              I confirm my order doesn&apos;t include any{' '}
               <a href="/prohibited-items" className="font-semibold text-teal-deep hover:underline">
                 prohibited items
               </a>
-              . I acknowledge the criteria for refunds and returns under Buy&amp;Ship&apos;s{' '}
+              , and I&apos;ve read Wishdrop&apos;s{' '}
               <a href="/refund-policy" className="font-semibold text-teal-deep hover:underline">
-                Purchase Protection plan
+                refund &amp; cancellation policy
               </a>
               .
             </ConfirmCheckbox>
@@ -1102,8 +1189,8 @@ function CartPageContent() {
               <div className="flex items-center justify-between gap-2 rounded-xl border border-teal/25 bg-teal/[0.06] px-3.5 py-2.5">
                 <div className="flex items-center gap-2 text-sm text-teal-deep">
                   <Tag size={14} className="flex-none" />
-                  <span className="font-semibold">{appliedCoupon.code}</span>
-                  <span className="text-teal-deep/70">applied</span>
+                  <span className="font-semibold">{appliedCoupon.title}</span>
+                  <span className="text-teal-deep/70">· {appliedCoupon.label}</span>
                 </div>
                 <button
                   type="button"
@@ -1125,7 +1212,7 @@ function CartPageContent() {
                       if (couponError) setCouponError(null)
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && handleApplyCoupon()}
-                    placeholder="Discount code"
+                    placeholder="Coupon code"
                     className="w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-ink/35 focus:outline-none"
                   />
                 </div>
@@ -1162,13 +1249,15 @@ function CartPageContent() {
               </div>
               {discountLKR > 0 && (
                 <div className="flex items-center justify-between text-sm text-teal-deep">
-                  <span>Discount ({appliedCoupon?.code})</span>
+                  <span>Coupon discount</span>
                   <span className="tabular-nums">-{formatLKR(discountLKR)}</span>
                 </div>
               )}
               <div className="mt-1 flex items-center justify-between border-t border-ink/10 pt-3">
                 <span className="text-base font-semibold text-ink">Total</span>
-                <span className="font-display text-2xl text-ink">{formatLKR(grandTotalLKR)}</span>
+                <span className={`font-display text-2xl text-ink transition-opacity ${quoteLoading ? 'opacity-50' : ''}`}>
+                  {formatLKR(grandTotalLKR)}
+                </span>
               </div>
             </div>
 
@@ -1197,8 +1286,8 @@ function CartPageContent() {
             <div className="mt-4 flex items-start gap-2 text-xs text-ink/45">
               <ShieldCheck size={15} className="mt-0.5 flex-none text-teal-deep/60" />
               <p>
-                <span className="font-semibold text-ink/60">You will not be charged now.</span> This is
-                just a request — payment happens after the seller confirms availability.
+                <span className="font-semibold text-ink/60">You won&apos;t be charged yet.</span> Prices are
+                confirmed on our side when you place the order, then you pay on the next step.
               </p>
             </div>
           </div>
@@ -1220,5 +1309,9 @@ function CartPageContent() {
 // OrdersProvider now lives in app/layout.tsx — CartPageContent reads it
 // directly, same instance, no second wrap/fetch.
 export default function CartPage() {
-  return <CartPageContent />
+  return (
+    <Suspense fallback={<CartSkeleton />}>
+      <CartPageContent />
+    </Suspense>
+  )
 }

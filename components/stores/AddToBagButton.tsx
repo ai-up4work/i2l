@@ -83,6 +83,7 @@ function toCartSnapshot(
     origin: product.origin ?? null,
     marginIncluded: product.marginIncluded,
     source: 'catalogue',
+    productHandle: product.handle || product.id,
   };
 }
 

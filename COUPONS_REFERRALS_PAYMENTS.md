@@ -1,0 +1,102 @@
+# Checkout, coupons, referrals and payments
+
+## Set up (once)
+
+1. **Run the SQL** `data/wishdrop-coupons-referrals-payments.sql` in the Supabase SQL editor
+   **before** deploying this code. It's safe to run more than once.
+2. **Add the signing secret** on Vercel (Production and Preview):
+   `COUPON_SIGNING_SECRET` = any long random string, e.g. the output of
+   `openssl rand -base64 48`. Without it the app falls back to a secret derived
+   from your Supabase keys and logs a warning — fine for local testing, not for
+   production. Changing it later invalidates every coupon code already handed out
+   (the coupons themselves stay in customers' accounts with fresh codes).
+3. Deploy.
+
+## What happens at checkout now
+
+The browser only says *which* items and *how many*. `POST /api/checkout`
+(`lib/checkout/server.ts`) works out every price on the server:
+
+| Item came from | Price the server uses |
+|---|---|
+| A store catalogue / Wishdrop Mall | The store's own live product (and the chosen variant) |
+| A pasted link | What our scraper last saw for that exact URL (`price_observations`, under 24 h old), otherwise it reads the page again |
+| Anything it still can't confirm | The customer's price, **and** the order is flagged `price_review = true` (item: `price_verified = false`) so staff check it before buying |
+
+Then the pricing engine (`lib/pricing.ts`) turns that into LKR, the coupon is
+checked and used atomically in the database, and the orders are created with the
+service role. One "Confirm order" = one row in `checkouts` (totals, discount,
+payment status) + one order per origin, as before. Each order stores its share
+of the discount in `orders.discount_lkr`.
+
+The cart page shows the server's numbers (`POST /api/checkout/quote`), so what the
+customer sees is what they're charged.
+
+## Coupons
+
+- **Admin → Coupons** (Manager, Super Admin): create a coupon for **everyone**,
+  **new customers** (first order only) or **chosen customers**; Rs. amount or %
+  (with an optional cap); minimum order; **all stores or only some stores**; uses
+  per customer; total uses; start and end dates.
+- Each coupon page shows **who has it** (and how they got it: given by staff,
+  added a shared code, referral, QC credit), **every use** with order numbers and
+  discount given, and lets staff pause / resume / archive, change the end date,
+  give it to more customers, take it back, or give a use back (e.g. the order was
+  cancelled).
+- **Codes are signed** (`lib/coupons/token.ts`): `WD1.<payload>.<signature>`.
+  Only the server can make one; editing any character breaks it. The code in a
+  customer's My coupons is bound to their account, so sharing it doesn't help
+  anyone else. For everyone / new-customer campaigns, the coupon page gives a
+  **shared code and link** (`/account/coupons?add=…`) to post on WhatsApp or
+  Instagram.
+- The discount applies to product price only — never service charge or delivery
+  — and, for store-limited coupons, only to those stores' items.
+- Limits (per customer and total) are enforced inside the database
+  (`coupon_try_redeem`), so two people checking out at the same moment can't
+  both take the last use.
+- QC compensation coupons (QC Issues → issue coupon) now go through the same
+  system (`/api/admin/coupons/compensation`).
+- The old `personal_coupons` table: unused, unexpired coupons were copied over;
+  the table is now read-only for customers. The automatic VIP level-up coupon
+  (which used to be created in the browser) is switched off — to reward a VIP
+  level, create a coupon for those customers.
+
+## Referrals
+
+- Every customer gets a code and a link: `https://<site>/r/<CODE>` (My account →
+  Refer a friend).
+- Opening the link remembers the code for 30 days and sends the visitor to sign
+  up. Once they have an account they're linked to the referrer — only if they're
+  genuinely new (account under 14 days old, no orders, not the referrer's own
+  phone number) — and get a **welcome coupon**.
+- When the friend's first order of at least the qualifying amount is **paid**,
+  the referrer gets their **reward coupon**. Both appear in My coupons and the
+  bell.
+- **Admin → Referrals** (Manager, Super Admin): set both rewards, minimums and
+  validity, turn the programme on/off, see every referral (who referred whom,
+  status, whether each coupon was used), reward one by hand, or void one —
+  voiding withdraws reward coupons that haven't been used.
+
+## Payments (mock)
+
+After "Confirm order" the customer lands on `/account/pay/<checkout>` (also
+reachable from **Pay now** in My orders). Only a **mock** provider exists: the
+page says clearly that it's a test and no money is taken.
+
+- `4242 4242 4242 4242` succeeds, `4000 0000 0000 0002` is declined; any valid
+  card number with a future expiry succeeds.
+- Success marks the checkout and its orders `paid`, logs the attempt in
+  `payments`, and releases the referral reward.
+
+**Before taking real money:** replace `chargeMock()` in `lib/payments/server.ts`
+with your gateway (PayHere, WEBXPAY, etc.) — ideally confirming payment from the
+gateway's server-to-server notification rather than the browser — and keep
+`markCheckoutPaid()` as it is.
+
+## Still worth doing
+
+- The database rules on `orders` / `order_items` still let a signed-in customer
+  insert rows directly (see the note in SUPABASE_MIGRATIONS_TO_RUN.md). The app no
+  longer does that, so those insert permissions can be removed for customers.
+- Staff screens don't show the new `price_review` flag yet; until they do, check
+  `orders.price_review` (or `order_items.price_verified = false`) before buying.

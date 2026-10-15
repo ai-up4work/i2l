@@ -6,10 +6,10 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { SITE_URL } from '@/lib/seo'
 
 import { useAuth } from './AuthContext'
 import { createClient } from '@/lib/supabase/client'
@@ -78,7 +78,7 @@ export const REFERRAL_REWARD_TIERS: ReferralRewardTier[] = [
   { friendCount: 10, label: '€75 credit + free shipping voucher', creditAmount: 75 },
 ]
 
-const REFERRAL_LINK_BASE = 'https://Wishdrop.app'
+const REFERRAL_LINK_BASE = SITE_URL
 
 export type GiftCardProduct = {
   id: string
@@ -866,31 +866,13 @@ export function LoyaltyProvider({ children }: { children: ReactNode }) {
   const tier = useMemo(() => tierForPoints(points), [points])
   const progressToNext = useMemo(() => progressForPoints(points, tier), [points, tier])
   const nextTierRequirements = useMemo(() => requirementsForPoints(points, tier), [points, tier])
-  const referralLink = useMemo(() => `${REFERRAL_LINK_BASE}/join?ref=${referralCode}`, [referralCode])
+  const referralLink = useMemo(() => `${REFERRAL_LINK_BASE}/r/${referralCode}`, [referralCode])
 
-  const prevTierRef = useRef<Tier | null>(null)
-  useEffect(() => {
-    if (!hydrated) return
-    if (prevTierRef.current === null) {
-      prevTierRef.current = tier
-      return
-    }
-    const wentUp = TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(prevTierRef.current)
-    if (wentUp) {
-      grantCoupon({
-        title: `Level-up reward — welcome to ${tier}`,
-        discountType: 'percent',
-        discountValue: 15,
-        minOrderValue: 29,
-        maxDiscount: 30,
-        scope: 'selected',
-        category: 'discount',
-        usageLimit: 'one-time',
-        validForDays: 30,
-      })
-    }
-    prevTierRef.current = tier
-  }, [tier, hydrated, grantCoupon])
+  // The automatic "level-up" coupon used to be created here, in the
+  // browser. Coupons are now issued only by the server (signed coupons,
+  // lib/coupons/server.ts) and the database no longer accepts coupon rows
+  // written from the browser, so this is switched off. To reward VIP
+  // levels, create a coupon for those customers on Admin → Coupons.
 
   const value = useMemo<LoyaltyContextValue>(
     () => ({

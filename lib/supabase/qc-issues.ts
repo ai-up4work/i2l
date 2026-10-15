@@ -5,14 +5,9 @@
 // it, and resolves it accordingly —
 //   - Seller refunded us -> customer gets a coupon worth exactly the
 //     faulty item's price (never shipping/other items), redeemable on
-//     their NEXT order. Reuses the real `personal_coupons` table (see
-//     contexts/Loyaltycontext.tsx's grantCoupon — that function only
-//     ever writes for the CURRENTLY LOGGED-IN session's own user, so
-//     it's useless from an admin session; this file writes directly for
-//     the target customer instead) and the real `notifications` table,
-//     so both the coupon and the alert show up on the customer's
-//     existing, real "My Coupons" page and notification bell with zero
-//     changes needed there.
+//     their NEXT order. Issued on the server through the signed coupon
+//     system (lib/coupons/server.ts) and shown in the customer's My
+//     coupons page and notification bell.
 //   - Seller did NOT refund us -> ship the item as-is. Wishdrop doesn't
 //     eat a cost it can't recover; the customer chose that specific
 //     item, not Wishdrop.
@@ -249,17 +244,11 @@ export async function markQcIssueWhatsappSent(issueId: string): Promise<{ ok: bo
   return error ? { ok: false, error: error.message } : { ok: true }
 }
 
-function generateCouponCode(): string {
-  return `WD${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-}
-
 /**
  * Resolution A: seller refunded us -> issue the customer a coupon worth
- * exactly the faulty item's price, valid on their next order. Writes a
- * real `personal_coupons` row directly (NOT via Loyaltycontext's
- * grantCoupon, which only works for the caller's own session) plus a
- * real `notifications` row, so both the customer's "My Coupons" page and
- * their notification bell pick it up with no changes needed there.
+ * exactly the faulty item's price, valid on their next order (90 days).
+ * Created server-side by /api/admin/coupons/compensation, which also
+ * sends the customer a notification.
  */
 export async function issueCompensationCoupon(
   issueId: string,
@@ -267,45 +256,27 @@ export async function issueCompensationCoupon(
   amountLKR: number,
   orderDisplayId: string,
 ): Promise<{ ok: boolean; error?: string; code?: string }> {
+  // The coupon itself is created on the server (signed coupon system —
+  // lib/coupons/server.ts), which also notifies the customer. Staff can't
+  // write coupons from the browser any more.
+  const res = await fetch('/api/admin/coupons/compensation', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, amountLKR, orderDisplayId }),
+  })
+  const body = (await res.json().catch(() => ({}))) as { couponId?: string; error?: string }
+  if (!res.ok || !body.couponId) return { ok: false, error: body.error ?? 'Could not issue the coupon.' }
+
   const supabase = createClient()
-  const code = generateCouponCode()
-  const now = new Date()
-  const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000) // 90 days to redeem
-
-  const { data: coupon, error: couponError } = await supabase
-    .from('personal_coupons')
-    .insert({
-      user_id: userId,
-      code,
-      title: `Compensation for ${orderDisplayId}`,
-      discount_type: 'fixed',
-      discount_value: amountLKR,
-      min_order_value: 0,
-      max_discount: null,
-      scope: 'all',
-      category: 'discount',
-      usage_limit: 'one-time',
-      expires_at: expiresAt.toISOString(),
-    })
-    .select('id')
-    .single()
-  if (couponError || !coupon) return { ok: false, error: couponError?.message }
-
   const { error: issueError } = await supabase
     .from('order_item_issues')
-    .update({ resolution: 'coupon_issued', personal_coupon_id: coupon.id, resolved_at: now.toISOString() })
+    .update({ resolution: 'coupon_issued', coupon_id: body.couponId, resolved_at: new Date().toISOString() } as never)
     .eq('id', issueId)
   if (issueError) return { ok: false, error: issueError.message }
 
-  await supabase.from('notifications').insert({
-    user_id: userId,
-    type: 'qc_issue',
-    title: 'A replacement coupon is waiting for you',
-    body: `One item from order ${orderDisplayId} didn't pass quality check. We've added a Rs. ${amountLKR.toLocaleString('en-LK')} coupon (code ${code}) to your account — use it on your next order.`,
-    link: '/account/coupons',
-  })
-
-  return { ok: true, code }
+  // What staff tell the customer: it's already in their account, under
+  // My coupons — no code to type.
+  return { ok: true, code: `Rs. ${amountLKR.toLocaleString('en-LK')} coupon in My coupons` }
 }
 
 export interface QcIssueWithContext extends QcIssue {

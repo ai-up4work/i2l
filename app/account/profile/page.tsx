@@ -364,13 +364,13 @@ export default function AccountProfilePage() {
               label="Download your information"
               description="Ask for a copy of your personal data."
               icon={Download}
-              onClick={() => window.location.assign('mailto:support@Wishdrop.app?subject=Data%20export%20request')}
+              onClick={() => window.location.assign('mailto:support@Wishdrop.shop?subject=Data%20export%20request')}
             />
             <QuietRow
               label="Delete account"
               description="Your account can't be recovered once deleted."
               icon={Trash2}
-              onClick={() => window.location.assign('mailto:support@Wishdrop.app?subject=Delete%20my%20account')}
+              onClick={() => window.location.assign('mailto:support@Wishdrop.shop?subject=Delete%20my%20account')}
             />
           </div>
         </AccountCard>

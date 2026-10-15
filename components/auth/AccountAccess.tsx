@@ -7,6 +7,7 @@ import Image from 'next/image'
 import BrandMark from '@/components/shared/BrandMark'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import { useAuth } from '@/contexts/AuthContext'
+import { rememberReferralCode } from '@/lib/referrals/client'
 
 type Mode = 'login' | 'register'
 
@@ -23,6 +24,13 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
   // the same as "no real redirect" too, so logging in from anywhere
   // without a specific destination always lands on the account page,
   // never back on the landing page.
+  // Referral code from a friend's link (/r/<code> -> /auth/signup?ref=…).
+  // Kept until the account is created; the account area sends it to the
+  // server (lib/referrals/client.ts).
+  useEffect(() => {
+    rememberReferralCode(searchParams.get('ref'))
+  }, [searchParams])
+
   const rawRedirect = searchParams.get('redirect')
   const redirect = rawRedirect && rawRedirect !== '/' ? rawRedirect : DEFAULT_REDIRECT
 

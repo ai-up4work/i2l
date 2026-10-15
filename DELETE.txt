@@ -1,0 +1,2 @@
+Delete this file from your project (it carried Buy&Ship branding and was not used anywhere):
+  components/auth/OnboardingExperience.tsx

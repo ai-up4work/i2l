@@ -27,8 +27,8 @@ const features: Feature[] = [
   },
   {
     icon: ShieldCheck,
-    title: 'Secure & Reliable',
-    text: 'Your items are insured and 100% safe.',
+    title: 'Quality Checked',
+    text: 'We inspect every item before it ships to you.',
     iconBg: 'bg-emerald-100',
     iconColor: 'text-emerald-600',
   },

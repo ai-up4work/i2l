@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
 import Sidebar from '@/components/dashboard/Sidebar'
 import MobileBottomNav from '@/components/dashboard/MobileBottomNav'
@@ -19,6 +19,7 @@ import ChatPanel from '@/components/shared/ChatPanel'
 import { useElementHeight } from '@/hooks/useElementHeight'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { AdminDataProvider } from '@/contexts/AdminDataContext'
+import { attachPendingReferral } from '@/lib/referrals/client'
 
 function AccountShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -31,6 +32,12 @@ function AccountShell({ children }: { children: React.ReactNode }) {
   // button has something real to call — see onSignOut below.
   const { user, logout } = useAuth()
   const isPhoneVerified = !!user?.phoneVerified
+
+  // Link a new customer to the friend who referred them (if they came
+  // through a referral link). Server-side checks decide if it counts.
+  useEffect(() => {
+    if (user) void attachPendingReferral()
+  }, [user])
 
   const {
     draft,

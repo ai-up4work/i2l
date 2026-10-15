@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 288" width="480" height="288">
+  <defs>
+    <pattern id="d" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.3" fill="#08274f" fill-opacity="0.08"/></pattern>
+    <clipPath id="c"><rect width="480" height="288"/></clipPath>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="480" height="288" fill="#fbf6ec"/>
+    <rect width="480" height="288" fill="url(#d)"/>
+    <g transform="translate(-30 236) rotate(-35)">
+      <rect x="0" y="0" width="170" height="16" fill="#C1272D" fill-opacity="0.85"/>
+      <rect x="0" y="0" width="16" height="16" fill="#fbf6ec"/><rect x="34" y="0" width="16" height="16" fill="#08274f"/>
+      <rect x="68" y="0" width="16" height="16" fill="#fbf6ec"/><rect x="102" y="0" width="16" height="16" fill="#08274f"/>
+      <rect x="136" y="0" width="16" height="16" fill="#fbf6ec"/>
+    </g>
+    <circle cx="240" cy="144" r="96" fill="#08274f" fill-opacity="0.16"/>
+    <g fill="none" stroke="#08274f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M240 86 V 200"/>
+      <path d="M208 200 H 272"/>
+      <path d="M196 108 H 284"/>
+      <path d="M196 108 L 178 152 H 214 Z"/>
+      <path d="M284 108 L 266 152 H 302 Z"/>
+      <circle cx="240" cy="98" r="6" fill="#08274f"/>
+    </g>
+    <circle cx="240" cy="144" r="104" fill="none" stroke="#C1272D" stroke-width="12" stroke-opacity="0.9"/>
+    <line x1="166.5" y1="70.5" x2="313.5" y2="217.5" stroke="#C1272D" stroke-width="12" stroke-linecap="round" stroke-opacity="0.9"/>
+  </g>
+</svg>

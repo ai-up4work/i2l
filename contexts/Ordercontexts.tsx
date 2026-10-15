@@ -121,6 +121,10 @@ export type Order = {
    * getOrderCustomerName() below.
    */
   customerName?: string
+  /** Checkout this order was placed in (data/wishdrop-coupons-referrals-payments.sql) —
+   *  used for the "Pay now" link. Absent on orders from before that. */
+  checkoutId?: string
+  paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded'
 }
 
 export const FILTERS: Array<OrderStatus | 'All'> = [
@@ -835,6 +839,8 @@ type OrderRow = {
   tracking_number: string | null
   estimated_delivery: string | null
   created_at: string
+  checkout_id?: string | null
+  payment_status?: string | null
   order_items: {
     id: string
     title: string
@@ -875,6 +881,8 @@ function rowToOrder(row: OrderRow): Order {
     carrier: row.carrier ?? undefined,
     trackingNumber: row.tracking_number ?? undefined,
     estimatedDelivery: row.estimated_delivery ?? undefined,
+    checkoutId: row.checkout_id ?? undefined,
+    paymentStatus: (row.payment_status as Order['paymentStatus']) ?? undefined,
     recipient: row.addresses
       ? { name: row.addresses.recipient_name, city: row.addresses.city, country: row.addresses.country }
       : undefined,
@@ -939,25 +947,32 @@ export function OrdersProvider({
     setError(null)
     const supabase = createClient()
 
-    supabase
-      .from('orders')
-      .select(
-        `id, display_id, stage, currency, total_value, delayed, carrier, tracking_number, estimated_delivery, created_at,
-         order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, screenshot_url, product_snapshots ( image_url ) ),
-         addresses ( recipient_name, city, country )`,
-      )
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .then(({ data, error: fetchError }) => {
-        if (cancelled) return
-        if (fetchError) {
-          setError(fetchError.message)
-          setOrders([])
-        } else {
-          setOrders(((data ?? []) as unknown as OrderRow[]).map(rowToOrder))
-        }
-        setLoading(false)
-      })
+    const ITEMS = `order_items ( id, title, variant_label, quantity, unit_price, seller_name, seller_type, store_url, screenshot_url, product_snapshots ( image_url ) ),
+         addresses ( recipient_name, city, country )`
+    const BASE = 'id, display_id, stage, currency, total_value, delayed, carrier, tracking_number, estimated_delivery, created_at'
+    const fetchOrders = (withPayment: boolean) =>
+      supabase
+        .from('orders')
+        .select(`${BASE}${withPayment ? ', checkout_id, payment_status' : ''}, ${ITEMS}`)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+    ;(async () => {
+      let { data, error: fetchError } = await fetchOrders(true)
+      // Database without data/wishdrop-coupons-referrals-payments.sql yet:
+      // load orders without the payment columns rather than failing.
+      if (fetchError && /checkout_id|payment_status/.test(fetchError.message)) {
+        ;({ data, error: fetchError } = await fetchOrders(false))
+      }
+      if (cancelled) return
+      if (fetchError) {
+        setError(fetchError.message)
+        setOrders([])
+      } else {
+        setOrders(((data ?? []) as unknown as OrderRow[]).map(rowToOrder))
+      }
+      setLoading(false)
+    })()
 
     return () => {
       cancelled = true

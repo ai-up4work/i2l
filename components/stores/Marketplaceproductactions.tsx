@@ -69,6 +69,7 @@ export default function MarketplaceProductActions({
       ...snapshot,
       sourcePrice: product.price != null ? String(product.price) : null,
       estimatedPrice: null,
+      productHandle: product.handle || product.id,
     }
     cart.addItem(cartProduct, qty)
     setJustAdded(true)

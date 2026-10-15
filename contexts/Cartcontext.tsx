@@ -39,6 +39,9 @@ export type CartProduct = {
   origin?: 'IN' | 'LK' | null
   /** Price already includes Wishdrop's margin (social stores). */
   marginIncluded?: boolean
+  /** Store product handle/id, so checkout can look the price up from the
+   *  store itself on the server (lib/checkout/server.ts). */
+  productHandle?: string | null
 }
 
 export type CartLineItem = {

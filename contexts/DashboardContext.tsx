@@ -90,37 +90,7 @@ function clearPersistedDraft() {
   }
 }
 
-export type CartOrderLine = {
-  name: string
-  url: string
-  qty: number
-  unitPriceLKR: number
-  image: string
-  source?: 'catalogue' | 'link'
-  site?: string | null
-  selectedOptions?: Record<string, string>
-  /** 'LK' = item from a local Sri Lankan shop (lib/store-origin.ts). */
-  origin?: 'IN' | 'LK'
-}
-
-/** Order-level charges that aren't tied to one line. */
-export type CartOrderExtras = {
-  /** Rs 500 shop → warehouse pickup per local store (localPickupFees). */
-  pickupFeeLKR?: number
-}
-
 export type ConfirmResult = { ok: boolean; error?: string }
-
-export type CheckoutRecipient = {
-  fullName: string
-  phone: string
-  addressLine1: string
-  addressLine2?: string
-  city: string
-  postalCode?: string
-  country: string
-  existingAddressId?: string | null
-}
 
 type DashboardContextValue = {
   draft: Draft
@@ -146,7 +116,6 @@ type DashboardContextValue = {
   confirmRequest: () => Promise<ConfirmResult>
   setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
-  confirmCartOrder: (lines: CartOrderLine[], recipient: CheckoutRecipient, extras?: CartOrderExtras) => Promise<ConfirmResult>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -475,158 +444,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }
   }, [draft, user, router])
 
-  const confirmCartOrder = useCallback(
-    async (lines: CartOrderLine[], recipient: CheckoutRecipient, extras?: CartOrderExtras): Promise<ConfirmResult> => {
-      if (!lines.length) return { ok: false, error: 'Your cart is empty.' }
-      if (!user) {
-        setTimeout(() => {
-          router.push(LOGIN_REDIRECT_PATH)
-        }, LOGIN_REDIRECT_DELAY_MS)
-        return { ok: false, error: 'You need to be signed in to confirm an order.' }
-      }
-      if (!recipient.addressLine1.trim() || !recipient.city.trim() || !recipient.country.trim()) {
-        return { ok: false, error: 'A shipping address is required to place an order.' }
-      }
-
-      const supabase = createClient()
-      try {
-        const addressPayload = {
-          recipient_name: recipient.fullName,
-          phone: recipient.phone,
-          address_line1: recipient.addressLine1,
-          address_line2: recipient.addressLine2?.trim() || null,
-          city: recipient.city,
-          postal_code: recipient.postalCode?.trim() || null,
-          country: recipient.country,
-        }
-        let addressId = recipient.existingAddressId ?? null
-        if (addressId) {
-          const { error: addressError } = await supabase
-            .from('addresses')
-            .update(addressPayload)
-            .eq('id', addressId)
-          if (addressError) throw addressError
-        } else {
-          const { data: addressRow, error: addressError } = await supabase
-            .from('addresses')
-            .insert({ ...addressPayload, user_id: user.id, is_default: true })
-            .select('id')
-            .single()
-          if (addressError) throw addressError
-          addressId = addressRow.id as string
-        }
-
-        // Wishdrop Mall sells stock Wishdrop holds: make sure there's
-        // enough on hand BEFORE creating the order (read-only check).
-        const mallLines = lines.filter((line) => line.url?.startsWith('wishdrop-mall:'))
-        if (mallLines.length > 0) {
-          const res = await fetch('/api/mall/stock/check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items: mallLines.map((line) => ({ url: line.url, qty: line.qty })) }),
-          })
-          const body = (await res.json().catch(() => ({}))) as { problems?: { name: string; available: number }[] }
-          const problem = body.problems?.[0]
-          if (problem) {
-            return {
-              ok: false,
-              error:
-                problem.available > 0
-                  ? `Only ${problem.available} left of ${problem.name}. Please lower the quantity.`
-                  : `${problem.name} is sold out. Please remove it from your order.`,
-            }
-          }
-        }
-
-        const threadId = await getOrCreateGeneralThread(supabase, user.id)
-
-        // Items from local Sri Lankan shops follow a shorter journey (shop
-        // pickup → quality check → delivery; no export or international
-        // shipping — see lib/order-journey.ts), so a bag that mixes local
-        // and Indian items becomes two orders: one per journey. The Rs 500
-        // pickup charge belongs to the local order.
-        const groups: { origin: 'IN' | 'LK'; lines: CartOrderLine[]; pickupFeeLKR: number }[] = []
-        const indiaLines = lines.filter((line) => line.origin !== 'LK')
-        const localLines = lines.filter((line) => line.origin === 'LK')
-        if (indiaLines.length > 0) groups.push({ origin: 'IN', lines: indiaLines, pickupFeeLKR: 0 })
-        if (localLines.length > 0) groups.push({ origin: 'LK', lines: localLines, pickupFeeLKR: Math.max(0, extras?.pickupFeeLKR ?? 0) })
-
-        const defaultSiteId = await fetchDefaultSiteId(supabase)
-        const localSiteId = localLines.length > 0 ? await fetchLocalSiteId(supabase) : null
-
-        for (const group of groups) {
-          const total = group.lines.reduce((sum, line) => sum + line.qty * line.unitPriceLKR, 0) + group.pickupFeeLKR
-          const channel: 1 | 2 = group.lines.every((line) => line.source === 'catalogue') ? 1 : 2
-          const isLocal = group.origin === 'LK'
-          const orderId = await createOrderWithRetry(supabase, {
-            user_id: user.id,
-            channel,
-            currency: 'LKR',
-            total_value: total,
-            recipient_address_id: addressId,
-            chat_thread_id: threadId,
-            site_id: (isLocal ? localSiteId : null) ?? defaultSiteId,
-            // Only sent for local orders, so checkout keeps working on a
-            // database where data/wishdrop-store-types-and-location.sql
-            // hasn't been run yet (as long as no local store exists).
-            ...(isLocal ? { store_origin: 'LK' as const, pickup_fee_lkr: group.pickupFeeLKR } : {}),
-          })
-
-          const itemRows = await Promise.all(
-            group.lines.map(async (line) => {
-              const snapshotId = await ensureProductSnapshot(supabase, {
-                id: line.url || line.name,
-                title: line.name,
-                image: line.image,
-                site: line.site ?? null,
-                price: null,
-              })
-              const sellerName = line.site ? cleanSiteLabel(line.site) : undefined
-              const isCatalogue = line.source === 'catalogue'
-              const variantLabel = line.selectedOptions
-                ? Object.keys(line.selectedOptions)
-                    .sort()
-                    .map((k) => `${k}: ${line.selectedOptions![k]}`)
-                    .join(', ') || null
-                : null
-              return {
-                order_id: orderId,
-                product_snapshot_id: snapshotId,
-                title: line.name,
-                variant_label: variantLabel,
-                quantity: line.qty,
-                unit_price: line.unitPriceLKR,
-                seller_name: sellerName ?? null,
-                seller_type: 'store',
-                store_url: isCatalogue ? line.url || null : null,
-                request_link: isCatalogue ? null : line.url || null,
-              }
-            }),
-          )
-
-          const { error: itemsError } = await supabase.from('order_items').insert(itemRows)
-          if (itemsError) throw itemsError
-
-          // Deduct Wishdrop Mall stock. The server reads this order's own
-          // rows (never quantities from here) and can't deduct twice. A
-          // failure here must not fail an order that's already placed —
-          // staff see any mismatch in the stock history.
-          if (group.lines.some((line) => line.url?.startsWith('wishdrop-mall:'))) {
-            await fetch(`/api/mall/orders/${orderId}/stock`, { method: 'POST' }).catch((err) =>
-              console.error('[dashboard] mall stock deduction failed', err),
-            )
-          }
-        }
-
-        setActiveTab('Requested')
-        return { ok: true }
-      } catch (err) {
-        console.error('[dashboard] failed to confirm cart order', err)
-        return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
-      }
-    },
-    [user, router],
-  )
+  // confirmCartOrder (the browser inserting orders and prices straight
+  // into the database) is gone: checkout now goes through POST
+  // /api/checkout, which prices everything on the server
+  // (lib/checkout/server.ts).
 
   const scrapeResultWithPreview = useMemo<ScrapeResult | null>(() => {
     if (scrapeResult) return scrapeResult
@@ -663,7 +484,6 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       confirmRequest,
       setDeliveryChoice,
       selectVariant,
-      confirmCartOrder,
     }),
     [
       draft,
@@ -682,7 +502,6 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       confirmRequest,
       setDeliveryChoice,
       selectVariant,
-      confirmCartOrder,
     ],
   )
 

@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { isMallLineUrl, resolveMallLines } from '@/lib/wishdrop-mall/order-lines'
+import { deductMallStockForOrder } from '@/lib/wishdrop-mall/stock'
 
 type Params = { params: Promise<{ orderId: string }> }
 
@@ -33,39 +33,9 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Order not found.' }, { status: 404 })
   }
 
-  const { data: items, error } = await admin
-    .from('order_items')
-    .select('id, store_url, quantity')
-    .eq('order_id', orderId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const mallItems = ((items ?? []) as { id: string; store_url: string | null; quantity: number }[]).filter((i) =>
-    isMallLineUrl(i.store_url),
-  )
-  if (mallItems.length === 0) return NextResponse.json({ applied: 0, shortages: [] })
-
-  const resolved = await resolveMallLines(admin, mallItems.map((i) => i.store_url as string))
-  let applied = 0
-  const shortages: { productId: string; variantId: string | null; shortage: number }[] = []
-
-  for (const item of mallItems) {
-    const line = resolved.get(item.store_url as string)
-    if (!line) continue
-    const { data, error: rpcError } = await admin.rpc('mall_deduct_stock', {
-      p_product_id: line.productId,
-      p_variant_id: line.variantId,
-      p_quantity: item.quantity,
-      p_order_id: orderId,
-      p_order_item_id: item.id,
-    })
-    if (rpcError) {
-      console.error('[mall stock] deduct failed', item.id, rpcError.message)
-      continue
-    }
-    const row = (data ?? [])[0]
-    if (row?.applied) applied++
-    if (row?.shortage) shortages.push({ productId: line.productId, variantId: line.variantId, shortage: row.shortage })
+  try {
+    return NextResponse.json(await deductMallStockForOrder(admin, orderId))
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed' }, { status: 500 })
   }
-
-  return NextResponse.json({ applied, shortages })
 }

@@ -40,6 +40,8 @@ import {
   FileText,
   Lock,
   Megaphone,
+  Ticket,
+  Gift,
   BadgeCheck,
   Store,
 } from "lucide-react"
@@ -172,6 +174,8 @@ function getGroups(role: Role): Group[] {
         { label: "Reports", href: "/admin/reports", icon: BarChart3, roles: ["manager"] },
         { label: "Staff", href: "/admin/staff", icon: UserCog, roles: ["manager"] },
         { label: "Broadcasts", href: "/admin/broadcasts", icon: Megaphone, roles: ["manager"] },
+        { label: "Coupons", href: "/admin/coupons", icon: Ticket, roles: ["manager"] },
+        { label: "Referrals", href: "/admin/referrals", icon: Gift, roles: ["manager"] },
       ],
     },
     {

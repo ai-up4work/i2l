@@ -1,12 +1,12 @@
 'use client'
 
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import HomePage from '@/components/dashboard/HomePage'
 import { pathForView } from '@/components/dashboard/routes'
 import { useDashboard } from '@/contexts/DashboardContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { useLoyalty, effectiveCouponStatus } from '@/contexts/Loyaltycontext'
+import { useLoyalty } from '@/contexts/Loyaltycontext'
 import { useWishlist } from '@/contexts/Wishlistcontext'
 import { useOrders } from '@/contexts/Ordercontexts'
 import { useFollowedStores } from '@/hooks/useFollowedStores'
@@ -44,7 +44,7 @@ function AccountHomePageInner() {
   const searchParams = useSearchParams()
   const { pastedLink, setPastedLink, startItemInfo } = useDashboard()
   const { user } = useAuth()
-  const { points, credits, coupons } = useLoyalty()
+  const { points, credits } = useLoyalty()
   const { count: wishlistCount } = useWishlist()
   const { orders, loading: ordersLoading } = useOrders()
 
@@ -53,7 +53,21 @@ function AccountHomePageInner() {
   const { followedAt } = useFollowedStores()
   const followingCount = followedAt.size
 
-  const couponsCount = coupons.filter((c) => effectiveCouponStatus(c) === 'unused').length
+  // Usable coupons, from the server (signed coupon system).
+  const [couponsCount, setCouponsCount] = useState(0)
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    fetch('/api/coupons')
+      .then((res) => (res.ok ? res.json() : { coupons: [] }))
+      .then((body: { coupons?: { status: string }[] }) => {
+        if (!cancelled) setCouponsCount((body.coupons ?? []).filter((c) => c.status === 'available').length)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const hasConsumedLinkParam = useRef(false)
 

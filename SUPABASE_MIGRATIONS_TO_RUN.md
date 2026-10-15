@@ -22,7 +22,7 @@ more than once.
 | 14 | `data/wishdrop-pricing-settings.sql` | Editable pricing engine: one saved row of every rate and fee (exchange rates, storefront markup, local and Mall fees, HS-code customs schedule) plus a change history. Changes no prices by itself — the built-in defaults are the old hardcoded values | Then edit on Admin → Super Admin → Pricing engine — see PRICING_ENGINE.md |
 | 15 | `data/wishdrop-casecraft.sql` | Case Craft custom store: price list and margin, ready-made designs, and its own print orders (separate from the Wishdrop order pipeline) | Copy the phone templates into `public/phoneCases/` — see CASECRAFT.md |
 | 16 | `data/wishdrop-account-sync.sql` | Cart, wishlist and boards become account-based: the database is the source of truth, the browser only caches. Fixes items coming back after removing them, and quantities differing between devices. Boards are saved to the account for the first time, and shared-board links work | **Run this BEFORE deploying the new code.** Turns on Realtime for the three tables |
-
+| 17 | `data/wishdrop-coupons-referrals-payments.sql` | Server-side checkout (prices worked out on the server), signed coupons with who-has-it / who-used-it tracking, real referrals, mock payments. Copies unused old coupons over, and stops customers writing coupons or referrals from the browser | **Run BEFORE deploying the new code.** Set `COUPON_SIGNING_SECRET` on Vercel — see COUPONS_REFERRALS_PAYMENTS.md |
 
 Still open (not done in this work): the database rules on chat messages,
 chat threads, orders, order items and QC issues allow ANY signed-in user,

@@ -1,5 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeProduct } from "@/lib/scrape/parsers";
+import { createServiceRoleClient } from "@/lib/supabase/server";
+import { recordPriceObservation } from "@/lib/checkout/server";
+
+// Remembers the price we just read so checkout can price this item on the
+// server (lib/checkout/server.ts) instead of trusting the browser. Only a
+// full read with a price AND a currency counts — same rule as the item
+// modal's "trusted price". Never blocks or fails the response.
+function rememberPrice(requestUrl: string, result: Awaited<ReturnType<typeof scrapeProduct>>) {
+  const price = result.price != null ? Number(String(result.price).replace(/[^0-9.]/g, "")) : NaN;
+  if (result.error || result.ogOnly || !result.currencyCode || !Number.isFinite(price) || price <= 0) return;
+  try {
+    const admin = createServiceRoleClient();
+    const weightKg = (result as { weightKg?: number | null }).weightKg ?? null;
+    const urls = new Set([requestUrl, result.url].filter((u): u is string => typeof u === "string" && !!u));
+    for (const url of urls) {
+      void recordPriceObservation(admin, { url, site: result.site, price, currency: result.currencyCode, weightKg });
+    }
+  } catch (err) {
+    console.error("[scrape] could not record price", err);
+  }
+}
 
 function isValidUrl(value: string): boolean {
   try {
@@ -56,6 +77,7 @@ export async function POST(req: NextRequest) {
       signal: req.signal,
     });
 
+    rememberPrice(url, result);
     return NextResponse.json({ data: result }, { status: statusFor(result) });
   } catch (err: any) {
     // scrapeProduct is designed to return errors on the result object
@@ -82,6 +104,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = await scrapeProduct(url, { needVariants, signal: req.signal });
+    rememberPrice(url, result);
     return NextResponse.json({ data: result }, { status: statusFor(result) });
   } catch (err: any) {
     return NextResponse.json(

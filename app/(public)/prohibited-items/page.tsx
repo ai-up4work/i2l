@@ -19,34 +19,34 @@ type Category = {
   items: Item[]
 }
 
+// Illustrations are our own (public/images/prohibited/*.svg).
 const categories: Category[] = [
   {
     name: 'Dangerous goods',
     items: [
       {
-        title: 'Harmful substances',
+        title: 'Hazardous and toxic substances',
         description:
-          'Vehicle shock absorbers, explosives, strong magnets, radioactive material, oxidizers, organic peroxides (uranium, radium), toxic chemicals, and similar items.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-radioactive-materials.jpg',
+          'Explosives, radioactive material, toxic or corrosive chemicals, oxidisers, strong magnets and anything else classed as hazardous for air freight.',
+        image: '/images/prohibited/harmful-substances.svg',
       },
       {
-        title: 'Flammable materials',
+        title: 'Flammable items',
         description:
-          'Flammable solids, liquids, and substances that release flammable gas on contact with water — including matches, nail polish, hair dye, phosphorus, sulfur, and metal powders.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-flammables.jpg',
+          'Flammable liquids and solids such as nail polish, hair dye, matches, fuel, paint thinners and some metal powders.',
+        image: '/images/prohibited/flammable.svg',
       },
       {
-        title: 'Gas and compressed gas tanks',
+        title: 'Gas and pressurised containers',
         description:
-          'Compressed air, dry ice, fire extinguishers, gas cylinders, airbags, aerosols, gas lighters, light bulbs, and canned or carbonated beverages.',
-        image:
-          'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-gas-and-compressed-gas-cylinder.jpg',
+          'Aerosol sprays, gas cylinders, fire extinguishers, lighters, dry ice, airbags and carbonated or canned drinks.',
+        image: '/images/prohibited/compressed-gas.svg',
       },
       {
-        title: 'Battery',
+        title: 'Loose batteries and power banks',
         description:
-          'Items that cannot clear security screening, including electronic components, standalone batteries, and separately-shipped batches of dry-cell or lithium batteries.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-battery.jpg',
+          'Batteries or power banks sent on their own, and large lithium batteries. Batteries fitted inside a device may be accepted — ask us first.',
+        image: '/images/prohibited/batteries.svg',
       },
     ],
   },
@@ -54,33 +54,30 @@ const categories: Category[] = [
     name: 'Weapons and controlled items',
     items: [
       {
-        title: 'Firearms and related accessories',
+        title: 'Firearms and replicas',
         description:
-          'All types of firearms and gun-related items, plus military or combat equipment such as gun slings, water guns, air guns, toy guns, shotguns, and bullets.',
-        image:
-          'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-guns-and-related-accessories.jpg',
+          'Real firearms, ammunition and parts, plus air guns, replica or toy guns, and military or combat equipment.',
+        image: '/images/prohibited/firearms.svg',
       },
       {
-        title: 'Controlled knives and arrows (excluding tableware)',
-        description: 'All kinds of restricted knives, bows, blades, and similar controlled items.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-controlled-knives-bow.jpg',
+        title: 'Knives, blades and bows',
+        description: 'Restricted knives, swords, blades, bows and arrows. Ordinary kitchen cutlery is fine.',
+        image: '/images/prohibited/knives-and-bows.svg',
       },
       {
-        title: 'Alcohols',
-        description: 'All kinds of alcohol, including alcoholic beverages and perfumes.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-all-alcohols.jpg',
+        title: 'Alcohol',
+        description: 'Alcoholic drinks of any kind, and products with a high alcohol content.',
+        image: '/images/prohibited/alcohol.svg',
       },
     ],
   },
   {
-    name: 'Regulated consumer goods',
+    name: 'Regulated goods',
     items: [
       {
-        title: 'Cash, and cash equivalents',
-        description:
-          'Concert and letters (bank, bills, personal), cash and cash equivalents, and counterfeit items.',
-        image: 'https://www.buyandship.today/contents/uploads/2020/01/prohibited-jp-ticket.jpg',
-        badge: 'Latest',
+        title: 'Cash, tickets and counterfeits',
+        description: 'Cash and cash equivalents, event tickets, personal letters and documents, and counterfeit or replica branded goods.',
+        image: '/images/prohibited/cash-and-tickets.svg',
       },
     ],
   },
@@ -88,12 +85,10 @@ const categories: Category[] = [
     name: 'Others',
     items: [
       {
-        title: 'Shipments prohibited by law or affected by law',
+        title: 'Items restricted by law',
         description:
-          'Shipments that are prohibited by law, restricted by regulations, or require prior approval, permits, or clearance from Customs or other relevant authorities may not be accepted or may be subject to additional clearance requrements..',
-        image:
-          'https://www.buyandship.today/contents/uploads/2024/03/Goods-restricted-by-law-or-that-may-impact-delivery.png',
-        badge: 'Latest',
+          'Anything Sri Lankan or Indian law prohibits, or that needs a permit or approval from Customs or another authority before it can be imported.',
+        image: '/images/prohibited/restricted-by-law.svg',
       },
     ],
   },
@@ -117,12 +112,10 @@ export default function ProhibitedItemsPage() {
       <div className="mt-6 flex items-start gap-3 rounded-2xl border border-gold/40 bg-gold/10 px-5 py-4 motion-safe:[animation:fadeUp_0.4s_ease-out_0.05s_both]">
         <AlertCircle size={18} className="mt-0.5 flex-none text-gold-deep" strokeWidth={1.8} />
         <p className="text-sm leading-relaxed text-ink/80">
-          Please note that the following list is a common prohibited item list and does not provide detailed
-          examples of all prohibited items. We reserve the right to notify members that a product may still be
-          unacceptable for import even if it is not explicitly listed. Where appropriate, we will contact you to
-          discuss and take appropriate action — you may need to cover the cost of returning the product to the
-          merchant, or we may handle the goods in any manner we deem appropriate. Reshipment, if required, incurs
-          an additional fee.
+          This list covers the most common items we can&apos;t buy or ship, but it isn&apos;t complete. If
+          something you order turns out to be restricted, we&apos;ll contact you before doing anything with it. You
+          may need to cover the cost of returning it to the seller, and re-shipping it elsewhere costs extra. Not
+          sure about an item? Ask us before you order.
         </p>
       </div>
 
@@ -146,7 +139,7 @@ export default function ProhibitedItemsPage() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={item.image}
-                    alt={item.title}
+                    alt=""
                     className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                   {item.badge && (
@@ -167,11 +160,16 @@ export default function ProhibitedItemsPage() {
 
       {/* Footer note */}
       <div className="mt-10 flex flex-col items-center gap-2 rounded-2xl border border-ink/10 bg-card px-6 py-8 text-center motion-safe:[animation:fadeUp_0.4s_ease-out_0.15s_both]">
-        <p className="font-display text-lg text-ink">Is there a problem?</p>
+        <p className="font-display text-lg text-ink">Not sure about an item?</p>
         <p className="max-w-md text-sm leading-relaxed text-ink/60">
-          Please first check out the Frequently Asked Questions to help answer your difficulties. If you have
-          further questions, feel free to contact us.
+          Send us the link before you order and we&apos;ll tell you whether we can bring it in.
         </p>
+        <a
+          href="/contact"
+          className="mt-2 inline-flex items-center rounded-full bg-teal-deep px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo"
+        >
+          Ask us
+        </a>
       </div>
     </div>
   )

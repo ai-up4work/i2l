@@ -8,8 +8,8 @@ export default function Community() {
         <div className="lg:w-80 lg:flex-none">
           <h2 className="font-display text-4xl text-ink">Shopping community</h2>
           <p className="mt-4 font-body text-sm leading-relaxed text-ink/60">
-            Find shopping tips and amazing deals from millions of members all
-            over the world.
+            Shopping tips, unboxings and great finds from other Wishdrop
+            shoppers in Sri Lanka.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">

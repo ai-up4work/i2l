@@ -63,7 +63,7 @@ function rise(delay: number): { className: string; style: CSSProperties } {
   }
 }
 
-const PROMISES = ['Instant price in LKR', 'No account needed to check', 'Insured door delivery']
+const PROMISES = ['Instant price in LKR', 'No account needed to check', 'Quality checked before shipping']
 
 export default function Hero() {
   const router = useRouter()
@@ -137,7 +137,7 @@ export default function Hero() {
               className="h-5 w-7 rounded-full"
               style={{ background: AIRMAIL_STRIPE }}
             />
-            Shop global · Delivered to Sri Lanka
+            Shop India · Delivered to Sri Lanka
           </p>
 
           <h1
@@ -174,7 +174,7 @@ export default function Hero() {
             {...rise(160)}
             className={`${rise(160).className} mt-6 max-w-md font-body text-base leading-relaxed text-ink/65 sm:text-lg`}
           >
-            Paste a link from any store worldwide. We&apos;ll price it in rupees, buy it, ship it
+            Paste a link from your favourite Indian store. We&apos;ll price it in rupees, buy it, check it, ship it
             and hand it to you.
           </p>
 
@@ -260,7 +260,7 @@ export default function Hero() {
                   onClick={() => router.push('/stores')}
                   className="group mt-0.5 inline-flex items-center gap-1.5 font-body text-sm font-semibold text-teal-deep"
                 >
-                  Browse {localStores.length} affiliated stores
+                  Browse {localStores.length} local stores
                   <ArrowRight
                     size={14}
                     aria-hidden="true"
