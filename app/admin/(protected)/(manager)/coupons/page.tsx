@@ -16,6 +16,8 @@ import { useRouter } from 'next/navigation'
 import { ChevronRight, Loader2, Plus, Search, Ticket, X } from 'lucide-react'
 import { useCurrentStaff } from '@/hooks/useCurrentStaff'
 import { couponState } from '@/components/admin/coupon-state'
+import CouponDesigner from '@/components/admin/CouponDesigner'
+import { DEFAULT_COUPON_DESIGN, type CouponDesign } from '@/lib/coupons/design'
 import CustomerPicker, { adminInputClass as inputClass, type PickedCustomer } from '@/components/admin/CustomerPicker'
 
 type Audience = 'everyone' | 'new_customers' | 'selected'
@@ -164,6 +166,7 @@ function CreateCoupon({ onCancel }: { onCancel: () => void }) {
   const [totalLimit, setTotalLimit] = useState('')
   const [startsAt, setStartsAt] = useState(() => toLocalInput(new Date()))
   const [endsAt, setEndsAt] = useState(() => toLocalInput(new Date(Date.now() + 30 * 86_400_000)))
+  const [design, setDesign] = useState<CouponDesign>(DEFAULT_COUPON_DESIGN)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -206,6 +209,7 @@ function CreateCoupon({ onCancel }: { onCancel: () => void }) {
         totalLimit: totalLimit ? Number(totalLimit) : null,
         startsAt: startsAt ? new Date(startsAt).toISOString() : null,
         endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+        design,
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -312,6 +316,23 @@ function CreateCoupon({ onCancel }: { onCancel: () => void }) {
             <StorePicker selected={stores} onChange={setStores} />
           </div>
         )}
+      </div>
+
+      <div>
+        <Label hint="How the coupon card looks in My coupons and the cart">Card design</Label>
+        <CouponDesigner
+          design={design}
+          onChange={setDesign}
+          facts={{
+            id: 'preview',
+            title: title || 'Coupon name',
+            discountType,
+            discountValue: Number(value) || (discountType === 'percent' ? 10 : 1000),
+            maxDiscountLKR: discountType === 'percent' && cap ? Number(cap) : null,
+            minOrderLKR: Number(minOrder) || 0,
+            stores: storeScope === 'stores' ? stores : null,
+          }}
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

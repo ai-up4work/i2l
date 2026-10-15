@@ -1,12 +1,13 @@
 // app/api/admin/coupons/[couponId]/route.ts — Manager / Super Admin.
 //   GET   -> coupon + who has it + every use (with order numbers)
-//   PATCH -> { status?, endsAt?, title?, description?, totalLimit? }
+//   PATCH -> { status?, endsAt?, title?, description?, totalLimit?, design? }
 //            or { voidRedemptionId, reason } to give a use back (e.g. the
 //            order was cancelled)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole } from '@/lib/supabase/admin-auth'
 import { couponDetailForAdmin, db } from '@/lib/coupons/server'
+import { normalizeDesign } from '@/lib/coupons/design'
 
 export const runtime = 'nodejs'
 const ROLES = ['manager', 'super_admin'] as const
@@ -46,6 +47,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (body.status === 'active' || body.status === 'paused' || body.status === 'archived') patch.status = body.status
   if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 120)
   if (typeof body.description === 'string') patch.description = body.description.trim().slice(0, 300) || null
+  if (body.design && typeof body.design === 'object') patch.design = normalizeDesign(body.design)
   if ('endsAt' in body) {
     if (body.endsAt === null || body.endsAt === '') patch.ends_at = null
     else if (typeof body.endsAt === 'string' && Number.isFinite(new Date(body.endsAt).getTime())) {

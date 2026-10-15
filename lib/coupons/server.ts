@@ -10,6 +10,7 @@
 import 'server-only'
 import type { createServiceRoleClient } from '@/lib/supabase/server'
 import { mintCouponToken, verifyCouponToken } from './token'
+import { defaultDesignFor, normalizeDesign, type CouponDesign } from './design'
 
 // The coupon tables are newer than lib/supabase/types.ts, so queries go
 // through an untyped view of the client.
@@ -45,10 +46,11 @@ export type CouponRow = {
   created_by_name: string | null
   created_at: string
   updated_at: string
+  design: CouponDesign
 }
 
 const COUPON_COLUMNS =
-  'id, title, description, discount_type, discount_value, max_discount_lkr, min_order_lkr, store_scope, store_slugs, audience, per_user_limit, total_limit, starts_at, ends_at, status, source, created_by_name, created_at, updated_at'
+  'id, title, description, discount_type, discount_value, max_discount_lkr, min_order_lkr, store_scope, store_slugs, audience, per_user_limit, total_limit, starts_at, ends_at, status, source, created_by_name, created_at, updated_at, design'
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -56,8 +58,15 @@ function num(v: unknown): number {
 }
 
 function normalizeCoupon(row: Record<string, unknown>): CouponRow {
+  const type = row.discount_type === 'percent' ? 'percent' : 'fixed'
+  const rawDesign = row.design && typeof row.design === 'object' && Object.keys(row.design as object).length ? row.design : null
   return {
     ...(row as unknown as CouponRow),
+    // Coupons nobody designed (referral rewards, QC credits, old coupons)
+    // get a sensible look for their kind.
+    design: rawDesign
+      ? normalizeDesign(rawDesign)
+      : defaultDesignFor((row.source as CouponSource) ?? 'admin', type),
     discount_value: num(row.discount_value),
     max_discount_lkr: row.max_discount_lkr == null ? null : num(row.max_discount_lkr),
     min_order_lkr: num(row.min_order_lkr),
@@ -106,6 +115,7 @@ export type CouponInput = {
   totalLimit: number | null
   startsAt: string
   endsAt: string | null
+  design?: CouponDesign
 }
 
 function optionalPositive(v: unknown): number | null {
@@ -163,6 +173,7 @@ export function validateCouponInput(body: Record<string, unknown>): CouponInput 
     totalLimit,
     startsAt,
     endsAt,
+    design: normalizeDesign(body.design, discountType === 'percent' ? 'percent' : 'coin'),
   }
 }
 
@@ -194,6 +205,7 @@ export async function createCoupon(
       total_limit: input.totalLimit,
       starts_at: input.startsAt,
       ends_at: input.endsAt,
+      design: input.design ?? defaultDesignFor(source, input.discountType),
       source,
       created_by_staff_id: actor.staffId ?? null,
       created_by_name: actor.name ?? null,
@@ -453,6 +465,10 @@ export async function voidRedemptionsForCheckout(admin: AdminClient, checkoutId:
 export type CustomerCoupon = {
   id: string
   title: string
+  discountType: 'percent' | 'fixed'
+  discountValue: number
+  maxDiscountLKR: number | null
+  design: CouponDesign
   description: string | null
   discountLabel: string
   minOrderLKR: number
@@ -465,6 +481,15 @@ export type CustomerCoupon = {
 }
 
 export async function listCustomerCoupons(admin: AdminClient, userId: string): Promise<CustomerCoupon[]> {
+  return (await listCustomerCouponsWithRows(admin, userId)).map((x) => x.view)
+}
+
+/** Same as listCustomerCoupons, plus each coupon's full row (for working
+ *  out the discount against a cart). */
+export async function listCustomerCouponsWithRows(
+  admin: AdminClient,
+  userId: string,
+): Promise<{ view: CustomerCoupon; row: CouponRow }[]> {
   const [{ data: allocs }, { data: campaigns }, { data: uses }, firstOrderDone] = await Promise.all([
     db(admin).from('coupon_allocations').select('coupon_id, via, revoked_at').eq('user_id', userId),
     db(admin)
@@ -494,8 +519,10 @@ export async function listCustomerCoupons(admin: AdminClient, userId: string): P
   const { data: rows } = await db(admin).from('coupons').select(COUPON_COLUMNS).in('id', [...ids])
   const now = Date.now()
   const out: CustomerCoupon[] = []
+  const rowById = new Map<string, CouponRow>()
   for (const raw of (rows ?? []) as Record<string, unknown>[]) {
     const c = normalizeCoupon(raw)
+    rowById.set(c.id, c)
     const alloc = allocByCoupon.get(c.id)
     if (alloc?.revoked) continue
     if (c.status === 'archived' && !usedCount.get(c.id)) continue
@@ -508,6 +535,10 @@ export async function listCustomerCoupons(admin: AdminClient, userId: string): P
     out.push({
       id: c.id,
       title: c.title,
+      discountType: c.discount_type,
+      discountValue: c.discount_value,
+      maxDiscountLKR: c.max_discount_lkr,
+      design: c.design,
       description: c.description,
       discountLabel: discountLabel(c),
       minOrderLKR: c.min_order_lkr,
@@ -522,7 +553,7 @@ export async function listCustomerCoupons(admin: AdminClient, userId: string): P
   }
   const rank = { available: 0, unavailable: 1, used: 2, expired: 3 }
   out.sort((a, b) => rank[a.status] - rank[b.status] || (a.endsAt ?? '9').localeCompare(b.endsAt ?? '9'))
-  return out
+  return out.map((view) => ({ view, row: rowById.get(view.id)! }))
 }
 
 // ---------------------------------------------------------------------------

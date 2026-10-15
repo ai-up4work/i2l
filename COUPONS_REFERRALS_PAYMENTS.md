@@ -43,6 +43,14 @@ customer sees is what they're charged.
   discount given, and lets staff pause / resume / archive, change the end date,
   give it to more customers, take it back, or give a use back (e.g. the order was
   cancelled).
+- **Card design**: each coupon has its own card — colours, pattern, icon,
+  product image, logo and footer text — set with a live preview (same
+  controls as the customizer demo) when creating it, or later with
+  *Edit design* on the coupon's page. Customers see that card in **My
+  coupons** and in their **bag**, where every coupon on their account is
+  listed with what it saves on that order (best saving first; ones that
+  don't fit yet are dimmed with the reason). Tap a card to apply it.
+  Referral and QC-credit coupons get a matching default look.
 - **Codes are signed** (`lib/coupons/token.ts`): `WD1.<payload>.<signature>`.
   Only the server can make one; editing any character breaks it. The code in a
   customer's My coupons is bound to their account, so sharing it doesn't help

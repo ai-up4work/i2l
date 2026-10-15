@@ -13,10 +13,16 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Check, Copy, Plus, Ticket } from 'lucide-react'
 import { AccountEmpty, AccountPage, AccountPageHeader } from '@/components/account/AccountPageKit'
+import DealCoupon from '@/components/shared/DealCoupon-flex'
+import { COUPON_BADGE, couponToDisplay, type CouponDesign } from '@/lib/coupons/design'
 
 type CustomerCoupon = {
   id: string
   title: string
+  discountType: 'percent' | 'fixed'
+  discountValue: number
+  maxDiscountLKR: number | null
+  design: CouponDesign
   description: string | null
   discountLabel: string
   minOrderLKR: number
@@ -45,10 +51,6 @@ const VIA_LABEL: Record<string, string> = {
   migrated: 'Just for you',
 }
 
-function storeLabel(slug: string) {
-  return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
 function daysLeft(endsAt: string | null): string | null {
   if (!endsAt) return null
   const d = Math.ceil((new Date(endsAt).getTime() - Date.now()) / 86_400_000)
@@ -59,10 +61,12 @@ function daysLeft(endsAt: string | null): string | null {
   return `Until ${new Date(endsAt).toLocaleDateString('en-LK', { day: 'numeric', month: 'short', year: 'numeric' })}`
 }
 
-function CouponTicket({ coupon }: { coupon: CustomerCoupon }) {
+function CouponCard({ coupon }: { coupon: CustomerCoupon }) {
   const [copied, setCopied] = useState(false)
   const usable = coupon.status === 'available'
-  const [amount, ...rest] = coupon.discountLabel.split(' off')
+  const ending = daysLeft(coupon.endsAt)
+  const soon = usable && !!coupon.endsAt && new Date(coupon.endsAt).getTime() - Date.now() < 3 * 86_400_000
+  const useHref = `/account/cart?coupon=${encodeURIComponent(coupon.token)}`
 
   const copy = async () => {
     try {
@@ -74,68 +78,56 @@ function CouponTicket({ coupon }: { coupon: CustomerCoupon }) {
     }
   }
 
-  const ending = daysLeft(coupon.endsAt)
-  const soon = usable && coupon.endsAt && new Date(coupon.endsAt).getTime() - Date.now() < 3 * 86_400_000
+  const badge = usable
+    ? soon
+      ? COUPON_BADGE.soon
+      : COUPON_BADGE.available
+    : coupon.status === 'used'
+      ? COUPON_BADGE.used
+      : coupon.status === 'expired'
+        ? COUPON_BADGE.expired
+        : COUPON_BADGE.unavailable
+
+  const display = couponToDisplay(
+    {
+      id: coupon.id,
+      title: coupon.title,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      maxDiscountLKR: coupon.maxDiscountLKR,
+      minOrderLKR: coupon.minOrderLKR,
+      stores: coupon.stores,
+      design: coupon.design,
+    },
+    { href: usable ? useHref : '#', badge, dimmed: !usable },
+  )
 
   return (
-    <article
-      className={`relative flex flex-col overflow-hidden rounded-3xl bg-card ring-1 sm:flex-row ${
-        usable ? 'ring-ink/10' : 'opacity-60 ring-ink/5'
-      }`}
-    >
-      {/* Stub */}
-      <div
-        className={`flex flex-none flex-col justify-center gap-1 px-6 py-5 sm:w-48 ${
-          usable ? 'bg-indigo text-parchment' : 'bg-ink/10 text-ink/60'
-        }`}
-      >
-        <p className="font-display text-3xl leading-none">{amount}</p>
-        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${usable ? 'text-gold' : ''}`}>
-          off{rest.join(' off')}
-        </p>
-        {coupon.minOrderLKR > 0 && (
-          <p className={`mt-1 text-xs ${usable ? 'text-parchment/60' : ''}`}>
-            On Rs. {Math.round(coupon.minOrderLKR).toLocaleString('en-LK')}+
-          </p>
-        )}
-      </div>
-
-      {/* Perforation */}
-      <div aria-hidden className="hidden w-0 border-l-2 border-dashed border-ink/10 sm:block" />
-
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-5 sm:flex-row sm:items-center">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-teal/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-deep">
-              {VIA_LABEL[coupon.via] ?? 'Coupon'}
-            </span>
-            {ending && (
-              <span className={`text-xs ${soon ? 'font-semibold text-gold-deep' : 'text-ink/50'}`}>{ending}</span>
-            )}
-          </div>
-          <h3 className="mt-1.5 font-semibold text-ink">{coupon.title}</h3>
-          {coupon.description && <p className="mt-0.5 text-sm text-ink/55">{coupon.description}</p>}
-          <p className="mt-1 text-xs text-ink/50">
-            {coupon.stores?.length ? `Only on ${coupon.stores.map(storeLabel).join(', ')}` : 'On any store'}
+    <article className="flex flex-col gap-2.5">
+      <DealCoupon coupon={{ ...display, actionLabel: usable ? 'Use now' : badge.label }} notchColor="#fbf6ec" />
+      <div className="flex items-start justify-between gap-3 px-1">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-ink">{coupon.title}</p>
+          <p className="text-xs text-ink/50">
+            {VIA_LABEL[coupon.via] ?? 'Coupon'}
+            {ending ? ` · ${ending}` : ''}
             {usable && coupon.usesLeft > 1 ? ` · ${coupon.usesLeft} uses left` : ''}
-            {coupon.status === 'unavailable' ? ' · Not active right now' : ''}
           </p>
         </div>
-
         {usable && (
-          <div className="flex flex-none gap-2">
+          <div className="flex flex-none gap-1.5">
             <button
               type="button"
               onClick={copy}
               aria-label="Copy coupon code"
-              className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 px-3.5 py-2 text-xs font-semibold text-ink/70 transition-colors hover:bg-ink/[0.04]"
+              className="inline-flex items-center gap-1 rounded-full border border-ink/15 px-2.5 py-1.5 text-[11px] font-semibold text-ink/65 hover:bg-ink/[0.04]"
             >
-              {copied ? <Check size={14} className="text-teal-deep" /> : <Copy size={14} />}
+              {copied ? <Check size={12} className="text-teal-deep" /> : <Copy size={12} />}
               {copied ? 'Copied' : 'Code'}
             </button>
             <Link
-              href={`/account/cart?coupon=${encodeURIComponent(coupon.token)}`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-teal-deep px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo"
+              href={useHref}
+              className="inline-flex items-center rounded-full bg-teal-deep px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo"
             >
               Use now
             </Link>
@@ -260,12 +252,13 @@ function CouponsInner() {
         ))}
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-5 grid gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
         {error ? (
-          <p className="rounded-2xl bg-card p-6 text-sm text-ink/60 ring-1 ring-ink/10">{error}</p>
+          <p className="col-span-full rounded-2xl bg-card p-6 text-sm text-ink/60 ring-1 ring-ink/10">{error}</p>
         ) : !coupons ? (
-          [0, 1].map((i) => <div key={i} className="h-32 animate-pulse rounded-3xl bg-ink/5" />)
+          [0, 1, 2].map((i) => <div key={i} className="aspect-[7/4] animate-pulse rounded-2xl bg-ink/5" />)
         ) : visible.length === 0 ? (
+          <div className="col-span-full">
           <AccountEmpty
             icon={Ticket}
             title={tab === 'available' ? 'No coupons right now' : tab === 'used' ? 'You haven’t used a coupon yet' : 'No expired coupons'}
@@ -278,8 +271,9 @@ function CouponsInner() {
               ) : undefined
             }
           />
+          </div>
         ) : (
-          visible.map((c) => <CouponTicket key={c.id} coupon={c} />)
+          visible.map((c) => <CouponCard key={c.id} coupon={c} />)
         )}
       </div>
     </AccountPage>

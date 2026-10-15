@@ -13,6 +13,8 @@ import Link from 'next/link'
 import { ArrowLeft, Check, Copy, Loader2, Ticket, UserPlus } from 'lucide-react'
 import { useCurrentStaff } from '@/hooks/useCurrentStaff'
 import { couponState } from '@/components/admin/coupon-state'
+import CouponDesigner from '@/components/admin/CouponDesigner'
+import { normalizeDesign, type CouponDesign } from '@/lib/coupons/design'
 import CustomerPicker, { adminInputClass as inputClass, type PickedCustomer } from '@/components/admin/CustomerPicker'
 
 type Detail = {
@@ -22,6 +24,9 @@ type Detail = {
     description: string | null
     label: string
     discount_type: 'percent' | 'fixed'
+    discount_value: number
+    max_discount_lkr: number | null
+    design: CouponDesign
     min_order_lkr: number
     store_scope: 'all' | 'stores'
     store_slugs: string[]
@@ -118,6 +123,8 @@ export default function CouponDetailPage({ params }: { params: Promise<{ couponI
   const [endsAt, setEndsAt] = useState('')
   const [adding, setAdding] = useState<PickedCustomer[]>([])
   const [tab, setTab] = useState<'used' | 'has'>('used')
+  const [design, setDesign] = useState<CouponDesign | null>(null)
+  const [designOpen, setDesignOpen] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/coupons/${couponId}`)
@@ -126,6 +133,7 @@ export default function CouponDetailPage({ params }: { params: Promise<{ couponI
     else {
       setData(body)
       setEndsAt(toLocalInput(body.coupon.ends_at))
+      setDesign(normalizeDesign(body.coupon.design))
     }
   }, [couponId])
 
@@ -271,6 +279,52 @@ export default function CouponDetailPage({ params }: { params: Promise<{ couponI
             </div>
           ))}
         </div>
+
+        {/* Card design */}
+        <section className="mt-6 rounded-2xl border border-ink/10 bg-card p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Card design</p>
+              <p className="text-xs text-ink/55">How this coupon looks in customers’ My coupons and in their bag.</p>
+            </div>
+            <div className="flex gap-2">
+              {designOpen && design && (
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => patch('design', { design }, 'Design saved. Customers see the new look straight away.')}
+                  className="rounded-xl bg-indigo px-4 py-2 text-sm font-semibold text-parchment hover:bg-indigo-deep disabled:opacity-50"
+                >
+                  Save design
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setDesignOpen((v) => !v)}
+                className="rounded-xl border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-ink/[0.04]"
+              >
+                {designOpen ? 'Close' : 'Edit design'}
+              </button>
+            </div>
+          </div>
+          {designOpen && design && (
+            <div className="mt-4">
+              <CouponDesigner
+                design={design}
+                onChange={setDesign}
+                facts={{
+                  id: c.id,
+                  title: c.title,
+                  discountType: c.discount_type,
+                  discountValue: Number(c.discount_value),
+                  maxDiscountLKR: c.max_discount_lkr == null ? null : Number(c.max_discount_lkr),
+                  minOrderLKR: Number(c.min_order_lkr),
+                  stores: c.store_scope === 'stores' ? c.store_slugs : null,
+                }}
+              />
+            </div>
+          )}
+        </section>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           {/* Tables */}

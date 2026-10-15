@@ -340,3 +340,8 @@ begin
   end if;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 10. Coupon card design (colours, pattern, icon, images) — Admin → Coupons
+-- ---------------------------------------------------------------------------
+alter table public.coupons add column if not exists design jsonb not null default '{}'::jsonb;

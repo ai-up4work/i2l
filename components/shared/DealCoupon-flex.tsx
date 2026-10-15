@@ -444,6 +444,11 @@ export interface CouponDisplay {
   footerText: string
   href: string
   dimmed?: boolean
+  /** Exact accent colour (hex). Use this for colours chosen at runtime —
+   *  Tailwind can't generate an `accent` class it never saw in the source. */
+  accentColor?: string
+  /** Text on the vertical stub. Default "View Deal". */
+  actionLabel?: string
 }
 
 const FALLBACK_BG = '#F0EFEC'
@@ -533,20 +538,38 @@ export function discountToCoupon(discount: Discount): CouponDisplay {
 /* Component                                                               */
 /* ---------------------------------------------------------------------- */
 
-export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
+// Sizes are in container units (cqw) — relative to the card's own width,
+// not the screen — so the card looks the same in a wide grid, a narrow
+// cart column or a phone.
+export default function DealCoupon({
+  coupon,
+  onSelect,
+  selected = false,
+  notchColor,
+}: {
+  coupon: CouponDisplay
+  /** Render as a button (e.g. "apply this coupon") instead of a link. */
+  onSelect?: () => void
+  /** Draws a selection ring (e.g. the coupon applied in the cart). */
+  selected?: boolean
+  /** Colour of the ticket notches — should match what's behind the card. */
+  notchColor?: string
+}) {
   const bgColor = coupon.bgColor ?? FALLBACK_BG
-  const accent = coupon.accent ?? FALLBACK_ACCENT
+  const accent = coupon.accentColor ? '' : coupon.accent ?? FALLBACK_ACCENT
+  const accentStyle = coupon.accentColor ? { color: coupon.accentColor } : undefined
   const patternHex = coupon.patternColor ?? FALLBACK_PATTERN_COLOR
+  const className = `group relative flex aspect-[7/4] w-full overflow-hidden [container-type:inline-size] rounded-xl text-left shadow-[0_1px_2px_rgba(8,39,79,0.06),0_12px_28px_-12px_rgba(8,39,79,0.25)] ring-inset transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_1px_2px_rgba(8,39,79,0.08),0_20px_36px_-14px_rgba(8,39,79,0.32)] sm:rounded-2xl ${
+    selected ? 'ring-[3px] ring-teal-deep' : 'ring-1 ring-black/5'
+  } ${coupon.dimmed ? 'opacity-60 grayscale-[0.4]' : ''}`
+  const Wrapper = (onSelect ? 'button' : 'a') as 'a'
+  const wrapperProps = onSelect
+    ? ({ type: 'button', onClick: onSelect, 'aria-pressed': selected } as unknown as { href?: string })
+    : { href: coupon.href }
 
   return (
-    <a
-      href={coupon.href}
-      className={`group relative flex aspect-[7/4] w-full overflow-hidden rounded-xl shadow-[0_1px_2px_rgba(8,39,79,0.06),0_12px_28px_-12px_rgba(8,39,79,0.25)] ring-1 ring-inset ring-black/5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_1px_2px_rgba(8,39,79,0.08),0_20px_36px_-14px_rgba(8,39,79,0.32)] sm:rounded-2xl ${
-        coupon.dimmed ? 'opacity-60 grayscale-[0.4]' : ''
-      }`}
-      style={{ backgroundColor: bgColor }}
-    >
-      <div className="relative flex min-w-0 flex-1 flex-col p-[clamp(0.65rem,3vw,1.5rem)]">
+    <Wrapper {...wrapperProps} className={className} style={{ backgroundColor: bgColor }}>
+      <div className="relative flex min-w-0 flex-1 flex-col p-[clamp(0.6rem,5.5cqw,1.5rem)]">
         {/* layer 1: pattern — programmatic, own color/type, independent of product */}
         <span
           aria-hidden="true"
@@ -577,17 +600,26 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
           className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-white/20 to-transparent"
         />
 
+        {coupon.badge && (
+          <span
+            className={`absolute right-[clamp(0.4rem,3cqw,1rem)] top-[clamp(0.4rem,3cqw,1rem)] z-20 rounded-full px-2 py-0.5 font-body font-bold uppercase tracking-wide ${coupon.badge.className}`}
+            style={{ fontSize: 'clamp(0.45rem, 2.4cqw, 0.65rem)' }}
+          >
+            {coupon.badge.label}
+          </span>
+        )}
+
         <div className="relative z-10 min-w-0 max-w-[62%] pr-2">
           <p
             className={`font-body font-extrabold leading-none ${accent}`}
-            style={{ fontSize: 'clamp(1.05rem, 4.2vw, 1.875rem)' }}
+            style={{ fontSize: 'clamp(1rem, 9.5cqw, 1.875rem)', ...accentStyle }}
           >
             {coupon.headline}
           </p>
           {coupon.eyebrow && (
             <p
               className={`mt-0.5 font-body font-semibold uppercase tracking-wide ${accent}`}
-              style={{ fontSize: 'clamp(0.55rem, 1.6vw, 0.75rem)' }}
+              style={{ fontSize: 'clamp(0.5rem, 3cqw, 0.75rem)', ...accentStyle }}
             >
               {coupon.eyebrow}
             </p>
@@ -595,7 +627,7 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
           {coupon.detail && (
             <p
               className="mt-1 line-clamp-2 font-body text-ink/70"
-              style={{ fontSize: 'clamp(0.6rem, 1.8vw, 0.875rem)' }}
+              style={{ fontSize: 'clamp(0.6rem, 3.5cqw, 0.875rem)' }}
             >
               {coupon.detail}
             </p>
@@ -608,7 +640,7 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
               src={coupon.footerLogo}
               alt={`${coupon.footerText} logo`}
               className="w-auto shrink-0 object-contain"
-              style={{ height: 'clamp(0.9rem, 3vw, 1.75rem)' }}
+              style={{ height: 'clamp(0.9rem, 6cqw, 1.75rem)' }}
               onError={(e) => {
                 e.currentTarget.style.display = 'none'
                 e.currentTarget.nextElementSibling?.classList.remove('hidden')
@@ -620,10 +652,11 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
             <span
               className={`grid shrink-0 place-items-center rounded-full font-body font-bold ${accent}`}
               style={{
-                height: 'clamp(1.1rem, 3.4vw, 1.75rem)',
-                width: 'clamp(1.1rem, 3.4vw, 1.75rem)',
-                fontSize: 'clamp(0.5rem, 1.6vw, 0.75rem)',
+                height: 'clamp(1.1rem, 7cqw, 1.75rem)',
+                width: 'clamp(1.1rem, 7cqw, 1.75rem)',
+                fontSize: 'clamp(0.5rem, 3cqw, 0.75rem)',
                 backgroundColor: 'rgba(255,255,255,0.6)',
+                ...accentStyle,
               }}
             >
               {coupon.footerInitials}
@@ -634,7 +667,7 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
             className={`truncate font-body font-bold uppercase tracking-wide ${accent} ${
               coupon.footerLogo ? 'hidden' : ''
             }`}
-            style={{ fontSize: 'clamp(0.65rem, 2.2vw, 0.9rem)' }}
+            style={{ fontSize: 'clamp(0.6rem, 3.6cqw, 0.9rem)', ...accentStyle }}
           >
             {coupon.footerText}
           </p>
@@ -650,15 +683,16 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
         <span
           aria-hidden="true"
           className="absolute left-1/2 -translate-x-1/2 rounded-full bg-card"
-          style={{ top: '-0.35rem', height: 'clamp(0.6rem, 1.2vw, 1.1rem)', width: 'clamp(0.6rem, 1.2vw, 1.1rem)' }}
+          style={{ top: '-0.35rem', height: 'clamp(0.6rem, 2.6cqw, 1.1rem)', width: 'clamp(0.6rem, 2.6cqw, 1.1rem)', ...(notchColor ? { backgroundColor: notchColor } : {}) }}
         />
         <span
           aria-hidden="true"
           className="absolute left-1/2 -translate-x-1/2 rounded-full bg-card"
           style={{
             bottom: '-0.35rem',
-            height: 'clamp(0.6rem, 1.2vw, 1.1rem)',
-            width: 'clamp(0.6rem, 1.2vw, 1.1rem)',
+            height: 'clamp(0.6rem, 2.6cqw, 1.1rem)',
+            width: 'clamp(0.6rem, 2.6cqw, 1.1rem)',
+            ...(notchColor ? { backgroundColor: notchColor } : {}),
           }}
         />
         <span
@@ -669,15 +703,15 @@ export default function DealCoupon({ coupon }: { coupon: CouponDisplay }) {
 
       <div
         className="relative flex flex-none flex-col items-center justify-center gap-3 py-2"
-        style={{ width: 'clamp(1.75rem, 5vw, 4rem)' }}
+        style={{ width: 'clamp(1.6rem, 9cqw, 4rem)' }}
       >
         <span
           className="rotate-180 whitespace-nowrap font-body font-semibold uppercase tracking-[0.15em] text-ink/50 [writing-mode:vertical-rl]"
-          style={{ fontSize: 'clamp(6px, 1vw, 9px)' }}
+          style={{ fontSize: 'clamp(6px, 2cqw, 9px)' }}
         >
-          View Deal
+          {coupon.actionLabel ?? 'View Deal'}
         </span>
       </div>
-    </a>
+    </Wrapper>
   )
 }

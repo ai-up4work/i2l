@@ -37,6 +37,7 @@ import {
   computeDiscount,
   db,
   discountLabel,
+  listCustomerCouponsWithRows,
   redeemCoupon,
   resolveCouponForUser,
   voidRedemptionsForCheckout,
@@ -408,6 +409,26 @@ export async function priceCart(
 
 export type CouponSummary = { id: string; title: string; label: string }
 
+/** A coupon on the customer's account, checked against THIS cart — the
+ *  cart's "Available coupons" row. */
+export type CartCoupon = {
+  id: string
+  title: string
+  token: string
+  discountType: 'percent' | 'fixed'
+  discountValue: number
+  maxDiscountLKR: number | null
+  minOrderLKR: number
+  stores: string[] | null
+  endsAt: string | null
+  design: import('@/lib/coupons/design').CouponDesign
+  /** What it would take off this cart, or null when it doesn't apply */
+  savingLKR: number | null
+  /** Why it doesn't apply (e.g. minimum not reached) */
+  reason: string | null
+  best: boolean
+}
+
 export type CheckoutQuote = {
   lines: { id: string; unitTotalLKR: number; priceLKR: number; verified: boolean; inStock: boolean }[]
   priceSubtotalLKR: number
@@ -419,6 +440,7 @@ export type CheckoutQuote = {
   coupon: CouponSummary | null
   couponError: string | null
   needsReview: boolean
+  availableCoupons: CartCoupon[]
 }
 
 async function applyCoupon(
@@ -445,6 +467,35 @@ async function applyCoupon(
   }
 }
 
+/** Every usable coupon on the account, with what it saves on this cart. */
+async function cartCoupons(admin: AdminClient, userId: string, pricing: CartPricing): Promise<CartCoupon[]> {
+  const all = await listCustomerCouponsWithRows(admin, userId)
+  const lines = pricing.lines.map((l) => ({ key: l.input.id, storeSlug: l.input.site, priceLKR: l.priceLKR }))
+  const out: CartCoupon[] = all
+    .filter(({ view }) => view.status === 'available')
+    .map(({ view, row }) => {
+      const r = computeDiscount(row, lines)
+      return {
+        id: view.id,
+        title: view.title,
+        token: view.token,
+        discountType: view.discountType,
+        discountValue: view.discountValue,
+        maxDiscountLKR: view.maxDiscountLKR,
+        minOrderLKR: view.minOrderLKR,
+        stores: view.stores,
+        endsAt: view.endsAt,
+        design: view.design,
+        savingLKR: r.ok && r.discountLKR > 0 ? r.discountLKR : null,
+        reason: r.ok ? (r.discountLKR > 0 ? null : 'Nothing to discount') : r.error,
+        best: false,
+      }
+    })
+  out.sort((a, b) => (b.savingLKR ?? -1) - (a.savingLKR ?? -1))
+  if (out[0]?.savingLKR) out[0].best = true
+  return out
+}
+
 function checkDelivery(delivery: DeliveryChoice): DeliveryChoice {
   return delivery === 'economy' && !ECONOMY_LOCKED ? 'economy' : 'express'
 }
@@ -455,9 +506,16 @@ export async function quoteCheckout(
 ): Promise<CheckoutQuote> {
   const admin = createServiceRoleClient()
   const pricing = await priceCart(admin, input.lines, checkDelivery(input.delivery))
-  const c = await applyCoupon(admin, userId, input.couponToken, pricing)
+  const [c, availableCoupons] = await Promise.all([
+    applyCoupon(admin, userId, input.couponToken, pricing),
+    cartCoupons(admin, userId, pricing).catch((err) => {
+      console.error('[checkout/quote] coupon list failed', err)
+      return [] as CartCoupon[]
+    }),
+  ])
   const gross = pricing.priceSubtotalLKR + pricing.serviceSubtotalLKR + pricing.deliverySubtotalLKR + pricing.pickupLKR
   return {
+    availableCoupons,
     lines: pricing.lines.map((l) => ({
       id: l.input.id,
       unitTotalLKR: l.unitTotalLKR,

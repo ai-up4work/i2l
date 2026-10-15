@@ -44,6 +44,8 @@ import {
 import { useStorePricingLookup } from '@/hooks/useStorePricingLookup'
 import { localPickupFees, localServiceShares, localPickupFeeLKR, type StorePricingInfo } from '@/lib/store-origin'
 import Image from 'next/image'
+import DealCoupon from '@/components/shared/DealCoupon-flex'
+import { COUPON_BADGE, couponToDisplay, type CouponDesign } from '@/lib/coupons/design'
 
 type DeliveryChoice = 'economy' | 'express'
 
@@ -117,6 +119,93 @@ type ServerQuote = {
   coupon: { id: string; title: string; label: string } | null
   couponError: string | null
   needsReview: boolean
+  /** Every coupon on the account, checked against this bag (lib/checkout/server.ts CartCoupon). */
+  availableCoupons: CartCoupon[]
+}
+
+type CartCoupon = {
+  id: string
+  title: string
+  token: string
+  discountType: 'percent' | 'fixed'
+  discountValue: number
+  maxDiscountLKR: number | null
+  minOrderLKR: number
+  stores: string[] | null
+  endsAt: string | null
+  design: CouponDesign
+  savingLKR: number | null
+  reason: string | null
+  best: boolean
+}
+
+/** "Your coupons" row in the bag: each coupon card, what it saves on THIS
+ *  order (worked out on the server), tap to apply. Ones that don't fit yet
+ *  are dimmed with the reason (e.g. "needs Rs. 7,000"). */
+function CartCouponPicker({
+  coupons,
+  appliedId,
+  busy,
+  onApply,
+  onRemove,
+}: {
+  coupons: CartCoupon[]
+  appliedId: string | null
+  busy: boolean
+  onApply: (c: CartCoupon) => void
+  onRemove: () => void
+}) {
+  if (coupons.length === 0) return null
+  const usable = coupons.filter((c) => c.savingLKR).length
+  return (
+    <div className="mb-4">
+      <div className="flex items-baseline justify-between">
+        <p className="text-xs font-semibold text-ink/60">Your coupons</p>
+        <p className="text-[11px] text-ink/45">
+          {usable ? `${usable} can be used on this order` : 'None fit this order yet'}
+        </p>
+      </div>
+      <div className="-mx-6 mt-2 flex snap-x scroll-px-6 gap-3 overflow-x-auto px-6 pb-2 pt-1 [scrollbar-width:thin]">
+        {coupons.map((c) => {
+          const applied = c.id === appliedId
+          const fits = !!c.savingLKR
+          const display = couponToDisplay(
+            {
+              id: c.id,
+              title: c.title,
+              discountType: c.discountType,
+              discountValue: c.discountValue,
+              maxDiscountLKR: c.maxDiscountLKR,
+              minOrderLKR: c.minOrderLKR,
+              stores: c.stores,
+              design: c.design,
+            },
+            {
+              badge: applied ? COUPON_BADGE.applied : c.best ? COUPON_BADGE.best : undefined,
+              dimmed: !fits,
+            },
+          )
+          return (
+            <div key={c.id} className="w-[230px] flex-none snap-start">
+              <DealCoupon
+                coupon={{ ...display, actionLabel: applied ? 'Applied' : fits ? 'Apply' : 'Not yet' }}
+                onSelect={() => {
+                  if (busy || !fits) return
+                  if (applied) onRemove()
+                  else onApply(c)
+                }}
+                selected={applied}
+                notchColor="#ffffff"
+              />
+              <p className={`mt-1.5 px-0.5 text-[11px] leading-snug ${fits ? 'font-semibold text-teal-deep' : 'text-ink/50'}`}>
+                {fits ? `Saves ${formatLKR(c.savingLKR!)}${applied ? ' · tap to remove' : ''}` : c.reason}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function cleanSiteLabel(site: string): string {
@@ -813,9 +902,14 @@ function CartPageContent() {
     setCouponToken(fromLink)
   }, [searchParams])
 
-  const handleApplyCoupon = async () => {
+  const applyFromList = (c: CartCoupon) => {
+    setDiscountCode(c.token)
+    void handleApplyCoupon(c.token)
+  }
+
+  const handleApplyCoupon = async (fromList?: string) => {
     setCouponError(null)
-    const code = discountCode.trim()
+    const code = (fromList ?? discountCode).trim()
     if (!code) return
     const q = await requestQuote(code)
     if (!q) {
@@ -1185,6 +1279,13 @@ function CartPageContent() {
           </div>
 
           <div className="border-t border-ink/10 px-6 py-5">
+            <CartCouponPicker
+              coupons={quote?.availableCoupons ?? []}
+              appliedId={appliedCoupon?.id ?? null}
+              busy={quoteLoading}
+              onApply={applyFromList}
+              onRemove={handleRemoveCoupon}
+            />
             {appliedCoupon ? (
               <div className="flex items-center justify-between gap-2 rounded-xl border border-teal/25 bg-teal/[0.06] px-3.5 py-2.5">
                 <div className="flex items-center gap-2 text-sm text-teal-deep">
@@ -1212,13 +1313,13 @@ function CartPageContent() {
                       if (couponError) setCouponError(null)
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && handleApplyCoupon()}
-                    placeholder="Coupon code"
+                    placeholder="Or paste a coupon code"
                     className="w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-ink/35 focus:outline-none"
                   />
                 </div>
                 <button
                   type="button"
-                  onClick={handleApplyCoupon}
+                  onClick={() => handleApplyCoupon()}
                   disabled={!discountCode.trim()}
                   className="flex-none rounded-xl border border-ink/15 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
                 >
