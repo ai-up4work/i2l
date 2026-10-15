@@ -1,38 +1,45 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ArrowRight, Check, Link } from 'lucide-react'
-import { OPEN_SHOP_EVENT } from '@/components/shared/Header'
+import { ArrowRight, Check, Link as LinkIcon } from 'lucide-react'
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
-// Same flow FinalCTA (app/page.tsx) and /account's "Buy for me" form use
-// — see contexts/DashboardContext.tsx. Pasting a link here now scrapes
-// and prices the item via the shared ItemInfoModal (mounted once at the
-// <Home> page level) instead of redirecting to /account?link=..., which
-// required being signed in to even land on the page. Only actually
-// confirming the request (inside that modal) needs auth, and
-// DashboardContext.confirmRequest already handles that itself.
+import { OUTER_H } from '@/components/shared/headerMetrics'
+import { AIRMAIL_STRIPE_HEIGHT } from '@/components/shared/AirmailStripe'
+// Same flow FinalCTA and /account's "Buy for me" form use — see
+// contexts/DashboardContext.tsx. Pasting a link here scrapes and prices
+// the item via the shared ItemInfoModal (mounted once at the page level).
+// Only confirming the request inside that modal needs auth.
 import { useDashboard } from '@/contexts/DashboardContext'
 
-// Full pool of local-store logos for the hero's "Browse Stores" row — now
-// fetched live via useAffiliatedStores() inside Hero() below, instead of a
-// static import, so this never drifts out of sync with the real store list.
-//
-// This used to be a static slice(0, 7). It's now the full pool that the
-// avatar row rotates through (see VISIBLE_COUNT / useStoreCarousel
-// below) — same trust-signal row, but it can now surface more than six
-// stores over time instead of always showing the same fixed set.
+/* ============================================================================
+ * HERO
+ *
+ * Design notes
+ * - One headline colour (indigo) with a single teal accent. Gold is kept for
+ *   highlights only (the headline underline), per the
+ *   palette rules in app/globals.css.
+ * - The right-hand illustration comes from the background image
+ *   (/hero-demo.png); the copy column stays on the left.
+ * - Everything uses tokens from @theme (ink / parchment / card / teal /
+ *   gold / indigo). No arbitrary hex values except the airmail stripe,
+ *   which matches components/shared/AirmailStripe.tsx.
+ * ==========================================================================*/
 
-const VISIBLE_COUNT = 10
+// Avatars visible in the store row: 4 on mobile, 5 from sm up.
+const VISIBLE_COUNT = 5
 const ROTATE_MS = 6000
 
-// Advances through `localStores` VISIBLE_COUNT at a time, wrapping
-// around. Returns a stable static slice if there aren't enough stores to
-// make rotation worthwhile — no point animating a set that never
-// changes. Runs entirely client-side after mount, so the first paint
-// still matches the server (no hydration mismatch), it just starts
-// rotating a beat later.
+// Clears the fixed header (tallest part of the notch + airmail stripe).
+const HEADER_CLEARANCE = OUTER_H + AIRMAIL_STRIPE_HEIGHT
+
+const AIRMAIL_STRIPE =
+  'repeating-linear-gradient(45deg,#C1272D 0 10px,#FBF6EC 10px 20px,#1E3A5F 20px 30px,#FBF6EC 30px 40px)'
+
+// Advances through `localStores` VISIBLE_COUNT at a time, wrapping around.
+// Returns a static slice when there aren't enough stores to rotate. Runs
+// client-side after mount, so first paint matches the server.
 function useStoreCarousel(localStores: ReturnType<typeof useAffiliatedStores>['stores']) {
   const [offset, setOffset] = useState(0)
 
@@ -48,22 +55,23 @@ function useStoreCarousel(localStores: ReturnType<typeof useAffiliatedStores>['s
   return Array.from({ length: count }, (_, i) => localStores[(offset + i) % localStores.length])
 }
 
-/* ============================================================================
- * HERO
- * ==========================================================================*/
+// Staggered entrance. `motion-safe:` keeps it off for reduced-motion users.
+function rise(delay: number): { className: string; style: CSSProperties } {
+  return {
+    className: 'motion-safe:animate-[fadeUp_700ms_cubic-bezier(0.22,1,0.36,1)_both]',
+    style: { animationDelay: `${delay}ms` },
+  }
+}
+
+const PROMISES = ['Instant price in LKR', 'No account needed to check', 'Insured door delivery']
 
 export default function Hero() {
   const router = useRouter()
-  // pastedLink/setPastedLink/startItemInfo replace this component's old
-  // local link/submitted state + router.push('/account?link=...') redirect
-  // — see the DashboardContext import above. startItemInfo opens the same
-  // ItemInfoModal /account uses (mounted at the <Home> page level in
-  // app/page.tsx) and kicks off the scrape/lookup right here on the
-  // landing page, no auth required.
   const { pastedLink: link, setPastedLink: setLink, startItemInfo } = useDashboard()
   const { stores } = useAffiliatedStores()
   const localStores = stores.filter((store) => store.storeType === 'local')
   const visibleStores = useStoreCarousel(localStores)
+  const hiddenCount = Math.max(0, localStores.length - visibleStores.length)
 
   function handleSubmit(event: React.FormEvent) {
     if (!link.trim()) {
@@ -74,17 +82,11 @@ export default function Hero() {
     void startItemInfo(event)
   }
 
-  // Browse Stores is now a first-class secondary CTA on every breakpoint,
-  // not just a mobile fallback for a hidden nav entry. It reuses Header's
-  // own ShopBottomSheet instance via OPEN_SHOP_EVENT instead of wiring up
-  // new state, the same as before.
-  function handleBrowseStores() {
-    // redirect to the storefront if the user is already logged in, otherwise
-    router.push('/stores')
-  }
-
   return (
-    <section className="relative overflow-hidden bg-parchment" style={{ height: `calc(100dvh)` }}>
+    <section
+      className="relative isolate overflow-hidden bg-parchment lg:min-h-[100svh]"
+      style={{ paddingTop: HEADER_CLEARANCE }}
+    >
       <style jsx>{`
         @keyframes avatarPop {
           from {
@@ -99,9 +101,19 @@ export default function Hero() {
         .avatarPop {
           animation: avatarPop 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .avatarPop {
+            animation: none;
+          }
+        }
       `}</style>
 
-      <div className="pointer-events-none absolute inset-0">
+      {/* ── Background artwork ───────────────────────────────────────
+          The original /hero-demo.png carries the right-hand illustration.
+          A parchment wash sits over it: strong on mobile (where the copy
+          overlaps the artwork) and only on the left edge from lg up, so
+          the illustration stays fully visible beside the text. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
         <Image
           src="/hero-demo.png"
           alt=""
@@ -110,117 +122,154 @@ export default function Hero() {
           sizes="100vw"
           className="object-cover object-center"
         />
+        <div className="absolute inset-0 bg-parchment/80 lg:bg-transparent lg:bg-gradient-to-r lg:from-parchment/85 lg:via-parchment/30 lg:to-transparent" />
       </div>
 
-      <div className="relative z-10 mx-auto flex h-full mt-12 max-w-8xl flex-col justify-center px-6 lg:px-10">
+      <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-16 pt-10 sm:pt-14 lg:min-h-[calc(100svh-74px)] lg:px-10 lg:pb-20 lg:pt-6">
+        {/* ── Copy + quote form ────────────────────────────────────────── */}
         <div className="max-w-xl">
-          <p className="font-body text-xs font-extrabold uppercase tracking-[0.2em] text-gold">
-            Shop global. We deliver.
+          <p
+            {...rise(0)}
+            className={`${rise(0).className} inline-flex items-center gap-2.5 rounded-full border border-indigo/10 bg-card/70 py-1 pl-1 pr-3.5 font-body text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo/75 backdrop-blur-sm`}
+          >
+            <span
+              aria-hidden="true"
+              className="h-5 w-7 rounded-full"
+              style={{ background: AIRMAIL_STRIPE }}
+            />
+            Shop global · Delivered to Sri Lanka
           </p>
 
           <h1
-            className="mt-4 font-display leading-[1.02] tracking-tight"
-            style={{ fontSize: 'clamp(2.5rem, 4.5vw + 0.75rem, 3.75rem)' }}
+            {...rise(80)}
+            className={`${rise(80).className} mt-6 font-display font-semibold leading-[1.02] tracking-[-0.02em] text-indigo`}
+            style={{ ...rise(80).style, fontSize: 'clamp(2.6rem, 3.6vw + 1.1rem, 4.4rem)' }}
           >
-            <span className="text-teal">Wish it. </span>
-            <span className="text-gold">We&apos;ll drop it</span>
+            Wish it.
             <br />
-            <span className="text-indigo">right at your door.</span>
+            We&apos;ll{' '}
+            <span className="relative inline-block whitespace-nowrap text-teal">
+              drop it
+              {/* hand-drawn gold underline — the only gold in the headline */}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 200 14"
+                preserveAspectRatio="none"
+                className="absolute -bottom-1.5 left-0 h-[0.22em] w-full text-gold"
+              >
+                <path
+                  d="M3 9.5C42 3.5 98 2 197 7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+            <br />
+            at your door.
           </h1>
 
-          <p className="mt-5 font-semibold max-w-sm font-body text-sm leading-relaxed text-ink/70 sm:text-base">
-            Shop from your favorite global stores and get it delivered safely to Sri Lanka.
+          <p
+            {...rise(160)}
+            className={`${rise(160).className} mt-6 max-w-md font-body text-base leading-relaxed text-ink/65 sm:text-lg`}
+          >
+            Paste a link from any store worldwide. We&apos;ll price it in rupees, buy it, ship it
+            and hand it to you.
           </p>
 
           <form
             onSubmit={handleSubmit}
-            className="relative mt-16 flex w-full max-w-xl items-center gap-1 rounded-2xl border border-black/5 bg-card py-1.5 pl-5 pr-1.5 shadow-lift"
+            {...rise(240)}
+            className={`${rise(240).className} mt-9 flex w-full items-center gap-1 rounded-2xl border border-indigo/10 bg-card p-1.5 pl-4 shadow-[0_24px_50px_-28px_rgba(8,39,79,0.45)] transition-[border-color,box-shadow] duration-200 focus-within:border-teal/40 focus-within:shadow-[0_0_0_4px_rgba(14,140,156,0.12),0_24px_50px_-28px_rgba(8,39,79,0.45)]`}
           >
-            <Link size={16} className="shrink-0 text-ink/35" aria-hidden="true" />
+            <LinkIcon size={17} className="shrink-0 text-indigo/35" aria-hidden="true" />
             <input
               aria-label="Product link"
+              type="url"
+              inputMode="url"
               value={link}
               onChange={(event) => setLink(event.target.value)}
-              placeholder="Paste product link here (e.g. https://example.com/item)"
-              className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
+              placeholder="Paste a product link…"
+              className="h-11 w-full min-w-0 bg-transparent px-3 font-body text-[15px] text-ink outline-none placeholder:text-ink/40"
             />
             <button
               type="submit"
               disabled={!link.trim()}
-              aria-label="Get Quote"
-              className="flex shrink-0 items-center justify-center gap-2 rounded-full sm:rounded-2xl bg-teal p-3 sm:px-6 sm:py-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo active:scale-95 disabled:cursor-default disabled:opacity-60 disabled:active:scale-100"
+              aria-label="Get my quote"
+              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal px-3.5 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-teal-deep active:scale-[0.97] disabled:cursor-default disabled:opacity-75 disabled:active:scale-100 sm:px-5"
             >
-              <span className="hidden sm:inline">Get Quote</span> <ArrowRight size={15} />
+              <span className="hidden sm:inline">Get my quote</span>
+              <ArrowRight size={16} aria-hidden="true" />
             </button>
           </form>
 
-          {/* Browse Stores: a permanent secondary path on every breakpoint,
-              sitting where the feature row used to live. Leads with actual
-              store logos as a quick trust signal ("real stores, not just a
-              form") before the "browse more" link, rather than a plain
-              button or a generic feature-icon row.
-
-              The avatar row now rotates through the full local-store pool
-              (see useStoreCarousel above) instead of a fixed static slice —
-              every few seconds the next window of stores pops in with a
-              short scale/fade, keyed on `${store.platform}-${i}` so React
-              remounts (and re-animates) each avatar when the window
-              shifts, even if it's showing a store that was visible before.
-
-              Avatar count is still responsive: 4 on mobile (index 0–3
-              always visible), all 6 from the lg breakpoint up — the
-              5th–6th avatars carry `hidden lg:block` so they simply don't
-              render below that width rather than shrinking to fit.
-
-              Visual redesign: smaller avatars on a white ground with a
-              thin ring (instead of oversized circles with a thick
-              parchment border), a "+N" counter avatar closing the stack,
-              and an eyebrow label above the pill so the row reads as an
-              intentional trust signal rather than a loose row of logos. */}
-          <div className="mt-16 w-full max-w-xl">
-            {/* <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/40">
-              Handling {stores.length}+ platforms worldwide
-            </p> */}
-            <p className="mb-2.5 pl-1 font-body text-[11px] font-semibold uppercase tracking-[0.15em] text-ink">
-              Trusted by 1000+ customers, partnered with the best
-            </p>
-
-            <button
-              type="button"
-              onClick={handleBrowseStores}
-              className="group flex w-full items-center justify-between gap-4 rounded-full border border-black/5 bg-card/90 py-2.5 pl-3 pr-5 shadow-lift backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/20 hover:shadow-xl hover:shadow-teal/10"
-            >
-              <span className="flex items-center">
-                <span className="flex -space-x-3">
-                  {visibleStores.map((store, i) => (
-                    <span
-                      key={`${store.platform}-${i}`}
-                      className={`avatarPop relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/20 shadow-sm ${
-                        i >= 4 ? 'hidden lg:block' : ''
-                      }`}
-                      style={{ animationDelay: `${i * 60}ms`, zIndex: 10 - i }}
-                    >
-                      <Image src={store.logo} alt={store.name} fill className="object-cover" />
-                    </span>
-                  ))}
+          <ul
+            {...rise(300)}
+            className={`${rise(300).className} mt-4 flex flex-wrap gap-x-5 gap-y-2 pl-1`}
+          >
+            {PROMISES.map((item) => (
+              <li
+                key={item}
+                className="flex items-center gap-1.5 font-body text-xs font-medium text-ink/60"
+              >
+                <span className="grid h-4 w-4 place-items-center rounded-full bg-teal/12 text-teal-deep">
+                  <Check size={10} strokeWidth={3} aria-hidden="true" />
                 </span>
+                {item}
+              </li>
+            ))}
+          </ul>
 
-                {stores.length > VISIBLE_COUNT && (
-                  <span className="relative ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-2 ring-card bg-indigo/8 font-body text-[11px] font-bold text-indigo-deep">
-                    +{stores.length - VISIBLE_COUNT}
+          {/* Secondary path: browse partner stores. Leads with real logos as
+              a trust signal; rotates through the local-store pool. */}
+          {visibleStores.length > 0 && (
+            <div
+              {...rise(380)}
+              className={`${rise(380).className} mt-10 flex items-center gap-4 border-t border-indigo/10 pt-6`}
+            >
+              <span className="flex -space-x-2.5">
+                {visibleStores.map((store, i) => (
+                  <span
+                    key={`${store.platform}-${i}`}
+                    className={`avatarPop relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-card ring-2 ring-parchment ${
+                      i >= 4 ? 'hidden sm:block' : ''
+                    }`}
+                    style={{ animationDelay: `${i * 60}ms`, zIndex: 10 - i }}
+                  >
+                    <Image
+                      src={store.logo}
+                      alt={store.name}
+                      fill
+                      sizes="40px"
+                      className="object-cover"
+                    />
+                  </span>
+                ))}
+                {hiddenCount > 0 && (
+                  <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-indigo font-body text-[11px] font-bold text-parchment ring-2 ring-parchment">
+                    +{hiddenCount}
                   </span>
                 )}
               </span>
 
-              <span className="flex shrink-0 items-center gap-1.5">
-                <span className="font-body text-sm font-semibold text-teal-deep">Our top stores</span>
-                <ArrowRight
-                  size={14}
-                  className="shrink-0 text-teal-deep transition-transform duration-200 group-hover:translate-x-1"
-                />
-              </span>
-            </button>
-          </div>
+              <div className="min-w-0">
+                <p className="font-body text-xs text-ink/55">Or shop our partner stores</p>
+                <button
+                  type="button"
+                  onClick={() => router.push('/stores')}
+                  className="group mt-0.5 inline-flex items-center gap-1.5 font-body text-sm font-semibold text-teal-deep"
+                >
+                  Browse {localStores.length} affiliated stores
+                  <ArrowRight
+                    size={14}
+                    aria-hidden="true"
+                    className="transition-transform duration-200 group-hover:translate-x-1"
+                  />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

@@ -656,7 +656,7 @@ function ChatListingView({
   const siteLogo = site ? SITE_LOGOS[site] : undefined
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10">
+    <div className="mx-auto w-full max-w-6xl px-6 lg:px-10">
       <div className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
         {/* Top of buy box: source + title.
             Mobile: first (area "info"). Desktop: top-right column. */}
@@ -905,12 +905,21 @@ function ProductSkeleton({
   previewTitle?: string | null
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10" aria-hidden="true">
+    // `w-full` matters: this sits in a flex column, where `mx-auto` makes
+    // a child shrink to its content width instead of stretching. The real
+    // views fill out naturally (images, long titles); these grey blocks
+    // have no intrinsic width, so without it the skeleton collapsed to a
+    // narrow ~500px strip in the middle of the screen.
+    <div className="mx-auto w-full max-w-6xl px-6 lg:px-10" aria-hidden="true">
       <div className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
         {/* Top of buy box: source pill + title — same [grid-area:info]
             slot ChatListingView uses. */}
         <div className="min-w-0 [grid-area:info]">
-          <div className="h-[22px] w-24 animate-pulse rounded-full bg-ink/10" />
+          {/* store logo + rating pill, like the platform views */}
+          <div className="flex items-center gap-2">
+            <div className="h-[22px] w-24 animate-pulse rounded-full bg-ink/10" />
+            <div className="h-[22px] w-14 animate-pulse rounded-md bg-ink/10" />
+          </div>
 
           {previewTitle ? (
             <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink motion-safe:[animation:contentFadeIn_0.25s_ease-out_both] sm:text-3xl">

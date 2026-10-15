@@ -24,7 +24,10 @@ import {
 } from 'lucide-react'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import { destinations, partners, testimonials } from '@/content/data'
-import Header from '@/components/shared/Header'
+import Header, {
+  HEADER_BAR_HEIGHT_MOBILE,
+  HEADER_BAR_HEIGHT_DESKTOP,
+} from '@/components/shared/Header'
 import Hero from '@/components/landing/Landing-Hero'
 import HowItWorks from '@/components/landing/HowItWorks'
 import Footer from '@/components/landing/Footer'
@@ -499,54 +502,106 @@ function FinalCTA() {
     void startItemInfo(event)
   }
 
+  // Envelope look: the airmail stripe from the header wraps a white card,
+  // so the page closes on the same postal motif it opens with. The form
+  // matches the hero's quote form (same shape, same CTA wording).
+  const steps = ['Paste the link', 'Get a price in LKR', 'Delivered home']
+
   return (
-    <section className="mx-auto max-w-8xl px-6 py-20 lg:px-10">
-      <Reveal className="relative overflow-hidden rounded-[28px] bg-parchment border border-black/5 shadow-lift">
-        <div className="pointer-events-none absolute inset-0">
-          <Image
-            src="/final-cta-bg.png"
-            alt=""
-            fill
-            sizes="(min-width: 1024px) 1152px, 100vw"
-            className="object-cover object-left lg:object-center"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-parchment/90 via-parchment/40 to-transparent" />
-        </div>
-
-        <div className="relative z-10 flex flex-col gap-8 px-8 py-14 sm:px-12 lg:flex-row lg:items-center lg:justify-between lg:px-14 lg:py-16">
-          <div className="max-w-lg rounded-2xl lg:ml-[240px] xl:ml-[300px]">
-            <p className="font-body text-xs font-extrabold uppercase tracking-[0.2em] text-gold drop-shadow-sm">
-              Ready to shop anywhere?
-            </p>
-            <h2 className="mt-2 font-display text-xl font-semibold leading-tight text-indigo drop-shadow-sm sm:text-2xl">
-              Your global shopping companion, always.
-            </h2>
-            <p className="mt-2 font-body text-sm text-ink/70">
-              Paste a product link and let Wishdrop handle the rest.
-            </p>
-          </div>
-
-          <form
-            onSubmit={handleSubmit}
-            className="flex w-full max-w-md items-center gap-1 rounded-full border border-black/5 bg-card py-1.5 pl-5 pr-1.5 shadow-lift"
-          >
-            <LinkIcon size={16} className="shrink-0 text-ink/35" aria-hidden="true" />
-            <input
-              aria-label="Product link"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              placeholder="Paste product link here..."
-              className="w-full min-w-0 bg-transparent px-3 font-body text-sm text-ink outline-none placeholder:text-ink/40 disabled:opacity-60"
-            />
-            <button
-              type="submit"
-              disabled={!link.trim()}
-              aria-label="Start Shopping"
-              className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal p-3 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-indigo-deep active:scale-95 disabled:cursor-default disabled:active:scale-100 sm:px-6 sm:py-3"
+    <section className="px-6 py-20 lg:px-10 lg:py-24">
+      <Reveal className="mx-auto max-w-[1600px]">
+        <div
+          className="rounded-[30px] p-[9px] shadow-[0_40px_80px_-40px_rgba(8,39,79,0.45)]"
+          style={{
+            background:
+              'repeating-linear-gradient(45deg,#C1272D 0 10px,#FBF6EC 10px 20px,#1E3A5F 20px 30px,#FBF6EC 30px 40px)',
+          }}
+        >
+          <div className="relative overflow-hidden rounded-[22px] bg-card px-6 py-12 sm:px-12 lg:px-20 lg:py-16">
+            {/* Decoration: postmark + cancellation waves, top-right */}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 260 130"
+              className="pointer-events-none absolute -right-6 -top-4 hidden w-[300px] text-indigo/[0.12] sm:block"
+              fill="none"
             >
-              <span className="hidden sm:inline">Start Shopping</span> <ArrowRight size={15} />
-            </button>
-          </form>
+              <defs>
+                <path id="cta-pm" d="M190,62 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0" />
+              </defs>
+              <circle cx="190" cy="62" r="48" stroke="currentColor" strokeWidth="2" />
+              <circle cx="190" cy="62" r="28" stroke="currentColor" strokeWidth="1.5" />
+              <text fill="currentColor" fontSize="9" fontWeight="700" letterSpacing="2.2">
+                <textPath href="#cta-pm">WISHDROP · COLOMBO · AIR MAIL ·</textPath>
+              </text>
+              {[30, 46, 62, 78, 94].map((y) => (
+                <path
+                  key={y}
+                  d={`M0 ${y} q 15 -8 30 0 t 30 0 t 30 0 t 30 0`}
+                  stroke="currentColor"
+                  strokeWidth="2"
+                />
+              ))}
+            </svg>
+
+            <div className="relative grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)] lg:gap-16">
+              <div className="max-w-xl">
+                <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-deep">
+                  Ready to shop anywhere?
+                </p>
+                <h2
+                  className="mt-3 font-display font-semibold leading-[1.05] tracking-[-0.015em] text-indigo"
+                  style={{ fontSize: 'clamp(2rem, 2.2vw + 1.1rem, 3rem)' }}
+                >
+                  Got a link?
+                  <br />
+                  We&apos;ll handle <span className="whitespace-nowrap text-teal">the rest.</span>
+                </h2>
+                <p className="mt-4 max-w-md font-body text-base leading-relaxed text-ink/65">
+                  Paste a product from any store in the world. We&apos;ll price it in rupees and
+                  bring it to your door in Sri Lanka.
+                </p>
+              </div>
+
+              <div>
+                <form
+                  onSubmit={handleSubmit}
+                  className="flex w-full items-center gap-1 rounded-2xl border border-indigo/10 bg-parchment/60 p-1.5 pl-4 transition-[border-color,box-shadow] duration-200 focus-within:border-teal/40 focus-within:bg-card focus-within:shadow-[0_0_0_4px_rgba(14,140,156,0.12)]"
+                >
+                  <LinkIcon size={17} className="shrink-0 text-indigo/35" aria-hidden="true" />
+                  <input
+                    aria-label="Product link"
+                    type="url"
+                    inputMode="url"
+                    value={link}
+                    onChange={(event) => setLink(event.target.value)}
+                    placeholder="Paste a product link…"
+                    className="h-11 w-full min-w-0 bg-transparent px-3 font-body text-[15px] text-ink outline-none placeholder:text-ink/40"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!link.trim()}
+                    aria-label="Get my quote"
+                    className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal px-3.5 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-teal-deep active:scale-[0.97] disabled:cursor-default disabled:opacity-75 disabled:active:scale-100 sm:px-5"
+                  >
+                    <span className="hidden sm:inline">Get my quote</span>
+                    <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                </form>
+
+                {/* three-step recap, echoing How It Works */}
+                <ol className="mt-5 grid gap-2.5 pl-1 sm:grid-cols-3 sm:gap-3">
+                  {steps.map((step, i) => (
+                    <li key={step} className="flex items-center gap-2 font-body text-xs font-medium leading-snug text-ink/60">
+                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-indigo text-[10px] font-bold text-parchment">
+                        {i + 1}
+                      </span>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </div>
         </div>
       </Reveal>
     </section>
@@ -583,20 +638,34 @@ function HomeItemModal() {
   // had to be applied twice. The modal now stays mounted at all times
   // and manages its own presence via the `open` prop internally,
   // unmounting itself only after its exit animation finishes.
+  // ItemInfoModal positions its floating close button below the header
+  // using --account-header-h-mobile / --account-header-h-desktop. Only
+  // app/account/layout.tsx used to set them, so on this page they fell
+  // back to 0px and the button sat underneath the fixed header (hidden).
+  // Set them here too, with the same values the account layout uses.
+  // `display: contents` keeps this wrapper out of layout entirely.
   return (
-    <ItemInfoModal
-      open={modalOpen}
-      result={scrapeResult}
-      qty={draft.qty}
-      onQtyChange={(qty) => setDraft({ ...draft, qty })}
-      onClose={closeModal}
-      onSubmitRequest={confirmRequest}
-      estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
-      loading={lookupLoading}
-      onSelectVariant={(url) => {
-        if (url) selectVariant(url)
+    <div
+      className="contents"
+      style={{
+        ['--account-header-h-mobile' as string]: `${HEADER_BAR_HEIGHT_MOBILE}px`,
+        ['--account-header-h-desktop' as string]: `${HEADER_BAR_HEIGHT_DESKTOP}px`,
       }}
-    />
+    >
+      <ItemInfoModal
+        open={modalOpen}
+        result={scrapeResult}
+        qty={draft.qty}
+        onQtyChange={(qty) => setDraft({ ...draft, qty })}
+        onClose={closeModal}
+        onSubmitRequest={confirmRequest}
+        estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
+        loading={lookupLoading}
+        onSelectVariant={(url) => {
+          if (url) selectVariant(url)
+        }}
+      />
+    </div>
   )
 }
 
