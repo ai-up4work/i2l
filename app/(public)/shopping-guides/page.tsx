@@ -1,11 +1,12 @@
 import Link from 'next/link'
-import { ArrowRight, BookOpen, Link2, Ruler, Wallet } from 'lucide-react'
+import { BookOpen, Link2, Ruler, Store, Wallet } from 'lucide-react'
+import { CtaEnvelope, IconCard, PageHero, Section } from '@/components/public/PageKit'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping-guides',
   title: 'Shopping Guides | Wishdrop',
-  description: 'Practical, step-by-step guides for buying confidently from Indian and international stores through Wishdrop.',
+  description: 'Practical, step-by-step guides for buying confidently from Indian stores through Wishdrop.',
 })
 
 const guides = [
@@ -39,33 +40,35 @@ const marketplaces = [
 export default function ShoppingGuidesPage() {
   return (
     <main>
-      <section className="mx-auto max-w-5xl px-6 pb-14 pt-20 text-center lg:px-10 lg:pt-28">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          Shopping guides
-        </p>
-        <h1 className="mx-auto mt-4 max-w-2xl font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Shop like you've done this before
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl font-body text-base leading-relaxed text-ink/65">
-          A few practical tips to help your first — or fiftieth — Wishdrop request go smoothly.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Shopping guides"
+        title="Shop like you’ve"
+        accent="done this before."
+        intro="A few practical tips to help your first — or fiftieth — Wishdrop order go smoothly."
+      />
 
-      <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
-        <div className="grid gap-5 sm:grid-cols-2">
-          {guides.map(({ icon: Icon, title, text }) => (
-            <div key={title} className="flex gap-4 rounded-2xl border border-ink/10 bg-card p-6">
-              <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-gold/15 text-gold-deep">
-                <Icon size={20} />
-              </div>
-              <div>
-                <h2 className="font-display text-lg font-semibold text-ink">{title}</h2>
-                <p className="mt-1.5 font-body text-sm leading-relaxed text-ink/60">{text}</p>
-              </div>
-            </div>
+      <Section eyebrow="The basics" title="Before you order">
+        <div className="grid gap-4 md:grid-cols-2">
+          {guides.map(({ icon, title, text }, i) => (
+            <IconCard key={title} icon={icon} tone={i % 2 ? 'gold' : 'teal'} layout="row" title={title} text={text} />
           ))}
         </div>
-      </section>
+      </Section>
+
+      <Section eyebrow="Store guides" title="Buying from marketplaces">
+        <div className="grid gap-4 md:grid-cols-2">
+          {marketplaces.map((m) => (
+            <IconCard key={m.slug} icon={Store} layout="row" title={`Buying from ${m.name}`} text={m.blurb} href={`/shopping/marketplaces/${m.slug}`} />
+          ))}
+        </div>
+      </Section>
+
+      <CtaEnvelope
+        title="Found something?"
+        accent="Send us the link."
+        primary={{ href: '/account', label: 'Start a request' }}
+        secondary={{ href: '/contact', label: 'Ask us first' }}
+      />
     </main>
   )
 }

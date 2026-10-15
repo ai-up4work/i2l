@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { ArrowRight, PackageCheck, ShieldCheck, Truck, Clock } from 'lucide-react'
+import { PackageCheck, ShieldCheck, Truck, Clock } from 'lucide-react'
+import { Card, CtaEnvelope, FAQ, PageHero, Section, Steps } from '@/components/public/PageKit'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -54,84 +55,48 @@ const faqs = [
 export default function ShippingPage() {
   return (
     <main>
-      <section className="mx-auto max-w-5xl px-6 pb-14 pt-20 text-center lg:px-10 lg:pt-28">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          Shipping & delivery
-        </p>
-        <h1 className="mx-auto mt-4 max-w-2xl font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          From the seller's shelf to your door
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl font-body text-base leading-relaxed text-ink/65">
-          Wishdrop handles the entire cross-border journey — you don't need to arrange a warehouse
-          address, forward a parcel, or file customs paperwork yourself.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Shipping & delivery"
+        title="From the seller’s shelf"
+        accent="to your door."
+        intro="Wishdrop handles the whole journey from India to Sri Lanka — you don’t need an overseas address, a forwarding service, or any customs paperwork."
+      />
 
-      <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {stages.map(({ icon: Icon, title, text }, i) => (
-            <div key={title} className="relative rounded-2xl border border-ink/10 bg-card p-6">
-              <span className="font-mono text-xs font-semibold text-gold-deep">
-                0{i + 1}
-              </span>
-              <div className="mt-3 flex h-11 w-11 items-center justify-center rounded-xl bg-teal/10 text-teal-deep">
-                <Icon size={20} />
-              </div>
-              <h3 className="mt-4 font-display text-lg font-semibold text-ink">{title}</h3>
-              <p className="mt-1.5 font-body text-sm leading-relaxed text-ink/60">{text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <Section eyebrow="The journey" title="What happens after you order">
+        <Steps steps={stages.map(({ icon, title, text }) => ({ icon, title, text }))} />
+      </Section>
 
-      <section className="mx-auto max-w-5xl px-6 pb-16 lg:px-10">
-        <div className="rounded-3xl border border-ink/10 bg-card p-8 sm:p-10">
-          <h2 className="font-display text-2xl font-semibold text-ink">
-            What your delivery cost includes
-          </h2>
-          <p className="mt-3 font-body text-sm leading-relaxed text-ink/65">
-            The total shown on your quote bundles the product price, Wishdrop's service fee,
-            freight, and applicable customs duties and taxes — see{' '}
-            <Link href="/shipping/pricing" className="text-teal-deep underline underline-offset-2">
-              how pricing is calculated
-            </Link>{' '}
-            and <Link href="/taxation" className="text-teal-deep underline underline-offset-2">
-              how customs charges work
-            </Link>{' '}
-            for the full breakdown. There's nothing further to pay on delivery unless your order
-            changes after purchase.
-          </p>
-        </div>
-      </section>
+      <Section>
+        <Card className="lg:p-10">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-12">
+            <h2 className="font-display text-3xl font-semibold leading-tight text-indigo">What your delivery cost includes</h2>
+            <p className="font-body text-[15px] leading-relaxed text-ink/65">
+              The total on your quote already covers the product price, Wishdrop&apos;s service fee, freight, and customs
+              duties and taxes — see{' '}
+              <Link href="/shipping/pricing" className="font-semibold text-teal-deep underline underline-offset-2">
+                how pricing is calculated
+              </Link>{' '}
+              and{' '}
+              <Link href="/taxation" className="font-semibold text-teal-deep underline underline-offset-2">
+                how customs charges work
+              </Link>
+              . There&apos;s nothing more to pay on delivery unless your order changes after purchase.
+            </p>
+          </div>
+        </Card>
+      </Section>
 
-      <section className="mx-auto max-w-4xl px-6 pb-16 lg:px-10">
-        <h2 className="font-display text-2xl font-semibold text-ink">Common questions</h2>
-        <div className="mt-6 flex flex-col divide-y divide-ink/10 rounded-2xl border border-ink/10 bg-card">
-          {faqs.map(({ q, a }) => (
-            <details key={q} className="group p-5 open:bg-parchment/50">
-              <summary className="cursor-pointer list-none font-body text-sm font-semibold text-ink">
-                {q}
-              </summary>
-              <p className="mt-2 font-body text-sm leading-relaxed text-ink/60">{a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
+      <Section eyebrow="Good to know" title="Common questions" width="narrow">
+        <FAQ items={faqs} />
+      </Section>
 
-      <section className="mx-auto max-w-5xl px-6 pb-24 lg:px-10">
-        <div className="rounded-3xl bg-indigo px-8 py-12 text-center sm:px-14">
-          <h2 className="font-display text-2xl font-semibold text-parchment sm:text-3xl">
-            Have something already picked out?
-          </h2>
-          <Link
-            href="/account"
-            className="mt-6 inline-flex items-center gap-2 rounded-full bg-gold px-6 py-3 font-body text-sm font-semibold text-ink transition-colors hover:bg-gold-deep hover:text-parchment"
-          >
-            Start a request
-            <ArrowRight size={15} />
-          </Link>
-        </div>
-      </section>
+      <CtaEnvelope
+        title="Have something"
+        accent="already picked out?"
+        text="Paste the link and we’ll price it in rupees, delivered to your door."
+        primary={{ href: '/account', label: 'Start a request' }}
+        secondary={{ href: '/stores', label: 'Browse stores' }}
+      />
     </main>
   )
 }

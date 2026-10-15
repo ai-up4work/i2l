@@ -1,12 +1,13 @@
 import Link from 'next/link'
-import { ArrowRight, Link2, Search, ShoppingBag, Sparkles } from 'lucide-react'
+import { ArrowRight, BookOpen, Link2, ShoppingBag, Tag } from 'lucide-react'
+import { CtaEnvelope, IconCard, IconTile, PageHero, Section, Steps } from '@/components/public/PageKit'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
   path: '/shopping',
   title: 'How Shopping Works | Wishdrop',
   description:
-    'Two ways to shop with Wishdrop: browse affiliated stores directly, or send us a link to almost anything and let us buy it for you.',
+    'Two ways to shop with Wishdrop: browse affiliated stores directly, or send us a link from an Indian store and let us buy it for you.',
 })
 
 const paths = [
@@ -36,90 +37,61 @@ const steps = [
 export default function ShoppingPage() {
   return (
     <main>
-      <section className="mx-auto max-w-5xl px-6 pb-14 pt-20 text-center lg:px-10 lg:pt-28">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          How shopping works
-        </p>
-        <h1 className="mx-auto mt-4 max-w-2xl font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Two ways to shop, one guided journey
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl font-body text-base leading-relaxed text-ink/65">
-          Whatever you want to buy, Wishdrop becomes your purchasing agent — sourcing it, paying
-          for it, checking it, and delivering it, so you don't have to.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="How shopping works"
+        title="Two ways to shop,"
+        accent="one journey."
+        intro="Whatever you want to buy, Wishdrop is your buying agent — we find it, pay for it, check it and deliver it, so you don’t have to."
+      />
 
-      <section className="mx-auto max-w-5xl px-6 pb-16 lg:px-10">
-        <div className="grid gap-6 sm:grid-cols-2">
-          {paths.map(({ icon: Icon, title, text, cta, href }) => (
-            <div key={title} className="flex flex-col rounded-3xl border border-ink/10 bg-card p-7">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
-                <Icon size={22} />
-              </div>
-              <h2 className="mt-4 font-display text-xl font-semibold text-ink">{title}</h2>
-              <p className="mt-2 flex-1 font-body text-sm leading-relaxed text-ink/60">{text}</p>
-              <Link
-                href={href}
-                className="mt-5 inline-flex w-fit items-center gap-2 rounded-full bg-ink px-5 py-2.5 font-body text-sm font-semibold text-parchment transition-colors hover:bg-teal-deep"
+      <Section>
+        <div className="grid gap-5 md:grid-cols-2">
+          {paths.map(({ icon, title, text, cta, href }, i) => (
+            <Link
+              key={title}
+              href={href}
+              className={`group flex flex-col rounded-3xl p-7 transition-all hover:-translate-y-0.5 sm:p-8 ${
+                i === 0 ? 'bg-indigo text-parchment' : 'bg-card ring-1 ring-ink/[0.08] hover:ring-teal/30'
+              }`}
+            >
+              {i === 0 ? (
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-parchment/10 text-gold">
+                  <ShoppingBag size={20} strokeWidth={1.9} />
+                </span>
+              ) : (
+                <IconTile icon={icon} />
+              )}
+              <h2 className={`mt-5 font-display text-2xl font-semibold ${i === 0 ? '' : 'text-indigo'}`}>{title}</h2>
+              <p className={`mt-2 flex-1 font-body text-[15px] leading-relaxed ${i === 0 ? 'text-parchment/70' : 'text-ink/60'}`}>{text}</p>
+              <span
+                className={`mt-6 inline-flex w-fit items-center gap-2 rounded-full px-5 py-2.5 font-body text-sm font-semibold transition-colors ${
+                  i === 0 ? 'bg-gold text-indigo group-hover:bg-parchment' : 'bg-teal text-white group-hover:bg-teal-deep'
+                }`}
               >
-                {cta}
-                <ArrowRight size={14} />
-              </Link>
-            </div>
+                {cta} <ArrowRight size={14} />
+              </span>
+            </Link>
           ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
-        <h2 className="font-display text-2xl font-semibold text-ink">From request to order</h2>
-        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {steps.map(({ title, text }, i) => (
-            <div key={title} className="rounded-2xl border border-ink/10 bg-card p-5">
-              <span className="font-mono text-xs font-semibold text-gold-deep">0{i + 1}</span>
-              <h3 className="mt-2 font-display text-base font-semibold text-ink">{title}</h3>
-              <p className="mt-1.5 font-body text-xs leading-relaxed text-ink/55">{text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <Section eyebrow="Step by step" title="From request to order">
+        <Steps steps={steps} />
+      </Section>
 
-      <section className="mx-auto max-w-5xl px-6 pb-16 lg:px-10">
-        <div className="flex flex-col gap-4 rounded-3xl border border-ink/10 bg-card p-7 sm:flex-row sm:items-center sm:gap-6">
-          <div className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-teal/10 text-teal-deep">
-            <Search size={22} />
-          </div>
-          <div>
-            <h2 className="font-display text-lg font-semibold text-ink">Not sure where to start?</h2>
-            <p className="mt-1 font-body text-sm text-ink/60">
-              Check our{' '}
-              <Link href="/shopping-guides" className="text-teal-deep underline underline-offset-2">
-                shopping guides
-              </Link>{' '}
-              for step-by-step help with popular stores, or see what's on our{' '}
-              <Link href="/deals" className="text-teal-deep underline underline-offset-2">
-                current deals
-              </Link>
-              .
-            </p>
-          </div>
+      <Section eyebrow="Not sure where to start?" title="Helpful reading">
+        <div className="grid gap-4 md:grid-cols-2">
+          <IconCard icon={BookOpen} layout="row" title="Shopping guides" text="Step-by-step help for sizing, links and your quote." href="/shopping-guides" />
+          <IconCard icon={Tag} tone="gold" layout="row" title="Current deals" text="What’s discounted across our stores right now." href="/deals" />
         </div>
-      </section>
+      </Section>
 
-      <section className="mx-auto max-w-5xl px-6 pb-24 lg:px-10">
-        <div className="rounded-3xl bg-indigo px-8 py-12 text-center sm:px-14">
-          <Sparkles className="mx-auto text-gold" size={26} />
-          <h2 className="mt-3 font-display text-2xl font-semibold text-parchment sm:text-3xl">
-            What can we get for you?
-          </h2>
-          <Link
-            href="/account"
-            className="mt-6 inline-flex items-center gap-2 rounded-full bg-gold px-6 py-3 font-body text-sm font-semibold text-ink transition-colors hover:bg-gold-deep hover:text-parchment"
-          >
-            Start a request
-            <ArrowRight size={15} />
-          </Link>
-        </div>
-      </section>
+      <CtaEnvelope
+        title="What can we"
+        accent="get for you?"
+        primary={{ href: '/account', label: 'Start a request' }}
+        secondary={{ href: '/stores', label: 'Browse stores' }}
+      />
     </main>
   )
 }

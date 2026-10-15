@@ -1,4 +1,5 @@
 import { TicketPercent } from 'lucide-react'
+import { Callout, CtaEnvelope, PageHero, Section } from '@/components/public/PageKit'
 import DealCoupon, { discountToCoupon } from '@/components/shared/DealCoupon'
 import CopyCouponCode from '@/components/shared/CopyCouponCode'
 import { ADMIN_DISCOUNTS, getDiscountStatus } from '@/data/discounts/data'
@@ -17,50 +18,57 @@ export default function CouponsPage() {
   )
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-24">
-      <div className="max-w-2xl">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          Coupons
-        </p>
-        <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Active coupon codes
-        </h1>
-        <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-          Apply a code at checkout to save on eligible orders. Codes are limited-time, may have a
-          minimum order value, and can be restricted to specific sellers, collections, or products
-          — details are shown on each card.
-        </p>
-      </div>
+    <main>
+      <PageHero
+        eyebrow="Coupons"
+        title="Save on your"
+        accent="next order."
+        intro="Your personal coupons — welcome gifts, referral rewards and offers — live in My coupons, and the best one for your bag is shown at checkout."
+      />
 
-      {liveCoupons.length === 0 ? (
-        <div className="mt-12 flex flex-col items-center gap-3 rounded-3xl border border-dashed border-ink/15 bg-card px-8 py-16 text-center">
-          <TicketPercent className="text-ink/25" size={32} />
-          <p className="font-display text-lg font-semibold text-ink">No active codes right now</p>
-          <p className="max-w-sm font-body text-sm text-ink/55">
-            Check back soon, or watch your inbox and WhatsApp for the next promotion.
-          </p>
+      <Section>
+        {liveCoupons.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-ink/15 bg-card px-8 py-14 text-center">
+            <TicketPercent className="text-teal-deep/40" size={34} />
+            <p className="font-display text-xl font-semibold text-indigo">No public codes right now</p>
+            <p className="max-w-sm font-body text-sm text-ink/55">
+              Sign in to see the coupons on your account, or watch WhatsApp for our next offer.
+            </p>
+            <a
+              href="/account/coupons"
+              className="mt-2 inline-flex items-center rounded-full bg-teal px-5 py-2.5 font-body text-sm font-semibold text-white hover:bg-teal-deep"
+            >
+              Open My coupons
+            </a>
+          </div>
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {liveCoupons.map((discount) => (
+              <div key={discount.id} className="flex flex-col gap-3">
+                <DealCoupon coupon={discountToCoupon(discount)} />
+                {discount.code && <CopyCouponCode code={discount.code} />}
+                {discount.minPurchaseAmount ? (
+                  <p className="font-body text-xs text-ink/45">Minimum order Rs. {discount.minPurchaseAmount.toLocaleString('en-LK')}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-8">
+          <Callout>
+            One coupon per order unless stated otherwise. Wishdrop may withdraw or change a promotion at any time;
+            orders already placed aren&apos;t affected. Full terms in our <a href="/terms" className="font-semibold text-teal-deep underline underline-offset-2">Terms of Use</a>.
+          </Callout>
         </div>
-      ) : (
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {liveCoupons.map((discount) => (
-            <div key={discount.id} className="flex flex-col gap-3">
-              <DealCoupon coupon={discountToCoupon(discount)} />
-              {discount.code && <CopyCouponCode code={discount.code} />}
-              {discount.minPurchaseAmount ? (
-                <p className="font-body text-xs text-ink/45">
-                  Minimum order Rs. {discount.minPurchaseAmount.toLocaleString('en-LK')}
-                </p>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
+      </Section>
 
-      <p className="mt-12 font-body text-xs text-ink/40">
-        One coupon code per order unless stated otherwise. Wishdrop may withdraw or amend a
-        promotion at any time; already-placed orders are not affected. Full terms in our{' '}
-        <a href="/terms" className="text-teal-deep underline underline-offset-2">Terms of Use</a>.
-      </p>
+      <CtaEnvelope
+        title="Invite a friend,"
+        accent="you both save."
+        text="Share your link — they get a welcome coupon, and you get a reward when they place their first order."
+        primary={{ href: '/account/referrals', label: 'Get my link' }}
+        secondary={{ href: '/account/coupons', label: 'My coupons' }}
+      />
     </main>
   )
 }

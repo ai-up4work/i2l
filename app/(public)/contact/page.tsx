@@ -1,4 +1,5 @@
 import { Mail, MapPin, MessageCircle, Phone } from 'lucide-react'
+import { Container, IconTile, PageHero } from '@/components/public/PageKit'
 import ContactForm from '@/components/shared/ContactForm'
 import { buildWhatsAppLink } from '@/lib/chat/waLink'
 import { pageMetadata } from '@/lib/seo'
@@ -47,60 +48,53 @@ const channels = [
 
 export default function ContactPage() {
   return (
-    <main className="mx-auto max-w-7xl px-6 py-10 lg:px-10 lg:py-18">
-      <div className="max-w-2xl">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          We're here to help
-        </p>
-        <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Contact us
-        </h1>
-        <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-          Have a question about a request, an order, or Wishdrop in general? Reach us however is
-          easiest — for anything tied to a specific order, signing in first helps us answer faster.
-        </p>
-      </div>
+    <main>
+      <PageHero
+        eyebrow="We’re here to help"
+        title="Talk to a"
+        accent="real person."
+        intro="A question about a request, an order, or whether we can get something? Reach us however is easiest. For anything about a specific order, include your order number so we can answer faster."
+      />
 
-      <div className="mt-12 grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:gap-16">
-        <div className="flex flex-col gap-4">
-          {channels.map(({ icon: Icon, title, detail, action, href }) => (
-            <div key={title} className="flex gap-4 rounded-2xl border border-ink/10 bg-card p-5">
-              <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-teal/10 text-teal-deep">
-                <Icon size={20} />
-              </div>
+      <Container className="pb-20 lg:pb-24">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-10">
+          <div className="flex flex-col gap-3">
+            {channels.map(({ icon, title, detail, action, href }) => (
+              <a
+                key={title}
+                href={href}
+                target={href.startsWith('http') ? '_blank' : undefined}
+                rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                className="group flex items-start gap-4 rounded-3xl bg-card p-5 ring-1 ring-ink/[0.08] transition-all hover:-translate-y-0.5 hover:ring-teal/30"
+              >
+                <IconTile icon={icon} />
+                <div className="min-w-0">
+                  <h2 className="font-display text-lg font-semibold text-indigo">{title}</h2>
+                  <p className="mt-1 font-body text-sm leading-relaxed text-ink/60">{detail}</p>
+                  <span className="mt-2 inline-block font-body text-sm font-semibold text-teal-deep group-hover:underline">{action}</span>
+                </div>
+              </a>
+            ))}
+
+            <div className="flex items-start gap-4 rounded-3xl bg-indigo p-5 text-parchment">
+              <span className="grid h-11 w-11 flex-none place-items-center rounded-2xl bg-parchment/10 text-gold">
+                <MapPin size={20} strokeWidth={1.9} />
+              </span>
               <div>
-                <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
-                <p className="mt-1 font-body text-sm leading-relaxed text-ink/60">{detail}</p>
-                <a
-                  href={href}
-                  target={href.startsWith('http') ? '_blank' : undefined}
-                  rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                  className="mt-2 inline-block font-body text-sm font-semibold text-teal-deep transition-colors hover:text-teal-deep/80 hover:underline"
-                >
-                  {action}
-                </a>
+                <h2 className="font-display text-lg font-semibold">Registered office</h2>
+                <p className="mt-1 font-body text-sm leading-relaxed text-parchment/70">
+                  Wishdrop Limited, Colombo, Sri Lanka. Support is handled remotely — this address is not a walk-in
+                  service centre.
+                </p>
               </div>
-            </div>
-          ))}
-
-          <div className="flex gap-4 rounded-2xl border border-ink/10 bg-card p-5">
-            <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-teal/10 text-teal-deep">
-              <MapPin size={20} />
-            </div>
-            <div>
-              <h2 className="font-display text-base font-semibold text-ink">Registered office</h2>
-              <p className="mt-1 font-body text-sm leading-relaxed text-ink/60">
-                Wishdrop Limited, Colombo, Sri Lanka. Support is handled remotely — this address is
-                not a walk-in service centre.
-              </p>
             </div>
           </div>
-        </div>
 
-        <div className="rounded-3xl border border-ink/10 bg-card p-6 sm:p-8">
-          <ContactForm />
+          <div className="rounded-3xl bg-card p-6 ring-1 ring-ink/[0.08] sm:p-8">
+            <ContactForm />
+          </div>
         </div>
-      </div>
+      </Container>
     </main>
   )
 }

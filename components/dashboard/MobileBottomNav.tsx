@@ -27,7 +27,7 @@ const leftTabs: Tab[] = [
 
 const rightTabs: Tab[] = [
   { label: 'Stores', icon: Store, view: 'affiliatedStores' },
-  { label: 'Account', icon: User, view: 'account', alsoActiveFor: ['shoppingCommunity', 'credits', 'referrals'] },
+  { label: 'Account', icon: User, view: 'account', alsoActiveFor: ['shoppingCommunity', 'credits', 'referrals', 'coupons'] },
 ]
 
 const tabs: Tab[] = [...leftTabs, ...rightTabs]

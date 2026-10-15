@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
+import { Tag } from 'lucide-react'
+import { Callout, CtaEnvelope, PageHero, Section } from '@/components/public/PageKit'
 import DealCoupon, { discountToCoupon } from '@/components/shared/DealCoupon'
 import { ADMIN_DISCOUNTS, getDiscountStatus, formatDiscountScope } from '@/data/discounts/data'
 import { pageMetadata } from '@/lib/seo'
@@ -15,70 +16,72 @@ export default function DealsPage() {
   const upcomingDeals = ADMIN_DISCOUNTS.filter((d) => getDiscountStatus(d) === 'scheduled')
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-24">
-      <div className="max-w-2xl">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          Deals &amp; promos
-        </p>
-        <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Save more with top deals
-        </h1>
-        <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-          Automatic discounts apply at checkout with no code needed. Code-based promotions are
-          collected on our <Link href="/coupons" className="text-teal-deep underline underline-offset-2">Coupons</Link> page.
-        </p>
-      </div>
+    <main>
+      <PageHero
+        eyebrow="Deals & promos"
+        title="Save more with"
+        accent="top deals."
+        intro={
+          <>
+            Deals apply automatically at checkout — no code needed. Personal coupons are in{' '}
+            <Link href="/account/coupons" className="font-semibold text-teal-deep underline underline-offset-2">
+              My coupons
+            </Link>
+            .
+          </>
+        }
+      />
 
-      {liveDeals.length === 0 ? (
-        <div className="mt-12 rounded-3xl border border-dashed border-ink/15 bg-card px-8 py-16 text-center">
-          <p className="font-display text-lg font-semibold text-ink">No live deals right now</p>
-          <p className="mt-2 font-body text-sm text-ink/55">
-            Check our <Link href="/coupons" className="text-teal-deep underline underline-offset-2">coupon codes</Link> instead, or check back soon.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {liveDeals.map((discount) => (
-            <div key={discount.id} className="flex flex-col gap-2">
-              <DealCoupon coupon={discountToCoupon(discount)} />
-              <p className="font-body text-xs text-ink/45">{formatDiscountScope(discount)}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      <Section>
+        {liveDeals.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-ink/15 bg-card px-8 py-14 text-center">
+            <Tag className="text-teal-deep/40" size={32} />
+            <p className="font-display text-xl font-semibold text-indigo">No live deals right now</p>
+            <p className="max-w-sm font-body text-sm text-ink/55">
+              Check{' '}
+              <Link href="/account/coupons" className="font-semibold text-teal-deep underline underline-offset-2">
+                My coupons
+              </Link>{' '}
+              for offers on your account, or check back soon.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {liveDeals.map((discount) => (
+              <div key={discount.id} className="flex flex-col gap-2">
+                <DealCoupon coupon={discountToCoupon(discount)} />
+                <p className="font-body text-xs text-ink/45">{formatDiscountScope(discount)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
 
       {upcomingDeals.length > 0 && (
-        <div className="mt-16">
-          <h2 className="font-display text-xl font-semibold text-ink">Coming soon</h2>
-          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Section eyebrow="Coming soon" title="Starting shortly">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {upcomingDeals.map((discount) => (
               <div key={discount.id} className="opacity-60">
                 <DealCoupon coupon={discountToCoupon(discount)} />
               </div>
             ))}
           </div>
-        </div>
+        </Section>
       )}
 
-      <div className="mt-16 rounded-2xl border border-ink/10 bg-card p-6">
-        <h2 className="font-display text-base font-semibold text-ink">Terms</h2>
-        <p className="mt-2 font-body text-sm leading-relaxed text-ink/60">
-          Deals apply automatically to qualifying orders at checkout and cannot usually be
-          combined with a coupon code covering the same items, unless stated. Wishdrop may modify
-          or end a promotion at any time without affecting orders already placed. See our{' '}
-          <Link href="/terms" className="text-teal-deep underline underline-offset-2">Terms of Use</Link> for full details.
-        </p>
-      </div>
+      <Section width="narrow">
+        <Callout>
+          Deals apply automatically to qualifying orders and usually can&apos;t be combined with a coupon on the same items,
+          unless stated. Wishdrop may change or end a promotion at any time without affecting orders already placed. See
+          our{' '}
+          <Link href="/terms" className="font-semibold text-teal-deep underline underline-offset-2">
+            Terms of Use
+          </Link>
+          .
+        </Callout>
+      </Section>
 
-      <div className="mt-10 flex justify-center">
-        <Link
-          href="/account/"
-          className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-teal-deep"
-        >
-          Start a request
-          <ArrowRight size={15} />
-        </Link>
-      </div>
+      <CtaEnvelope title="Spotted something" accent="you love?" primary={{ href: '/account', label: 'Start a request' }} secondary={{ href: '/stores', label: 'Browse stores' }} />
     </main>
   )
 }

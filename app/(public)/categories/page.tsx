@@ -10,6 +10,8 @@ import {
   Smartphone,
   Sparkles,
 } from 'lucide-react'
+import { CtaEnvelope, PageHero, Section } from '@/components/public/PageKit'
+import { ArrowUpRight } from 'lucide-react'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -19,57 +21,67 @@ export const metadata = pageMetadata({
 })
 
 const categories = [
-  { name: 'Electronics', icon: Smartphone, blurb: 'Phones, audio, laptops, and accessories', href: '/stores/new?category=electronics' },
-  { name: 'Fashion', icon: Shirt, blurb: 'Clothing, footwear, and accessories', href: '/stores/new?category=fashion' },
-  { name: 'Beauty', icon: Sparkles, blurb: 'Skincare, makeup, and haircare', href: '/stores/new?category=beauty' },
-  { name: 'Home & Living', icon: Home, blurb: 'Décor, kitchen, and everyday essentials', href: '/stores/new?category=home' },
-  { name: 'Sports', icon: Dumbbell, blurb: 'Fitness gear, apparel, and equipment', href: '/stores/new?category=sports' },
-  { name: 'Toys & Games', icon: Gamepad2, blurb: 'Toys, board games, and consoles', href: '/stores/new?category=toys' },
-  { name: 'Anime', icon: Gem, blurb: 'Merch, figures, and streetwear', href: '/stores/new?category=anime' },
-  { name: 'Books', icon: BookOpen, blurb: 'Fiction, non-fiction, and manga', href: '/stores/new?category=books' },
-  { name: 'Baby & Kids', icon: Baby, blurb: 'Clothing, toys, and gear', href: '/stores/new?category=baby' },
+  { name: 'Electronics', icon: Smartphone, blurb: 'Phones, audio, laptops, and accessories', href: '/stores?category=electronics' },
+  { name: 'Fashion', icon: Shirt, blurb: 'Clothing, footwear, and accessories', href: '/stores?category=fashion' },
+  { name: 'Beauty', icon: Sparkles, blurb: 'Skincare, makeup, and haircare', href: '/stores?category=beauty' },
+  { name: 'Home & Living', icon: Home, blurb: 'Décor, kitchen, and everyday essentials', href: '/stores?category=home' },
+  { name: 'Sports', icon: Dumbbell, blurb: 'Fitness gear, apparel, and equipment', href: '/stores?category=sports' },
+  { name: 'Toys & Games', icon: Gamepad2, blurb: 'Toys, board games, and consoles', href: '/stores?category=toys' },
+  { name: 'Anime', icon: Gem, blurb: 'Merch, figures, and streetwear', href: '/stores?category=anime' },
+  { name: 'Books', icon: BookOpen, blurb: 'Fiction, non-fiction, and manga', href: '/stores?category=books' },
+  { name: 'Baby & Kids', icon: Baby, blurb: 'Clothing, toys, and gear', href: '/stores?category=baby' },
 ]
 
 export default function CategoriesPage() {
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-24">
-      <div className="max-w-2xl">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          Shop by category
-        </p>
-        <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Whatever you're after, we can go get it
-        </h1>
-        <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-          Pick a category to start a request, or browse our{' '}
-          <Link href="/stores" className="text-teal-deep underline underline-offset-2">affiliated stores</Link>{' '}
-          directly for ready-to-buy products.
-        </p>
-      </div>
+    <main>
+      <PageHero
+        eyebrow="Shop by category"
+        title="Whatever you’re after,"
+        accent="we’ll get it."
+        intro={
+          <>
+            Pick a category to browse ready-to-buy products from our{' '}
+            <Link href="/stores" className="font-semibold text-teal-deep underline underline-offset-2">
+              stores
+            </Link>
+            , or send us a link to anything else.
+          </>
+        }
+      />
 
-      <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {categories.map(({ name, icon: Icon, blurb, href }) => (
-          <Link
-            key={name}
-            href={href}
-            className="group flex items-center gap-4 rounded-2xl border border-ink/10 bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-teal/40 hover:shadow-lift"
-          >
-            <div className="flex h-12 w-12 flex-none items-center justify-center rounded-xl bg-gold/15 text-gold-deep transition-colors group-hover:bg-teal/15 group-hover:text-teal-deep">
-              <Icon size={22} />
-            </div>
-            <div>
-              <h2 className="font-display text-base font-semibold text-ink">{name}</h2>
-              <p className="mt-0.5 font-body text-xs text-ink/55">{blurb}</p>
-            </div>
-          </Link>
-        ))}
-      </div>
+      <Section>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {categories.map(({ name, icon: Icon, blurb, href }, i) => (
+            <Link
+              key={name}
+              href={href}
+              className="group relative flex items-center gap-4 overflow-hidden rounded-3xl bg-card p-5 ring-1 ring-ink/[0.08] transition-all hover:-translate-y-0.5 hover:ring-teal/30 hover:shadow-[0_18px_40px_-24px_rgba(8,39,79,0.35)]"
+            >
+              <span
+                className={`grid h-14 w-14 flex-none place-items-center rounded-2xl transition-colors ${
+                  i % 3 === 0 ? 'bg-teal/10 text-teal-deep' : i % 3 === 1 ? 'bg-gold/15 text-gold-deep' : 'bg-indigo/[0.07] text-indigo'
+                } group-hover:bg-indigo group-hover:text-gold`}
+              >
+                <Icon size={24} strokeWidth={1.8} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="font-display text-lg font-semibold text-indigo">{name}</h2>
+                <p className="mt-0.5 font-body text-sm text-ink/55">{blurb}</p>
+              </div>
+              <ArrowUpRight size={17} className="absolute right-4 top-4 text-ink/20 transition-colors group-hover:text-teal-deep" />
+            </Link>
+          ))}
+        </div>
+      </Section>
 
-      <p className="mt-12 font-body text-sm text-ink/55">
-        Can't find the right category? Any category is a starting point, not a restriction —{' '}
-        <Link href="/stores" className="text-teal-deep underline underline-offset-2">submit a request</Link>{' '}
-        for anything, from any store.
-      </p>
+      <CtaEnvelope
+        title="Can’t find the"
+        accent="right category?"
+        text="Categories are a starting point, not a limit. Send us the link to anything from an Indian store."
+        primary={{ href: '/account', label: 'Start a request' }}
+        secondary={{ href: '/stores', label: 'Browse stores' }}
+      />
     </main>
   )
 }

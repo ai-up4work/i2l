@@ -1,5 +1,5 @@
-import Link from 'next/link'
-import { ArrowRight, Heart, PackageCheck, ShieldCheck, Truck } from 'lucide-react'
+import { Heart, PackageCheck, ShieldCheck, Truck } from 'lucide-react'
+import { ButtonLink, Card, CtaEnvelope, IconCard, PageHero, Section, Steps } from '@/components/public/PageKit'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -43,95 +43,54 @@ const journey = [
 export default function AboutPage() {
   return (
     <main>
-      <section className="mx-auto max-w-5xl px-6 pb-16 pt-20 text-center lg:px-10 lg:pt-28">
-        <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-          About Wishdrop
-        </p>
-        <h1 className="mx-auto mt-4 max-w-3xl font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl lg:text-6xl">
-          Wish it. We'll drop it.
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl font-body text-base leading-relaxed text-ink/65 sm:text-lg">
-          Wishdrop is a concierge shopping and cross-border delivery platform that helps customers
-          in Sri Lanka buy products from affiliated Indian stores, or request products from almost
-          any online store, without handling international purchasing, warehousing, customs, or
-          shipping themselves.
-        </p>
-      </section>
-
-      <section className="mx-auto max-w-5xl px-6 pb-16 lg:px-10">
-        <div className="rounded-3xl border border-ink/10 bg-card p-8 sm:p-12">
-          <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">
-            Why Wishdrop exists
-          </h2>
-          <p className="mt-4 font-body text-base leading-relaxed text-ink/65">
-            Many of the products people want simply aren't sold locally. But buying from another
-            country directly is full of friction: stores that won't ship to Sri Lanka, confusing
-            currency conversion, no clear sense of the full landed cost, and no easy way to track a
-            parcel once it's in someone else's hands. Wishdrop turns that into one guided journey —
-            choose what you want, understand the cost, pay through the platform, and receive the
-            item at your door.
-          </p>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
-        <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">What we stand for</h2>
-        <div className="mt-8 grid gap-5 sm:grid-cols-2">
-          {values.map(({ icon: Icon, title, text }) => (
-            <div key={title} className="flex gap-4 rounded-2xl border border-ink/10 bg-card p-6">
-              <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-teal/10 text-teal-deep">
-                <Icon size={20} />
-              </div>
-              <div>
-                <h3 className="font-display text-lg font-semibold text-ink">{title}</h3>
-                <p className="mt-1.5 font-body text-sm leading-relaxed text-ink/60">{text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
-        <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">
-          How a Wishdrop order moves
-        </h2>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {journey.map(({ step, title, text }) => (
-            <div key={step} className="rounded-2xl border border-ink/10 bg-card p-5">
-              <p className="font-mono text-xs font-semibold text-gold-deep">{step}</p>
-              <h3 className="mt-2 font-display text-base font-semibold text-ink">{title}</h3>
-              <p className="mt-1.5 font-body text-xs leading-relaxed text-ink/55">{text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-5xl px-6 pb-24 lg:px-10">
-        <div className="rounded-3xl bg-indigo px-8 py-12 text-center sm:px-14">
-          <h2 className="font-display text-2xl font-semibold text-parchment sm:text-3xl">
-            Ready to try it?
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl font-body text-sm text-parchment/70">
-            Browse our affiliated stores, or paste a link to something you've already found — we'll
-            take it from there.
-          </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/stores"
-              className="inline-flex items-center gap-2 rounded-full bg-gold px-6 py-3 font-body text-sm font-semibold text-ink transition-colors hover:bg-gold-deep hover:text-parchment"
-            >
-              Browse stores
-              <ArrowRight size={15} />
-            </Link>
-            <Link
-              href="/account/"
-              className="inline-flex items-center gap-2 rounded-full border border-parchment/25 px-6 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-parchment/10"
-            >
+      <PageHero
+        eyebrow="About Wishdrop"
+        title="Wish it. We’ll"
+        accent="drop it."
+        intro="Wishdrop is a concierge shopping and delivery service for Sri Lanka. You pick something from an Indian store — we buy it, check it, ship it and hand it to you, without you dealing with international payments, warehouses, customs or couriers."
+        actions={
+          <>
+            <ButtonLink href="/stores">Browse stores</ButtonLink>
+            <ButtonLink href="/account" variant="secondary">
               Start a request
-            </Link>
+            </ButtonLink>
+          </>
+        }
+      />
+
+      <Section>
+        <Card className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-12 lg:p-10">
+          <div>
+            <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-deep">Our story</p>
+            <h2 className="mt-2 font-display text-3xl font-semibold leading-tight text-indigo">Why Wishdrop exists</h2>
           </div>
+          <p className="font-body text-[15px] leading-relaxed text-ink/65">
+            Many of the products people want simply aren&apos;t sold locally. Buying from another country directly is full
+            of friction: stores that won&apos;t ship to Sri Lanka, confusing currency conversion, no clear idea of the final
+            cost, and no easy way to track a parcel once it&apos;s in someone else&apos;s hands. Wishdrop turns that into one
+            guided journey — choose what you want, see the full cost up front, pay in rupees, and receive it at your door.
+          </p>
+        </Card>
+      </Section>
+
+      <Section eyebrow="What we stand for" title="Four promises we keep">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {values.map(({ icon, title, text }) => (
+            <IconCard key={title} icon={icon} title={title} text={text} layout="row" />
+          ))}
         </div>
-      </section>
+      </Section>
+
+      <Section eyebrow="How it works" title="How a Wishdrop order moves">
+        <Steps columns={5} steps={journey.map(({ title, text }) => ({ title, text }))} />
+      </Section>
+
+      <CtaEnvelope
+        title="Ready to try it?"
+        text="Browse our stores, or paste a link to something you’ve already found — we’ll take it from there."
+        primary={{ href: '/stores', label: 'Browse stores' }}
+        secondary={{ href: '/account', label: 'Start a request' }}
+      />
     </main>
   )
 }

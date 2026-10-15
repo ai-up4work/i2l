@@ -57,7 +57,7 @@ export const sidebarGroups: SidebarGroup[] = [
     key: 'myAssets',
     label: 'My Assets',
     items: [
-      // { type: 'view', label: 'Coupons', view: 'coupons' },
+      { type: 'view', label: 'My Coupons', view: 'coupons' },
       // { type: 'view', label: 'Points', view: 'points' },
       // { type: 'view', label: 'Wallet', view: 'wallet' },
       { type: 'view', label: 'Referrals', view: 'referrals' },
@@ -107,10 +107,10 @@ export const sidebarGroups: SidebarGroup[] = [
     key: 'policy',
     label: 'Policy',
     items: [
-      { type: 'link', label: 'Shipping Info', href: '/policy/shipping-info' },
-      { type: 'link', label: 'Refund', href: '/policy/refund' },
+      { type: 'link', label: 'Shipping Info', href: '/shipping' },
+      { type: 'link', label: 'Refund', href: '/refund-policy' },
       { type: 'link', label: 'Payment Method', href: '/policy/payment-method' },
-      { type: 'link', label: 'Terms & Conditions', href: '/policy/terms' },
+      { type: 'link', label: 'Terms & Conditions', href: '/terms' },
     ],
   },
   // {

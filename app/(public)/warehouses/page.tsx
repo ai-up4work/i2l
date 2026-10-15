@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { ArrowRight, MapPin, PackageSearch, ScanEye, Truck } from 'lucide-react'
+import { MapPin, PackageSearch, ScanEye, Truck } from 'lucide-react'
+import { Callout, CtaEnvelope, PageHero, Section, Steps } from '@/components/public/PageKit'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -22,70 +23,49 @@ const steps = [
 
 export default function WarehousesPage() {
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16 lg:px-10 lg:py-24">
-      <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-        Behind the scenes
-      </p>
-      <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-        Our facilities
-      </h1>
-      <p className="mt-4 max-w-2xl font-body text-base leading-relaxed text-ink/65">
-        Unlike a package-forwarding service, you never need to open a warehouse account, get an
-        overseas address, or declare an inbound parcel yourself. Wishdrop purchases the item and
-        routes it through our own network of facilities on your behalf — here's how that works.
-      </p>
+    <main>
+      <PageHero
+        eyebrow="Behind the scenes"
+        title="Our"
+        accent="facilities."
+        intro="You never need a warehouse account, an overseas address or to declare a parcel yourself. Wishdrop buys the item and routes it through our own network — here’s how."
+      />
 
-      <div className="mt-12 grid gap-5 sm:grid-cols-3">
-        {steps.map(({ icon: Icon, title, text }) => (
-          <div key={title} className="rounded-2xl border border-ink/10 bg-card p-6">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal/10 text-teal-deep">
-              <Icon size={20} />
-            </div>
-            <h2 className="mt-4 font-display text-lg font-semibold text-ink">{title}</h2>
-            <p className="mt-1.5 font-body text-sm leading-relaxed text-ink/60">{text}</p>
-          </div>
-        ))}
-      </div>
+      <Section eyebrow="Inside the facility" title="What happens to your item">
+        <Steps columns={3} steps={steps} />
+      </Section>
 
-      <div className="mt-12 rounded-3xl border border-ink/10 bg-card p-6 sm:p-9">
-        <h2 className="font-display text-xl font-semibold text-ink">Where our facilities are</h2>
-        <div className="mt-5 flex flex-col divide-y divide-ink/10">
-          {facilities.map((f) => (
-            <div key={f.region} className="flex items-start gap-3 py-4 first:pt-0 last:pb-0">
-              <MapPin size={18} className="mt-0.5 flex-none text-gold-deep" />
-              <div>
-                <p className="font-body text-sm font-semibold text-ink">{f.region}</p>
-                <p className="mt-0.5 font-body text-xs text-ink/55">{f.role}</p>
-              </div>
+      <Section eyebrow="Where" title="Where our facilities are">
+        <div className="grid gap-4 md:grid-cols-3">
+          {facilities.map((f, i) => (
+            <div key={f.region} className={`rounded-3xl p-6 ${i === facilities.length - 1 ? 'bg-indigo text-parchment' : 'bg-card ring-1 ring-ink/[0.08]'}`}>
+              <MapPin size={20} className={i === facilities.length - 1 ? 'text-gold' : 'text-teal-deep'} />
+              <h3 className={`mt-4 font-display text-lg font-semibold ${i === facilities.length - 1 ? '' : 'text-indigo'}`}>{f.region}</h3>
+              <p className={`mt-1.5 font-body text-sm leading-relaxed ${i === facilities.length - 1 ? 'text-parchment/70' : 'text-ink/60'}`}>{f.role}</p>
             </div>
           ))}
         </div>
-        <p className="mt-6 font-body text-xs text-ink/45">
-          These facilities are operated by Wishdrop and our logistics partners for order
-          processing only — they are not customer drop-off points, and we're unable to accept
-          walk-in parcels or visitors.
-        </p>
-      </div>
+        <div className="mt-5">
+          <Callout tone="gold">
+            These facilities are run by Wishdrop and our logistics partners for order processing only. They aren&apos;t
+            drop-off points, and we can&apos;t accept walk-in parcels or visitors.
+          </Callout>
+        </div>
+      </Section>
 
-      <div className="mt-10 rounded-2xl border border-ink/10 bg-parchment/60 p-6">
-        <h2 className="font-display text-base font-semibold text-ink">Why this matters to you</h2>
-        <p className="mt-2 font-body text-sm leading-relaxed text-ink/65">
-          Because Wishdrop purchases on your behalf, you never have to give a seller a facility
-          address yourself — you just submit a request or shop our catalogue, and everything after
-          purchase happens through this network automatically. Learn more on our{' '}
-          <Link href="/shipping" className="text-teal-deep underline underline-offset-2">Shipping &amp; Delivery</Link> page.
-        </p>
-      </div>
+      <Section width="narrow">
+        <Callout>
+          <span className="font-semibold text-ink">Why this matters to you: </span>
+          because Wishdrop buys on your behalf, you never give a seller an address yourself. You shop or send a link, and
+          everything after purchase runs through this network automatically. More on our{' '}
+          <Link href="/shipping" className="font-semibold text-teal-deep underline underline-offset-2">
+            Shipping &amp; Delivery
+          </Link>{' '}
+          page.
+        </Callout>
+      </Section>
 
-      <div className="mt-10 flex justify-center">
-        <Link
-          href="/account/"
-          className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-teal-deep"
-        >
-          Start a request
-          <ArrowRight size={15} />
-        </Link>
-      </div>
+      <CtaEnvelope title="Let our team" accent="do the legwork." primary={{ href: '/account', label: 'Start a request' }} />
     </main>
   )
 }

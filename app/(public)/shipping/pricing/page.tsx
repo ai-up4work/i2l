@@ -1,4 +1,7 @@
 import Link from 'next/link'
+import { Landmark, Scale } from 'lucide-react'
+import { Card, CtaEnvelope, IconCard, PageHero, Section } from '@/components/public/PageKit'
+import { ECONOMY_LOCKED } from '@/lib/feature-flags'
 import { ensurePricingSettings } from '@/lib/pricing-settings-server'
 import { pageMetadata } from '@/lib/seo'
 
@@ -25,93 +28,100 @@ export default async function ShippingPricingPage() {
     { label: 'Service margin', value: `Flat LKR ${sf.extraMarginLKR}` },
   ]
 
+  const RateCard = ({
+    name,
+    tag,
+    tagClass,
+    text,
+    rows,
+  }: {
+    name: string
+    tag: string
+    tagClass: string
+    text: string
+    rows: { label: string; value: string }[]
+  }) => (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-display text-2xl font-semibold text-indigo">{name}</h2>
+        <span className={`rounded-full px-3 py-1 font-body text-xs font-semibold ${tagClass}`}>{tag}</span>
+      </div>
+      <p className="mt-1.5 font-body text-sm text-ink/55">{text}</p>
+      <dl className="mt-5 divide-y divide-dashed divide-ink/10 rounded-2xl bg-parchment/60 px-4">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-baseline justify-between gap-4 py-3">
+            <dt className="font-body text-sm text-ink/55">{row.label}</dt>
+            <dd className="text-right font-body text-sm font-semibold text-ink">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
+  )
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16 lg:px-10 lg:py-24">
-      <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
-        Shipping & pricing
-      </p>
-      <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-        How your total is calculated
-      </h1>
-      <p className="mt-4 max-w-2xl font-body text-base leading-relaxed text-ink/65">
-        Every quote is built from a few clear ingredients: the product's price, its weight, your
-        chosen delivery speed, and applicable customs charges. Here's exactly what goes into it.
-      </p>
-      <p className="mt-2 font-body text-xs text-ink/40">
-        Rates shown are current published rates and are illustrative — always confirm the exact
-        total on your live quote, as rates can change and some products use full customs-cascade
-        pricing instead (see <Link href="/taxation" className="text-teal-deep underline underline-offset-2">Taxation</Link>).
-      </p>
+    <main>
+      <PageHero
+        eyebrow="Shipping & pricing"
+        title="How your total"
+        accent="is calculated."
+        intro="Every quote is built from a few clear ingredients: the product’s price, its weight, your delivery speed, and customs charges. Here’s exactly what goes into it."
+        meta={
+          <>
+            Current published rates, for illustration — your live quote always shows the exact total. Some products use
+            full customs pricing instead (see{' '}
+            <Link href="/taxation" className="text-teal-deep underline underline-offset-2">
+              Taxation
+            </Link>
+            ).
+          </>
+        }
+      />
 
-      <div className="mt-12 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-ink/10 bg-card p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-semibold text-ink">Express</h2>
-            <span className="rounded-full bg-teal/10 px-3 py-1 font-body text-xs font-semibold text-teal-deep">
-              Faster
-            </span>
-          </div>
-          <p className="mt-1.5 font-body text-sm text-ink/55">
-            Separate freight and customs-clearance lines, plus a flat delivery fee.
-          </p>
-          <table className="mt-5 w-full border-collapse text-left">
-            <tbody>
-              {expressRows.map((row) => (
-                <tr key={row.label} className="border-t border-ink/10 first:border-t-0">
-                  <td className="py-2.5 pr-3 font-body text-sm text-ink/55">{row.label}</td>
-                  <td className="py-2.5 text-right font-body text-sm font-semibold text-ink">{row.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <Section>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <RateCard
+            name="Express"
+            tag="Faster"
+            tagClass="bg-teal/10 text-teal-deep"
+            text="Separate freight and customs-clearance lines, plus a flat delivery fee."
+            rows={expressRows}
+          />
+          <RateCard
+            name="Economy"
+            tag={ECONOMY_LOCKED ? 'Coming soon' : 'Lower cost'}
+            tagClass="bg-gold/15 text-gold-deep"
+            text="One postal-charges line by weight and no separate delivery fee. Usually slower than Express."
+            rows={economyRows}
+          />
         </div>
+      </Section>
 
-        <div className="rounded-2xl border border-ink/10 bg-card p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-semibold text-ink">Economy</h2>
-            <span className="rounded-full bg-gold/15 px-3 py-1 font-body text-xs font-semibold text-gold-deep">
-              Lower cost
-            </span>
-          </div>
-          <p className="mt-1.5 font-body text-sm text-ink/55">
-            A single postal-charges line by weight, and no separate flat delivery fee. Typically
-            slower than Express.
-          </p>
-          <table className="mt-5 w-full border-collapse text-left">
-            <tbody>
-              {economyRows.map((row) => (
-                <tr key={row.label} className="border-t border-ink/10 first:border-t-0">
-                  <td className="py-2.5 pr-3 font-body text-sm text-ink/55">{row.label}</td>
-                  <td className="py-2.5 text-right font-body text-sm font-semibold text-ink">{row.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <Section>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <IconCard
+            icon={Scale}
+            title="A note on weight"
+            text={`Freight, customs-clearance and postal charges all scale with weight — a 1kg item pays roughly double the ${sf.weightBlockKg}kg block rate. If a seller doesn’t list a weight, we use a sensible default and adjust once the item is weighed at quality check. Items priced outside the flat models above use roughly LKR ${customs.freightRatePerKgLKR.toLocaleString()} per kg for freight.`}
+          />
+          <IconCard icon={Landmark} title="Products with full customs pricing" tone="gold">
+            <p className="mt-1.5 font-body text-sm leading-relaxed text-ink/60">
+              Some products are quoted with the full customs cascade instead — Duty, PAL, SSCL, Cess, Surcharge and VAT,
+              applied in order to the product&apos;s value and category. See{' '}
+              <Link href="/taxation" className="font-semibold text-teal-deep underline underline-offset-2">
+                Taxation
+              </Link>{' '}
+              for how each works.
+            </p>
+          </IconCard>
         </div>
-      </div>
+      </Section>
 
-      <div className="mt-8 rounded-2xl border border-ink/10 bg-parchment/60 p-6">
-        <h3 className="font-display text-lg font-semibold text-ink">A note on weight</h3>
-        <p className="mt-2 font-body text-sm leading-relaxed text-ink/65">
-          Freight, customs-clearance, and postal charges all scale with your item's weight — a 1kg
-          item pays roughly double the {sf.weightBlockKg}kg block rate, and a{' '}
-          {sf.weightBlockKg / 2}kg item pays roughly half. If a seller doesn't list a weight,
-          we apply a reasonable default and adjust once the item is measured at quality check —
-          base freight for items priced outside the flat models above is calculated at roughly
-          LKR {customs.freightRatePerKgLKR.toLocaleString()} per kg.
-        </p>
-      </div>
-
-      <div className="mt-10 rounded-2xl border border-ink/10 bg-card p-6">
-        <h3 className="font-display text-lg font-semibold text-ink">
-          Products with full customs pricing
-        </h3>
-        <p className="mt-2 font-body text-sm leading-relaxed text-ink/65">
-          Some products are quoted using the full customs cascade instead of the flat model above —
-          Duty, PAL, SSCL, Cess, Surcharge, and VAT, applied in sequence to the product's value and
-          category. See <Link href="/taxation" className="text-teal-deep underline underline-offset-2">Taxation</Link> for how each of those works.
-        </p>
-      </div>
+      <CtaEnvelope
+        title="See the exact price"
+        accent="in seconds."
+        text="Paste a product link and we’ll show the full delivered price in rupees — no account needed to check."
+        primary={{ href: '/', label: 'Get a quote' }}
+      />
     </main>
   )
 }
