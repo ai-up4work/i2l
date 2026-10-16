@@ -61,13 +61,14 @@ export default function SocialStoreTiles() {
   if (tiles !== null && tiles.length === 0) return null
 
   return (
-    <section className="mb-10 sm:mb-16">
-      <div className="mb-5 sm:mb-8">
-        <h2 className="font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">SHOPS FROM INSTAGRAM &amp; FACEBOOK</h2>
-        <p className="mt-1 font-body text-sm text-ink/55">Small sellers you&rsquo;d usually message to order from. Browse their photos and videos and buy here.</p>
+    <section className="pb-12 sm:pb-16">
+      <div className="mb-5 max-w-2xl sm:mb-7">
+        <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-deep">From Instagram &amp; Facebook</p>
+        <h2 className="mt-1.5 font-display text-2xl font-semibold leading-tight tracking-[-0.01em] text-indigo sm:text-[2rem]">Small sellers, easy to order</h2>
+        <p className="mt-2 font-body text-sm leading-relaxed text-ink/60 sm:text-[15px]">Shops you&rsquo;d usually message to order from. Browse their photos and videos and buy here.</p>
       </div>
 
-      <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:px-0 lg:grid-cols-3 [&::-webkit-scrollbar]:hidden">
+      <div className="-mx-6 flex snap-x gap-3 overflow-x-auto scroll-px-6 px-6 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:px-0 lg:grid-cols-3 [&::-webkit-scrollbar]:hidden">
         {tiles === null
           ? Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="w-[78vw] flex-none snap-start sm:w-auto">
@@ -79,7 +80,7 @@ export default function SocialStoreTiles() {
               <Link
                 key={tile.slug}
                 href={`/stores/${tile.slug}`}
-                className="group w-[78vw] flex-none snap-start overflow-hidden rounded-2xl border border-ink/10 bg-card transition-shadow hover:shadow-lg sm:w-auto"
+                className="group w-[78vw] flex-none snap-start overflow-hidden rounded-[22px] bg-card ring-1 ring-ink/[0.08] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-16px_rgba(20,24,40,0.35)] sm:w-auto"
               >
                 <div className="relative aspect-[16/10] overflow-hidden bg-ink/5">
                   <div className="h-full w-full transition-transform duration-700 group-hover:scale-[1.03]">
