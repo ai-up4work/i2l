@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Flag, Inbox, MapPinned, MessageCircle, Package, Search, SearchX, X } from "lucide-react"
+import { ChevronRight, Flag, Inbox, MapPinned, MessageCircle, Package, Search, SearchX, Wallet, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import type { Channel, Order, OrderStage } from "@/types/admin"
@@ -117,6 +117,7 @@ export default function OrdersPage() {
   const [stageFilter, setStageFilter] = useState<"all" | OrderStage>("all")
   const [siteFilter, setSiteFilter] = useState<"all" | string>("all")
   const [delayedOnly, setDelayedOnly] = useState(false)
+  const [unpaidOnly, setUnpaidOnly] = useState(false)
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [sortMode, setSortMode] = useState<SortMode>("recent")
@@ -130,6 +131,7 @@ export default function OrdersPage() {
     stageFilter !== "all" ||
     siteFilter !== "all" ||
     delayedOnly ||
+    unpaidOnly ||
     dateFrom !== "" ||
     dateTo !== ""
 
@@ -139,6 +141,7 @@ export default function OrdersPage() {
     setStageFilter("all")
     setSiteFilter("all")
     setDelayedOnly(false)
+    setUnpaidOnly(false)
     setDateFrom("")
     setDateTo("")
   }
@@ -174,6 +177,7 @@ export default function OrdersPage() {
       if (stageFilter !== "all" && o.stage !== stageFilter) return false
       if (siteFilter !== "all" && o.siteId !== siteFilter) return false
       if (delayedOnly && !o.delayed) return false
+      if (unpaidOnly && !o.awaitingPayment) return false
       if (from && new Date(o.placedAt) < from) return false
       if (to && new Date(o.placedAt) > to) return false
       return true
@@ -182,7 +186,7 @@ export default function OrdersPage() {
     return sortMode === "stuck"
       ? [...rows].sort((a, b) => hoursSince(b.stageEnteredAt) - hoursSince(a.stageEnteredAt))
       : [...rows].sort((a, b) => hoursSince(a.placedAt) - hoursSince(b.placedAt))
-  }, [visibleOrders, search, channelFilter, stageFilter, siteFilter, delayedOnly, dateFrom, dateTo, sortMode])
+  }, [visibleOrders, search, channelFilter, stageFilter, siteFilter, delayedOnly, unpaidOnly, dateFrom, dateTo, sortMode])
 
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id
 
@@ -331,6 +335,16 @@ export default function OrdersPage() {
             Delayed only
           </label>
 
+          <label className="flex items-center gap-2 pb-1.5 text-sm text-ink/70">
+            <input
+              type="checkbox"
+              checked={unpaidOnly}
+              onChange={(e) => setUnpaidOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
+            />
+            Awaiting payment ({visibleOrders.filter((o) => o.awaitingPayment).length})
+          </label>
+
           {hasActiveFilters && (
             <button
               type="button"
@@ -407,6 +421,15 @@ export default function OrdersPage() {
                               <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
                                 <Flag size={11} className="shrink-0" aria-hidden />
                                 QC issue
+                              </span>
+                            )}
+                            {o.awaitingPayment && (
+                              <span
+                                title="Placed, not paid yet — payment is on WhatsApp. Mark it paid on the order page; it isn't in Purchases until then."
+                                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200"
+                              >
+                                <Wallet size={11} className="shrink-0" aria-hidden />
+                                Awaiting payment
                               </span>
                             )}
                             {o.delayed && <Pill tone="rose">Delayed</Pill>}

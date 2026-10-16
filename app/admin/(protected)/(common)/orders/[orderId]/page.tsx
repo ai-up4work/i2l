@@ -753,7 +753,7 @@ export default function OrderDetailPage() {
           <aside className="flex flex-col lg:col-span-1">
             {/* Payment (manual / WhatsApp) — Sales, Manager, Super Admin. */}
             {resolveOrderId(order.id) && ["sales", "manager", "super_admin"].includes(String(currentUser?.role ?? "")) && (
-              <OrderPaymentCard orderId={resolveOrderId(order.id)!} role={currentUser?.role ?? null} />
+              <OrderPaymentCard orderId={resolveOrderId(order.id)!} role={currentUser?.role ?? null} onCancelled={() => router.push("/admin/orders")} />
             )}
             <section className="flex flex-1 flex-col rounded-2xl border border-gold/30 bg-gold/[0.07] p-5">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">

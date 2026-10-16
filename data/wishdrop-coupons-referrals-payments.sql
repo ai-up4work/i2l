@@ -353,3 +353,59 @@ alter table public.coupons add column if not exists design jsonb not null defaul
 alter table public.payments add column if not exists method text;
 alter table public.payments add column if not exists note text;
 alter table public.payments add column if not exists recorded_by uuid;
+
+-- ---------------------------------------------------------------------------
+-- 12. Cancelling an unpaid order puts its Wishdrop Mall stock back.
+--     Called from lib/payments/server.ts cancelUnpaidCheckout(). Runs once
+--     per order (a second call does nothing). Safe to re-run this file.
+-- ---------------------------------------------------------------------------
+create or replace function public.mall_restore_stock_for_order(p_order_id uuid)
+returns integer
+language plpgsql
+as $$
+declare
+  m        record;
+  v_back   integer;
+  v_after  integer;
+  n        integer := 0;
+begin
+  if exists (
+    select 1 from public.mall_stock_movements where order_id = p_order_id and reason = 'order_cancelled'
+  ) then
+    return 0;
+  end if;
+
+  for m in
+    select * from public.mall_stock_movements
+    where order_id = p_order_id and reason = 'order' and quantity_change < 0
+  loop
+    -- Only what was really taken off the shelf (a shortage was never there).
+    v_back := greatest(-m.quantity_change - coalesce(m.shortage, 0), 0);
+    if v_back = 0 then continue; end if;
+
+    if m.variant_id is not null then
+      update public.product_variants
+        set stock = coalesce(stock, 0) + v_back, available = true
+        where id = m.variant_id
+        returning stock into v_after;
+      update public.products
+        set stock_count = (select coalesce(sum(stock), 0) from public.product_variants where product_id = m.product_id),
+            updated_at = now()
+        where id = m.product_id;
+    else
+      update public.products
+        set stock_count = coalesce(stock_count, 0) + v_back, updated_at = now()
+        where id = m.product_id
+        returning stock_count into v_after;
+    end if;
+
+    insert into public.mall_stock_movements (product_id, variant_id, order_id, quantity_change, stock_after, reason)
+    values (m.product_id, m.variant_id, p_order_id, v_back, v_after, 'order_cancelled');
+    n := n + 1;
+  end loop;
+  return n;
+end;
+$$;
+
+revoke all on function public.mall_restore_stock_for_order(uuid) from public, anon, authenticated;
+grant execute on function public.mall_restore_stock_for_order(uuid) to service_role;

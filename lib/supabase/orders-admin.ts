@@ -293,6 +293,10 @@ export interface AdminOrder {
   /** Local Sri Lankan shop order (orders.store_origin = 'LK'): picked up
    *  from the shop, quality-checked at our Sri Lanka warehouse, then
    *  delivered — it skips Pack & label, Export bin and In transit. */
+  /** Checkout orders only: payment is manual (WhatsApp) — nothing is
+   *  bought until staff mark it paid (lib/payments/server.ts). */
+  checkoutId: string | null
+  paymentStatus: 'unpaid' | 'paid' | 'failed' | 'refunded' | null
   isLocal: boolean
   /** Rs 500 per local shop, charged once per order (lib/store-origin.ts). */
   pickupFeeLKR: number
@@ -336,6 +340,9 @@ type OrderRow = {
   /** data/wishdrop-store-types-and-location.sql — absent before it runs. */
   store_origin?: string | null
   pickup_fee_lkr?: number | null
+  /** Set for orders placed through checkout; absent before the payments SQL runs. */
+  checkout_id?: string | null
+  payment_status?: string | null
   site_id: string | null
   request_id: string | null
   chat_thread_id: string | null
@@ -395,6 +402,8 @@ function mapRowToAdminOrder(
     exportHold: row.export_hold,
     isLocal: row.store_origin === 'LK',
     pickupFeeLKR: Number(row.pickup_fee_lkr ?? 0),
+    checkoutId: row.checkout_id ?? null,
+    paymentStatus: (row.payment_status as AdminOrder['paymentStatus']) ?? null,
     carrier: row.carrier ?? undefined,
     trackingNumber: row.tracking_number ?? undefined,
     estimatedDelivery: row.estimated_delivery ?? undefined,
@@ -454,12 +463,26 @@ const ORDER_SELECT = `id, display_id, user_id, channel, stage, currency, total_v
  *  queries fall back to ORDER_SELECT so the admin keeps working. */
 const ORDER_SELECT_WITH_ORIGIN = ORDER_SELECT.replace('export_hold, site_id,', 'export_hold, store_origin, pickup_fee_lkr, site_id,')
 let originColumnsMissing = false
+/** checkout_id / payment_status (data/wishdrop-coupons-referrals-payments.sql). */
+let paymentColumnsMissing = false
 function orderSelect(): string {
-  return originColumnsMissing ? ORDER_SELECT : ORDER_SELECT_WITH_ORIGIN
+  const base = originColumnsMissing ? ORDER_SELECT : ORDER_SELECT_WITH_ORIGIN
+  return paymentColumnsMissing ? base : base.replace('has_unreplied_message,', 'has_unreplied_message, checkout_id, payment_status,')
 }
-function noteMissingOriginColumns(error: { code?: string } | null): boolean {
-  if (error?.code === '42703' && !originColumnsMissing) {
+/** A column the select asked for isn't in the database yet: drop that
+ *  group and retry (payment columns first, then the local-store ones). */
+function noteMissingOriginColumns(error: { code?: string; message?: string } | null): boolean {
+  if (error?.code !== '42703') return false
+  if (!paymentColumnsMissing && /checkout_id|payment_status/.test(error.message ?? '')) {
+    paymentColumnsMissing = true
+    return true
+  }
+  if (!originColumnsMissing) {
     originColumnsMissing = true
+    return true
+  }
+  if (!paymentColumnsMissing) {
+    paymentColumnsMissing = true
     return true
   }
   return false
@@ -513,7 +536,7 @@ export async function fetchAdminOrders(opts: FetchOrdersOptions = {}): Promise<A
   }
 
   let { data, error } = await run()
-  if (noteMissingOriginColumns(error)) ({ data, error } = await run())
+  while (noteMissingOriginColumns(error)) ({ data, error } = await run())
   if (error) {
     console.error('[fetchAdminOrders]', error)
     return []
@@ -548,7 +571,7 @@ export async function fetchAdminOrder(displayId: string): Promise<AdminOrder | n
   const supabase = createClient()
   const run = () => supabase.from('orders').select(orderSelect()).eq('display_id', displayId).maybeSingle()
   let { data, error } = await run()
-  if (noteMissingOriginColumns(error)) ({ data, error } = await run())
+  while (noteMissingOriginColumns(error)) ({ data, error } = await run())
   if (error || !data) {
     if (error) console.error('[fetchAdminOrder]', error)
     return null

@@ -16,7 +16,7 @@
 
 import 'server-only'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { db } from '@/lib/coupons/server'
+import { db, voidRedemptionsForCheckout } from '@/lib/coupons/server'
 import { onCheckoutPaid } from '@/lib/referrals/server'
 
 export const PAYMENT_PROVIDER = 'manual'
@@ -100,6 +100,66 @@ export async function markCheckoutUnpaid(checkoutId: string, staffId: string, re
     .update({ status: 'failed', failure_reason: `Undone by staff ${staffId}: ${reason.trim().slice(0, 300) || 'no reason given'}` })
     .eq('checkout_id', checkoutId)
     .eq('status', 'succeeded')
+  return { ok: true }
+}
+
+/**
+ * Staff: cancel an order that was never paid (customer stopped replying,
+ * changed their mind…). Cancels every order in the checkout — one
+ * "Confirm order" — and:
+ *   - gives back the coupon use (coupon_redemptions -> voided),
+ *   - puts Wishdrop Mall stock back (mall_restore_stock_for_order),
+ *   - logs it in each order's stage history,
+ *   - tells the customer (bell notification).
+ * Paid orders can't be cancelled here (that needs a refund decision).
+ */
+export async function cancelUnpaidCheckout(checkoutId: string, staffId: string, reason: string): Promise<Result> {
+  const admin = createServiceRoleClient()
+  const { data: checkout } = await db(admin).from('checkouts').select('id, user_id, payment_status').eq('id', checkoutId).maybeSingle()
+  if (!checkout) return { ok: false, error: 'Checkout not found.', status: 404 }
+  if (checkout.payment_status === 'paid') {
+    return { ok: false, error: 'This order is paid — undo the payment first if it was recorded by mistake, or handle it as a refund.', status: 409 }
+  }
+  const { data: orders } = await db(admin)
+    .from('orders')
+    .select('id, display_id, stage')
+    .eq('checkout_id', checkoutId)
+    .neq('stage', 'cancelled')
+  const live = (orders ?? []) as { id: string; display_id: string; stage: string }[]
+  if (!live.length) return { ok: false, error: 'This order is already cancelled.', status: 409 }
+
+  const why = reason.trim().slice(0, 300) || 'Not paid'
+  const now = new Date().toISOString()
+  const { error } = await db(admin)
+    .from('orders')
+    .update({ stage: 'cancelled', stage_entered_at: now })
+    .in('id', live.map((o) => o.id))
+  if (error) return { ok: false, error: error.message, status: 500 }
+
+  await db(admin)
+    .from('order_stage_history')
+    .insert(live.map((o) => ({ order_id: o.id, stage: 'cancelled', by_staff_id: staffId, note: `Cancelled before payment: ${why}` })))
+    .then(({ error: e }: { error: { message: string } | null }) => e && console.error('[payments] stage history', e.message))
+
+  await voidRedemptionsForCheckout(admin, checkoutId, `Order cancelled before payment: ${why}`)
+
+  for (const o of live) {
+    const { error: e } = await db(admin).rpc('mall_restore_stock_for_order', { p_order_id: o.id })
+    if (e && !/does not exist/i.test(e.message)) console.error('[payments] restore stock', o.display_id, e.message)
+  }
+
+  const ids = live.map((o) => o.display_id).join(', ')
+  await db(admin)
+    .from('notifications')
+    .insert({
+      user_id: checkout.user_id,
+      type: 'order_update',
+      title: `Order ${ids} was cancelled`,
+      body: 'We didn’t receive payment for this order, so it’s been cancelled. Any coupon you used is back in My coupons. Message us on WhatsApp if you’d still like it.',
+      link: '/account/orders',
+    })
+    .then(({ error: e }: { error: { message: string } | null }) => e && console.error('[payments] notify', e.message))
+
   return { ok: true }
 }
 

@@ -92,6 +92,34 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
 
   const paid = checkout.paymentStatus === 'paid'
   const live = checkout.orders.filter((o) => !o.cancelled)
+
+  // Cancelled before payment (staff cancelled it, e.g. no reply).
+  if (!paid && live.length === 0 && checkout.orders.length > 0) {
+    return (
+      <AccountPage>
+        <div className="mx-auto max-w-lg py-16 text-center">
+          <p className="font-display text-3xl font-semibold text-indigo">This order was cancelled</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink/55">
+            We didn’t receive payment for {checkout.orders.map((o) => o.displayId).join(', ')}, so it was cancelled. Any
+            coupon you used is back in My coupons. Still want it? Message us and we’ll help you order again.
+          </p>
+          <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <a
+              href={buildWhatsAppLink(null, `Hi Wishdrop, my order ${checkout.orders.map((o) => o.displayId).join(', ')} was cancelled. I’d still like it.`)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-bold text-white hover:bg-[#1ebe5d]"
+            >
+              <MessageCircle size={16} /> Message us on WhatsApp
+            </a>
+            <Link href="/account/cart" className="text-sm font-semibold text-teal-deep hover:underline">
+              Go to my bag
+            </Link>
+          </div>
+        </div>
+      </AccountPage>
+    )
+  }
   const ids = live.map((o) => o.displayId).join(', ')
   const waText = paid
     ? `Hi Wishdrop, I have a question about my order ${ids}.`

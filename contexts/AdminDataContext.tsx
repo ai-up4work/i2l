@@ -588,6 +588,7 @@ function mapToOrder(
     exportHold: o.exportHold,
     isLocal: o.isLocal,
     pickupFeeLKR: o.pickupFeeLKR,
+    awaitingPayment: Boolean(o.checkoutId) && o.paymentStatus !== "paid",
     isManualQuote: o.channel === 3,
     warehouseSubstage: o.substage,
     items: o.items.map(mapAdminItemToOrderItem),
@@ -1868,6 +1869,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   }
 
   const canSetStage = (order: Order, targetStage: OrderStage): { allowed: boolean; reason?: string } => {
+    if (order.awaitingPayment && STAGE_ORDER.indexOf(targetStage) > STAGE_ORDER.indexOf(order.stage)) {
+      return {
+        allowed: false,
+        reason: "Waiting for payment. Mark it paid in the Payment card first (or cancel it if the customer doesn’t pay).",
+      }
+    }
     const qcIdx = STAGE_ORDER.indexOf("Quality check")
     const targetIdx = STAGE_ORDER.indexOf(targetStage)
     if (targetIdx >= qcIdx) {
@@ -2046,7 +2053,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   // -- Purchases -----------------------------------------------------
 
   const purchaseLines = useMemo<PurchaseLine[]>(() => {
-    return orders.flatMap((order) =>
+    // Unpaid checkout orders aren't bought yet — they join this queue the
+    // moment staff mark them paid (Payment card on the order page).
+    return orders.filter((order) => !order.awaitingPayment).flatMap((order) =>
       order.items.map((item) => {
         const p = purchases.find((pu) => pu.orderId === order.id && pu.orderItemId === item.id)
 

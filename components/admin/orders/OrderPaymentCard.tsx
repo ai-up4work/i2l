@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, CheckCircle2, Clock, Loader2, MessageCircle, Ticket, Undo2, Wallet } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Loader2, MessageCircle, Ticket, Undo2, Wallet, XCircle } from 'lucide-react'
 
 type Payment = {
   id: string
@@ -44,6 +44,15 @@ const METHODS = [
 ] as const
 const METHOD_LABEL: Record<string, string> = Object.fromEntries(METHODS.map((m) => [m.key, m.label]))
 
+/** "3 days ago" — how long an unpaid order has been waiting. */
+function waitingFor(iso: string): string {
+  const h = (Date.now() - new Date(iso).getTime()) / 3_600_000
+  if (h < 1) return 'just now'
+  if (h < 24) return `${Math.floor(h)}h ago`
+  const d = Math.floor(h / 24)
+  return `${d} day${d === 1 ? '' : 's'} ago`
+}
+
 const lkr = (v: number) => `Rs. ${Math.round(v).toLocaleString('en-LK')}`
 const DETAILS_KEY = 'wishdrop:admin:payment-details'
 const FIELD =
@@ -56,7 +65,16 @@ function waNumber(phone: string | null): string | null {
   return d.length >= 9 ? d : null
 }
 
-export default function OrderPaymentCard({ orderId, role }: { orderId: string; role?: string | null }) {
+export default function OrderPaymentCard({
+  orderId,
+  role,
+  onCancelled,
+}: {
+  orderId: string
+  role?: string | null
+  /** After cancelling an unpaid order (it leaves the admin lists). */
+  onCancelled?: () => void
+}) {
   const [data, setData] = useState<Payment | null | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -66,6 +84,8 @@ export default function OrderPaymentCard({ orderId, role }: { orderId: string; r
   const [note, setNote] = useState('')
   const [details, setDetails] = useState('')
   const [editingDetails, setEditingDetails] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelReason, setCancelReason] = useState('No reply after payment request')
 
   useEffect(() => {
     try {
@@ -162,8 +182,14 @@ export default function OrderPaymentCard({ orderId, role }: { orderId: string; r
             <Clock size={13} /> Awaiting payment
           </span>
         )}
-        {live.length > 1 && <span className="text-xs text-ink/45">Covers {ids}</span>}
+        {!paid && <span className="text-xs text-ink/45">placed {waitingFor(data.createdAt)}</span>}
+        {live.length > 1 && <span className="text-xs text-ink/45">· covers {ids}</span>}
       </div>
+      {!paid && (
+        <p className="mt-2 text-xs text-ink/50">
+          Not in Purchases yet — it moves there automatically once you mark it paid.
+        </p>
+      )}
 
       {data.needsPriceReview && (
         <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-gold/10 px-3 py-2 text-xs text-gold-deep ring-1 ring-gold/25">
@@ -299,6 +325,50 @@ export default function OrderPaymentCard({ orderId, role }: { orderId: string; r
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-deep px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo"
             >
               <CheckCircle2 size={15} /> Mark as paid
+            </button>
+          )}
+
+          {/* Customer never paid / stopped replying */}
+          {cancelling ? (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (await act({ action: 'cancel', reason: cancelReason })) {
+                  setCancelling(false)
+                  onCancelled?.()
+                }
+              }}
+              className="space-y-2 rounded-xl bg-rose-50/60 p-3 ring-1 ring-rose-200"
+            >
+              <p className="text-xs font-semibold text-rose-800">Cancel {ids}?</p>
+              <p className="text-[11px] leading-relaxed text-rose-900/70">
+                The customer is told it was cancelled, any coupon goes back to their account and Wishdrop Mall stock is put back.
+                Nothing was bought, so there’s nothing to refund.
+              </p>
+              <select value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className={FIELD}>
+                <option>No reply after payment request</option>
+                <option>Customer asked to cancel</option>
+                <option>Item no longer available</option>
+                <option>Price changed, customer declined</option>
+                <option>Duplicate order</option>
+                <option>Other</option>
+              </select>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setCancelling(false)} className="flex-1 rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-semibold text-ink/70">
+                  Keep order
+                </button>
+                <button type="submit" disabled={busy} className="flex-1 rounded-xl bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50">
+                  {busy ? 'Cancelling…' : 'Cancel order'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCancelling(true)}
+              className="flex w-full items-center justify-center gap-1.5 text-xs font-semibold text-ink/45 hover:text-rose-700"
+            >
+              <XCircle size={13} /> Customer didn’t pay? Cancel order
             </button>
           )}
         </div>

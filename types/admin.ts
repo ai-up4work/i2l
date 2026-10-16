@@ -146,6 +146,11 @@ export interface Order {
   /** Local Sri Lankan shop order — skips Pack & label, Export bin and In
    *  transit (lib/supabase/orders-admin.ts AdminOrder.isLocal). */
   isLocal?: boolean
+  /** Placed through checkout and not paid yet (payment is manual, on
+   *  WhatsApp). Kept out of Purchases and can't move forward until staff
+   *  mark it paid on the order page. Older orders (no checkout) are never
+   *  treated as awaiting payment. */
+  awaitingPayment?: boolean
   /** Rs 500 per local shop, once per order. */
   pickupFeeLKR?: number
   /** True only for confirmed Channel 3 orders — priced by a human, never lib/pricing.ts */

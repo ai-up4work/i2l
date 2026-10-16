@@ -103,11 +103,22 @@ There's no payment gateway yet, so payment is manual:
    `payments` (method, reference, note, who recorded it) and releases the
    referral reward. Managers can **Undo payment** if it was a mistake.
 
+**Nothing moves until it's paid.** An unpaid checkout order shows
+**Awaiting payment** in Admin → Orders (with a filter), stays out of the
+Purchases queue and can't be advanced. Marking it paid drops it into
+Purchases straight away.
+
+**Customer never paid?** In the Payment card: *Customer didn't pay? Cancel
+order*. It cancels the whole checkout (all its orders), gives back any coupon
+use, puts Wishdrop Mall stock back (SQL section 12), logs it in the stage
+history and notifies the customer. Paid orders can't be cancelled this way.
+Orders placed before this update (no checkout) are unaffected.
+
 Customers can't mark anything paid themselves — the old test-card endpoint
 (`/api/payments/mock`) now always refuses.
 
-Run the SQL file again for section 11 (adds `method`, `note`, `recorded_by`
-to `payments`). Until then payments still save, with the method written into
+Run the SQL file again for sections 11–12 (adds `method`, `note`, `recorded_by`
+to `payments`, and the Mall stock restore for cancelled orders). Until then payments still save, with the method written into
 the reference.
 
 **When a gateway arrives** (PayHere, WEBXPAY, …): confirm payment from the

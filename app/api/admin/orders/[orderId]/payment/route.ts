@@ -7,12 +7,13 @@
 // GET                                   -> { payment }
 // POST { action: 'mark-paid', method, reference?, amountLKR?, note? }
 // POST { action: 'mark-unpaid', reason }
+// POST { action: 'cancel', reason }      -> cancel an UNPAID order (all of its checkout)
 //
 // Payment is manual for now (WhatsApp) — see lib/payments/server.ts.
 
 import { NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
-import { checkoutForOrder, markCheckoutUnpaid, recordManualPayment, MANUAL_METHODS, type ManualMethod } from '@/lib/payments/server'
+import { cancelUnpaidCheckout, checkoutForOrder, markCheckoutUnpaid, recordManualPayment, MANUAL_METHODS, type ManualMethod } from '@/lib/payments/server'
 
 export const runtime = 'nodejs'
 
@@ -57,6 +58,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
       return NextResponse.json({ error: 'Ask a manager to undo a payment.' }, { status: 403 })
     }
     result = await markCheckoutUnpaid(current.id, auth.staffId, body.reason ?? '')
+  } else if (body.action === 'cancel') {
+    result = await cancelUnpaidCheckout(current.id, auth.staffId, body.reason ?? '')
   } else {
     return NextResponse.json({ error: 'Unknown action.' }, { status: 400 })
   }
