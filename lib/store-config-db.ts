@@ -284,6 +284,33 @@ export async function matchAffiliatedSellerUrl(rawUrl: string): Promise<Resolved
 }
 
 /**
+ * Admin-only counterpart to matchAffiliatedSellerUrl: matches a pasted URL
+ * against EVERY seller row, whatever its status, so a store that's set up
+ * but not live (pending_review / inactive) still resolves through its own
+ * feed. Uncached — it's only used from staff tools (Wishdrop Mall sourcing),
+ * never on the shopper hot path. Falls back to the public matcher on error.
+ */
+export async function matchSellerUrlForAdmin(rawUrl: string): Promise<ResolvedSeller | null> {
+  const targetHost = normalizeHostname(rawUrl)
+  if (!targetHost) return null
+  try {
+    const { data, error } = await createServiceRoleClient()
+      .from('sellers')
+      .select('*')
+      .not('outbound_url', 'is', null)
+    if (error) throw error
+    const rows = (data ?? []) as SellerRow[]
+    // Prefer a live store if two rows share a hostname.
+    const matches = rows.filter((row) => row.outbound_url && normalizeHostname(row.outbound_url) === targetHost)
+    const match = matches.find((r) => r.status === 'active') ?? matches[0]
+    if (match) return rowToResolvedSeller(match)
+  } catch (err) {
+    console.error('[store-config-db] (admin) seller URL lookup failed', err)
+  }
+  return matchAffiliatedSellerUrl(rawUrl)
+}
+
+/**
  * Call this from any admin action that changes a seller's status or
  * outbound_url (activate/deactivate, edit storefront URL, onboard a new
  * seller) so matchAffiliatedSellerUrl doesn't serve a stale mapping for

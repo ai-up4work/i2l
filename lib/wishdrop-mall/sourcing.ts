@@ -22,7 +22,7 @@
 
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { extractProductIdentifier } from '@/lib/store-providers/product-id'
-import { matchAffiliatedSellerUrl, getSellerAndConfig } from '@/lib/store-config-db'
+import { matchSellerUrlForAdmin, getSellerAndConfigForAdmin } from '@/lib/store-config-db'
 import { scrapeProduct } from '@/lib/scrape/parsers'
 import { looksLikeShortlink, resolveFinalUrl } from '@/lib/scrape/resolve-redirect'
 import type { StoreProduct } from '@/lib/store.types'
@@ -128,10 +128,12 @@ export async function draftFromStore(platform: string, handle: string): Promise<
     throw new SourcingError('That product is already in Wishdrop Mall.', 400)
   }
 
-  const seller = await getSellerAndConfig(platform)
-  if (!seller) throw new SourcingError(`Store "${platform}" wasn't found or isn't active.`, 404)
+  // Any status: staff may stock the Mall from a store that's set up but
+  // not live for shoppers (e.g. no permission to list it publicly yet).
+  const seller = await getSellerAndConfigForAdmin(platform)
+  if (!seller) throw new SourcingError(`Store "${platform}" wasn't found.`, 404)
 
-  const product = await fetchStoreProduct(platform, handle)
+  const product = await fetchStoreProduct(platform, handle, { includeHidden: true })
   if (!product) throw new SourcingError("That product couldn't be loaded from the store's feed anymore.", 404)
 
   return storeProductToDraft(product, {
@@ -156,11 +158,12 @@ export async function draftFromLink(rawUrl: string, signal?: AbortSignal): Promi
 
   // One of our own affiliated sellers? Use its real feed (variants,
   // exact prices) instead of scraping it like an unknown site.
-  const matched = await matchAffiliatedSellerUrl(url)
+  // Includes stores that aren't live yet (see draftFromStore).
+  const matched = await matchSellerUrlForAdmin(url)
   if (matched && matched.platform !== WISHDROP_MALL_SLUG) {
     const handle = extractProductIdentifier(url, matched.config.type)
     if (handle) {
-      const product = await fetchStoreProduct(matched.platform, handle).catch(() => null)
+      const product = await fetchStoreProduct(matched.platform, handle, { includeHidden: true }).catch(() => null)
       if (product) {
         return storeProductToDraft(product, {
           platform: matched.platform,

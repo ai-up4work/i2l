@@ -19,7 +19,13 @@ import type { MallCategory, MallDraft, MallProductRow } from '@/lib/wishdrop-mal
 import { Dialog, INPUT, PRIMARY_BUTTON, SECONDARY_BUTTON, formatMoney, mallApi } from './shared'
 import ProductEditor, { draftToForm, emptyForm, type ProductForm } from './ProductEditor'
 
-type Source = { platform: string; name: string; logo: string }
+type Source = { platform: string; name: string; logo: string; live?: boolean; status?: string }
+
+const STATUS_LABEL: Record<string, string> = {
+  pending_review: 'pending review',
+  inactive: 'inactive',
+  deactivated: 'inactive',
+}
 type ImportTarget =
   | { platform: string; handle: string; label: string }
   | { url: string; label: string }
@@ -151,7 +157,10 @@ function BrowseStore({ imported, onPick }: { imported: Set<string>; onPick: (t: 
       .finally(() => id === requestId.current && setLoading(false))
   }, [platform, search, page])
 
-  const sourceName = sources?.find((s) => s.platform === platform)?.name ?? platform
+  const current = sources?.find((s) => s.platform === platform)
+  const sourceName = current?.name ?? platform
+  const liveSources = sources?.filter((s) => s.live !== false) ?? []
+  const hiddenSources = sources?.filter((s) => s.live === false) ?? []
 
   return (
     <div>
@@ -167,11 +176,30 @@ function BrowseStore({ imported, onPick }: { imported: Set<string>; onPick: (t: 
           disabled={!sources}
         >
           <option value="">{sources ? 'Choose a store to browse…' : 'Loading stores…'}</option>
-          {sources?.map((s) => (
-            <option key={s.platform} value={s.platform}>
-              {s.name}
-            </option>
-          ))}
+          {hiddenSources.length > 0 ? (
+            <>
+              <optgroup label="Live stores">
+                {liveSources.map((s) => (
+                  <option key={s.platform} value={s.platform}>
+                    {s.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Not live for shoppers">
+                {hiddenSources.map((s) => (
+                  <option key={s.platform} value={s.platform}>
+                    {s.name} ({STATUS_LABEL[s.status ?? ''] ?? 'not live'})
+                  </option>
+                ))}
+              </optgroup>
+            </>
+          ) : (
+            liveSources.map((s) => (
+              <option key={s.platform} value={s.platform}>
+                {s.name}
+              </option>
+            ))
+          )}
         </select>
         <div className="relative flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/35" />
@@ -189,7 +217,16 @@ function BrowseStore({ imported, onPick }: { imported: Set<string>; onPick: (t: 
       {sourcesError && <p className="mt-3 text-sm font-semibold text-rose-700">{sourcesError}</p>}
       {sources && sources.length === 0 && (
         <p className="mt-3 text-sm text-ink/55">
-          No active stores with a live feed yet. Use &ldquo;Paste a link&rdquo; to add products from anywhere.
+          No stores with a live feed yet. Use &ldquo;Paste a link&rdquo; to add products from anywhere.
+        </p>
+      )}
+      {current && current.live === false && (
+        <p className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900 ring-1 ring-amber-200">
+          <AlertTriangle size={14} className="mt-0.5 flex-none" />
+          <span>
+            {current.name} isn&rsquo;t live for shoppers. You can still add its products to Wishdrop Mall &mdash; they&rsquo;re
+            sold as Mall products, and the store itself stays hidden.
+          </span>
         </p>
       )}
 
