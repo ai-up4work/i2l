@@ -17,13 +17,17 @@ type Item = {
 
 type Category = {
   name: string
+  blurb: string
   items: Item[]
 }
+
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
 // Illustrations are our own (public/images/prohibited/*.png).
 const categories: Category[] = [
   {
     name: 'Dangerous goods',
+    blurb: 'Anything classed as hazardous for air freight.',
     items: [
       {
         title: 'Hazardous and toxic substances',
@@ -53,6 +57,7 @@ const categories: Category[] = [
   },
   {
     name: 'Weapons and controlled items',
+    blurb: 'Weapons, replicas and alcohol.',
     items: [
       {
         title: 'Firearms and replicas',
@@ -74,26 +79,70 @@ const categories: Category[] = [
   },
   {
     name: 'Regulated goods',
+    blurb: 'Money, documents and fakes.',
     items: [
       {
         title: 'Cash, tickets and counterfeits',
-        description: 'Cash and cash equivalents, event tickets, personal letters and documents, and counterfeit or replica branded goods.',
+        description:
+          'Cash and cash equivalents, event tickets, personal letters and documents, and counterfeit or replica branded goods.',
         image: '/images/prohibited/cash-and-tickets.png',
       },
     ],
   },
   {
     name: 'Others',
+    blurb: 'Anything the law or Customs says no to.',
     items: [
       {
         title: 'Items restricted by law',
         description:
           'Anything Sri Lankan or Indian law prohibits, or that needs a permit or approval from Customs or another authority before it can be imported.',
         image: '/images/prohibited/restricted-by-law.png',
+        badge: 'Check first',
       },
     ],
   },
 ]
+
+function ItemImage({ item, wide }: { item: Item; wide?: boolean }) {
+  return (
+    <div
+      className={`relative flex items-center justify-center overflow-hidden bg-parchment ${
+        wide ? 'aspect-[4/3] sm:aspect-auto sm:w-72 sm:shrink-0 lg:w-80' : 'aspect-[4/3] w-full'
+      }`}
+    >
+      {/* object-contain so the whole illustration (including the red “no” sign) is always visible */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={item.image}
+        alt=""
+        loading="lazy"
+        className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none"
+      />
+      {item.badge && (
+        <span className="absolute right-3 top-3 rounded-full bg-gold px-2.5 py-0.5 font-body text-xs font-semibold text-indigo">
+          {item.badge}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function ItemCard({ item, wide }: { item: Item; wide?: boolean }) {
+  return (
+    <article
+      className={`group flex overflow-hidden rounded-3xl bg-card ring-1 ring-ink/[0.08] transition-shadow hover:shadow-lg hover:shadow-indigo/10 ${
+        wide ? 'flex-col sm:flex-row sm:items-stretch lg:col-span-3 sm:col-span-2' : 'flex-col'
+      }`}
+    >
+      <ItemImage item={item} wide={wide} />
+      <div className={`flex flex-col gap-2 p-6 ${wide ? 'sm:justify-center sm:p-8' : ''}`}>
+        <h3 className="font-display text-lg font-semibold leading-snug text-indigo">{item.title}</h3>
+        <p className="max-w-prose font-body text-sm leading-relaxed text-ink/70">{item.description}</p>
+      </div>
+    </article>
+  )
+}
 
 export default function ProhibitedItemsPage() {
   return (
@@ -111,31 +160,43 @@ export default function ProhibitedItemsPage() {
           order turns out to be restricted, we&apos;ll contact you before doing anything with it. You may need to cover the
           cost of returning it to the seller, and re-shipping it elsewhere costs extra.
         </Callout>
-      </Section>
 
-      {categories.map((category) => (
-        <Section key={category.name} title={category.name}>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {category.items.map((item) => (
-              <div key={item.title} className="group flex flex-col overflow-hidden rounded-3xl bg-card ring-1 ring-ink/[0.08]">
-                <div className="relative h-40 w-full overflow-hidden bg-parchment">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.image} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                  {item.badge && (
-                    <span className="absolute right-3 top-3 rounded-full bg-gold px-2 py-0.5 font-body text-[10px] font-bold uppercase tracking-wider text-indigo">
-                      {item.badge}
-                    </span>
-                  )}
+        {/* Jump links */}
+        <nav aria-label="Categories" className="mt-8 flex flex-wrap gap-2">
+          {categories.map((c) => (
+            <a
+              key={c.name}
+              href={`#${slugify(c.name)}`}
+              className="rounded-full bg-card px-4 py-2 font-body text-sm font-medium text-indigo ring-1 ring-ink/10 transition-colors hover:bg-indigo hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo"
+            >
+              {c.name}
+            </a>
+          ))}
+        </nav>
+
+        {/* All categories live in one Section so spacing is controlled here, not by repeated Section padding */}
+        <div className="mt-12 flex flex-col gap-14 sm:gap-16">
+          {categories.map((category) => {
+            const single = category.items.length === 1
+            return (
+              <section key={category.name} id={slugify(category.name)} aria-labelledby={`${slugify(category.name)}-h`} className="scroll-mt-28">
+                <header className="mb-6 flex flex-col gap-1 border-b border-ink/10 pb-4 sm:flex-row sm:items-baseline sm:justify-between">
+                  <h2 id={`${slugify(category.name)}-h`} className="font-display text-3xl font-bold text-indigo sm:text-4xl">
+                    {category.name}
+                  </h2>
+                  <p className="font-body text-sm text-ink/60">{category.blurb}</p>
+                </header>
+
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {category.items.map((item) => (
+                    <ItemCard key={item.title} item={item} wide={single} />
+                  ))}
                 </div>
-                <div className="flex flex-col gap-1.5 p-5">
-                  <h3 className="font-display text-lg font-semibold leading-snug text-indigo">{item.title}</h3>
-                  <p className="font-body text-sm leading-relaxed text-ink/60">{item.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Section>
-      ))}
+              </section>
+            )
+          })}
+        </div>
+      </Section>
 
       <CtaEnvelope
         eyebrow="Not sure about an item?"
