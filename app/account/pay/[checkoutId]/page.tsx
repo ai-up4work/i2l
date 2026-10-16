@@ -141,7 +141,7 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
 
   return (
     <AccountPage>
-      <div className="mx-auto max-w-4xl pb-16">
+      <div className="mx-auto max-w-7xl pb-16">
         {/* Hero */}
         <div className="relative isolate overflow-hidden rounded-[28px] bg-card px-6 py-10 text-center ring-1 ring-ink/[0.08] sm:px-10">
           <div
