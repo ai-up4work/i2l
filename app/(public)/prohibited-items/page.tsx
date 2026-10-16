@@ -20,7 +20,7 @@ type Category = {
   items: Item[]
 }
 
-// Illustrations are our own (public/images/prohibited/*.svg).
+// Illustrations are our own (public/images/prohibited/*.png).
 const categories: Category[] = [
   {
     name: 'Dangerous goods',
@@ -29,25 +29,25 @@ const categories: Category[] = [
         title: 'Hazardous and toxic substances',
         description:
           'Explosives, radioactive material, toxic or corrosive chemicals, oxidisers, strong magnets and anything else classed as hazardous for air freight.',
-        image: '/images/prohibited/harmful-substances.svg',
+        image: '/images/prohibited/harmful-substances.png',
       },
       {
         title: 'Flammable items',
         description:
           'Flammable liquids and solids such as nail polish, hair dye, matches, fuel, paint thinners and some metal powders.',
-        image: '/images/prohibited/flammable.svg',
+        image: '/images/prohibited/flammable.png',
       },
       {
         title: 'Gas and pressurised containers',
         description:
           'Aerosol sprays, gas cylinders, fire extinguishers, lighters, dry ice, airbags and carbonated or canned drinks.',
-        image: '/images/prohibited/compressed-gas.svg',
+        image: '/images/prohibited/compressed-gas.png',
       },
       {
         title: 'Loose batteries and power banks',
         description:
           'Batteries or power banks sent on their own, and large lithium batteries. Batteries fitted inside a device may be accepted — ask us first.',
-        image: '/images/prohibited/batteries.svg',
+        image: '/images/prohibited/batteries.png',
       },
     ],
   },
@@ -58,17 +58,17 @@ const categories: Category[] = [
         title: 'Firearms and replicas',
         description:
           'Real firearms, ammunition and parts, plus air guns, replica or toy guns, and military or combat equipment.',
-        image: '/images/prohibited/firearms.svg',
+        image: '/images/prohibited/firearms.png',
       },
       {
         title: 'Knives, blades and bows',
         description: 'Restricted knives, swords, blades, bows and arrows. Ordinary kitchen cutlery is fine.',
-        image: '/images/prohibited/knives-and-bows.svg',
+        image: '/images/prohibited/knives-and-bows.png',
       },
       {
         title: 'Alcohol',
         description: 'Alcoholic drinks of any kind, and products with a high alcohol content.',
-        image: '/images/prohibited/alcohol.svg',
+        image: '/images/prohibited/alcohol.png',
       },
     ],
   },
@@ -78,7 +78,7 @@ const categories: Category[] = [
       {
         title: 'Cash, tickets and counterfeits',
         description: 'Cash and cash equivalents, event tickets, personal letters and documents, and counterfeit or replica branded goods.',
-        image: '/images/prohibited/cash-and-tickets.svg',
+        image: '/images/prohibited/cash-and-tickets.png',
       },
     ],
   },
@@ -89,7 +89,7 @@ const categories: Category[] = [
         title: 'Items restricted by law',
         description:
           'Anything Sri Lankan or Indian law prohibits, or that needs a permit or approval from Customs or another authority before it can be imported.',
-        image: '/images/prohibited/restricted-by-law.svg',
+        image: '/images/prohibited/restricted-by-law.png',
       },
     ],
   },
