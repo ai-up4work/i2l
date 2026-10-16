@@ -76,6 +76,14 @@ export default function OrderPaymentCard({
   onCancelled?: () => void
 }) {
   const [data, setData] = useState<Payment | null | undefined>(undefined)
+  const [requestPayment, setRequestPayment] = useState<{
+    requestDisplayId: string | null
+    requestId: string
+    amountLKR: number
+    method: string | null
+    reference: string | null
+    paidAt: string | null
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [marking, setMarking] = useState(false)
@@ -99,7 +107,10 @@ export default function OrderPaymentCard({
     const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/payment`)
     const body = await res.json().catch(() => ({}))
     if (!res.ok) setError(body.error ?? 'Couldn’t load payment.')
-    else setData(body.payment ?? null)
+    else {
+      setData(body.payment ?? null)
+      setRequestPayment(body.requestPayment ?? null)
+    }
   }, [orderId])
 
   useEffect(() => {
@@ -149,10 +160,53 @@ export default function OrderPaymentCard({
       </div>,
     )
   }
+  if (!data && requestPayment) {
+    // Made from a request: paid first, then turned into this order.
+    return shell(
+      <>
+        <div className="mt-3 flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+              requestPayment.paidAt ? 'bg-teal/10 text-teal-deep' : 'bg-gold/15 text-gold-deep'
+            }`}
+          >
+            {requestPayment.paidAt ? <CheckCircle2 size={13} /> : <Clock size={13} />}
+            {requestPayment.paidAt ? 'Paid' : 'No payment on record'}
+          </span>
+          <span className="text-xs text-ink/45">via request</span>
+        </div>
+        <dl className="mt-4 space-y-1.5 text-sm">
+          <div className="flex justify-between font-semibold text-ink">
+            <dt>Paid</dt>
+            <dd className="tabular-nums">{lkr(requestPayment.amountLKR)}</dd>
+          </div>
+        </dl>
+        {requestPayment.paidAt && (
+          <p className="mt-3 rounded-xl bg-parchment px-3 py-2 text-xs text-ink/60">
+            {requestPayment.method ? METHOD_LABEL[requestPayment.method] ?? requestPayment.method.replace('_', ' ') : 'Payment'}
+            {requestPayment.reference ? (
+              <>
+                {' '}
+                · ref <span className="font-mono">{requestPayment.reference}</span>
+              </>
+            ) : null}{' '}
+            · {new Date(requestPayment.paidAt).toLocaleString('en-LK', { dateStyle: 'medium', timeStyle: 'short' })}
+          </p>
+        )}
+        <Link
+          href={`/admin/requests/${requestPayment.requestId}`}
+          className="mt-3 inline-block text-xs font-semibold text-teal-deep hover:underline"
+        >
+          Open request {requestPayment.requestDisplayId ?? ''} →
+        </Link>
+      </>,
+    )
+  }
+
   if (!data) {
     return shell(
       <p className="mt-2 text-sm text-ink/50">
-        {error ?? 'This order wasn’t placed through checkout (e.g. a chat or request order), so payment is handled in chat.'}
+        {error ?? 'This is an older order with no payment record here — its payment was handled in chat.'}
       </p>,
     )
   }

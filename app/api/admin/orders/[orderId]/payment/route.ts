@@ -4,7 +4,7 @@
 // which checkout it belongs to, the money breakdown (coupon included),
 // customer contact, and payment history.
 //
-// GET                                   -> { payment }
+// GET                                   -> { payment, requestPayment }
 // POST { action: 'mark-paid', method, reference?, amountLKR?, note? }
 // POST { action: 'mark-unpaid', reason }
 // POST { action: 'cancel', reason }      -> cancel an UNPAID order (all of its checkout)
@@ -13,7 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
-import { cancelUnpaidCheckout, checkoutForOrder, markCheckoutUnpaid, recordManualPayment, MANUAL_METHODS, type ManualMethod } from '@/lib/payments/server'
+import { cancelUnpaidCheckout, checkoutForOrder, requestPaymentForOrder, markCheckoutUnpaid, recordManualPayment, MANUAL_METHODS, type ManualMethod } from '@/lib/payments/server'
 
 export const runtime = 'nodejs'
 
@@ -22,7 +22,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ orderId
   if (!auth.ok) return auth.response
   const { orderId } = await params
   const payment = await checkoutForOrder(orderId)
-  return NextResponse.json({ payment })
+  // Not a checkout order: a request order carries its payment on the request.
+  const requestPayment = payment ? null : await requestPaymentForOrder(orderId)
+  return NextResponse.json({ payment, requestPayment })
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {

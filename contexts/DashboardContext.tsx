@@ -9,6 +9,7 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 import { useProductLookup } from '@/hooks/useProductLookup'
 import { rateToLKR } from '@/lib/currency-config'
 import { useAuth } from './AuthContext'
+import { useCart } from './Cartcontext'
 import { createClient } from '@/lib/supabase/client'
 import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
 import { getOrCreateGeneralThread, sendChatMessage } from '@/lib/supabase/chat'
@@ -238,6 +239,7 @@ function finalUnitPriceLKRFor(draft: Draft): number {
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user } = useAuth()
+  const cart = useCart()
 
   const [draft, setDraft] = useState<Draft>(loadPersistedDraft)
   const [pastedLink, setPastedLink] = useState('')
@@ -341,37 +343,25 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     const supabase = createClient()
     try {
       if (draft.unitPrice > 0) {
-        const finalUnitPriceLKR = finalUnitPriceLKRFor(draft)
-
+        // Priced automatically: goes into the bag like any other item, so
+        // checkout prices it on the server and it waits for payment
+        // (lib/checkout/server.ts). This used to create an unpaid order
+        // straight from the browser, skipping both.
         const domain = sourceDomainFor(draft.url)
-        const snapshotId = await ensureProductSnapshot(supabase, {
-          id: draft.url || draft.name,
-          title: draft.name,
-          image: draft.image,
-          site: domain,
-          price: null,
-        })
-        const defaultSiteId = await fetchDefaultSiteId(supabase)
-        const threadId = await getOrCreateGeneralThread(supabase, user.id)
-        const orderId = await createOrderWithRetry(supabase, {
-          user_id: user.id,
-          channel: 2,
-          currency: 'LKR',
-          total_value: finalUnitPriceLKR * draft.qty,
-          chat_thread_id: threadId,
-          site_id: defaultSiteId,
-        })
-        const { error: itemError } = await supabase.from('order_items').insert({
-          order_id: orderId,
-          product_snapshot_id: snapshotId,
-          title: draft.name,
-          quantity: draft.qty,
-          unit_price: finalUnitPriceLKR,
-          seller_name: cleanSiteLabel(domain),
-          seller_type: 'store',
-          request_link: draft.url || null,
-        })
-        if (itemError) throw itemError
+        cart.addItem(
+          {
+            id: draft.url || draft.name,
+            url: draft.url || draft.name,
+            site: domain,
+            title: draft.name,
+            image: draft.image,
+            currencyCode: draft.sourceCurrency ?? draft.currency ?? null,
+            sourcePrice: draft.sourcePrice != null ? String(draft.sourcePrice) : null,
+            estimatedPrice: String(finalUnitPriceLKRFor(draft)),
+            source: 'link',
+          },
+          draft.qty,
+        )
       } else {
         // Channel 3 — couldn't be priced automatically (no extractor
         // matched, or the site blocked scraping outright).
@@ -436,13 +426,13 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
       clearPersistedDraft()
       setActiveTab('Requested')
-      router.push(draft.unitPrice > 0 ? pathForView('ordersHub') : '/account/messages')
+      router.push(draft.unitPrice > 0 ? '/account/cart' : '/account/messages')
       return { ok: true }
     } catch (err) {
       console.error('[dashboard] failed to confirm request', err)
       return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
     }
-  }, [draft, user, router])
+  }, [draft, user, router, cart])
 
   // confirmCartOrder (the browser inserting orders and prices straight
   // into the database) is gone: checkout now goes through POST

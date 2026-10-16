@@ -635,6 +635,14 @@ export async function confirmRequestReal(
   const { error: statusError } = await supabase.from('requests').update({ status: 'confirmed' }).eq('id', requestId)
   if (statusError) return { ok: false, error: statusError.message }
 
+  // Request orders are paid before they're created (checked above), so
+  // record that on the order too. Ignored if the payments SQL hasn't run.
+  await supabase
+    .from('orders')
+    .update({ payment_status: 'paid' } as never)
+    .eq('id', orderId)
+    .then(({ error }) => error && error.code !== '42703' && console.error('[confirmRequestReal] payment_status', error.message))
+
   return { ok: true, orderDisplayId: displayId }
 }
 

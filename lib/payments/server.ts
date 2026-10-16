@@ -172,7 +172,7 @@ async function checkoutSummary(checkoutId: string) {
   const [{ data: orders }, { data: coupon }, { data: payments }] = await Promise.all([
     db(admin)
       .from('orders')
-      .select('id, display_id, total_value, stage, store_origin, payment_status, address_id')
+      .select('id, display_id, total_value, stage, payment_status, recipient_address_id')
       .eq('checkout_id', checkoutId)
       .order('created_at'),
     checkout.coupon_id
@@ -211,7 +211,7 @@ async function checkoutSummary(checkoutId: string) {
         displayId: o.display_id as string,
         totalLKR: n(o.total_value),
         cancelled: o.stage === 'cancelled',
-        addressId: (o.address_id as string | null) ?? null,
+        addressId: (o.recipient_address_id as string | null) ?? null,
       })),
       mode: PAYMENT_PROVIDER,
     },
@@ -230,11 +230,20 @@ export async function checkoutForCustomer(userId: string, checkoutId: string): P
 /** Staff: the checkout an order belongs to, with customer contact and payment history. */
 export async function checkoutForOrder(orderId: string) {
   const admin = createServiceRoleClient()
-  const { data: order } = await db(admin).from('orders').select('id, checkout_id, user_id, address_id').eq('id', orderId).maybeSingle()
+  const { data: order, error } = await db(admin)
+    .from('orders')
+    .select('id, checkout_id, user_id, recipient_address_id')
+    .eq('id', orderId)
+    .maybeSingle()
+  if (error) {
+    // Don't hide a broken query behind "no checkout" — say what failed.
+    console.error('[payments] order lookup failed', error.message)
+    throw new Error(error.message)
+  }
   if (!order?.checkout_id) return null
   const s = await checkoutSummary(order.checkout_id)
   if (!s) return null
-  const addressId = order.address_id ?? s.view.orders.find((o) => o.addressId)?.addressId ?? null
+  const addressId = order.recipient_address_id ?? s.view.orders.find((o) => o.addressId)?.addressId ?? null
   const [{ data: address }, { data: profile }] = await Promise.all([
     addressId
       ? db(admin).from('addresses').select('recipient_name, phone').eq('id', addressId).maybeSingle()
@@ -257,5 +266,27 @@ export async function checkoutForOrder(orderId: string) {
       note: (p.note as string | null) ?? (p.failure_reason as string | null) ?? null,
       at: p.created_at as string,
     })),
+  }
+}
+
+/** Staff: an order made from a request (Requests page) — paid before the
+ *  order existed; the payment lives on the request. */
+export async function requestPaymentForOrder(orderId: string) {
+  const admin = createServiceRoleClient()
+  const { data: order } = await db(admin).from('orders').select('id, request_id, total_value').eq('id', orderId).maybeSingle()
+  if (!order?.request_id) return null
+  const { data: r } = await db(admin)
+    .from('requests')
+    .select('id, display_id, payment_amount, payment_method, payment_reference, payment_confirmed_at, quote')
+    .eq('id', order.request_id)
+    .maybeSingle()
+  if (!r) return null
+  return {
+    requestDisplayId: (r.display_id as string | null) ?? null,
+    requestId: r.id as string,
+    amountLKR: n(r.payment_amount ?? r.quote ?? order.total_value),
+    method: (r.payment_method as string | null) ?? null,
+    reference: (r.payment_reference as string | null) ?? null,
+    paidAt: (r.payment_confirmed_at as string | null) ?? null,
   }
 }
