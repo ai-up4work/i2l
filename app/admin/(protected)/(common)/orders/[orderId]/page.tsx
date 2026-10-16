@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, Check, ChevronRight, ExternalLink, ImagePlus, Loader2, MessageSquare, PencilLine, Send, Trash2, X } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, ExternalLink, History, ImagePlus, Loader2, MessageSquare, PencilLine, Send, Trash2, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import { STAGE_ORDER, CHANNEL_LABEL, type Channel, type Order, type OrderStage } from "@/types/admin"
@@ -457,6 +457,12 @@ export default function OrderDetailPage() {
                 in types/admin.ts — but if an old order somehow lacks
                 one, the drawer itself explains that inline rather than
                 hiding the button entirely). */}
+            {currentUser?.role === "super_admin" && (
+              <Link href={`/admin/super-admin/audit-log?ref=${encodeURIComponent(order.id)}`} className={BTN_OUTLINE} title="Every change to this order">
+                <History size={14} />
+                Audit trail
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => setChatOpen(true)}
@@ -493,7 +499,7 @@ export default function OrderDetailPage() {
                 </button>
               </span>
             )}
-            {permissions.canDelete && (
+            {permissions.canDelete && order.paymentStatus !== "paid" && order.paymentStatus !== "refunded" && (
             <button
               type="button"
               onClick={handleDelete}

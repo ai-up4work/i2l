@@ -3,8 +3,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import {
   ArrowLeft,
+  History,
   ChevronRight,
   ExternalLink,
   ImageOff,
@@ -648,6 +650,12 @@ export default function RequestDetailPage() {
           </nav>
 
           <div className="flex items-center gap-2">
+            {role === "super_admin" && (
+              <Link href={`/admin/super-admin/audit-log?ref=${encodeURIComponent(request.displayId)}`} className={BTN_OUTLINE} title="Every change to this request">
+                <History size={14} />
+                Audit trail
+              </Link>
+            )}
             {request.chatThreadId && (
               <button
                 type="button"

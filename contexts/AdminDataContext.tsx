@@ -588,7 +588,8 @@ function mapToOrder(
     exportHold: o.exportHold,
     isLocal: o.isLocal,
     pickupFeeLKR: o.pickupFeeLKR,
-    awaitingPayment: Boolean(o.checkoutId) && o.paymentStatus !== "paid",
+    awaitingPayment: Boolean(o.checkoutId) && o.paymentStatus === "unpaid",
+    paymentStatus: o.paymentStatus,
     isManualQuote: o.channel === 3,
     warehouseSubstage: o.substage,
     items: o.items.map(mapAdminItemToOrderItem),
@@ -2748,6 +2749,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    */
   const deleteOrder = (orderId: string) => {
     if (!permissions.canDelete) return
+    // Paid orders are kept and refunded instead (Payment card). The database
+    // refuses the delete too (SQL section 13).
+    const target = orders.find((o) => o.id === orderId)
+    if (target?.paymentStatus === "paid" || target?.paymentStatus === "refunded") return
     setOrders((prev) => prev.filter((o) => o.id !== orderId))
     const realId = resolveRealId(orderId)
     if (realId) deleteOrderReal(realId)

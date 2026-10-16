@@ -23,6 +23,7 @@ type Checkout = {
   deliveryLKR: number
   discountLKR: number
   totalLKR: number
+  refundedLKR?: number
   couponTitle: string | null
   needsPriceReview: boolean
   paymentStatus: 'unpaid' | 'paid' | 'failed' | 'refunded'
@@ -93,6 +94,36 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
   const paid = checkout.paymentStatus === 'paid'
   const live = checkout.orders.filter((o) => !o.cancelled)
 
+  const refundedLKR = checkout.refundedLKR ?? 0
+
+  // Paid, then cancelled and refunded by us.
+  if (live.length === 0 && checkout.orders.length > 0 && refundedLKR > 0) {
+    return (
+      <AccountPage>
+        <div className="mx-auto max-w-lg py-16 text-center">
+          <p className="font-display text-3xl font-semibold text-indigo">Cancelled and refunded</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink/55">
+            We cancelled {checkout.orders.map((o) => o.displayId).join(', ')} and refunded {lkr(refundedLKR)}. If it came back
+            as Wishdrop credit, you’ll find it in My coupons, ready for your next order.
+          </p>
+          <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link href="/account/coupons" className="inline-flex rounded-full bg-teal-deep px-6 py-3 text-sm font-semibold text-white hover:bg-indigo">
+              My coupons
+            </Link>
+            <a
+              href={buildWhatsAppLink(null, `Hi Wishdrop, I have a question about the refund for ${checkout.orders.map((o) => o.displayId).join(', ')}.`)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-teal-deep hover:underline"
+            >
+              <MessageCircle size={15} /> Ask about it on WhatsApp
+            </a>
+          </div>
+        </div>
+      </AccountPage>
+    )
+  }
+
   // Cancelled before payment (staff cancelled it, e.g. no reply).
   if (!paid && live.length === 0 && checkout.orders.length > 0) {
     return (
@@ -141,7 +172,7 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
 
   return (
     <AccountPage>
-      <div className="mx-auto max-w-7xl pb-16">
+      <div className="mx-auto max-w-4xl pb-16">
         {/* Hero */}
         <div className="relative isolate overflow-hidden rounded-[28px] bg-card px-6 py-10 text-center ring-1 ring-ink/[0.08] sm:px-10">
           <div
@@ -246,6 +277,11 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
                 />
               )}
             </div>
+            {refundedLKR > 0 && (
+              <div className="mt-2">
+                <Row tone="teal" label="Refunded to you" value={`−${lkr(refundedLKR)}`} />
+              </div>
+            )}
             <div className="mt-4 flex items-baseline justify-between border-t border-dashed border-ink/15 pt-4">
               <span className="text-sm font-semibold text-ink">{paid ? 'Total paid' : 'Total to pay'}</span>
               <span className="font-display text-2xl font-semibold tabular-nums text-indigo">{lkr(checkout.totalLKR)}</span>

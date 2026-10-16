@@ -205,7 +205,10 @@ function AccountShell({ children }: { children: React.ReactNode }) {
             when there are 0 or 1 messages. The section is still the
             one and only scroll container (`overflow-y-auto`). */}
         <section
-          className="content-scroll flex min-w-0 flex-1 flex-col overflow-y-auto pb-[72px] lg:mt-1 lg:pb-0"
+          className={`content-scroll flex min-w-0 flex-1 flex-col overflow-y-auto lg:mt-1 lg:pb-0 ${
+            // Messages: no bottom nav (its composer sits at the bottom).
+            isMessagesRoute ? 'pb-0' : 'pb-[72px]'
+          }`}
         >
           {/* WelcomeBanner is only ever rendered while the modal is
               closed — no fixed/pushed positioning needed anymore, since
@@ -234,6 +237,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           isAddRequestOpen={addRequestOpen}
           onOpenMenu={() => setSidebarOpen(true)}
           isMenuOpen={sidebarOpen}
+          forceHidden={isMessagesRoute}
         />
         <ShopBottomSheet open={shopSheetOpen} onClose={() => setShopSheetOpen(false)} onAddRequest={handleOpenAddRequest} />
         <AddRequestOverlay

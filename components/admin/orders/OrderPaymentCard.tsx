@@ -24,6 +24,7 @@ type Payment = {
   deliveryLKR: number
   discountLKR: number
   totalLKR: number
+  refundedLKR: number
   couponId: string | null
   couponTitle: string | null
   needsPriceReview: boolean
@@ -55,6 +56,7 @@ function waitingFor(iso: string): string {
 
 const lkr = (v: number) => `Rs. ${Math.round(v).toLocaleString('en-LK')}`
 const DETAILS_KEY = 'wishdrop:admin:payment-details'
+export const REFUND_NOTICE_KEY = 'wishdrop:admin:last-refund'
 const FIELD =
   'w-full rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm text-ink placeholder:text-ink/35 focus:border-teal-deep focus:outline-none focus:ring-2 focus:ring-teal/20'
 
@@ -94,6 +96,8 @@ export default function OrderPaymentCard({
   const [editingDetails, setEditingDetails] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [cancelReason, setCancelReason] = useState('No reply after payment request')
+  const [refunds, setRefunds] = useState<RefundRow[]>([])
+  const [canRefund, setCanRefund] = useState(false)
 
   useEffect(() => {
     try {
@@ -110,6 +114,8 @@ export default function OrderPaymentCard({
     else {
       setData(body.payment ?? null)
       setRequestPayment(body.requestPayment ?? null)
+      setRefunds(body.refunds ?? [])
+      setCanRefund(Boolean(body.canRefund))
     }
   }, [orderId])
 
@@ -117,7 +123,7 @@ export default function OrderPaymentCard({
     void load()
   }, [load])
 
-  const act = async (payload: Record<string, unknown>) => {
+  const act = async (payload: Record<string, unknown>): Promise<false | Record<string, any>> => {
     setBusy(true)
     setError(null)
     const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/payment`, {
@@ -132,7 +138,20 @@ export default function OrderPaymentCard({
       return false
     }
     setData(body.payment ?? null)
-    return true
+    if ('requestPayment' in body) setRequestPayment(body.requestPayment ?? null)
+    if (body.refunds) setRefunds(body.refunds)
+    return body
+  }
+
+  // After "Cancel & refund" the order leaves the admin lists: hand the
+  // WhatsApp follow-up to the Orders list, then go there.
+  const handleCancelledOrder = (whatsappUrl: string, title: string) => {
+    try {
+      sessionStorage.setItem(REFUND_NOTICE_KEY, JSON.stringify({ whatsappUrl, title, at: Date.now() }))
+    } catch {
+      /* storage blocked — the bell notification still reached the customer */
+    }
+    onCancelled?.()
   }
 
   const saveDetails = (v: string) => {
@@ -199,6 +218,18 @@ export default function OrderPaymentCard({
         >
           Open request {requestPayment.requestDisplayId ?? ''} →
         </Link>
+        {requestPayment.paidAt && (
+          <RefundPanel
+            paidLKR={requestPayment.amountLKR}
+            refunds={refunds}
+            canRefund={canRefund}
+            busy={busy}
+            error={error}
+            phone={null}
+            onRefund={(payload) => act({ action: 'refund', ...payload })}
+            onCancelledOrder={handleCancelledOrder}
+          />
+        )}
       </>,
     )
   }
@@ -212,6 +243,7 @@ export default function OrderPaymentCard({
   }
 
   const paid = data.paymentStatus === 'paid'
+  const refunded = data.paymentStatus === 'refunded'
   const live = data.orders.filter((o) => !o.cancelled)
   const ids = live.map((o) => o.displayId).join(', ')
   const wa = waNumber(data.customer.phone)
@@ -227,19 +259,24 @@ export default function OrderPaymentCard({
   return shell(
     <>
       <div className="mt-3 flex items-center gap-2">
-        {paid ? (
+        {refunded ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.06] px-2.5 py-1 text-xs font-bold text-ink/70">
+            <Undo2 size={13} /> Refunded
+          </span>
+        ) : paid ? (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-teal/10 px-2.5 py-1 text-xs font-bold text-teal-deep">
-            <CheckCircle2 size={13} /> Paid
+            <CheckCircle2 size={13} />
+            {data.refundedLKR > 0 ? `Paid · ${lkr(data.refundedLKR)} refunded` : 'Paid'}
           </span>
         ) : (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-xs font-bold text-gold-deep">
             <Clock size={13} /> Awaiting payment
           </span>
         )}
-        {!paid && <span className="text-xs text-ink/45">placed {waitingFor(data.createdAt)}</span>}
+        {!paid && !refunded && <span className="text-xs text-ink/45">placed {waitingFor(data.createdAt)}</span>}
         {live.length > 1 && <span className="text-xs text-ink/45">· covers {ids}</span>}
       </div>
-      {!paid && (
+      {!paid && !refunded && (
         <p className="mt-2 text-xs text-ink/50">
           Not in Purchases yet — it moves there automatically once you mark it paid.
         </p>
@@ -279,12 +316,12 @@ export default function OrderPaymentCard({
           </div>
         )}
         <div className="flex justify-between border-t border-ink/10 pt-2 font-semibold text-ink">
-          <dt>{paid ? 'Paid' : 'To pay'}</dt>
-          <dd className="tabular-nums">{lkr(paid && data.payment ? data.payment.amountLKR : data.totalLKR)}</dd>
+          <dt>{paid || refunded ? 'Paid' : 'To pay'}</dt>
+          <dd className="tabular-nums">{lkr((paid || refunded) && data.payment ? data.payment.amountLKR : data.totalLKR)}</dd>
         </div>
       </dl>
 
-      {paid && data.payment && (
+      {(paid || refunded) && data.payment && (
         <p className="mt-3 rounded-xl bg-parchment px-3 py-2 text-xs text-ink/60">
           {data.payment.method ? METHOD_LABEL[data.payment.method] ?? data.payment.method : 'Payment'} · ref{' '}
           <span className="font-mono">{data.payment.reference}</span> ·{' '}
@@ -294,7 +331,7 @@ export default function OrderPaymentCard({
 
       {error && <p className="mt-3 text-xs font-semibold text-rose-700">{error}</p>}
 
-      {!paid && (
+      {!paid && !refunded && (
         <div className="mt-4 space-y-3">
           {/* Payment request on WhatsApp */}
           <div className="rounded-xl bg-parchment/70 p-3 ring-1 ring-ink/[0.06]">
@@ -428,7 +465,20 @@ export default function OrderPaymentCard({
         </div>
       )}
 
-      {paid && role !== 'sales' && (
+      {(paid || data.paymentStatus === 'refunded') && (
+        <RefundPanel
+          paidLKR={data.payment?.amountLKR ?? data.totalLKR}
+          refunds={refunds}
+          canRefund={canRefund}
+          busy={busy}
+          error={error}
+          phone={data.customer.phone}
+          onRefund={(payload) => act({ action: 'refund', ...payload })}
+          onCancelledOrder={handleCancelledOrder}
+        />
+      )}
+
+      {paid && role !== 'sales' && refunds.length === 0 && (
         <button
           type="button"
           disabled={busy}
@@ -457,5 +507,287 @@ export default function OrderPaymentCard({
         </details>
       )}
     </>,
+  )
+}
+
+type RefundRow = {
+  id: string
+  amountLKR: number
+  method: 'wishdrop_credit' | 'bank_transfer' | 'cash' | 'other'
+  reference: string | null
+  reason: string
+  cancelledOrder: boolean
+  at: string
+}
+
+const REFUND_METHODS = [
+  { key: 'wishdrop_credit', label: 'Wishdrop credit', hint: 'A one-use coupon for the amount, added to their account (valid 1 year). It covers item prices on their next order.' },
+  { key: 'bank_transfer', label: 'Bank transfer', hint: 'You send the money back, then type the transfer reference.' },
+  { key: 'cash', label: 'Cash', hint: 'Handed back in person.' },
+  { key: 'other', label: 'Other', hint: 'Anything else — add a reference.' },
+] as const
+const REFUND_LABEL: Record<string, string> = Object.fromEntries(REFUND_METHODS.map((m) => [m.key, m.label]))
+
+const REFUND_REASONS = [
+  'Customer asked to cancel',
+  'Item out of stock at the seller',
+  'Seller cancelled the order',
+  'Price went up, customer declined',
+  'Item failed quality check',
+  'Duplicate payment',
+  'Other',
+]
+
+/**
+ * Paid orders: refund instead of delete (Manager / Super Admin).
+ *   - "Cancel & refund": cancels the order(s), refunds up to everything
+ *     still refundable, gives back the coupon use and Mall stock.
+ *   - "Partial refund": money back for part of it; the order carries on.
+ * The customer gets a bell notification automatically; afterwards this
+ * offers a pre-written WhatsApp message to send too.
+ */
+function RefundPanel({
+  paidLKR,
+  refunds,
+  canRefund,
+  busy,
+  error,
+  phone,
+  onRefund,
+  onCancelledOrder,
+}: {
+  paidLKR: number
+  refunds: RefundRow[]
+  canRefund: boolean
+  busy: boolean
+  error: string | null
+  phone: string | null
+  onRefund: (payload: Record<string, unknown>) => Promise<false | Record<string, any>>
+  /** Cancelled orders leave the admin lists, so the page moves on; the
+   *  WhatsApp follow-up is carried to the Orders list (RefundNotice). */
+  onCancelledOrder?: (whatsappUrl: string, title: string) => void
+}) {
+  const refunded = refunds.reduce((t, r) => t + r.amountLKR, 0)
+  const remaining = Math.max(0, Math.round(paidLKR - refunded))
+  const orderCancelled = refunds.some((r) => r.cancelledOrder)
+  const [open, setOpen] = useState<null | 'cancel' | 'partial'>(null)
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState<string>('wishdrop_credit')
+  const [reference, setReference] = useState('')
+  const [reason, setReason] = useState(REFUND_REASONS[0])
+  const [otherReason, setOtherReason] = useState('')
+  const [done, setDone] = useState<{ whatsappText: string } | null>(null)
+
+  const start = (mode: 'cancel' | 'partial') => {
+    setOpen(mode)
+    setDone(null)
+    setAmount(mode === 'cancel' ? String(remaining) : '')
+  }
+  const wa = waNumber(phone)
+
+  return (
+    <div className="mt-4 border-t border-ink/10 pt-4">
+      {refunds.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs font-semibold text-ink/60">Refunds</p>
+          <ul className="mt-1.5 space-y-1.5">
+            {refunds.map((r) => (
+              <li key={r.id} className="rounded-xl bg-parchment px-3 py-2 text-xs text-ink/65">
+                <span className="font-semibold text-ink">{lkr(r.amountLKR)}</span> · {REFUND_LABEL[r.method] ?? r.method}
+                {r.reference ? (
+                  <>
+                    {' '}
+                    · ref <span className="font-mono">{r.reference}</span>
+                  </>
+                ) : null}
+                {r.cancelledOrder ? ' · order cancelled' : ''}
+                <span className="block text-ink/45">
+                  {r.reason} · {new Date(r.at).toLocaleString('en-LK', { dateStyle: 'medium', timeStyle: 'short' })}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {remaining > 0 && <p className="mt-1.5 text-[11px] text-ink/45">Still refundable: {lkr(remaining)}</p>}
+        </div>
+      )}
+
+      {done && (
+        <div className="mb-3 rounded-xl bg-teal/[0.07] p-3 ring-1 ring-teal/20">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-teal-deep">
+            <CheckCircle2 size={13} /> Refund saved — the customer has been notified in their account.
+          </p>
+          <a
+            href={wa ? `https://wa.me/${wa}?text=${encodeURIComponent(done.whatsappText)}` : `https://wa.me/?text=${encodeURIComponent(done.whatsappText)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-3 py-2 text-sm font-semibold text-white hover:bg-[#1ebe5d]"
+          >
+            <MessageCircle size={15} /> Tell them on WhatsApp too
+          </a>
+        </div>
+      )}
+
+      {!canRefund ? (
+        remaining > 0 && <p className="text-xs text-ink/45">Need to refund this order? Ask a manager — paid orders can’t be deleted.</p>
+      ) : remaining <= 0 ? (
+        <p className="text-xs text-ink/45">Fully refunded.</p>
+      ) : open ? (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault()
+            const finalReason = reason === 'Other' ? otherReason.trim() || 'Other' : reason
+            const res = await onRefund({ mode: open, amountLKR: Number(amount), method, reference, reason: finalReason })
+            if (res) {
+              const text = res.refund?.whatsappText ?? ''
+              setOpen(null)
+              setReference('')
+              setDone({ whatsappText: text })
+              if (open === 'cancel' && onCancelledOrder) {
+                const url = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`
+                onCancelledOrder(url, `Cancelled and refunded ${lkr(Number(amount))}. The customer has been notified in their account.`)
+              }
+            }
+          }}
+          className={`space-y-2 rounded-xl p-3 ring-1 ${open === 'cancel' ? 'bg-rose-50/60 ring-rose-200' : 'bg-parchment/70 ring-ink/10'}`}
+        >
+          <p className={`text-xs font-semibold ${open === 'cancel' ? 'text-rose-800' : 'text-ink/75'}`}>
+            {open === 'cancel' ? 'Cancel this order and refund' : 'Partial refund — the order carries on'}
+          </p>
+          {open === 'cancel' && (
+            <p className="text-[11px] leading-relaxed text-rose-900/70">
+              Cancels the order (all of its checkout), gives back any coupon use and puts Wishdrop Mall stock back. If it already
+              earned someone a referral reward, that reward is withdrawn if unused.
+            </p>
+          )}
+          <label className="block text-xs font-semibold text-ink/60">
+            Amount (Rs.)
+            <input
+              type="number"
+              inputMode="decimal"
+              min={1}
+              max={remaining}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className={`${FIELD} mt-1`}
+              required
+            />
+            <span className="mt-0.5 block font-normal text-ink/40">Up to {lkr(remaining)}</span>
+          </label>
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-semibold text-ink/60">Refund as</legend>
+            {REFUND_METHODS.map((m) => (
+              <label key={m.key} className={`flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 ${method === m.key ? 'bg-white ring-1 ring-teal/30' : ''}`}>
+                <input type="radio" name="refund-method" value={m.key} checked={method === m.key} onChange={() => setMethod(m.key)} className="mt-0.5" />
+                <span className="text-xs">
+                  <span className="font-semibold text-ink">{m.label}</span>
+                  <span className="block text-ink/45">{m.hint}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          {method !== 'wishdrop_credit' && (
+            <label className="block text-xs font-semibold text-ink/60">
+              Transfer / reference
+              <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. TXN 58213" className={`${FIELD} mt-1`} />
+            </label>
+          )}
+          <label className="block text-xs font-semibold text-ink/60">
+            Reason (the customer sees this)
+            <select value={reason} onChange={(e) => setReason(e.target.value)} className={`${FIELD} mt-1`}>
+              {REFUND_REASONS.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </label>
+          {reason === 'Other' && (
+            <input value={otherReason} onChange={(e) => setOtherReason(e.target.value)} placeholder="Reason" className={FIELD} required />
+          )}
+          {error && <p className="text-xs font-semibold text-rose-700">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={() => setOpen(null)} className="flex-1 rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-semibold text-ink/70">
+              Back
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !(Number(amount) > 0) || Number(amount) > remaining}
+              className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                open === 'cancel' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-teal-deep hover:bg-indigo'
+              }`}
+            >
+              {busy ? 'Saving…' : `Refund ${Number(amount) > 0 ? lkr(Number(amount)) : ''}`}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {!orderCancelled && (
+            <button
+              type="button"
+              onClick={() => start('cancel')}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+            >
+              <XCircle size={14} /> Cancel & refund
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => start('partial')}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-ink/[0.04]"
+          >
+            <Undo2 size={14} /> {orderCancelled ? 'Refund more' : 'Partial refund (order carries on)'}
+          </button>
+          <p className="text-[11px] text-ink/40">Paid orders can’t be deleted — refund them here instead.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Orders list banner shown right after "Cancel & refund" (the order itself
+ * is no longer listed): confirms it and offers the WhatsApp follow-up.
+ */
+export function RefundNotice() {
+  const [notice, setNotice] = useState<{ whatsappUrl: string; title: string; at: number } | null>(null)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(REFUND_NOTICE_KEY)
+      if (!raw) return
+      const v = JSON.parse(raw) as { whatsappUrl: string; title: string; at: number }
+      if (Date.now() - v.at < 10 * 60_000) setNotice(v)
+      else sessionStorage.removeItem(REFUND_NOTICE_KEY)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+  if (!notice) return null
+  const dismiss = () => {
+    setNotice(null)
+    try {
+      sessionStorage.removeItem(REFUND_NOTICE_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-2xl bg-teal/[0.07] p-4 ring-1 ring-teal/20 sm:flex-row sm:items-center sm:justify-between">
+      <p className="flex items-start gap-2 text-sm text-teal-deep">
+        <CheckCircle2 size={16} className="mt-0.5 flex-none" /> {notice.title}
+      </p>
+      <div className="flex flex-none items-center gap-2">
+        <a
+          href={notice.whatsappUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={dismiss}
+          className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#1ebe5d]"
+        >
+          <MessageCircle size={15} /> Tell them on WhatsApp
+        </a>
+        <button type="button" onClick={dismiss} className="text-xs font-semibold text-ink/45 hover:text-ink">
+          Dismiss
+        </button>
+      </div>
+    </div>
   )
 }

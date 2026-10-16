@@ -117,9 +117,29 @@ Orders placed before this update (no checkout) are unaffected.
 Customers can't mark anything paid themselves — the old test-card endpoint
 (`/api/payments/mock`) now always refuses.
 
-Run the SQL file again for sections 11–12 (adds `method`, `note`, `recorded_by`
-to `payments`, and the Mall stock restore for cancelled orders). Until then payments still save, with the method written into
+Run the SQL file again for sections 11–13 (adds `method`, `note`, `recorded_by`
+to `payments`, the Mall stock restore for cancelled orders, and refunds). Until then payments still save, with the method written into
 the reference.
+
+**Paid orders are never deleted — they're refunded.** In the Payment card of a
+paid order (Manager / Super Admin):
+
+- **Cancel & refund** — cancels the order (its whole checkout), refunds up to
+  everything paid, gives back the coupon use, puts Wishdrop Mall stock back and
+  withdraws an unused referral reward the order earned.
+- **Partial refund** — money back for part of it (e.g. one item couldn't be
+  bought); the order carries on.
+- Refund as **Wishdrop credit** (default: a one-use coupon for the amount, in the
+  customer's My coupons for a year — it covers item prices on their next order)
+  or **bank transfer / cash / other** with a reference.
+- The customer gets a bell notification straight away, and staff get a
+  pre-written WhatsApp message to send. Every refund is saved in `refunds`
+  (amount, method, reference, reason, who, when) and shows on the order and on
+  the customer's order page. Sales can't refund (ask a manager).
+- **Delete order** is hidden on paid orders, and the database refuses to delete
+  a paid order (SQL section 13). `data/reset-all-orders.sql` still clears
+  everything for a fresh start.
+- Works for request orders too (paid on the Requests page).
 
 **When a gateway arrives** (PayHere, WEBXPAY, …): confirm payment from the
 gateway's server-to-server notification and call `markCheckoutPaid()` in

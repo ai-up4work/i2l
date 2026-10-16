@@ -34,7 +34,7 @@ type CouponListRow = {
   starts_at: string
   ends_at: string | null
   status: 'active' | 'paused' | 'archived'
-  source: 'admin' | 'referral' | 'compensation' | 'migrated'
+  source: 'admin' | 'referral' | 'compensation' | 'migrated' | 'refund'
   created_by_name: string | null
   created_at: string
   allocatedCount: number
@@ -54,6 +54,7 @@ const SOURCE_LABEL: Record<CouponListRow['source'], string> = {
   admin: 'Campaign',
   referral: 'Referral',
   compensation: 'QC credit',
+  refund: 'Refund credit',
   migrated: 'Old coupon',
 }
 

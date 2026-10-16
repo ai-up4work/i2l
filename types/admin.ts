@@ -151,6 +151,9 @@ export interface Order {
    *  mark it paid on the order page. Older orders (no checkout) are never
    *  treated as awaiting payment. */
   awaitingPayment?: boolean
+  /** orders.payment_status (checkout and request orders). Paid / refunded
+   *  orders can't be deleted — they're cancelled & refunded instead. */
+  paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded' | null
   /** Rs 500 per local shop, once per order. */
   pickupFeeLKR?: number
   /** True only for confirmed Channel 3 orders — priced by a human, never lib/pricing.ts */

@@ -99,10 +99,11 @@ export function normalizeDesign(raw: unknown, fallbackIcon?: ProductIconType): C
 /** A sensible starting design for coupons nobody designed (referral
  *  rewards, QC credits, old coupons) — varied by kind so they don't all
  *  look the same. */
-export function defaultDesignFor(kind: 'admin' | 'referral' | 'compensation' | 'migrated', discountType: 'percent' | 'fixed'): CouponDesign {
+export function defaultDesignFor(kind: 'admin' | 'referral' | 'compensation' | 'migrated' | 'refund', discountType: 'percent' | 'fixed'): CouponDesign {
   const base = { ...DEFAULT_COUPON_DESIGN, productIcon: (discountType === 'percent' ? 'percent' : 'coin') as ProductIconType }
   if (kind === 'referral') return { ...base, bgColor: '#E4F3EA', accentColor: '#2FA36B', productIcon: 'gift', patternType: 'confetti' }
   if (kind === 'compensation') return { ...base, bgColor: '#E2F1F3', accentColor: '#0B7280', patternType: 'fineDotGrid' }
+  if (kind === 'refund') return { ...base, bgColor: '#FBF1DD', accentColor: '#C98A2A', productIcon: 'coin', patternType: 'fineDotGrid', eyebrow: 'Wishdrop credit' }
   return base
 }
 

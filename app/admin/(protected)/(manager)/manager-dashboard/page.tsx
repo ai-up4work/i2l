@@ -77,7 +77,7 @@ export default function ManagerDashboardPage() {
   const [justFlagged, setJustFlagged] = useState<number | null>(null)
 
   const delayedCount = visibleOrders.filter((o) => o.delayed).length
-  const breachedOrders = visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt)))
+  const breachedOrders = visibleOrders.filter((o) => !o.awaitingPayment && isOverThreshold(o.stage, hoursSince(o.stageEnteredAt)))
   const breachCount = breachedOrders.length
   const manualQuoteCount = visibleOrders.filter((o) => o.isManualQuote && o.stage !== "Delivered").length
   // order.totalValue is customer-facing LKR (see lib/currency.ts — "the
@@ -123,7 +123,7 @@ export default function ManagerDashboardPage() {
         site,
         total: siteOrders.length,
         delayed: siteOrders.filter((o) => o.delayed).length,
-        breached: siteOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length,
+        breached: siteOrders.filter((o) => !o.awaitingPayment && isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length,
       }
     })
   }, [sites, visibleOrders])

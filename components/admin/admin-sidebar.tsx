@@ -194,7 +194,7 @@ function getGroups(role: Role): Group[] {
         // app/admin/(protected)/super-admin/wishdrop-mall/page.tsx.
         { label: "Wishdrop Mall", href: "/admin/super-admin/wishdrop-mall", icon: Store, roles: ["super_admin"] },
         { label: "Analytics", href: "/admin/super-admin/analytics", icon: LineChart, roles: ["super_admin"] },
-        { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"], locked: true },
+        { label: "Audit log", href: "/admin/super-admin/audit-log", icon: History, roles: ["super_admin"] },
         { label: "Roles", href: "/admin/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"], locked: true },
         { label: "All staff", href: "/admin/super-admin/staff", icon: Users, roles: ["super_admin"] },
         { label: "Warehouse Sites", href: "/admin/super-admin/warehouses", icon: Building2, roles: ["super_admin"] },

@@ -45,6 +45,7 @@ const TABS: { key: Tab; label: string }[] = [
 const VIA_LABEL: Record<string, string> = {
   referral: 'Referral reward',
   compensation: 'Quality-check credit',
+  refund: 'Refund credit',
   campaign: 'For everyone',
   claimed: 'Added by you',
   admin: 'Just for you',

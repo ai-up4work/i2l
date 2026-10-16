@@ -23,8 +23,8 @@ export function db(admin: AdminClient): Db {
 
 export type CouponAudience = 'everyone' | 'new_customers' | 'selected'
 export type CouponStatus = 'active' | 'paused' | 'archived'
-export type CouponSource = 'admin' | 'referral' | 'compensation' | 'migrated'
-export type AllocationVia = 'admin' | 'claimed' | 'referral' | 'compensation' | 'migrated'
+export type CouponSource = 'admin' | 'referral' | 'compensation' | 'migrated' | 'refund'
+export type AllocationVia = 'admin' | 'claimed' | 'referral' | 'compensation' | 'migrated' | 'refund'
 
 export type CouponRow = {
   id: string

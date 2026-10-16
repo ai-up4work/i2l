@@ -60,6 +60,9 @@ type MobileBottomNavProps = {
    *  Home. The menu used to be a button in the phone header. */
   onOpenMenu?: () => void
   isMenuOpen?: boolean
+  /** Hide completely (e.g. on Messages, where the composer owns the
+   *  bottom of the screen — same as WhatsApp / Instagram chats). */
+  forceHidden?: boolean
 }
 
 export default function MobileBottomNav({
@@ -70,10 +73,12 @@ export default function MobileBottomNav({
   isAddRequestOpen = false,
   onOpenMenu,
   isMenuOpen = false,
+  forceHidden = false,
 }: MobileBottomNavProps) {
   // Slides away while scrolling down, back when scrolling up — together
   // with the header (hooks/useHideOnScroll.ts).
-  const hidden = useHideOnScroll() && !isAddRequestOpen && !isMenuOpen
+  const scrolledAway = useHideOnScroll()
+  const hidden = forceHidden || (scrolledAway && !isAddRequestOpen && !isMenuOpen)
   const left: Tab[] = onOpenMenu ? [MENU_TAB, leftTabs[1]] : leftTabs
   const activeIndex = isMenuOpen
     ? 0

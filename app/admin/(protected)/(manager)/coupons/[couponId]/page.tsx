@@ -74,6 +74,7 @@ const VIA: Record<string, string> = {
   claimed: 'Added it / used it',
   referral: 'Referral',
   compensation: 'QC credit',
+  refund: 'Refund credit',
   migrated: 'Old coupon',
 }
 

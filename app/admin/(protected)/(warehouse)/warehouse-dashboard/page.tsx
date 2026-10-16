@@ -77,7 +77,7 @@ export default function WarehouseDashboardPage() {
   const inTransitCount = inTransitLines.length
   const inTransitOverdue = inTransitLines.filter((l) => l.deliveryStatus === "overdue").length
   const deliveredCount = orders.filter((o) => o.stage === "Delivered").length
-  const breachedOrders = orders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
+  const breachedOrders = orders.filter((o) => !o.awaitingPayment && isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
   const delayedOrders = orders.filter((o) => o.delayed).length
 
   const attention = useMemo<AttentionItem[]>(() => {
@@ -103,7 +103,7 @@ export default function WarehouseDashboardPage() {
         tone: "rose",
       })
     }
-    for (const o of orders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt)))) {
+    for (const o of orders.filter((o) => !o.awaitingPayment && isOverThreshold(o.stage, hoursSince(o.stageEnteredAt)))) {
       items.push({
         key: `order-${o.id}`,
         title: o.id,

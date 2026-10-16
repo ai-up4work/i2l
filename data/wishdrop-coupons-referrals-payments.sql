@@ -409,3 +409,74 @@ $$;
 
 revoke all on function public.mall_restore_stock_for_order(uuid) from public, anon, authenticated;
 grant execute on function public.mall_restore_stock_for_order(uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 13. Refunds. A paid order is never deleted: staff cancel & refund it
+--     (lib/payments/server.ts refundOrder). Each refund is a row here —
+--     Wishdrop credit (a one-use coupon for the amount) or money back
+--     (bank transfer / cash). Safe to re-run.
+-- ---------------------------------------------------------------------------
+create table if not exists public.refunds (
+  id               uuid primary key default gen_random_uuid(),
+  checkout_id      uuid references public.checkouts(id) on delete cascade,
+  order_id         uuid references public.orders(id) on delete set null,
+  user_id          uuid not null references auth.users(id) on delete cascade,
+  amount_lkr       numeric(12,2) not null check (amount_lkr > 0),
+  method           text not null check (method in ('wishdrop_credit', 'bank_transfer', 'cash', 'other')),
+  reference        text,
+  coupon_id        uuid references public.coupons(id) on delete set null,
+  reason           text not null,
+  cancelled_order  boolean not null default false,
+  created_by       uuid,
+  created_at       timestamptz not null default now()
+);
+create index if not exists refunds_checkout_idx on public.refunds (checkout_id);
+create index if not exists refunds_order_idx on public.refunds (order_id);
+create index if not exists refunds_user_idx on public.refunds (user_id, created_at desc);
+alter table public.refunds enable row level security;
+drop policy if exists "own refunds read" on public.refunds;
+create policy "own refunds read" on public.refunds for select using (auth.uid() = user_id);
+
+alter table public.checkouts add column if not exists refunded_lkr numeric(12,2) not null default 0;
+alter table public.checkouts add column if not exists refunded_at timestamptz;
+
+-- Coupons created as refund credit: source / via 'refund'.
+do $$
+declare c record;
+begin
+  for c in
+    select conrelid::regclass::text as tbl, conname
+    from pg_constraint
+    where contype = 'c'
+      and ((conrelid = 'public.coupons'::regclass and pg_get_constraintdef(oid) ilike '%source%')
+        or (conrelid = 'public.coupon_allocations'::regclass and pg_get_constraintdef(oid) ilike '%via%'))
+  loop
+    execute format('alter table %s drop constraint %I', c.tbl, c.conname);
+  end loop;
+end $$;
+alter table public.coupons add constraint coupons_source_check
+  check (source in ('admin', 'referral', 'compensation', 'migrated', 'refund'));
+alter table public.coupon_allocations add constraint coupon_allocations_via_check
+  check (via in ('admin', 'claimed', 'referral', 'compensation', 'migrated', 'refund'));
+
+-- A paid (or refunded) order can't be deleted — cancel & refund it instead.
+-- data/reset-all-orders.sql switches this off for its own transaction.
+create or replace function public.prevent_paid_order_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  if coalesce(current_setting('wishdrop.allow_order_delete', true), '') = 'on' then
+    return old;
+  end if;
+  if old.payment_status in ('paid', 'refunded') then
+    raise exception 'Order % is paid — cancel and refund it instead of deleting it.', old.display_id
+      using errcode = 'P0001';
+  end if;
+  return old;
+end;
+$$;
+drop trigger if exists orders_prevent_paid_delete on public.orders;
+create trigger orders_prevent_paid_delete
+  before delete on public.orders
+  for each row execute function public.prevent_paid_order_delete();

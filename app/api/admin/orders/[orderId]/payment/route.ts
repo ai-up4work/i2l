@@ -8,12 +8,14 @@
 // POST { action: 'mark-paid', method, reference?, amountLKR?, note? }
 // POST { action: 'mark-unpaid', reason }
 // POST { action: 'cancel', reason }      -> cancel an UNPAID order (all of its checkout)
+// POST { action: 'refund', mode: 'cancel' | 'partial', amountLKR, method, reference?, reason }
+//                                       -> Manager / Super Admin: refund a PAID order
 //
 // Payment is manual for now (WhatsApp) — see lib/payments/server.ts.
 
 import { NextResponse } from 'next/server'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
-import { cancelUnpaidCheckout, checkoutForOrder, requestPaymentForOrder, markCheckoutUnpaid, recordManualPayment, MANUAL_METHODS, type ManualMethod } from '@/lib/payments/server'
+import { cancelUnpaidCheckout, checkoutForOrder, refundOrder, refundsForOrder, requestPaymentForOrder, REFUND_METHODS, type RefundMethod, markCheckoutUnpaid, recordManualPayment, MANUAL_METHODS, type ManualMethod } from '@/lib/payments/server'
 
 export const runtime = 'nodejs'
 
@@ -24,7 +26,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ orderId
   const payment = await checkoutForOrder(orderId)
   // Not a checkout order: a request order carries its payment on the request.
   const requestPayment = payment ? null : await requestPaymentForOrder(orderId)
-  return NextResponse.json({ payment, requestPayment })
+  const refunds = await refundsForOrder(orderId)
+  return NextResponse.json({ payment, requestPayment, refunds, canRefund: auth.role !== 'sales' })
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {
@@ -38,7 +41,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     amountLKR?: number
     note?: string
     reason?: string
+    mode?: 'cancel' | 'partial'
   }
+
+  // Refunds: Manager / Super Admin only. Works for checkout and request orders.
+  if (body.action === 'refund') {
+    if (auth.role === 'sales') return NextResponse.json({ error: 'Ask a manager to refund an order.' }, { status: 403 })
+    if (!REFUND_METHODS.includes(body.method as RefundMethod)) {
+      return NextResponse.json({ error: 'Choose how to refund.' }, { status: 400 })
+    }
+    const r = await refundOrder(orderId, { id: auth.staffId }, {
+      mode: body.mode === 'partial' ? 'partial' : 'cancel',
+      amountLKR: Number(body.amountLKR),
+      method: body.method as RefundMethod,
+      reference: body.reference,
+      reason: body.reason ?? '',
+    })
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status ?? 400 })
+    return NextResponse.json({
+      refund: r,
+      payment: await checkoutForOrder(orderId),
+      requestPayment: await requestPaymentForOrder(orderId),
+      refunds: await refundsForOrder(orderId),
+    })
+  }
+
   const current = await checkoutForOrder(orderId)
   if (!current) {
     return NextResponse.json({ error: 'This order wasn’t placed through checkout, so it has no payment record.' }, { status: 404 })

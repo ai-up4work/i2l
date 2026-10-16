@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { RefundNotice } from "@/components/admin/orders/OrderPaymentCard"
 import { ChevronRight, Flag, Inbox, MapPinned, MessageCircle, Package, Search, SearchX, Wallet, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
@@ -192,7 +193,7 @@ export default function OrdersPage() {
 
   const delayedCount = visibleOrders.filter((o) => o.delayed).length
   const manualQuoteCount = visibleOrders.filter((o) => o.isManualQuote && o.stage !== "Delivered").length
-  const breachCount = visibleOrders.filter((o) => isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
+  const breachCount = visibleOrders.filter((o) => !o.awaitingPayment && isOverThreshold(o.stage, hoursSince(o.stageEnteredAt))).length
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => {
@@ -204,6 +205,7 @@ export default function OrdersPage() {
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
       <div className="mx-auto max-w-[1560px] px-6 pb-28 pt-10 lg:px-10">
+        <RefundNotice />
         {/* ── Header ── */}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-4">
@@ -372,7 +374,7 @@ export default function OrdersPage() {
             filtered.map((o) => {
               const stageHours = hoursSince(o.stageEnteredAt)
               const orderAgeHours = hoursSince(o.placedAt)
-              const breach = isOverThreshold(o.stage, stageHours)
+              const breach = !o.awaitingPayment && isOverThreshold(o.stage, stageHours)
               const problem = o.delayed || breach
               const blockedReason = blockedReasons[o.id]
               const siteMenuOpen = openSiteMenuFor === o.id

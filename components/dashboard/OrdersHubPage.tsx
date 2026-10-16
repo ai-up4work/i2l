@@ -80,6 +80,25 @@ const STATUS_ACCENT: Record<string, string> = {
 }
 const DEFAULT_STATUS_ACCENT = 'border-l-ink/15'
 
+/** Placed through checkout but not paid yet (payment is on WhatsApp). */
+function isAwaitingPayment(order: Order): boolean {
+  return Boolean(order.checkoutId) && order.paymentStatus === 'unpaid' && order.status !== 'Cancelled'
+}
+
+function OrderStatusBadge({ order }: { order: Order }) {
+  if (order.paymentStatus === 'refunded') {
+    return <span className="rounded-full bg-ink/[0.06] px-3 py-1 text-xs font-medium text-ink/70">Refunded</span>
+  }
+  if (isAwaitingPayment(order)) {
+    return (
+      <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200">
+        Awaiting payment
+      </span>
+    )
+  }
+  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>{order.status}</span>
+}
+
 // OrdersProvider now lives in app/layout.tsx (promoted so ChatContext's
 // order-tagging feature can also read it) — this just reads it directly,
 // same instance, no second wrap/fetch.
@@ -341,9 +360,7 @@ function OrderCard({
           </div>
           <div className="flex flex-none items-center gap-1.5">
             {hasQcIssue && <QcIssueBadge count={flaggedItems.length} />}
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
-              {order.status}
-            </span>
+            <OrderStatusBadge order={order} />
           </div>
         </div>
 
@@ -454,9 +471,7 @@ function OrderCard({
             </div>
             <div className="flex flex-none items-center gap-1.5">
               {hasQcIssue && <QcIssueBadge count={flaggedItems.length} />}
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[order.status]}`}>
-                {order.status}
-              </span>
+              <OrderStatusBadge order={order} />
             </div>
           </div>
 
