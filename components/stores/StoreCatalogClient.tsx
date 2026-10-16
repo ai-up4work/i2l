@@ -6,7 +6,7 @@ import { useSearchParams, usePathname } from 'next/navigation';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
-  Sparkles, PackageSearch, SearchX,
+  Sparkles, PackageSearch, SearchX, Check, LayoutGrid,
 } from 'lucide-react';
 import type { AffiliatedStore as BaseStore } from '@/components/dashboard/data';
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores';
@@ -110,22 +110,181 @@ function ProductSkeleton() {
 // image stay text-only and no broken icons appear.
 // Plain <img> so no remotePatterns entry is needed for every store's domain.
 
-function CategoryThumb({ src, size = 28 }: { src?: string | null; size?: number }) {
+/** Round category avatar for the category menus: the photo, or its initial. */
+function CategoryAvatar({ src, title, size = 36, active = false }: { src?: string | null; title: string; size?: number; active?: boolean }) {
   const [failed, setFailed] = useState(false);
-  if (!src || failed) return null;
+  const ring = active ? 'ring-2 ring-teal-deep ring-offset-2 ring-offset-card' : 'ring-1 ring-ink/10';
+  if (src && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className={`shrink-0 rounded-full bg-parchment object-cover object-top ${ring}`}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt=""
-      width={size}
-      height={size}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
-      className="shrink-0 rounded-full object-cover object-top border border-ink/10 bg-card"
-      style={{ width: size, height: size }}
-    />
+    <span
+      aria-hidden="true"
+      className={`grid shrink-0 place-items-center rounded-full bg-gradient-to-br from-teal/15 to-gold/20 font-display font-bold text-teal-deep ${ring}`}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.4) }}
+    >
+      {title.trim().charAt(0).toUpperCase() || '•'}
+    </span>
+  );
+}
+
+/** Desktop category dropdown (mobile uses MobileCategorySheet). */
+function CategoryMenu({
+  categoryFilters,
+  category,
+  label,
+  open,
+  setOpen,
+  onSelect,
+}: {
+  categoryFilters: CategoryFilter[];
+  category: string;
+  label: string;
+  open: boolean;
+  setOpen: (v: boolean | ((p: boolean) => boolean)) => void;
+  onSelect: (c: CategoryFilter) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [query, setQuery] = useState('');
+  const real = categoryFilters.filter((c) => c.title);
+  const showSearch = real.length > 8;
+  const q = query.trim().toLowerCase();
+  const shown = q ? real.filter((c) => c.title.toLowerCase().includes(q)) : real;
+
+  useEffect(() => {
+    if (!open) { setQuery(''); return; }
+    const onDown = (e: MouseEvent) => {
+      // Desktop only — the mobile sheet handles its own closing.
+      if (window.matchMedia('(min-width: 640px)').matches && ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, setOpen]);
+
+  const pick = (c: CategoryFilter) => { onSelect(c); setOpen(false); };
+  const allActive = !category;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Filter by category"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`font-body flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-all sm:pl-2 sm:pr-3.5 ${
+          category
+            ? 'border-teal-deep/30 bg-teal/10 text-teal-deep'
+            : 'border-ink/10 bg-card text-ink hover:border-ink/20 hover:shadow-sm'
+        }`}
+      >
+        <span className="hidden sm:inline-flex">
+          {category ? (
+            <CategoryAvatar src={categoryFilters.find((c) => (c.handle || c.title) === category)?.image} title={label} size={22} />
+          ) : (
+            <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-ink/[0.06]">
+              <LayoutGrid size={12} className="text-ink/60" />
+            </span>
+          )}
+        </span>
+        <LayoutGrid size={14} className="sm:hidden" />
+        <span className="hidden max-w-[180px] truncate whitespace-nowrap sm:inline">{label || 'All categories'}</span>
+        <ChevronDown size={14} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Categories"
+          className="absolute right-0 top-full z-30 mt-2 hidden w-80 origin-top-right overflow-hidden rounded-2xl bg-card shadow-[0_18px_50px_-12px_rgba(20,24,40,0.35)] ring-1 ring-ink/10 sm:block"
+          style={{ animation: 'catmenu-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1)' }}
+        >
+          <style>{'@keyframes catmenu-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}'}</style>
+          <div className="flex items-baseline justify-between border-b border-ink/[0.07] px-4 pb-2.5 pt-3.5">
+            <p className="font-display text-sm font-bold text-ink">Shop by category</p>
+            <p className="font-body text-[11px] text-ink/45">{real.length} {real.length === 1 ? 'category' : 'categories'}</p>
+          </div>
+
+          {showSearch && (
+            <div className="px-3 pt-3">
+              <div className="relative">
+                <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/35" />
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Find a category"
+                  className="font-body w-full rounded-xl bg-parchment/70 py-2 pl-8 pr-3 text-xs ring-1 ring-ink/[0.08] placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-teal/30"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="max-h-[22rem] overflow-y-auto overscroll-contain p-2 [scrollbar-width:thin]">
+            {!q && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={allActive}
+                onClick={() => pick({ handle: '', title: '' })}
+                className={`font-body flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-[13px] transition-colors ${
+                  allActive ? 'bg-teal/10 font-semibold text-teal-deep' : 'text-ink/75 hover:bg-ink/[0.04]'
+                }`}
+              >
+                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${allActive ? 'bg-teal-deep text-parchment' : 'bg-ink/[0.06] text-ink/60'}`}>
+                  <LayoutGrid size={15} />
+                </span>
+                <span className="min-w-0 flex-1 truncate">All categories</span>
+                {allActive && <Check size={15} className="shrink-0" />}
+              </button>
+            )}
+            {shown.map((c) => {
+              const value = c.handle || c.title;
+              const on = category === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="option"
+                  aria-selected={on}
+                  onClick={() => pick(c)}
+                  className={`font-body group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-[13px] transition-colors ${
+                    on ? 'bg-teal/10 font-semibold text-teal-deep' : 'text-ink/75 hover:bg-ink/[0.04] hover:text-ink'
+                  }`}
+                >
+                  <CategoryAvatar src={c.image} title={c.title} active={on} />
+                  <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                  {on ? (
+                    <Check size={15} className="shrink-0" />
+                  ) : (
+                    <ChevronRight size={14} className="shrink-0 text-ink/0 transition-colors group-hover:text-ink/30" />
+                  )}
+                </button>
+              );
+            })}
+            {shown.length === 0 && (
+              <p className="font-body px-3 py-6 text-center text-xs text-ink/45">No category matches &ldquo;{query}&rdquo;</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -522,20 +681,30 @@ function MobileCategorySheet({
 
         <div className="flex-1 overflow-y-auto overscroll-contain">
           <div className="px-2 py-2">
-            {categoryFilters.map((c) => (
-              <button
-                key={c.handle || c.title || 'all'}
-                type="button"
-                onClick={() => { onSelectCategory(c); onClose(); }}
-                className={
-                  'font-body w-full flex items-center justify-between gap-3 text-left px-4 py-2.5 rounded-xl text-sm transition-colors ' +
-                  (category === (c.handle || c.title) ? 'bg-ink text-parchment font-bold' : 'text-ink/70 hover:bg-teal/10')
-                }
-              >
-                <span className="min-w-0 truncate">{c.title || 'All'}</span>
-                <CategoryThumb src={c.image} size={36} />
-              </button>
-            ))}
+            {categoryFilters.map((c) => {
+              const on = category === (c.handle || c.title);
+              return (
+                <button
+                  key={c.handle || c.title || 'all'}
+                  type="button"
+                  onClick={() => { onSelectCategory(c); onClose(); }}
+                  className={
+                    'font-body w-full flex items-center gap-3 text-left px-3 py-2 rounded-2xl text-sm transition-colors ' +
+                    (on ? 'bg-teal/10 text-teal-deep font-semibold' : 'text-ink/75 active:bg-ink/[0.05]')
+                  }
+                >
+                  {c.title ? (
+                    <CategoryAvatar src={c.image} title={c.title} size={40} active={on} />
+                  ) : (
+                    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${on ? 'bg-teal-deep text-parchment' : 'bg-ink/[0.06] text-ink/60'}`}>
+                      <LayoutGrid size={16} />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{c.title || 'All categories'}</span>
+                  {on && <Check size={16} className="shrink-0" />}
+                </button>
+              );
+            })}
           </div>
 
           {otherStores.length > 0 && (
@@ -838,35 +1007,14 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
           <div className="flex shrink-0 items-center gap-2 pb-1">
             <FollowButton slug={platform} />
             <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowCategoryMenu((v) => !v)}
-              aria-label="Filter by category"
-              aria-expanded={showCategoryMenu}
-              className="font-body flex items-center gap-1.5 rounded-xl border border-ink/10 bg-card px-2.5 py-2 text-xs font-semibold text-ink transition-colors hover:bg-teal/10 sm:px-3.5"
-            >
-              <span className="hidden whitespace-nowrap sm:inline">{categoryLabel || 'All categories'}</span>
-              <ChevronDown size={14} className={showCategoryMenu ? 'rotate-180 transition-transform' : 'transition-transform'} />
-            </button>
-
-            {showCategoryMenu && (
-              <div className="absolute right-0 top-full z-20 mt-1.5 hidden max-h-64 min-w-[200px] overflow-y-auto rounded-xl border border-ink/10 bg-card py-1 shadow-xl sm:block">
-                {categoryFilters.map((c) => (
-                  <button
-                    key={c.handle || c.title || 'all'}
-                    type="button"
-                    onClick={() => { handleCategory(c); setShowCategoryMenu(false); }}
-                    className={
-                      'font-body flex w-full items-center justify-between gap-4 whitespace-nowrap px-4 py-2 text-left text-xs transition-colors hover:bg-teal/10 ' +
-                      (category === (c.handle || c.title) ? 'font-bold text-ink' : 'text-ink/55')
-                    }
-                  >
-                    <span>{c.title || 'All'}</span>
-                    <CategoryThumb src={c.image} size={28} />
-                  </button>
-                ))}
-              </div>
-            )}
+            <CategoryMenu
+              categoryFilters={categoryFilters}
+              category={category}
+              label={categoryLabel}
+              open={showCategoryMenu}
+              setOpen={setShowCategoryMenu}
+              onSelect={handleCategory}
+            />
 
             <MobileCategorySheet
               open={showCategoryMenu}

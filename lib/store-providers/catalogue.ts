@@ -412,7 +412,10 @@ export async function fetchCatalogueProduct(
 
 /** Distinct categories that currently have at least one live product —
  *  powers the storefront's category filter (?collections=1). */
-export async function fetchCatalogueCategories(platform: string, opts: CatalogueFetchOptions = {}): Promise<{ handle: string; title: string }[]> {
+export async function fetchCatalogueCategories(
+  platform: string,
+  opts: CatalogueFetchOptions = {},
+): Promise<{ handle: string; title: string; image?: string | null }[]> {
   const sellerId = await resolveSellerId(platform, opts)
   if (!sellerId) return []
   const supabase = createServiceRoleClient()
@@ -420,15 +423,29 @@ export async function fetchCatalogueCategories(platform: string, opts: Catalogue
   if (platform === WISHDROP_MALL_SLUG) {
     // Managed categories, in the order staff set, showing only ones that
     // have at least one live product (an empty category would just lead
-    // shoppers to a blank page).
+    // shoppers to a blank page). Each carries an image for the store
+    // page's round "Shop by category" row: the one set in Admin →
+    // Wishdrop Mall → Categories, else the newest product's photo.
     const [{ data: cats }, { data: live }] = await Promise.all([
-      supabase.from('mall_categories').select('id, slug, name').eq('active', true).order('sort_order').order('name'),
-      supabase.from('products').select('mall_category_id').eq('seller_id', sellerId).eq('active', true).not('mall_category_id', 'is', null),
+      supabase.from('mall_categories').select('id, slug, name, image_url').eq('active', true).order('sort_order').order('name'),
+      supabase
+        .from('products')
+        .select('mall_category_id, images')
+        .eq('seller_id', sellerId)
+        .eq('active', true)
+        .not('mall_category_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(2000),
     ])
-    const withProducts = new Set(((live ?? []) as { mall_category_id: string }[]).map((r) => r.mall_category_id))
-    return ((cats ?? []) as { id: string; slug: string; name: string }[])
-      .filter((c) => withProducts.has(c.id))
-      .map((c) => ({ handle: c.slug, title: c.name }))
+    const coverByCategory = new Map<string, string | null>()
+    for (const r of (live ?? []) as { mall_category_id: string; images: string[] | null }[]) {
+      const photo = (r.images ?? []).find(Boolean) ?? null
+      const prev = coverByCategory.get(r.mall_category_id)
+      if (prev === undefined || (!prev && photo)) coverByCategory.set(r.mall_category_id, photo)
+    }
+    return ((cats ?? []) as { id: string; slug: string; name: string; image_url: string | null }[])
+      .filter((c) => coverByCategory.has(c.id))
+      .map((c) => ({ handle: c.slug, title: c.name, image: c.image_url || coverByCategory.get(c.id) || null }))
   }
 
   if (!(await hasOwnProducts(sellerId))) {
