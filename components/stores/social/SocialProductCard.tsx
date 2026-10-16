@@ -27,6 +27,7 @@ export function toWishlistSnapshot(product: StoreProduct, platform: string): Wis
     image: product.images?.[0] ?? product.image ?? null,
     currencyCode: product.currency ?? null,
     price: product.price != null ? String(product.price) : null,
+    productHandle: product.handle || product.id,
   }
 }
 

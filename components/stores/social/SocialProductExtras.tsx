@@ -8,6 +8,7 @@
 //     the fold).
 'use client'
 
+import { hasChoices } from '@/lib/product-selection'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
@@ -54,7 +55,7 @@ export function StickyBuyBar({
   formattedPrice: string
 }) {
   const [visible, setVisible] = useState(false)
-  const needsOptions = Boolean(product.variants?.length)
+  const needsOptions = hasChoices(product)
 
   useEffect(() => {
     const target = document.getElementById('buy-actions')

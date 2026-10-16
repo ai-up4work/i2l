@@ -345,3 +345,11 @@ $$;
 -- 10. Coupon card design (colours, pattern, icon, images) — Admin → Coupons
 -- ---------------------------------------------------------------------------
 alter table public.coupons add column if not exists design jsonb not null default '{}'::jsonb;
+
+-- ---------------------------------------------------------------------------
+-- 11. Manual (WhatsApp) payments — staff record payments on the admin order
+--     page (lib/payments/server.ts recordManualPayment). Safe to re-run.
+-- ---------------------------------------------------------------------------
+alter table public.payments add column if not exists method text;
+alter table public.payments add column if not exists note text;
+alter table public.payments add column if not exists recorded_by uuid;

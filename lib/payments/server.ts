@@ -2,70 +2,36 @@
 //
 // SERVER-ONLY. Payment for a checkout.
 //
-// Only a MOCK provider exists for now: no money moves, and the payment
-// page says so. It behaves like a real gateway from the app's point of
-// view — it validates the card, can decline, writes a payments row, and on
-// success marks the checkout and its orders paid and runs everything that
-// should happen after payment (referral rewards). Plugging in a real
-// gateway later means replacing chargeMock() with the gateway call (or its
-// webhook) and keeping markCheckoutPaid() as-is.
+// There's no payment gateway yet, so payment is MANUAL: after "Confirm
+// order" the customer gets payment details from us on WhatsApp, pays
+// (bank transfer, cash, …), and staff record it on the admin order page
+// (Payment card -> "Mark as paid"). Customers can never mark anything paid
+// themselves — there is no customer payment endpoint.
 //
-// Test cards (mock only):
-//   4242 4242 4242 4242   -> succeeds
-//   4000 0000 0000 0002   -> declined
-//   any other valid card  -> succeeds
+// recordManualPayment() writes a `payments` row (method, reference, who
+// recorded it) and then markCheckoutPaid(), which flips the checkout and
+// its orders to paid and runs everything that should follow a payment
+// (referral rewards). When a gateway arrives, its webhook should call
+// markCheckoutPaid() the same way.
 
 import 'server-only'
-import { randomBytes } from 'node:crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { db } from '@/lib/coupons/server'
 import { onCheckoutPaid } from '@/lib/referrals/server'
 
-export const PAYMENT_PROVIDER = 'mock'
+export const PAYMENT_PROVIDER = 'manual'
 
-export type CardInput = { number: string; expMonth: number; expYear: number; cvc: string; name: string }
-
-function luhn(digits: string): boolean {
-  let sum = 0
-  let double = false
-  for (let i = digits.length - 1; i >= 0; i--) {
-    let d = digits.charCodeAt(i) - 48
-    if (double) {
-      d *= 2
-      if (d > 9) d -= 9
-    }
-    sum += d
-    double = !double
-  }
-  return sum % 10 === 0
+export const MANUAL_METHODS = ['bank_transfer', 'cash', 'card_machine', 'online_transfer', 'other'] as const
+export type ManualMethod = (typeof MANUAL_METHODS)[number]
+export const MANUAL_METHOD_LABEL: Record<ManualMethod, string> = {
+  bank_transfer: 'Bank transfer',
+  cash: 'Cash',
+  card_machine: 'Card machine',
+  online_transfer: 'Online / app transfer',
+  other: 'Other',
 }
 
-export function validateCard(card: Partial<CardInput>): { ok: true; card: CardInput } | { ok: false; error: string } {
-  const number = String(card.number ?? '').replace(/\D/g, '')
-  if (number.length < 13 || number.length > 19 || !luhn(number)) return { ok: false, error: 'That card number isn’t valid.' }
-  const expMonth = Number(card.expMonth)
-  let expYear = Number(card.expYear)
-  if (expYear < 100) expYear += 2000
-  if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12 || !Number.isInteger(expYear)) {
-    return { ok: false, error: 'Enter the expiry date as MM/YY.' }
-  }
-  const now = new Date()
-  if (expYear < now.getFullYear() || (expYear === now.getFullYear() && expMonth < now.getMonth() + 1)) {
-    return { ok: false, error: 'This card has expired.' }
-  }
-  const cvc = String(card.cvc ?? '').replace(/\D/g, '')
-  if (cvc.length < 3 || cvc.length > 4) return { ok: false, error: 'Enter the 3 or 4 digit security code.' }
-  const name = String(card.name ?? '').trim()
-  if (!name) return { ok: false, error: 'Enter the name on the card.' }
-  return { ok: true, card: { number, expMonth, expYear, cvc, name } }
-}
-
-function chargeMock(card: CardInput): { ok: true; reference: string } | { ok: false; reason: string } {
-  if (card.number === '4000000000000002') return { ok: false, reason: 'Your card was declined.' }
-  return { ok: true, reference: `MOCK-${randomBytes(6).toString('hex').toUpperCase()}` }
-}
-
-async function markCheckoutPaid(checkoutId: string, userId: string): Promise<void> {
+export async function markCheckoutPaid(checkoutId: string, userId: string): Promise<void> {
   const admin = createServiceRoleClient()
   const now = new Date().toISOString()
   await db(admin).from('checkouts').update({ payment_status: 'paid', paid_at: now }).eq('id', checkoutId)
@@ -78,88 +44,158 @@ async function markCheckoutPaid(checkoutId: string, userId: string): Promise<voi
   }
 }
 
-export type PayResult = { ok: true; reference: string } | { ok: false; error: string; status?: number }
+type Result = { ok: true } | { ok: false; error: string; status?: number }
 
-export async function payCheckout(userId: string, checkoutId: string, rawCard: Partial<CardInput>): Promise<PayResult> {
+/** Staff: record a payment received outside the site, and mark the checkout paid. */
+export async function recordManualPayment(
+  checkoutId: string,
+  staffId: string,
+  input: { method: ManualMethod; reference?: string; amountLKR?: number; note?: string },
+): Promise<Result> {
   const admin = createServiceRoleClient()
   const { data: checkout } = await db(admin)
     .from('checkouts')
     .select('id, user_id, total_lkr, payment_status')
     .eq('id', checkoutId)
     .maybeSingle()
-  if (!checkout || checkout.user_id !== userId) return { ok: false, error: 'Order not found.', status: 404 }
-  if (checkout.payment_status === 'paid') return { ok: false, error: 'This order is already paid.', status: 409 }
+  if (!checkout) return { ok: false, error: 'Checkout not found.', status: 404 }
+  if (checkout.payment_status === 'paid') return { ok: false, error: 'This order is already marked as paid.', status: 409 }
+  if (!MANUAL_METHODS.includes(input.method)) return { ok: false, error: 'Choose how the customer paid.', status: 400 }
 
-  const { count: cancelled } = await db(admin)
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .eq('checkout_id', checkoutId)
-    .eq('stage', 'cancelled')
-  if ((cancelled ?? 0) > 0) return { ok: false, error: 'This order was cancelled, so it can’t be paid.', status: 409 }
-
-  const valid = validateCard(rawCard)
-  if (!valid.ok) return { ok: false, error: valid.error }
-
-  const charge = chargeMock(valid.card)
-  await db(admin).from('payments').insert({
+  const amount = input.amountLKR != null && Number.isFinite(input.amountLKR) && input.amountLKR > 0 ? input.amountLKR : Number(checkout.total_lkr)
+  const row = {
     checkout_id: checkoutId,
-    user_id: userId,
+    user_id: checkout.user_id,
     provider: PAYMENT_PROVIDER,
-    amount_lkr: checkout.total_lkr,
-    status: charge.ok ? 'succeeded' : 'failed',
-    reference: charge.ok ? charge.reference : `MOCK-FAILED-${Date.now()}`,
-    card_last4: valid.card.number.slice(-4),
-    failure_reason: charge.ok ? null : charge.reason,
-  })
-  if (!charge.ok) return { ok: false, error: charge.reason, status: 402 }
+    method: input.method,
+    amount_lkr: amount,
+    status: 'succeeded',
+    reference: (input.reference ?? '').trim().slice(0, 120) || `MANUAL-${Date.now()}`,
+    note: (input.note ?? '').trim().slice(0, 500) || null,
+    recorded_by: staffId,
+  }
+  let { error } = await db(admin).from('payments').insert(row)
+  if (error && /column .* does not exist|method|recorded_by|note/i.test(error.message)) {
+    // SQL section 11 not run yet — save without the new columns.
+    const { method: _m, note: _n, recorded_by: _r, ...basic } = row
+    ;({ error } = await db(admin).from('payments').insert({ ...basic, reference: `${MANUAL_METHOD_LABEL[input.method]}: ${basic.reference}` }))
+  }
+  if (error) return { ok: false, error: error.message, status: 500 }
 
-  await markCheckoutPaid(checkoutId, userId)
-  return { ok: true, reference: charge.reference }
+  await markCheckoutPaid(checkoutId, checkout.user_id)
+  return { ok: true }
 }
 
-export async function checkoutForCustomer(userId: string, checkoutId: string) {
+/** Staff: undo a payment recorded by mistake. Doesn't reverse referral rewards already given. */
+export async function markCheckoutUnpaid(checkoutId: string, staffId: string, reason: string): Promise<Result> {
+  const admin = createServiceRoleClient()
+  const { data: checkout } = await db(admin).from('checkouts').select('id, payment_status').eq('id', checkoutId).maybeSingle()
+  if (!checkout) return { ok: false, error: 'Checkout not found.', status: 404 }
+  if (checkout.payment_status !== 'paid') return { ok: false, error: 'This order isn’t marked as paid.', status: 409 }
+  await db(admin).from('checkouts').update({ payment_status: 'unpaid', paid_at: null }).eq('id', checkoutId)
+  await db(admin).from('orders').update({ payment_status: 'unpaid' }).eq('checkout_id', checkoutId)
+  // Keep the trail: the recorded payment is marked failed with the reason.
+  await db(admin)
+    .from('payments')
+    .update({ status: 'failed', failure_reason: `Undone by staff ${staffId}: ${reason.trim().slice(0, 300) || 'no reason given'}` })
+    .eq('checkout_id', checkoutId)
+    .eq('status', 'succeeded')
+  return { ok: true }
+}
+
+const n = (v: unknown) => Number(v) || 0
+
+async function checkoutSummary(checkoutId: string) {
   const admin = createServiceRoleClient()
   const { data: checkout } = await db(admin).from('checkouts').select('*').eq('id', checkoutId).maybeSingle()
-  if (!checkout || checkout.user_id !== userId) return null
-  const [{ data: orders }, { data: coupon }, { data: payment }] = await Promise.all([
+  if (!checkout) return null
+  const [{ data: orders }, { data: coupon }, { data: payments }] = await Promise.all([
     db(admin)
       .from('orders')
-      .select('id, display_id, total_value, stage, store_origin, payment_status')
+      .select('id, display_id, total_value, stage, store_origin, payment_status, address_id')
       .eq('checkout_id', checkoutId)
       .order('created_at'),
     checkout.coupon_id
-      ? db(admin).from('coupons').select('title').eq('id', checkout.coupon_id).maybeSingle()
+      ? db(admin).from('coupons').select('id, title').eq('id', checkout.coupon_id).maybeSingle()
       : Promise.resolve({ data: null }),
-    db(admin)
-      .from('payments')
-      .select('reference, card_last4, created_at')
-      .eq('checkout_id', checkoutId)
-      .eq('status', 'succeeded')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    db(admin).from('payments').select('*').eq('checkout_id', checkoutId).order('created_at', { ascending: false }),
   ])
-  const n = (v: unknown) => Number(v) || 0
+  const paid = ((payments ?? []) as Record<string, unknown>[]).find((p) => p.status === 'succeeded') ?? null
   return {
-    id: checkout.id as string,
-    createdAt: checkout.created_at as string,
-    itemCount: n(checkout.item_count),
-    priceSubtotalLKR: n(checkout.price_subtotal_lkr),
-    serviceLKR: n(checkout.service_lkr) + n(checkout.pickup_lkr),
-    deliveryLKR: n(checkout.delivery_lkr),
-    discountLKR: n(checkout.discount_lkr),
-    totalLKR: n(checkout.total_lkr),
-    couponTitle: (coupon?.title as string | undefined) ?? null,
-    needsPriceReview: !!checkout.needs_price_review,
-    paymentStatus: checkout.payment_status as 'unpaid' | 'paid' | 'failed' | 'refunded',
-    paidAt: (checkout.paid_at as string | null) ?? null,
-    payment: payment ? { reference: payment.reference as string, last4: payment.card_last4 as string | null } : null,
-    orders: ((orders ?? []) as Record<string, unknown>[]).map((o) => ({
-      id: o.id as string,
-      displayId: o.display_id as string,
-      totalLKR: n(o.total_value),
-      cancelled: o.stage === 'cancelled',
+    raw: checkout as Record<string, unknown>,
+    payments: (payments ?? []) as Record<string, unknown>[],
+    view: {
+      id: checkout.id as string,
+      createdAt: checkout.created_at as string,
+      itemCount: n(checkout.item_count),
+      priceSubtotalLKR: n(checkout.price_subtotal_lkr),
+      serviceLKR: n(checkout.service_lkr) + n(checkout.pickup_lkr),
+      deliveryLKR: n(checkout.delivery_lkr),
+      discountLKR: n(checkout.discount_lkr),
+      totalLKR: n(checkout.total_lkr),
+      couponId: (coupon?.id as string | undefined) ?? null,
+      couponTitle: (coupon?.title as string | undefined) ?? null,
+      needsPriceReview: !!checkout.needs_price_review,
+      paymentStatus: checkout.payment_status as 'unpaid' | 'paid' | 'failed' | 'refunded',
+      paidAt: (checkout.paid_at as string | null) ?? null,
+      payment: paid
+        ? {
+            method: ((paid.method as string | null) ?? null) as ManualMethod | null,
+            reference: paid.reference as string,
+            amountLKR: n(paid.amount_lkr),
+            at: paid.created_at as string,
+          }
+        : null,
+      orders: ((orders ?? []) as Record<string, unknown>[]).map((o) => ({
+        id: o.id as string,
+        displayId: o.display_id as string,
+        totalLKR: n(o.total_value),
+        cancelled: o.stage === 'cancelled',
+        addressId: (o.address_id as string | null) ?? null,
+      })),
+      mode: PAYMENT_PROVIDER,
+    },
+  }
+}
+
+export type CheckoutView = NonNullable<Awaited<ReturnType<typeof checkoutSummary>>>['view']
+
+/** The customer's own checkout (Order placed page). */
+export async function checkoutForCustomer(userId: string, checkoutId: string): Promise<CheckoutView | null> {
+  const s = await checkoutSummary(checkoutId)
+  if (!s || s.raw.user_id !== userId) return null
+  return s.view
+}
+
+/** Staff: the checkout an order belongs to, with customer contact and payment history. */
+export async function checkoutForOrder(orderId: string) {
+  const admin = createServiceRoleClient()
+  const { data: order } = await db(admin).from('orders').select('id, checkout_id, user_id, address_id').eq('id', orderId).maybeSingle()
+  if (!order?.checkout_id) return null
+  const s = await checkoutSummary(order.checkout_id)
+  if (!s) return null
+  const addressId = order.address_id ?? s.view.orders.find((o) => o.addressId)?.addressId ?? null
+  const [{ data: address }, { data: profile }] = await Promise.all([
+    addressId
+      ? db(admin).from('addresses').select('recipient_name, phone').eq('id', addressId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    db(admin).from('profiles').select('full_name, phone').eq('id', s.raw.user_id).maybeSingle(),
+  ])
+  return {
+    ...s.view,
+    customer: {
+      name: (address?.recipient_name as string | undefined) ?? (profile?.full_name as string | undefined) ?? 'Customer',
+      phone: (address?.phone as string | undefined) ?? (profile?.phone as string | undefined) ?? null,
+    },
+    history: s.payments.map((p) => ({
+      id: p.id as string,
+      method: (p.method as string | null) ?? null,
+      provider: p.provider as string,
+      reference: p.reference as string,
+      amountLKR: n(p.amount_lkr),
+      status: p.status as string,
+      note: (p.note as string | null) ?? (p.failure_reason as string | null) ?? null,
+      at: p.created_at as string,
     })),
-    mode: PAYMENT_PROVIDER,
   }
 }

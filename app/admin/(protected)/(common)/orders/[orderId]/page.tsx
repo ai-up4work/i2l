@@ -10,6 +10,7 @@ import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext
 import { STAGE_ORDER, CHANNEL_LABEL, type Channel, type Order, type OrderStage } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
+import OrderPaymentCard from "@/components/admin/orders/OrderPaymentCard"
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 import QcIssueBanner from "@/components/shared/QcIssueBanner"
 import { createClient } from "@/lib/supabase/client"
@@ -750,6 +751,10 @@ export default function OrderDetailPage() {
           {/* Row 2, right: Internal notes (stretches to match the Items +
               Stage history column beside it) */}
           <aside className="flex flex-col lg:col-span-1">
+            {/* Payment (manual / WhatsApp) — Sales, Manager, Super Admin. */}
+            {resolveOrderId(order.id) && ["sales", "manager", "super_admin"].includes(String(currentUser?.role ?? "")) && (
+              <OrderPaymentCard orderId={resolveOrderId(order.id)!} role={currentUser?.role ?? null} />
+            )}
             <section className="flex flex-1 flex-col rounded-2xl border border-gold/30 bg-gold/[0.07] p-5">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
                 <PencilLine size={16} className="text-gold-deep" />

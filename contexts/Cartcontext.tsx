@@ -1,5 +1,6 @@
 'use client'
 
+import { showActionToast } from '@/lib/action-toast'
 import {
   createContext,
   useCallback,
@@ -58,6 +59,8 @@ type CartContextValue = {
   addItem: (product: CartProduct, qty?: number) => void
   removeItem: (id: string) => void
   updateQty: (id: string, qty: number) => void
+  /** Changes a line's details in place (e.g. the size note on a link item). The id stays the same. */
+  updateProduct: (id: string, patch: Partial<Omit<CartProduct, 'id'>>) => void
   clearCart: () => void
   isInCart: (id: string) => boolean
   getQty: (id: string) => number
@@ -278,6 +281,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
       itemsRef.current = next
       setItems(next)
       void saveLine(line)
+      showActionToast({
+        kind: 'bag',
+        title: product.title,
+        image: product.image,
+        detail: product.selectedOptions
+          ? Object.entries(product.selectedOptions).map(([k, v]) => `${k === 'Color' ? 'Colour' : k}: ${v}`).join(', ')
+          : undefined,
+      })
     },
     [setItems, saveLine],
   )
@@ -311,6 +322,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [setItems, saveLine, removeItem],
   )
 
+  const updateProduct = useCallback(
+    (id: string, patch: Partial<Omit<CartProduct, 'id'>>) => {
+      const cur = itemsRef.current.find((line) => line.product.id === id)
+      if (!cur) return
+      version.current++
+      const line = { ...cur, product: { ...cur.product, ...patch, id } }
+      const next = itemsRef.current.map((l) => (l.product.id === id ? line : l))
+      itemsRef.current = next
+      setItems(next)
+      void saveLine(line)
+    },
+    [setItems, saveLine],
+  )
+
   const clearCart = useCallback(() => {
     version.current++
     itemsRef.current = []
@@ -336,12 +361,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
       lineCount: items.length,
       addItem,
       removeItem,
+      updateProduct,
       updateQty,
       clearCart,
       isInCart,
       getQty,
     }),
-    [hydrated, items, addItem, removeItem, updateQty, clearCart, isInCart, getQty],
+    [hydrated, items, addItem, removeItem, updateProduct, updateQty, clearCart, isInCart, getQty],
   )
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>

@@ -16,7 +16,9 @@ import {
 } from 'lucide-react'
 
 import { useWishlist, type BoardItem } from '@/contexts/Wishlistcontext'
-import { useCart, type CartProduct } from '@/contexts/Cartcontext'
+import { useCart } from '@/contexts/Cartcontext'
+import CartVariantPicker from '@/components/cart/CartVariantPicker'
+import { savedItemToCartLine, storeHandleFor } from '@/lib/cart-snapshot'
 import ShopperPrice from '@/components/shared/ShopperPrice'
 
 function ProductThumb({ image, alt }: { image?: string | null; alt: string }) {
@@ -79,6 +81,8 @@ export default function BoardDetailPage() {
 
   const [shareOpen, setShareOpen] = useState(false)
   const [lastResult, setLastResult] = useState<{ added: number; skipped: number } | null>(null)
+  // Board item whose size / colour is being chosen before it goes in the bag.
+  const [pickingFor, setPickingFor] = useState<BoardItem | null>(null)
 
   const board = wishlist.getBoard(boardId)
 
@@ -115,23 +119,22 @@ export default function BoardDetailPage() {
 
   const items = board.items.slice().sort((a, b) => a.position - b.position)
 
+  // One item: store products open the size / colour picker (added straight
+  // away when there's nothing to choose). "Add all" below adds everything
+  // as saved; the bag then asks for any size / colour still missing.
   const addToBag = (item: BoardItem) => {
-    const product: CartProduct = {
-      id: item.id,
-      url: item.url,
-      site: item.site,
-      title: item.title,
-      image: item.image,
-      currencyCode: item.currencyCode,
-      sourcePrice: item.price,
-    }
-    cart.addItem(product, item.quantity ?? 1)
+    const line = savedItemToCartLine(item)
+    if (line.source === 'catalogue') setPickingFor(item)
+    else cart.addItem(line, item.quantity ?? 1)
+  }
+  const addAsSaved = (item: BoardItem) => {
+    cart.addItem(savedItemToCartLine(item), item.quantity ?? 1)
   }
 
   const handleAddAllToCart = () => {
     const result = wishlist.addBoardToCart(board.id, (item) => {
       try {
-        addToBag(item)
+        addAsSaved(item)
         return true
       } catch {
         return false
@@ -140,7 +143,7 @@ export default function BoardDetailPage() {
     setLastResult({ added: result.added.length, skipped: result.skipped.length })
 
     if (result.added.length > 0) {
-      router.push('/cart')
+      router.push('/account/cart')
     }
   }
 
@@ -218,6 +221,22 @@ export default function BoardDetailPage() {
         onGenerateLink={() => wishlist.generateShareLink(board.id)}
         onRevoke={() => wishlist.revokeShareLink(board.id)}
       />
+
+      {pickingFor && (
+        <CartVariantPicker
+          mode="add"
+          line={{ product: savedItemToCartLine(pickingFor), qty: pickingFor.quantity ?? 1, addedAt: 0 }}
+          onClose={() => setPickingFor(null)}
+          onSave={(next) => {
+            cart.addItem(next, pickingFor.quantity ?? 1)
+            setPickingFor(null)
+          }}
+          onFallback={() => {
+            cart.addItem({ ...savedItemToCartLine(pickingFor), source: 'link', productHandle: null }, pickingFor.quantity ?? 1)
+            setPickingFor(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -259,7 +278,11 @@ function BoardItemCard({
         </button>
       </div>
 
-      <a href={item.url} className="mt-2.5 line-clamp-2 text-sm font-semibold text-ink hover:underline">
+      <a
+        href={storeHandleFor(item) && item.site ? `/stores/${item.site}/product/${encodeURIComponent(storeHandleFor(item)!)}` : item.url}
+        {...(storeHandleFor(item) ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+        className="mt-2.5 line-clamp-2 text-sm font-semibold text-ink hover:underline"
+      >
         {item.title}
       </a>
 

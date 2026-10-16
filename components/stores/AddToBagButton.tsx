@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { ShoppingBag, Check } from 'lucide-react';
-import { useCart, type CartProduct } from '@/contexts/Cartcontext';
+import { useCart } from '@/contexts/Cartcontext';
+import { toCartSnapshot } from '@/lib/cart-snapshot';
 import type { StoreProduct } from '@/lib/store.types';
 
 type CartItem = StoreProduct & {
@@ -47,46 +48,6 @@ function sameOptions(
   return aKeys.every((k) => a![k] === b?.[k]);
 }
 
-/**
- * Builds the small serializable snapshot CartContext stores.
- * `variantUrl` (product URL + ?variant=<id>) is preferred over the bare
- * product URL so the cart line carries the exact variant's link.
- */
-function toCartSnapshot(
-  product: StoreProduct,
-  platform: string,
-  selectedOptions?: Record<string, string>,
-  variantUrl?: string
-): CartProduct {
-  const baseUrl = variantUrl || product.url || '';
-  const baseId = baseUrl || `${platform}:${product.id}`;
-
-  const variantSuffix = selectedOptions
-    ? `:${Object.keys(selectedOptions)
-        .sort()
-        .map((k) => `${k}=${selectedOptions[k]}`)
-        .join(',')}`
-    : '';
-
-  const id = `${baseId}${variantSuffix}`;
-
-  return {
-    id,
-    url: baseUrl || id,
-    site: platform,
-    title: product.name,
-    image: product.images?.[0] ?? product.image ?? null,
-    currencyCode: product.currency ?? null,
-    sourcePrice: product.price != null ? String(product.price) : null,
-    estimatedPrice: null,
-    weightKg: product.weightKg ?? null,
-    origin: product.origin ?? null,
-    marginIncluded: product.marginIncluded,
-    source: 'catalogue',
-    productHandle: product.handle || product.id,
-  };
-}
-
 export default function AddToBagButton({
   product,
   platform,
@@ -96,6 +57,9 @@ export default function AddToBagButton({
   variantUrl,
   height = 'h-12',
   disabled = false,
+  label,
+  onAdded,
+  className,
 }: {
   product: StoreProduct;
   platform: string;
@@ -106,6 +70,13 @@ export default function AddToBagButton({
   variantUrl?: string;
   height?: string;
   disabled?: boolean;
+  /** Button text instead of "Add to bag" (e.g. "Buy now"). */
+  label?: string;
+  /** Called right after adding — e.g. Buy now opens the bag. Skips the
+   *  "Added to bag" confirmation state. */
+  onAdded?: () => void;
+  /** Replaces the default colour classes. */
+  className?: string;
 }) {
   const [added, setAdded] = useState(false);
 
@@ -154,7 +125,8 @@ export default function AddToBagButton({
       quantity
     );
 
-    setAdded(true);
+    if (onAdded) onAdded();
+    else setAdded(true);
   };
 
   const optionsSummary = selectedOptions
@@ -207,12 +179,12 @@ export default function AddToBagButton({
         compact
           ? `${height} w-full`
           : `mt-6 w-full ${height} sm:w-auto sm:px-8`
-      } ${buttonStyle}`}
+      } ${className ?? buttonStyle}`}
     >
-      <ShoppingBag size={16} />
+      {!label && <ShoppingBag size={16} />}
 
       {product.inStock
-        ? `Add to bag${quantity > 1 ? ` (${quantity})` : ''}`
+        ? label ?? `Add to bag${quantity > 1 ? ` (${quantity})` : ''}`
         : 'Sold out'}
     </button>
   );

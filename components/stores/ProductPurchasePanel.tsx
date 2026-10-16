@@ -66,9 +66,10 @@
 
 'use client'
 
+import { arrivalRange } from '@/lib/delivery-dates'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Clock, Package, Star, Weight, Zap } from 'lucide-react'
+import { ChevronRight, Clock, Package, Star, Weight, Zap } from 'lucide-react'
 import { getDualDeliveryPricing, formatLKR } from '@/lib/pricing'
 import { localPickupFeeLKR } from '@/lib/store-origin'
 import { findMatchingVariant, isMatchableOption } from '@/lib/product-options'
@@ -485,7 +486,7 @@ export default function ProductPurchasePanel({
                 <ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink/70 sm:grid-cols-2">
                   <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
                     <Zap size={14} className="flex-none text-teal-deep" />
-                    Arrives in {local ? '3 to 7 days' : economyLocked ? '12 to 15 days' : '3 to 4 weeks'}
+                    Arrives {local ? arrivalRange(3, 7) : economyLocked ? arrivalRange(12, 15) : arrivalRange(21, 28)}
                   </li>
                   <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
                     <Package size={14} className="flex-none text-teal-deep" />
@@ -557,7 +558,7 @@ export default function ProductPurchasePanel({
                   {!economyLocked && <span className="font-normal text-teal-deep"> · recommended</span>}
                 </p>
                 <p className={`text-xs italic ${economyLocked ? 'text-ink/30' : 'text-ink/45 not-italic'}`}>
-                  {economyLocked ? 'Coming soon' : 'Delivery arrives in 3–4 weeks'}
+                  {economyLocked ? 'Coming soon' : `Arrives around ${arrivalRange(21, 28)} · 3–4 weeks`}
                 </p>
               </div>
               <div className="shrink-0 text-right">
@@ -601,7 +602,7 @@ export default function ProductPurchasePanel({
                   {economyLocked && <span className="font-normal text-gold-deep"> · recommended</span>}
                 </p>
                 <p className="text-xs text-ink/45">
-                  Delivery arrives in 12 - 15 days
+                  Arrives around {arrivalRange(12, 15)} · 12–15 days
                   {!economyLocked && dualPricing.formattedExpressPremium != null && (
                     <> · {dualPricing.formattedExpressPremium} more</>
                   )}
@@ -629,7 +630,14 @@ export default function ProductPurchasePanel({
           </>
         )}
 
-        {!social && <p className="mt-3 text-xs text-ink/45">Sold by {product.seller}</p>}
+        {/* What happens after ordering — one line, same for every store
+            (never says where a shop is). */}
+        {!isMarketplace && (
+          <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-ink/50">
+            <span className="font-semibold text-ink/65">After you order:</span>
+            we buy it <ChevronRight size={11} className="text-ink/30" /> check it <ChevronRight size={11} className="text-ink/30" /> deliver it to your door
+          </p>
+        )}
 
         {product.weightKg != null && (
           <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-ink/50">

@@ -6,7 +6,7 @@ import { useSearchParams, usePathname } from 'next/navigation';
 import {
   ChevronRight, ChevronLeft, ChevronDown, ShoppingBag, Heart,
   X, ArrowUpDown, Truck, ShieldCheck, AlertCircle, Search,
-  Sparkles, PackageSearch, SearchX, Check, LayoutGrid,
+  Sparkles, PackageSearch, SearchX, Check, LayoutGrid, SlidersHorizontal,
 } from 'lucide-react';
 import type { AffiliatedStore as BaseStore } from '@/components/dashboard/data';
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores';
@@ -16,6 +16,7 @@ import { formatPrice } from '@/lib/currency';
 import { getProductPricing, getCartLineTotalLKR, getCartSubtotalLKR, formatCartLinesForWhatsApp, formatLKR } from '@/lib/pricing';
 import Flag from '@/components/ui/Flag';
 import AddToBagButton from '@/components/stores/AddToBagButton';
+import { hasChoices } from '@/lib/product-selection';
 import StoreCover from '@/components/stores/StoreCover';
 import FollowButton from '@/components/stores/social/FollowButton';
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext';
@@ -88,6 +89,7 @@ function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistPr
     image: product.images?.[0] ?? product.image ?? null,
     currencyCode: product.currency ?? null,
     price: product.price != null ? String(product.price) : null,
+    productHandle: product.handle || product.id,
   };
 }
 
@@ -369,14 +371,22 @@ function ProductCard({
           className="absolute bottom-3 left-3 right-12
             translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200"
         >
-          <AddToBagButton
-            product={product}
-            platform={platform}
-            quantity={1}
-            compact
-            height="h-8"
-            disabled={!product.inStock}
-          />
+          {product.inStock && hasChoices(product) ? (
+            // Has sizes / colours: a one-tap add would have to guess, so
+            // this opens the product page (the whole card is the link).
+            <span className="flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-bold text-white shadow-lg shadow-black/5 backdrop-blur-md">
+              <SlidersHorizontal size={13} /> Choose options
+            </span>
+          ) : (
+            <AddToBagButton
+              product={product}
+              platform={platform}
+              quantity={1}
+              compact
+              height="h-8"
+              disabled={!product.inStock}
+            />
+          )}
         </div>
       </Link>
 

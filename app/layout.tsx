@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import ActionToast from '@/components/shared/ActionToast'
 import { Fraunces, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -193,7 +194,10 @@ export default async function RootLayout({
                 <OrdersProvider>
                   <ChatProvider>
                       <RecentlyViewedProvider>
-                        <NotificationProvider>{children}</NotificationProvider>
+                        <NotificationProvider>
+                          {children}
+                          <ActionToast />
+                        </NotificationProvider>
                       </RecentlyViewedProvider>
                   </ChatProvider>
                 </OrdersProvider>

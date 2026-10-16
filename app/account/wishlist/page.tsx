@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { Heart, ImageOff, LayoutGrid, Plus, ShoppingBagIcon, X } from 'lucide-react'
 
 import { useWishlist, type WishlistEntry } from '@/contexts/Wishlistcontext'
-import { useCart, type CartProduct } from '@/contexts/Cartcontext'
+import { useCart } from '@/contexts/Cartcontext'
+import CartVariantPicker from '@/components/cart/CartVariantPicker'
+import { savedItemToCartLine, storeHandleFor } from '@/lib/cart-snapshot'
+import { useSavedItemStock, type SavedStock } from '@/hooks/useSavedItemStock'
 import Image from 'next/image'
 import ShopperPrice from '@/components/shared/ShopperPrice'
 
@@ -73,18 +76,16 @@ export default function WishlistPage() {
 
   // Newest first — same ordering used in Header's preview dropdown/sheet.
   const items = wishlist.items.slice().sort((a, b) => b.addedAt - a.addedAt)
+  const stock = useSavedItemStock(items)
 
+  // Store items open the size / colour picker (CartVariantPicker adds it
+  // straight away when there's nothing to choose); pasted links go in as
+  // they were saved.
+  const [pickingFor, setPickingFor] = useState<WishlistEntry | null>(null)
   const addWishlistEntryToBag = (entry: WishlistEntry) => {
-    const product: CartProduct = {
-      id: entry.id,
-      url: entry.url,
-      site: entry.site,
-      title: entry.title,
-      image: entry.image,
-      currencyCode: entry.currencyCode,
-      sourcePrice: entry.price,
-    }
-    cart.addItem(product, 1)
+    const line = savedItemToCartLine(entry)
+    if (line.source === 'catalogue') setPickingFor(entry)
+    else cart.addItem(line, 1)
   }
 
   // "New board" opens a modal: pick a name, optionally check off which
@@ -108,6 +109,10 @@ export default function WishlistPage() {
     <div className="mx-auto max-w-7xl px-6 pb-16 lg:px-10">
       <div className="mt-6 flex flex-col items-center gap-3 text-center">
         <h1 className="font-display text-3xl text-ink sm:text-4xl">My Wishlist</h1>
+        <p className="max-w-md text-sm text-ink/55">
+          Tap the bag on an item when you&rsquo;re ready to buy. Group items into boards &mdash; like
+          &ldquo;Wedding&rdquo; or &ldquo;Gifts&rdquo; &mdash; to plan and share them.
+        </p>
 
         <div className="flex items-center gap-2">
           <button
@@ -116,7 +121,7 @@ export default function WishlistPage() {
             className="flex items-center gap-1.5 rounded-xl border border-ink/15 bg-card px-4 py-2 text-sm font-semibold text-ink transition-all hover:border-teal/50 active:scale-[0.98]"
           >
             <LayoutGrid size={14} />
-            My Boards ({wishlist.boards.length})
+            My boards ({wishlist.boards.length})
           </button>
           <button
             type="button"
@@ -166,7 +171,7 @@ export default function WishlistPage() {
                   style={{ animationDelay: '200ms' }}
                 >
                   <Heart size={13} fill="currentColor" className="text-teal-deep" />
-                  Get notification about out-of-stock items.
+                  See at a glance when something sells out.
                 </li>
               </ul>
             </div>
@@ -182,6 +187,7 @@ export default function WishlistPage() {
               item={item}
               onRemove={() => wishlist.removeItem(item.id)}
               onAddToBag={() => addWishlistEntryToBag(item)}
+              stock={stock.get(item.id)}
             />
           ))}
         </div>
@@ -192,6 +198,22 @@ export default function WishlistPage() {
           items={items}
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreateBoard}
+        />
+      )}
+
+      {pickingFor && (
+        <CartVariantPicker
+          mode="add"
+          line={{ product: savedItemToCartLine(pickingFor), qty: 1, addedAt: 0 }}
+          onClose={() => setPickingFor(null)}
+          onSave={(next) => {
+            cart.addItem(next, 1)
+            setPickingFor(null)
+          }}
+          onFallback={() => {
+            cart.addItem({ ...savedItemToCartLine(pickingFor), source: 'link', productHandle: null }, 1)
+            setPickingFor(null)
+          }}
         />
       )}
     </div>
@@ -261,15 +283,29 @@ function WishlistCard({
   item,
   onRemove,
   onAddToBag,
+  stock,
 }: {
   item: WishlistEntry
   onRemove: () => void
   onAddToBag: () => void
+  /** Store items only: checked live (hooks/useSavedItemStock.ts). */
+  stock?: SavedStock
 }) {
+  // Store items open their page on Wishdrop, not the source shop's site.
+  const handle = storeHandleFor(item)
+  const href = handle && item.site ? `/stores/${item.site}/product/${encodeURIComponent(handle)}` : item.url
+  const unavailable = stock === 'sold-out' || stock === 'gone'
   return (
     <div className="group relative flex flex-col rounded-2xl border border-ink/10 bg-card p-3">
       <div className="relative">
-        <ProductThumb image={item.image} alt={item.title} />
+        <div className={unavailable ? 'opacity-60 grayscale' : ''}>
+          <ProductThumb image={item.image} alt={item.title} />
+        </div>
+        {unavailable && (
+          <span className="absolute left-2 top-2 rounded-full bg-ink/80 px-2 py-0.5 text-[10px] font-bold text-parchment">
+            {stock === 'gone' ? 'No longer available' : 'Sold out'}
+          </span>
+        )}
 
         <button
           type="button"
@@ -284,13 +320,19 @@ function WishlistCard({
           type="button"
           aria-label={`Add ${item.title} to bag`}
           onClick={onAddToBag}
-          className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-indigo text-white shadow-sm transition-all hover:bg-indigo-deep active:scale-90"
+          disabled={unavailable}
+          title={unavailable ? 'Not available right now' : 'Add to bag'}
+          className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-indigo text-white shadow-sm transition-all hover:bg-indigo-deep active:scale-90 disabled:cursor-not-allowed disabled:bg-ink/30"
         >
           <ShoppingBagIcon size={14} />
         </button>
       </div>
 
-      <a href={item.url} className="mt-2.5 line-clamp-2 text-sm font-semibold text-ink hover:underline">
+      <a
+        href={href}
+        {...(handle ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+        className="mt-2.5 line-clamp-2 text-sm font-semibold text-ink hover:underline"
+      >
         {item.title}
       </a>
 

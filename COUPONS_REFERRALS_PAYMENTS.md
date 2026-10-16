@@ -85,21 +85,34 @@ customer sees is what they're charged.
   status, whether each coupon was used), reward one by hand, or void one —
   voiding withdraws reward coupons that haven't been used.
 
-## Payments (mock)
+## Payments (manual, on WhatsApp)
 
-After "Confirm order" the customer lands on `/account/pay/<checkout>` (also
-reachable from **Pay now** in My orders). Only a **mock** provider exists: the
-page says clearly that it's a test and no money is taken.
+There's no payment gateway yet, so payment is manual:
 
-- `4242 4242 4242 4242` succeeds, `4000 0000 0000 0002` is declined; any valid
-  card number with a future expiry succeeds.
-- Success marks the checkout and its orders `paid`, logs the attempt in
-  `payments`, and releases the referral reward.
+1. The customer taps **Confirm order** and lands on **Order placed**
+   (`/account/pay/<checkout>`; also "How to pay" in My orders). It shows the
+   total and a **Get payment details on WhatsApp** button with the order
+   numbers already typed in.
+2. Staff open the order in **Admin → Orders**. The **Payment** card (Sales,
+   Manager, Super Admin) shows the money breakdown, including any coupon
+   (linked to its coupon page), and **Send payment request** opens WhatsApp
+   to the customer with the total and your bank details. Add your bank details
+   once in the card; they're saved on that device.
+3. When the slip arrives, **Mark as paid**: choose how they paid and type the
+   reference. That marks the checkout and all its orders paid, logs it in
+   `payments` (method, reference, note, who recorded it) and releases the
+   referral reward. Managers can **Undo payment** if it was a mistake.
 
-**Before taking real money:** replace `chargeMock()` in `lib/payments/server.ts`
-with your gateway (PayHere, WEBXPAY, etc.) — ideally confirming payment from the
-gateway's server-to-server notification rather than the browser — and keep
-`markCheckoutPaid()` as it is.
+Customers can't mark anything paid themselves — the old test-card endpoint
+(`/api/payments/mock`) now always refuses.
+
+Run the SQL file again for section 11 (adds `method`, `note`, `recorded_by`
+to `payments`). Until then payments still save, with the method written into
+the reference.
+
+**When a gateway arrives** (PayHere, WEBXPAY, …): confirm payment from the
+gateway's server-to-server notification and call `markCheckoutPaid()` in
+`lib/payments/server.ts`.
 
 ## Still worth doing
 

@@ -1,18 +1,16 @@
-// app/api/payments/mock/route.ts — POST { checkoutId, card } -> pay a
-// checkout with the mock gateway (lib/payments/server.ts). No money moves.
+// app/api/payments/mock/route.ts
+//
+// RETIRED. This was the test-card payment endpoint. Payment is now manual
+// (WhatsApp; staff record it on the admin order page — see
+// lib/payments/server.ts), so customers must never be able to mark an
+// order paid themselves. Kept as a hard "gone" so an old deploy of the
+// file can't linger and accept requests. Safe to delete this folder.
 
-import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/current-user'
-import { payCheckout } from '@/lib/payments/server'
+import { NextResponse } from 'next/server'
 
-export const runtime = 'nodejs'
-
-export async function POST(req: NextRequest) {
-  const auth = await requireUser()
-  if (!auth.ok) return auth.response
-  const body = (await req.json().catch(() => ({}))) as { checkoutId?: unknown; card?: Record<string, unknown> }
-  if (typeof body.checkoutId !== 'string') return NextResponse.json({ error: 'Missing order.' }, { status: 400 })
-  const result = await payCheckout(auth.userId, body.checkoutId, (body.card ?? {}) as never)
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 400 })
-  return NextResponse.json(result)
+export async function POST() {
+  return NextResponse.json(
+    { error: 'Online payment isn’t available. We’ll send you payment details on WhatsApp.' },
+    { status: 410 },
+  )
 }

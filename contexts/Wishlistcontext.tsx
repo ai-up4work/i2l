@@ -1,5 +1,6 @@
 'use client'
 
+import { showActionToast } from '@/lib/action-toast'
 import {
   createContext,
   useCallback,
@@ -35,6 +36,9 @@ export type WishlistProduct = {
   image?: string | null
   currencyCode?: string | null
   price?: string | null
+  /** Store product handle, for items saved from one of our stores — so
+   *  "Add to bag" can load the product and ask for a size / colour. */
+  productHandle?: string | null
 }
 
 export type WishlistEntry = WishlistProduct & { addedAt: number }
@@ -427,6 +431,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       if (prev.some((entry) => entry.id === product.id)) return
       const entry: WishlistEntry = { ...product, addedAt: Date.now() }
       setItems([...prev, entry])
+      showActionToast({ kind: 'wishlist', title: product.title, image: product.image })
       const uid = userIdRef.current
       if (uid) void run('save', () => supabase.from('wishlist_items').upsert(entryToRow(entry, uid), { onConflict: 'user_id,item_key' }))
     },

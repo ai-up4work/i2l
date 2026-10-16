@@ -26,7 +26,13 @@ import {
   Info,
   Check,
   Trash2,
+  AlertCircle,
+  SlidersHorizontal,
+  Minus,
+  Plus,
+  MessageCircle,
 } from 'lucide-react'
+import CartVariantPicker, { cartLineHandle, optionsLabel } from '@/components/cart/CartVariantPicker'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useOrders } from '@/contexts/Ordercontexts'
 import { useAuth } from '@/contexts/AuthContext'
@@ -37,7 +43,6 @@ import {
   formatLKR,
   TERMS_URL,
   TERMS_SUMMARY,
-  TERMS_CHECKBOX_LABEL,
   type ProductPriceableItem,
   type DeliveryPriceOption,
 } from '@/lib/pricing'
@@ -119,6 +124,8 @@ type ServerQuote = {
   coupon: { id: string; title: string; label: string } | null
   couponError: string | null
   needsReview: boolean
+  /** Per line; missingOptions = size / colour still to choose. */
+  lines?: { id: string; inStock: boolean; priceLKR: number; missingOptions: ('Size' | 'Color')[] }[]
   /** Every coupon on the account, checked against this bag (lib/checkout/server.ts CartCoupon). */
   availableCoupons: CartCoupon[]
 }
@@ -318,7 +325,7 @@ function SourceBadge({ product }: { product: CartProduct }) {
 
   if (source === 'catalogue') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-teal/10 px-2 py-0.5 text-[10px] font-semibold text-teal-deep">
+      <span className="inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full bg-teal/10 px-2 py-0.5 text-[10px] font-semibold text-teal-deep">
         <Store size={10} strokeWidth={2} />
         {siteLabel || 'Affiliated store'}
       </span>
@@ -326,7 +333,7 @@ function SourceBadge({ product }: { product: CartProduct }) {
   }
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-ink/[0.06] px-2 py-0.5 text-[10px] font-semibold text-ink/50">
+    <span className="inline-flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-full bg-ink/[0.06] px-2 py-0.5 text-[10px] font-semibold text-ink/50">
       <Link2 size={10} strokeWidth={2} />
       Pasted link{siteLabel ? ` · ${siteLabel}` : ''}
     </span>
@@ -497,6 +504,52 @@ function PriceBreakdownOverlay({
   )
 }
 
+/** Link items: the size / colour / anything staff should know, typed by
+ *  the shopper. Saved on the bag line as selectedOptions.Details and sent
+ *  with the order (it shows on the order item for staff). */
+function LinkDetailsField({ line }: { line: CartLineItem }) {
+  const cart = useCart()
+  const saved = line.product.selectedOptions?.Details ?? ''
+  const [value, setValue] = useState(saved)
+  const [open, setOpen] = useState(Boolean(saved))
+  useEffect(() => setValue(saved), [saved])
+
+  const commit = () => {
+    const v = value.trim().slice(0, 200)
+    if (v === saved) return
+    const rest = { ...(line.product.selectedOptions ?? {}) }
+    delete rest.Details
+    const next = v ? { ...rest, Details: v } : rest
+    cart.updateProduct(line.product.id, { selectedOptions: Object.keys(next).length ? next : undefined })
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 rounded-full bg-gold/10 px-2.5 py-1 text-[11px] font-semibold text-gold-deep ring-1 ring-gold/25 hover:bg-gold/20"
+      >
+        + Add size, colour or notes
+      </button>
+    )
+  }
+  return (
+    <input
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+      autoFocus={!saved}
+      maxLength={200}
+      placeholder="e.g. Size M, black — or anything we should know"
+      className="w-full rounded-xl bg-parchment/70 px-3 py-2 text-xs text-ink ring-1 ring-ink/10 placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-teal/30"
+    />
+  )
+}
+
 function ReviewLine({
   line,
   deliveryChoice,
@@ -504,6 +557,10 @@ function ReviewLine({
   selected,
   onToggleSelected,
   serviceShare = 0,
+  missing,
+  onChangeOptions,
+  serverPriceLKR,
+  soldOut,
 }: {
   line: CartLineItem
   deliveryChoice: DeliveryChoice
@@ -512,81 +569,196 @@ function ReviewLine({
   onToggleSelected: () => void
   /** Local shops: this item's share of the handling fee, shown as service charge. */
   serviceShare?: number
+  /** Size / colour this store item still needs (from the server quote). */
+  missing?: ('Size' | 'Color')[]
+  /** Opens the size / colour picker for this line. */
+  onChangeOptions?: () => void
+  /** The server's product price for this line (all units), from the quote. */
+  serverPriceLKR?: number
+  /** Server says the item (or the chosen option) is sold out. */
+  soldOut?: boolean
 }) {
   const { lookup } = useStorePricingLookup()
   const dual = getDualDeliveryPricing(toPriceableItem(line.product, lookup(line.product.site)))
   const option = withExtraServiceCharge(deliveryChoice === 'economy' ? dual.economy : dual.express, serviceShare)
   const grandLineTotal = option.actualTotalLKR * line.qty
+  const { Details: _details, ...shownOptions } = line.product.selectedOptions ?? {}
+  const chosen = optionsLabel(Object.keys(shownOptions).length ? shownOptions : undefined)
+  const needs = missing && missing.length > 0
+  const isLink = line.product.source !== 'catalogue'
+  // The store's price moved since this was added (the server re-checks
+  // every price). Say so, rather than letting the total jump silently.
+  const shownPriceLKR = option.priceLKR * line.qty
+  const priceMoved =
+    serverPriceLKR != null && shownPriceLKR > 0 && Math.abs(serverPriceLKR - shownPriceLKR) > Math.max(50, shownPriceLKR * 0.01)
+
+  const cart = useCart()
 
   return (
-    <div className="flex w-full items-start gap-2 rounded-xl px-1 py-1 transition-colors hover:bg-ink/[0.04]">
+    <div className={`flex w-full items-start gap-3 py-4 transition-opacity ${selected ? '' : 'opacity-55'}`}>
       <button
         type="button"
         onClick={onToggleSelected}
         aria-pressed={selected}
-        aria-label={selected ? `Remove ${line.product.title} from this checkout` : `Include ${line.product.title} in this checkout`}
-        className={`mt-1.5 flex h-5 w-5 flex-none items-center justify-center rounded-md border transition-colors ${
+        aria-label={selected ? `Leave ${line.product.title} out of this order` : `Include ${line.product.title} in this order`}
+        className={`mt-[30px] flex h-5 w-5 flex-none items-center justify-center rounded-md border transition-colors ${
           selected ? 'border-teal-deep bg-teal-deep text-white' : 'border-ink/25 bg-white text-transparent hover:border-ink/40'
         }`}
       >
         <Check size={12} strokeWidth={3} />
       </button>
 
-      <button type="button" onClick={onOpenBreakdown} className="flex min-w-0 flex-1 items-start gap-3 text-left">
-        <div className="h-16 w-16 flex-none overflow-hidden rounded-xl border border-ink/10 bg-white">
-          {line.product.image ? (
-            <Image src={line.product.image} alt="" className="h-full w-full object-cover" width={64} height={64} />
-          ) : (
-            <div className="grid h-full w-full place-items-center text-ink/15">
-              <ShoppingBag size={16} strokeWidth={1.3} />
+      <div className="h-20 w-20 flex-none overflow-hidden rounded-2xl bg-white ring-1 ring-ink/10 sm:h-24 sm:w-24">
+        {line.product.image ? (
+          <Image src={line.product.image} alt="" className="h-full w-full object-cover object-top" width={96} height={96} />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-ink/15">
+            <ShoppingBag size={18} strokeWidth={1.3} />
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="line-clamp-2 text-sm font-semibold leading-snug text-ink">{line.product.title}</p>
+            <div className="mt-1">
+              <SourceBadge product={line.product} />
             </div>
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="line-clamp-1 text-sm font-semibold text-ink">{line.product.title}</p>
-            <p className="flex-none text-sm font-bold tabular-nums text-ink">{formatLKR(grandLineTotal)}</p>
           </div>
-
-          <div className="mt-1 flex items-center justify-between gap-2">
-            <SourceBadge product={line.product} />
-            <span className="flex-none text-xs font-medium text-ink/40">{line.qty}×</span>
-          </div>
-
-          <div className="mt-1 flex items-center gap-0.5 text-[11px] font-semibold text-teal-deep">
-            View price breakdown
-            <ChevronRight size={12} strokeWidth={2.5} />
+          <div className="flex-none text-right">
+            <p className="text-sm font-bold tabular-nums text-ink">{formatLKR(grandLineTotal)}</p>
+            {line.qty > 1 && <p className="text-[11px] tabular-nums text-ink/40">{formatLKR(option.actualTotalLKR)} each</p>}
           </div>
         </div>
-      </button>
+
+        {!isLink && (chosen || needs) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {needs ? (
+              <button
+                type="button"
+                onClick={onChangeOptions}
+                disabled={!onChangeOptions}
+                className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-[11px] font-semibold text-gold-deep ring-1 ring-gold/30 transition-colors hover:bg-gold/25"
+              >
+                <AlertCircle size={12} />
+                {missing!.length === 2 ? 'Choose a size and colour' : missing![0] === 'Size' ? 'Choose a size' : 'Choose a colour'}
+              </button>
+            ) : (
+              <>
+                <span className="inline-flex max-w-full items-center truncate rounded-full bg-parchment px-2.5 py-1 text-[11px] font-medium text-ink/70 ring-1 ring-ink/[0.06]">
+                  {chosen}
+                </span>
+                {onChangeOptions && (
+                  <button
+                    type="button"
+                    onClick={onChangeOptions}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-deep hover:underline"
+                  >
+                    <SlidersHorizontal size={11} /> Change
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {isLink && (
+          <div className="mt-2">
+            {chosen && (
+              <span className="mb-1.5 inline-flex max-w-full items-center truncate rounded-full bg-parchment px-2.5 py-1 text-[11px] font-medium text-ink/70 ring-1 ring-ink/[0.06]">
+                {chosen}
+              </span>
+            )}
+            <LinkDetailsField line={line} />
+          </div>
+        )}
+
+        {(priceMoved || soldOut) && (
+          <p className={`mt-2 flex items-start gap-1.5 text-[11px] font-medium ${soldOut ? 'text-rose-700' : 'text-gold-deep'}`}>
+            <Info size={12} className="mt-px flex-none" />
+            {soldOut
+              ? 'Sold out at the store now — remove it or choose another option.'
+              : `Price updated by the store: now ${formatLKR(serverPriceLKR!)} (was ${formatLKR(shownPriceLKR)}). Your total uses the new price.`}
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center rounded-full bg-parchment ring-1 ring-ink/10">
+            <button
+              type="button"
+              onClick={() => cart.updateQty(line.product.id, line.qty - 1)}
+              disabled={line.qty <= 1}
+              aria-label="One fewer"
+              className="grid h-8 w-8 place-items-center rounded-full text-ink/60 hover:text-ink disabled:opacity-30"
+            >
+              <Minus size={13} />
+            </button>
+            <span className="w-6 text-center text-xs font-bold tabular-nums text-ink">{line.qty}</span>
+            <button
+              type="button"
+              onClick={() => cart.updateQty(line.product.id, Math.min(10, line.qty + 1))}
+              disabled={line.qty >= 10}
+              aria-label="One more"
+              className="grid h-8 w-8 place-items-center rounded-full text-ink/60 hover:text-ink disabled:opacity-30"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
+          <button type="button" onClick={onOpenBreakdown} className="text-[11px] font-semibold text-teal-deep hover:underline">
+            Price breakdown
+          </button>
+          <button
+            type="button"
+            onClick={() => cart.removeItem(line.product.id)}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink/40 hover:text-rose-700"
+          >
+            <Trash2 size={11} /> Remove
+          </button>
+        </div>
+      </div>
     </div>
+  )
+}
+
+/** A numbered section of the bag page (1 Your items, 2 Delivery, 3 Coupons). */
+function Step({ n, title, right, children }: { n: number; title: string; right?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="rounded-[26px] bg-card p-5 ring-1 ring-ink/[0.08] sm:p-6">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-indigo">
+          <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-indigo font-body text-xs font-bold text-gold">{n}</span>
+          {title}
+        </h2>
+        {right}
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
   )
 }
 
 function CartSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl px-6 pb-16 lg:px-10" aria-hidden="true">
-      <div className="mt-6 flex flex-col items-center gap-2">
-        <div className="h-8 w-40 animate-pulse rounded bg-ink/[0.06]" />
-        <div className="h-4 w-56 animate-pulse rounded bg-ink/[0.06]" />
-      </div>
-      <div className="mt-10 grid gap-8 lg:grid-cols-3 lg:items-start">
-        <div className="space-y-4 lg:col-span-2">
-          <div className="h-6 w-44 animate-pulse rounded bg-ink/[0.06]" />
-          <div className="h-10 w-64 animate-pulse rounded-xl bg-ink/[0.06]" />
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-11 w-full animate-pulse rounded-xl bg-ink/[0.06]" />
-          ))}
-        </div>
-        <div className="rounded-2xl border border-ink/10 bg-card p-6">
-          <div className="h-5 w-32 animate-pulse rounded bg-ink/[0.06]" />
-          <div className="mt-4 space-y-4">
-            <div className="h-12 w-full animate-pulse rounded-xl bg-ink/[0.06]" />
-            <div className="h-12 w-full animate-pulse rounded-xl bg-ink/[0.06]" />
+    <div className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-10" aria-hidden="true">
+      <div className="mt-4 h-36 animate-pulse rounded-[28px] bg-ink/[0.05]" />
+      <div className="mt-6 grid gap-6 lg:grid-cols-12 lg:items-start">
+        <div className="space-y-6 lg:col-span-7">
+          <div className="rounded-[26px] bg-card p-6 ring-1 ring-ink/[0.08]">
+            <div className="h-6 w-40 animate-pulse rounded bg-ink/[0.06]" />
+            {[0, 1].map((i) => (
+              <div key={i} className="mt-5 flex gap-3">
+                <div className="h-24 w-24 animate-pulse rounded-2xl bg-ink/[0.06]" />
+                <div className="flex-1 space-y-2 pt-1">
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-ink/[0.06]" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-ink/[0.06]" />
+                  <div className="h-8 w-28 animate-pulse rounded-full bg-ink/[0.06]" />
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="mt-6 h-14 w-full animate-pulse rounded-full bg-ink/[0.06]" />
+          <div className="h-64 animate-pulse rounded-[26px] bg-ink/[0.05]" />
         </div>
+        <div className="h-96 animate-pulse rounded-[26px] bg-ink/[0.05] lg:col-span-5" />
       </div>
     </div>
   )
@@ -625,6 +797,9 @@ function CartPageContent() {
   // removed from the cart is pruned from this set automatically.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(cart.items.map((line) => line.product.id)))
   const [clearConfirming, setClearConfirming] = useState(false)
+  // Bag line whose size / colour is being changed (CartVariantPicker).
+  const [editingLineId, setEditingLineId] = useState<string | null>(null)
+  const editingLine = cart.items.find((line) => line.product.id === editingLineId) ?? null
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -710,6 +885,8 @@ function CartPageContent() {
   // from, if any — passed through to confirmCartOrder so it updates that
   // same row instead of inserting a near-duplicate on every order.
   const [existingAddressId, setExistingAddressId] = useState<string | null>(null)
+  // Saved, complete address -> shown as a summary with "Edit".
+  const [editingAddress, setEditingAddress] = useState(false)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [confirmsRestrictions, setConfirmsRestrictions] = useState(false)
   const [confirmsPreowned, setConfirmsPreowned] = useState(false)
@@ -772,6 +949,11 @@ function CartPageContent() {
       cancelled = true
     }
   }, [user])
+
+  const addressComplete = Boolean(
+    fullName.trim() && email.trim() && whatsapp.trim() && country.trim() && addressLine1.trim() && city.trim(),
+  )
+  const showAddressForm = editingAddress || !existingAddressId || !addressComplete
 
   const detailsComplete =
     fullName.trim() &&
@@ -933,6 +1115,16 @@ function CartPageContent() {
 
   const appliedCoupon = couponToken && quote?.coupon ? quote.coupon : null
 
+  // Store items still missing a size / colour (the server checks each one
+  // against its store). Checkout is blocked until they're chosen.
+  const missingById = useMemo(() => {
+    const m = new Map<string, ('Size' | 'Color')[]>()
+    for (const l of quote?.lines ?? []) if (l.missingOptions?.length) m.set(l.id, l.missingOptions)
+    return m
+  }, [quote])
+  const unpickedLines = selectedLines.filter((line) => missingById.has(line.product.id))
+  const quoteLineById = useMemo(() => new Map((quote?.lines ?? []).map((l) => [l.id, l])), [quote])
+
   const handleConfirm = async () => {
     if (selectedLines.length === 0 || confirming || !detailsComplete) return
     setConfirming(true)
@@ -980,50 +1172,102 @@ function CartPageContent() {
 
   if (cart.items.length === 0) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-24 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-teal/10">
-          <ShoppingBag size={28} className="text-teal-deep/40" strokeWidth={1.4} />
-        </div>
-        <p className="mt-5 font-display text-2xl text-ink sm:text-3xl">Your bag is empty</p>
-        <p className="mt-1 text-sm text-ink/55">
-          Browse an affiliated store or paste a product link to get started.
-        </p>
-        <Link
-          href="/stores"
-          className="mt-6 inline-flex items-center justify-center rounded-full bg-teal-deep px-6 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
-        >
-          Browse stores
-        </Link>
+      <div className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-10">
+        <div className="relative mt-4 overflow-hidden rounded-[28px] bg-card px-6 py-16 text-center ring-1 ring-ink/[0.08]">
+          <div
+            aria-hidden
+            className="absolute inset-x-0 top-0 h-1.5"
+            style={{ background: 'repeating-linear-gradient(45deg,#C1272D 0 10px,#FBF6EC 10px 20px,#1E3A5F 20px 30px,#FBF6EC 30px 40px)' }}
+          />
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-teal/10">
+            <ShoppingBag size={28} className="text-teal-deep" strokeWidth={1.5} />
+          </div>
+          <p className="mt-5 font-display text-3xl font-semibold text-indigo">Your bag is empty</p>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-ink/55">
+            Browse our stores, or paste a product link from any Indian site and we’ll price it in rupees.
+          </p>
+          <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link
+              href="/stores"
+              className="inline-flex w-full items-center justify-center rounded-full bg-teal-deep px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo sm:w-auto"
+            >
+              Browse stores
+            </Link>
+            <Link
+              href="/account/wishlist"
+              className="inline-flex w-full items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-indigo ring-1 ring-indigo/20 hover:bg-indigo/[0.04] sm:w-auto"
+            >
+              Open my wishlist
+            </Link>
+          </div>
 
-        {pendingRequestCount > 0 && (
-          <Link
-            href={'/account/orders'}
-            className="mt-5 flex items-center justify-center gap-1.5 text-xs font-semibold text-teal-deep hover:underline"
-          >
-            <ClipboardList size={14} />
-            You also have {pendingRequestCount} request{pendingRequestCount !== 1 ? 's' : ''} in progress
-          </Link>
-        )}
+          {pendingRequestCount > 0 && (
+            <Link
+              href={'/account/orders'}
+              className="mt-6 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-teal-deep hover:underline"
+            >
+              <ClipboardList size={14} />
+              You also have {pendingRequestCount} request{pendingRequestCount !== 1 ? 's' : ''} in progress
+            </Link>
+          )}
+        </div>
       </div>
     )
   }
 
+  const itemCount = cart.items.reduce((n, l) => n + l.qty, 0)
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: EASE_OUT_EXPO }}
-      className="mx-auto max-w-6xl px-6 pb-16 lg:px-10"
+      className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-10"
     >
-      <div className="mt-6 flex flex-col items-center gap-1 text-center">
-        <h1 className="font-display text-3xl text-ink sm:text-4xl">Your bag</h1>
-        <p className="text-[13px] text-ink/40">Review your items and confirm your request.</p>
+      {/* Header */}
+      <div className="relative mt-4 overflow-hidden rounded-[28px] bg-card px-6 py-7 ring-1 ring-ink/[0.08] sm:px-8">
+        <div
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-1.5"
+          style={{ background: 'repeating-linear-gradient(45deg,#C1272D 0 10px,#FBF6EC 10px 20px,#1E3A5F 20px 30px,#FBF6EC 30px 40px)' }}
+        />
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-teal/10 blur-3xl" />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-deep">Checkout</p>
+            <h1 className="mt-1 font-display text-3xl font-semibold tracking-[-0.01em] text-indigo sm:text-4xl">
+              Your bag <span className="text-ink/30">· {itemCount}</span>
+            </h1>
+            <p className="mt-1.5 text-sm text-ink/55">Check your items, add your delivery details and confirm. You’ll pay on WhatsApp after.</p>
+          </div>
+          <ol className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold text-ink/45 sm:gap-2">
+            {['Bag', 'Confirm', 'Pay on WhatsApp'].map((label, i) => (
+              <li key={label} className="flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${
+                    i === 0 ? 'bg-indigo text-parchment' : 'bg-parchment ring-1 ring-ink/[0.08]'
+                  }`}
+                >
+                  <span className={i === 0 ? 'text-gold' : ''}>{i + 1}</span>{' '}
+                  {i === 2 ? (
+                    <>
+                      <span className="sm:hidden">Pay</span>
+                      <span className="hidden sm:inline">{label}</span>
+                    </>
+                  ) : (
+                    label
+                  )}
+                </span>
+                {i < 2 && <ChevronRight size={12} className="text-ink/25" />}
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
 
       {pendingRequestCount > 0 && (
         <Link
           href={'/account/orders'}
-          className="mt-6 flex items-center gap-2 rounded-xl border border-teal/20 bg-teal/[0.06] px-4 py-3 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/10"
+          className="mt-4 flex items-center gap-2 rounded-2xl border border-teal/20 bg-teal/[0.06] px-4 py-3 text-xs font-semibold text-teal-deep transition-colors hover:bg-teal/10"
         >
           <ClipboardList size={14} className="shrink-0" />
           You also have {pendingRequestCount} request{pendingRequestCount !== 1 ? 's' : ''} being tracked
@@ -1031,22 +1275,83 @@ function CartPageContent() {
         </Link>
       )}
 
-      {/* Two independent columns directly on the page background — no
-          single slab wrapping both. Only the cart summary earns a card,
-          since it's the thing worth visually separating and keeping in
-          view while the form scrolls. */}
-      <div className="mt-10 grid gap-x-10 gap-y-10 lg:grid-cols-3 lg:items-start">
-        {/* Shipping form — plain, lives on the page like the rest of the
-            account section (see "Personal Center" sidebar style: no card,
-            just headings, fields and dividers). */}
-        <div className="lg:col-span-2">
-          <h2 className="font-display text-lg text-ink">Shipping information</h2>
+      <div className="mt-6 grid gap-6 lg:grid-cols-12 lg:items-start">
+        <div className="space-y-6 lg:col-span-7">
+          <Step
+            n={1}
+            title="Your items"
+            right={
+              <div className="flex flex-none items-center gap-3">
+              {clearConfirming ? (
+                <div className="flex flex-none items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setClearConfirming(false)}
+                    className="text-xs font-semibold text-ink/50 hover:text-ink"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearCart}
+                    className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                  >
+                    <Trash2 size={12} /> Confirm
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleClearCart}
+                  className="flex flex-none items-center gap-1 text-xs font-semibold text-ink/45 hover:text-red-600"
+                >
+                  <Trash2 size={12} /> Clear cart
+                </button>
+              )}
+              </div>
+            }
+          >
+            <div className="mt-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="text-xs font-semibold text-teal-deep hover:underline"
+              >
+                {allSelected ? 'Deselect all' : 'Select all'}
+              </button>
+              <span className="text-xs text-ink/45">
+                {selectedLines.length} of {cart.items.length} selected for checkout
+              </span>
+            </div>
 
-          <div className="mt-4">
+            <div className="mt-1 divide-y divide-ink/[0.07]">
+              {cart.items.map((line) => (
+                <div key={line.product.id}>
+                  <ReviewLine
+                    line={line}
+                    deliveryChoice={deliveryChoice}
+                    onOpenBreakdown={() => setBreakdownLineId(line.product.id)}
+                    selected={selectedIds.has(line.product.id)}
+                    onToggleSelected={() => toggleLineSelected(line.product.id)}
+                    serviceShare={serviceShareFor(line)}
+                    missing={missingById.get(line.product.id)}
+                    serverPriceLKR={quoteLineById.get(line.product.id)?.priceLKR}
+                    soldOut={quoteLineById.get(line.product.id)?.inStock === false}
+                    onChangeOptions={cartLineHandle(line.product) ? () => setEditingLineId(line.product.id) : undefined}
+                  />
+                </div>
+              ))}
+            </div>
+          </Step>
+
+          <Step n={2} title="Delivery details">
+          <div>
             <FieldLabel>Delivery method</FieldLabel>
             <DeliveryModeToggle value={deliveryChoice} onChange={setDeliveryChoice} />
           </div>
 
+          {showAddressForm ? (
+            <>
           <div className="mt-5">
             <FieldLabel required>Full name</FieldLabel>
             <div className="relative">
@@ -1181,104 +1486,36 @@ function CartPageContent() {
               />
             </div>
           </div>
-
-          <div className="mt-8 space-y-4 border-t border-ink/10 pt-6">
-            <div>
-              <ConfirmCheckbox checked={termsAccepted} onChange={setTermsAccepted}>
-                {TERMS_CHECKBOX_LABEL.replace(/Terms and Conditions\.?$/i, '')}
-                <Link href={TERMS_URL} target="_blank" className="font-semibold text-teal-deep hover:underline">
-                  Terms and Conditions
-                </Link>
-                .
-              </ConfirmCheckbox>
-              <p className="mt-1.5 pl-6 text-[11px] text-ink/40">{TERMS_SUMMARY}</p>
-            </div>
-
-            <ConfirmCheckbox checked={confirmsRestrictions} onChange={setConfirmsRestrictions}>
-              I confirm my order doesn&apos;t include any{' '}
-              <a href="/prohibited-items" className="font-semibold text-teal-deep hover:underline">
-                prohibited items
-              </a>
-              , and I&apos;ve read Wishdrop&apos;s{' '}
-              <a href="/refund-policy" className="font-semibold text-teal-deep hover:underline">
-                refund &amp; cancellation policy
-              </a>
-              .
-            </ConfirmCheckbox>
-
-            <ConfirmCheckbox checked={confirmsPreowned} onChange={setConfirmsPreowned}>
-              I confirm and agree that, as it is not possible to guarantee or verify whether the condition of
-              pre-owned items matches the seller&apos;s description, all pre-owned items are not eligible for
-              refunds or returns. Fragile items and products sent via standard mail without tracking services are
-              also not eligible for refunds or returns.
-            </ConfirmCheckbox>
-          </div>
-        </div>
-
-        {/* Cart summary — the one card on this page, sticky so it stays
-            in view while the form above scrolls. */}
-        <div className="rounded-2xl border border-ink/10 bg-card lg:sticky lg:top-6">
-          <div className="px-6 py-6">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-display text-lg text-ink">Review your cart</h2>
-              {clearConfirming ? (
-                <div className="flex flex-none items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setClearConfirming(false)}
-                    className="text-xs font-semibold text-ink/50 hover:text-ink"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearCart}
-                    className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                  >
-                    <Trash2 size={12} /> Confirm
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleClearCart}
-                  className="flex flex-none items-center gap-1 text-xs font-semibold text-ink/45 hover:text-red-600"
-                >
-                  <Trash2 size={12} /> Clear cart
-                </button>
-              )}
-            </div>
-
-            <div className="mt-3 flex items-center justify-between">
+            </>
+          ) : (
+            // Saved address, complete: a short summary instead of nine
+            // fields, so a returning customer only has to confirm.
+            <div className="mt-5 flex items-start gap-3 rounded-2xl bg-card p-4 ring-1 ring-ink/10">
+              <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-teal/10 text-teal-deep">
+                <MapPin size={16} />
+              </span>
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="font-semibold text-ink">{fullName}</p>
+                <p className="mt-0.5 text-ink/60">
+                  {[addressLine1, addressLine2, city, stateRegion, zipCode, country].filter((x) => x && x.trim()).join(', ')}
+                </p>
+                <p className="mt-0.5 text-xs text-ink/45">
+                  {whatsappCode} {whatsapp} · {email}
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={toggleSelectAll}
-                className="text-xs font-semibold text-teal-deep hover:underline"
+                onClick={() => setEditingAddress(true)}
+                className="flex-none text-xs font-semibold text-teal-deep hover:underline"
               >
-                {allSelected ? 'Deselect all' : 'Select all'}
+                Edit
               </button>
-              <span className="text-xs text-ink/45">
-                {selectedLines.length} of {cart.items.length} selected for checkout
-              </span>
             </div>
+          )}
 
-            <div className="mt-4 divide-y divide-ink/[0.06]">
-              {cart.items.map((line) => (
-                <div key={line.product.id} className="py-2 first:pt-0">
-                  <ReviewLine
-                    line={line}
-                    deliveryChoice={deliveryChoice}
-                    onOpenBreakdown={() => setBreakdownLineId(line.product.id)}
-                    selected={selectedIds.has(line.product.id)}
-                    onToggleSelected={() => toggleLineSelected(line.product.id)}
-                    serviceShare={serviceShareFor(line)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          </Step>
 
-          <div className="border-t border-ink/10 px-6 py-5">
+          <Step n={3} title="Coupons">
             <CartCouponPicker
               coupons={quote?.availableCoupons ?? []}
               appliedId={appliedCoupon?.id ?? null}
@@ -1329,10 +1566,20 @@ function CartPageContent() {
             )}
             {couponError && <p className="mt-2 text-xs font-semibold text-red-600">{couponError}</p>}
 
-            <div className="mt-4 space-y-2 border-t border-ink/10 pt-4">
-              <p className="text-xs font-semibold text-ink/50">
-                Order breakdown · {deliveryChoice === 'economy' ? 'Economy' : 'Express'}
-              </p>
+          </Step>
+        </div>
+
+        {/* Summary — sticky beside the steps on large screens */}
+        <aside className="lg:sticky lg:top-6 lg:col-span-5">
+          <div className="overflow-hidden rounded-[26px] bg-card ring-1 ring-ink/[0.08]">
+            <div className="flex items-center justify-between gap-2 bg-indigo px-6 py-4 text-parchment">
+              <p className="font-display text-lg font-semibold">Order summary</p>
+              <span className="rounded-full bg-parchment/10 px-2.5 py-1 text-[11px] font-semibold text-parchment/80">
+                {deliveryChoice === 'economy' ? 'Economy' : 'Express'} · {selectedLines.reduce((sum, l) => sum + l.qty, 0)} item{selectedLines.reduce((sum, l) => sum + l.qty, 0) !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="px-6 py-6">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between text-sm text-ink/50">
                 <span>Price ({selectedLines.reduce((sum, l) => sum + l.qty, 0)} unit{selectedLines.reduce((sum, l) => sum + l.qty, 0) !== 1 ? 's' : ''})</span>
                 <span className="tabular-nums">{formatLKR(priceSubtotalLKR)}</span>
@@ -1354,45 +1601,102 @@ function CartPageContent() {
                   <span className="tabular-nums">-{formatLKR(discountLKR)}</span>
                 </div>
               )}
-              <div className="mt-1 flex items-center justify-between border-t border-ink/10 pt-3">
+              <div className="!mt-4 flex items-baseline justify-between border-t border-dashed border-ink/15 pt-4">
                 <span className="text-base font-semibold text-ink">Total</span>
-                <span className={`font-display text-2xl text-ink transition-opacity ${quoteLoading ? 'opacity-50' : ''}`}>
+                <span className={`font-display text-3xl font-semibold tabular-nums text-indigo transition-opacity ${quoteLoading ? 'opacity-50' : ''}`}>
                   {formatLKR(grandTotalLKR)}
                 </span>
               </div>
             </div>
 
+          {/* One tick instead of three: it covers the terms, prohibited
+              items / refund policy and the pre-owned / fragile rules, with
+              the details one tap away. */}
+          <div className="mt-5 rounded-2xl bg-parchment/70 p-3.5 ring-1 ring-ink/[0.06]">
+            <ConfirmCheckbox
+              checked={termsAccepted && confirmsRestrictions && confirmsPreowned}
+              onChange={(v: boolean) => {
+                setTermsAccepted(v)
+                setConfirmsRestrictions(v)
+                setConfirmsPreowned(v)
+              }}
+            >
+              I agree to the{' '}
+              <Link href={TERMS_URL} target="_blank" className="font-semibold text-teal-deep hover:underline">
+                Terms
+              </Link>{' '}
+              and{' '}
+              <a href="/refund-policy" target="_blank" className="font-semibold text-teal-deep hover:underline">
+                refund policy
+              </a>
+              , and my order has no{' '}
+              <a href="/prohibited-items" target="_blank" className="font-semibold text-teal-deep hover:underline">
+                prohibited items
+              </a>
+              .
+            </ConfirmCheckbox>
+            <details className="group mt-2 pl-6">
+              <summary className="cursor-pointer list-none text-[11px] font-semibold text-ink/45 hover:text-ink/70 [&::-webkit-details-marker]:hidden">
+                What this covers <ChevronDown size={11} className="inline transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="mt-2 space-y-1.5 text-[11px] leading-relaxed text-ink/50">
+                <p>{TERMS_SUMMARY}</p>
+                <p>
+                  Pre-owned items can&apos;t be refunded or returned, as their condition can&apos;t be verified against the
+                  seller&apos;s description. Fragile items and items sent by untracked standard mail can&apos;t be refunded
+                  or returned either.
+                </p>
+              </div>
+            </details>
+          </div>
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={confirming || !detailsComplete || selectedLines.length === 0}
+              disabled={confirming || !detailsComplete || selectedLines.length === 0 || unpickedLines.length > 0}
               title={
                 selectedLines.length === 0
                   ? 'Select at least one item to check out'
                   : !detailsComplete
-                    ? 'Fill in shipping details and accept the terms to continue'
+                    ? 'Fill in your delivery details and tick the agreement to continue'
                     : undefined
               }
-              className="mt-5 flex w-full items-center justify-center gap-2.5 rounded-full bg-teal-deep px-6 py-4 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-full bg-teal-deep px-6 py-4 text-sm font-semibold text-white shadow-[0_14px_28px_-14px_rgba(14,116,110,0.75)] transition-all hover:bg-indigo active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
             >
               <Lock size={15} />
-              {confirming ? 'Confirming…' : selectedLines.length === 0 ? 'Select items to continue' : 'Confirm order'}
-              {!confirming && selectedLines.length > 0 && <ArrowRight size={16} />}
+              {confirming
+                ? 'Confirming…'
+                : selectedLines.length === 0
+                  ? 'Select items to continue'
+                  : unpickedLines.length > 0
+                    ? 'Choose options to continue'
+                    : 'Confirm order'}
+              {!confirming && selectedLines.length > 0 && unpickedLines.length === 0 && <ArrowRight size={16} />}
             </button>
+
+            {unpickedLines.length > 0 && (
+              <p className="mt-2.5 text-center text-xs font-semibold text-gold-deep">
+                Choose a size or colour for {unpickedLines.length === 1 ? `“${unpickedLines[0].product.title}”` : `${unpickedLines.length} items`} in your bag.
+              </p>
+            )}
 
             {checkoutError && (
               <p className="mt-2.5 text-center text-xs font-semibold text-red-600">{checkoutError}</p>
             )}
 
-            <div className="mt-4 flex items-start gap-2 text-xs text-ink/45">
-              <ShieldCheck size={15} className="mt-0.5 flex-none text-teal-deep/60" />
-              <p>
-                <span className="font-semibold text-ink/60">You won&apos;t be charged yet.</span> Prices are
-                confirmed on our side when you place the order, then you pay on the next step.
+
+              <div className="mt-5 flex items-start gap-2.5 rounded-2xl bg-teal/[0.06] px-4 py-3 text-xs leading-relaxed text-ink/60">
+                <MessageCircle size={15} className="mt-0.5 flex-none text-teal-deep" />
+                <p>
+                  <span className="font-semibold text-ink/75">No payment now.</span> After you confirm, we check the prices and
+                  send payment details to your WhatsApp.
+                </p>
+              </div>
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-ink/40">
+                <ShieldCheck size={12} className="text-teal-deep/60" /> Every item is quality-checked before it ships
               </p>
             </div>
           </div>
-        </div>
+        </aside>
       </div>
 
       {breakdownLine && (
@@ -1401,6 +1705,21 @@ function CartPageContent() {
           deliveryChoice={deliveryChoice}
           serviceShare={serviceShareFor(breakdownLine)}
           onClose={() => setBreakdownLineId(null)}
+        />
+      )}
+
+      {editingLine && (
+        <CartVariantPicker
+          line={editingLine}
+          onClose={() => setEditingLineId(null)}
+          onSave={(next) => {
+            const qty = editingLine.qty
+            // Same line id = same choice; otherwise a different variant
+            // (it merges into an existing line of that variant, if any).
+            cart.removeItem(editingLine.product.id)
+            cart.addItem(next, qty)
+            setEditingLineId(null)
+          }}
         />
       )}
     </motion.div>

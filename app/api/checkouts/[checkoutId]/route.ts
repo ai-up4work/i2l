@@ -1,5 +1,5 @@
 // app/api/checkouts/[checkoutId]/route.ts — GET the customer's own checkout
-// (totals, orders, payment state) for the payment page.
+// (totals, orders, payment state) for the Order placed page.
 
 import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/current-user'

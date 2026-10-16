@@ -19,6 +19,7 @@
 // source price into the LKR total, the coupon is checked and redeemed
 // atomically, and the orders are created with the service role.
 
+import { missingSelections, selectionHint, variantFor, type SelectionKey } from '@/lib/product-selection'
 import 'server-only'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { ensurePricingSettings } from '@/lib/pricing-settings-server'
@@ -101,8 +102,9 @@ export function parseLines(raw: unknown): CheckoutLineInput[] | { error: string 
       r?.selectedOptions && typeof r.selectedOptions === 'object'
         ? Object.fromEntries(
             Object.entries(r.selectedOptions as Record<string, unknown>)
-              .filter(([k, v]) => typeof k === 'string' && typeof v === 'string')
-              .slice(0, 10) as [string, string][],
+              .filter(([k, v]) => typeof k === 'string' && typeof v === 'string' && v.trim())
+              .slice(0, 10)
+              .map(([k, v]) => [k.slice(0, 40), (v as string).trim().slice(0, 200)]) as [string, string][],
           )
         : null
     const weight = Number(r?.weightKg)
@@ -162,6 +164,8 @@ type SourcePrice = {
   source: PriceSource
   verified: boolean
   inStock: boolean
+  /** Size / colour the product needs but the bag line doesn't have. */
+  missingOptions?: SelectionKey[]
 }
 
 const OBSERVATION_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -193,12 +197,8 @@ function catalogueHandle(line: CheckoutLineInput): string | null {
 }
 
 function variantPrice(product: StoreProduct, selected: Record<string, string> | null): number {
-  if (!selected || !product.variants?.length || !product.options?.length) return product.price
-  const axes = product.options.map((o) => o.name)
-  const match = product.variants.find((v) =>
-    axes.every((name, i) => selected[name] == null || v.options[i] == null || v.options[i] === selected[name]),
-  )
-  return match?.price ?? product.price
+  const v = variantFor(product, selected)
+  return v?.price != null && v.price > 0 ? v.price : product.price
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -251,6 +251,7 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
     if (handle) {
       const product = await withTimeout(fetchStoreProduct(line.site, handle), 15_000)
       if (product && Number.isFinite(product.price) && product.price > 0) {
+        const variant = variantFor(product, line.selectedOptions)
         return {
           price: variantPrice(product, line.selectedOptions),
           currency: info?.currency ?? product.currency,
@@ -259,7 +260,8 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
           marginIncluded: info?.marginIncluded ?? product.marginIncluded,
           source: line.site === 'wishdrop-mall' ? 'mall' : 'catalogue',
           verified: true,
-          inStock: product.inStock !== false,
+          inStock: product.inStock !== false && (variant ? variant.available !== false : true),
+          missingOptions: missingSelections(product, line.selectedOptions),
         }
       }
     }
@@ -339,6 +341,7 @@ export type PricedLine = {
   verified: boolean
   priceSource: PriceSource
   inStock: boolean
+  missingOptions: SelectionKey[]
 }
 
 export type CartPricing = {
@@ -386,6 +389,7 @@ export async function priceCart(
       verified: src.verified,
       priceSource: src.source,
       inStock: src.inStock,
+      missingOptions: src.missingOptions ?? [],
     }
   })
 
@@ -430,7 +434,7 @@ export type CartCoupon = {
 }
 
 export type CheckoutQuote = {
-  lines: { id: string; unitTotalLKR: number; priceLKR: number; verified: boolean; inStock: boolean }[]
+  lines: { id: string; unitTotalLKR: number; priceLKR: number; verified: boolean; inStock: boolean; missingOptions: SelectionKey[] }[]
   priceSubtotalLKR: number
   serviceSubtotalLKR: number
   deliverySubtotalLKR: number
@@ -522,6 +526,7 @@ export async function quoteCheckout(
       priceLKR: l.priceLKR,
       verified: l.verified,
       inStock: l.inStock,
+      missingOptions: l.missingOptions,
     })),
     priceSubtotalLKR: pricing.priceSubtotalLKR,
     serviceSubtotalLKR: pricing.serviceSubtotalLKR,
@@ -634,6 +639,10 @@ export async function placeCheckout(
   const pricing = await priceCart(admin, input.lines, delivery)
   const outOfStock = pricing.lines.find((l) => !l.inStock)
   if (outOfStock) return { ok: false, error: `${outOfStock.input.title} is out of stock. Please remove it from your order.` }
+  const unpicked = pricing.lines.find((l) => l.missingOptions.length)
+  if (unpicked) {
+    return { ok: false, error: `${selectionHint(unpicked.missingOptions)} for “${unpicked.input.title}” in your bag before ordering.` }
+  }
   if (pricing.lines.some((l) => l.unitTotalLKR <= 0)) {
     return { ok: false, error: 'We couldn’t price one of your items. Open it again to refresh the price, then try once more.' }
   }

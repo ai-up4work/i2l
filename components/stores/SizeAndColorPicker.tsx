@@ -20,15 +20,25 @@ function tintFor(label: string) {
   return SWATCH_TINTS[hash % SWATCH_TINTS.length]
 }
 
-/** Original circle swatch — unchanged from before. */
+/** Store colour names that are stock codes ("ACB2480", "SKU-1234")
+ *  mean nothing to shoppers — those are shown as "Design 1, 2, …". */
+export function isCodeLike(name: string): boolean {
+  const t = name.trim()
+  return /\d{3,}/.test(t) && !/\s[a-z]{3,}/i.test(t) && /^[A-Z0-9][A-Z0-9 _\-/.#]*$/i.test(t)
+}
+
+/** Circle swatch; photo swatches are larger so the design is visible. */
 function ColorSwatch({
   name,
+  label,
   available,
   imageUrl,
   selected,
   onClick,
 }: {
   name: string
+  /** What to print under the swatch (defaults to the name). */
+  label?: string
   available: boolean
   imageUrl?: string
   selected?: boolean
@@ -47,7 +57,8 @@ function ColorSwatch({
         aria-pressed={selected}
         aria-label={name}
         className={
-          'relative grid h-15 w-15 place-items-center overflow-hidden rounded-full border-2 shadow-sm bg-cover bg-center transition-all ' +
+          'relative grid place-items-center overflow-hidden rounded-full border-2 shadow-sm bg-cover bg-center transition-all ' +
+          (imageUrl ? 'h-[72px] w-[72px] ' : 'h-15 w-15 ') +
           (selected
             ? 'border-teal-deep ring-2 ring-teal-deep ring-offset-1 ring-offset-parchment'
             : available
@@ -85,7 +96,7 @@ function ColorSwatch({
           (available ? (selected ? 'text-teal-deep' : 'text-ink/60') : 'text-ink/30')
         }
       >
-        {name}
+        {label ?? name}
       </span>
     </span>
   )
@@ -183,12 +194,24 @@ export default function SizeAndColorPicker({
   const sizeAvailability = hasSizes ? optionAvailability(product, 'size') : new Map<string, boolean>()
   const colorAvailability = hasColors ? optionAvailability(product, 'color') : new Map<string, boolean>()
   const colorImages = hasColors ? colorImageMap(product) : new Map<string, string>()
+  // Stock codes as colour names -> "Design 1, 2, …" (the code stays in
+  // brackets once chosen, and in the tooltip).
+  const codes = hasColors && product.colors!.every(isCodeLike)
+  const colorName = (c: string) => (codes ? `Design ${product.colors!.indexOf(c) + 1}` : c)
+  const colorHeading = codes ? 'Design' : product.variantLabel ?? 'Colour'
 
   return (
     <div className="mt-4 flex flex-col gap-4">
       {hasSizes && (
         <div>
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">Sizes</p>
+          <p className="mb-2 text-xs text-ink/50">
+            <span className="font-bold uppercase tracking-wide text-ink/45">Size</span>
+            {selectedSize ? (
+              <span className="ml-1.5 font-semibold text-ink">{selectedSize}</span>
+            ) : onSelectSize ? (
+              <span className="ml-1.5 text-ink/40">choose one</span>
+            ) : null}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {product.sizes!.map((s) => (
               <SizeChip
@@ -204,12 +227,23 @@ export default function SizeAndColorPicker({
       )}
       {hasColors && (
         <div>
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-ink/45">{product.variantLabel ?? 'Colors'}</p>
+          <p className="mb-2 text-xs text-ink/50">
+            <span className="font-bold uppercase tracking-wide text-ink/45">{colorHeading}</span>
+            {selectedColor ? (
+              <span className="ml-1.5 font-semibold text-ink">
+                {colorName(selectedColor)}
+                {codes && <span className="ml-1 font-normal text-ink/40">({selectedColor})</span>}
+              </span>
+            ) : onSelectColor ? (
+              <span className="ml-1.5 text-ink/40">choose one</span>
+            ) : null}
+          </p>
           <div className="flex flex-wrap gap-3">
             {product.colors!.map((c) => (
               <ColorSwatch
                 key={c}
                 name={c}
+                label={colorName(c)}
                 available={colorAvailability.get(c) ?? true}
                 imageUrl={colorImages.get(c)}
                 selected={selectedColor === c}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Heart, Minus, Plus } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
@@ -31,6 +31,7 @@ function toWishlistSnapshot(product: StoreProduct, platform: string): WishlistPr
     image: product.images?.[0] ?? product.image ?? null,
     currencyCode: product.currency ?? null,
     price: product.price != null ? String(product.price) : null,
+    productHandle: product.handle || product.id,
   }
 }
 
@@ -70,6 +71,7 @@ export default function ProductActions({
   variantUrl?: string
 }) {
   const wishlist = useWishlist()
+  const router = useRouter()
 
   const hasSizes = !!product.sizes?.length
   const hasColors = !!product.colors?.length
@@ -163,21 +165,22 @@ export default function ProductActions({
           />
         </div>
 
-        {/* Was ProductRequestButton (the single-item "Get Quote" request
-            flow via DashboardContext) — wrong flow entirely for the
-            affiliate catalog: it bypassed CartContext (what
-            AddToBagButton actually writes to) and created a one-off
-            request instead of taking the shopper to a real cart preview.
-            This is a plain navigation to the cart page, which reads
-            whatever's already in CartContext (potentially added from
-            several different products/platforms) and shows the full
-            per-line + total breakdown. */}
-        <Link
-          href="/account/cart"
-          className="flex h-11 min-w-[130px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-indigo-deep"
-        >
-          CHECKOUT
-        </Link>
+        {/* Buy now: adds this item (same rules as Add to bag — a size /
+            colour must be chosen first) and opens the bag. */}
+        <div className="min-w-[130px] flex-1">
+          <AddToBagButton
+            product={product}
+            platform={platform}
+            quantity={qty}
+            compact
+            label="Buy now"
+            selectedOptions={selectedOptions}
+            variantUrl={variantUrl}
+            disabled={needsSelection || comboUnavailable}
+            onAdded={() => router.push('/account/cart')}
+            className="bg-teal-deep text-white hover:bg-indigo-deep"
+          />
+        </div>
       </div>
 
       {selectionHint ? (

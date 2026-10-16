@@ -815,7 +815,8 @@ function OrderCardActions({
   onGoToDetails: () => void
   onReorder: () => void
 }) {
-  // Placed but not paid yet (server checkout + payment, lib/payments).
+  // Placed but not paid yet: payment is on WhatsApp for now; the page
+  // explains it and opens a pre-filled message (lib/payments).
   if (order.checkoutId && order.paymentStatus === 'unpaid' && order.status !== 'Cancelled') {
     return (
       <>
@@ -823,7 +824,7 @@ function OrderCardActions({
           href={`/account/pay/${order.checkoutId}`}
           className="flex-1 rounded-xl bg-teal px-4 py-2.5 text-center text-sm font-medium text-white transition-all duration-150 hover:bg-teal-deep active:scale-[0.98]"
         >
-          Pay now
+          How to pay
         </a>
         <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
       </>
