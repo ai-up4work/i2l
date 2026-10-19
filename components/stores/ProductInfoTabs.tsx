@@ -174,7 +174,7 @@ export default function ProductInfoTabs({ product }: { product: ProductInfoTabsD
             }}
             onClick={() => setActiveTab(tab)}
             aria-pressed={activeTab === tab}
-            className={`relative z-10 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 ${
+            className={`relative z-10 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-semibold sm:px-3.5 sm:text-sm transition-colors duration-200 ${
               activeTab === tab ? 'text-ink' : 'text-ink/45 hover:text-ink/70'
             }`}
           >

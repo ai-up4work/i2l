@@ -10,6 +10,8 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_TITLE } from './pdp-styles'
+import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
 
 /**
  * FirstCry look-alike view for the scrape QA tool, brought into full
@@ -179,7 +181,7 @@ function FirstCryCommerceActions({
     <div className="mt-6 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-ink/15 px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -219,7 +221,7 @@ function FirstCryCommerceActions({
             icon={justAdded ? <Check size={16} className="text-white" /> : <ShoppingBag size={16} />}
             color="#ec4899"
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 text-white hover:brightness-95"
           >
             {justAdded ? 'ADDED' : 'ADD TO CART'}
           </RequestActionButton>
@@ -309,23 +311,10 @@ function ProductInfoTabs({ result }: { result: ScrapeResult }) {
 
   return (
     <div className="mt-8 border-t border-ink/10 pt-6">
-      <div className="flex gap-5 border-b border-ink/10">
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab ? 'border-pink-500 text-ink' : 'border-transparent text-ink/40 hover:text-ink/70'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
       <div
         key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-ink/65 motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+        className={PDP_TAB_PANEL}
       >
         {activeTab === 'Description' &&
           ((result as ScrapeResult & { description?: string }).description ? (
@@ -429,9 +418,9 @@ export default function FirstCryProductView({
       : true
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10">
       <div
-        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+        className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: logo + brand + rating, then title.
             Mobile: first (area "info"). Desktop: top-right column. */}
@@ -454,7 +443,7 @@ export default function FirstCryProductView({
             )}
           </div>
 
-          <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+          <h1 className={PDP_TITLE}>
             {result.title ?? <span className="italic text-ink/40">No title found</span>}
           </h1>
         </div>
@@ -489,7 +478,7 @@ export default function FirstCryProductView({
           </div>
 
           {!!result.variants?.length && (
-            <div className="mt-4 flex flex-wrap gap-6">
+            <div className="mt-5 flex flex-col gap-4">
               {result.variants.map((dim) => {
                 const isColor = dim.dimension.toLowerCase() === 'color'
                 const isSize = dim.dimension.toLowerCase() === 'size'

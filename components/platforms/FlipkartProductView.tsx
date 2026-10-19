@@ -9,6 +9,8 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_LABEL, PDP_TITLE } from './pdp-styles'
+import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -261,7 +263,7 @@ function FlipkartCommerceActions({
             it absorbs all the leftover row width once GET QUOTE is
             pinned to its natural size on desktop (see below). */}
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#d6d6d6] px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-[#d6d6d6] px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -301,7 +303,7 @@ function FlipkartCommerceActions({
             icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
             color="#007cd8"
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 hover:brightness-95"
           >
             {justAdded ? 'ADDED' : 'ADD TO CART'}
           </RequestActionButton>
@@ -396,25 +398,10 @@ function ProductInfoTabs({ result }: { result: ScrapeResult }) {
 
   return (
     <div className="mt-8 border-t border-[#e0e0e0] pt-6">
-      <div className="flex gap-5 border-b border-[#e0e0e0]">
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab
-                ? 'border-[#2874F0] text-[#212121]'
-                : 'border-transparent text-[#878787] hover:text-[#212121]'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
       <div
         key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-[#484848] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+        className={PDP_TAB_PANEL}
       >
         {activeTab === 'Description' &&
           ((result as ScrapeResult & { description?: string }).description ? (
@@ -531,9 +518,9 @@ export default function FlipkartProductView({
       : true
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10 font-sans">
       <div
-        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+        className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: platform/rating badge, then title.
             Mobile: first (area "info"). Desktop: top-right column. */}
@@ -550,7 +537,7 @@ export default function FlipkartProductView({
             )}
           </div>
 
-          <h1 className="mt-2 text-2xl font-bold font-display leading-snug tracking-tight text-[#212121] sm:text-3xl">
+          <h1 className={PDP_TITLE}>
             {result.title ?? <span className="italic text-[#a0a0a0]">No title found</span>}
           </h1>
         </div>
@@ -636,20 +623,14 @@ export default function FlipkartProductView({
 
                 return (
                   <div key={dim.dimension}>
-                    {hasImages ? (
-                      <p className="my-3 text-[15px] text-[#878787]">
-                        Selected {dim.dimension}
-                        {friendlyLabel && (
-                          <span className="ml-1 font-bold text-[#212121]">
-                            {friendlyLabel.charAt(0).toUpperCase() + friendlyLabel.slice(1).toLowerCase()}
-                          </span>
-                        )}
-                      </p>
-                    ) : (
-                      <p className="mb-2 text-base font-semibold text-[#212121]">
-                        Select {dim.dimension}
-                      </p>
-                    )}
+                    <p className={`mb-1.5 ${PDP_LABEL}`}>
+                      {dim.dimension}
+                      {friendlyLabel && (
+                        <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-[#212121]">
+                          {friendlyLabel.charAt(0).toUpperCase() + friendlyLabel.slice(1).toLowerCase()}
+                        </span>
+                      )}
+                    </p>
                     <div className={hasImages ? 'flex flex-wrap gap-3' : 'flex flex-wrap gap-2'}>
                       {dim.options.map((opt, i) => {
                         const optPrice = fmt(opt.price, opt.currencyCode)

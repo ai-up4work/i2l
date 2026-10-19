@@ -673,8 +673,8 @@ function ChatListingView({
   const siteLogo = site ? SITE_LOGOS[site] : undefined
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 lg:px-10">
-      <div className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
         {/* Top of buy box: source + title.
             Mobile: first (area "info"). Desktop: top-right column. */}
         <div className="min-w-0 [grid-area:info]">
@@ -717,7 +717,7 @@ function ChatListingView({
             )}
           </div>
 
-          <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+          <h1 className="mt-2 font-display text-2xl font-extrabold leading-tight tracking-tight text-ink sm:text-3xl">
             {title || <span className="italic text-ink/40">{emptyTitle}</span>}
           </h1>
         </div>
@@ -783,7 +783,7 @@ function ChatListingView({
             )}
 
             <div className="flex min-w-0 flex-nowrap items-center gap-2">
-              <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+              <div className="flex flex-none items-center gap-2 rounded-xl border border-ink/15 px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
                 <button
                   type="button"
                   aria-label="Decrease quantity"
@@ -1148,8 +1148,8 @@ function ProductSkeleton({
     // views fill out naturally (images, long titles); these grey blocks
     // have no intrinsic width, so without it the skeleton collapsed to a
     // narrow ~500px strip in the middle of the screen.
-    <div className="mx-auto w-full max-w-6xl px-6 lg:px-10" aria-hidden="true">
-      <div className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10" aria-hidden="true">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']">
         {/* Top of buy box: source pill + title — same [grid-area:info]
             slot ChatListingView uses. */}
         <div className="min-w-0 [grid-area:info]">
@@ -1160,7 +1160,7 @@ function ProductSkeleton({
           </div>
 
           {previewTitle ? (
-            <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink motion-safe:[animation:contentFadeIn_0.25s_ease-out_both] sm:text-3xl">
+            <h1 className="mt-2 font-display text-2xl font-extrabold leading-tight tracking-tight text-ink motion-safe:[animation:contentFadeIn_0.25s_ease-out_both] sm:text-3xl">
               {previewTitle}
             </h1>
           ) : (

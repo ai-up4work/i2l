@@ -10,6 +10,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_TITLE } from './pdp-styles'
 
 /**
  * Croma-styled product view. Follows the SAME structural skeleton as
@@ -163,7 +164,7 @@ function CromaCommerceActions({
     <div className="mt-6 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-ink/15 px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -203,7 +204,7 @@ function CromaCommerceActions({
             icon={justAdded ? <Check size={16} className="text-white" /> : <ShoppingBag size={16} />}
             color="#0056A4"
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 text-white hover:brightness-95"
           >
             {justAdded ? 'ADDED' : 'ADD TO CART'}
           </RequestActionButton>
@@ -333,7 +334,7 @@ function ProductInfoTabs({
             }}
             onClick={() => setActiveTab(tab)}
             aria-pressed={activeTab === tab}
-            className={`relative z-10 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 ${
+            className={`relative z-10 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-semibold sm:px-3.5 sm:text-sm transition-colors duration-200 ${
               activeTab === tab ? 'text-ink' : 'text-ink/45 hover:text-ink/70'
             }`}
           >
@@ -466,9 +467,9 @@ export default function CromaProductView({
   const cromaLogo = SITE_LOGOS.croma
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10">
       <div
-        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+        className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: logo + rating, then title + manual link.
             Mobile: first (area "info"). Desktop: top-right column. */}
@@ -489,7 +490,7 @@ export default function CromaProductView({
             )}
           </div>
 
-          <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+          <h1 className={PDP_TITLE}>
             {result.title ?? <span className="italic text-ink/40">No title found</span>}
           </h1>
 

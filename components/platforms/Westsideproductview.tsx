@@ -10,6 +10,8 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_TITLE } from './pdp-styles'
+import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -101,18 +103,6 @@ function InfoPill({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center rounded-full bg-[#f4f1ea] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#6b6558]">
       {children}
-    </span>
-  )
-}
-
-/** Selected-option badge, e.g. "Color: Black" / "Size: XS" — shown
- * under the title so the shopper always sees what's currently picked,
- * matching the pill style Westside's own PDP uses right below the
- * product name. */
-function SelectedOptionBadge({ dimension, value }: { dimension: string; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-[#ddd8c9] bg-white px-3 py-1 text-xs text-[#6b6558]">
-      {dimension}: <span className="font-semibold text-[#1c1c1c]">{value}</span>
     </span>
   )
 }
@@ -251,7 +241,7 @@ function WestsideCommerceActions({
             the outer row's wrap decision, same pattern as every other
             platform view's commerce-actions row. */}
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#ddd8c9] px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-[#ddd8c9] px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -291,7 +281,7 @@ function WestsideCommerceActions({
             icon={justAdded ? <Check size={16} className="text-white" /> : <ShoppingBag size={16} />}
             color="#1c1c1c"
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-110"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 text-white hover:brightness-110"
           >
             {justAdded ? 'ADDED' : 'ADD TO BAG'}
           </RequestActionButton>
@@ -417,25 +407,10 @@ function ProductInfoTabs({ result }: { result: ScrapeResult }) {
 
   return (
     <div className="mt-8 border-t border-[#e5e1d6] pt-6">
-      <div className="flex gap-5 border-b border-[#e5e1d6]">
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab
-                ? 'border-[#a9812f] text-[#1c1c1c]'
-                : 'border-transparent text-[#8a8474] hover:text-[#1c1c1c]'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
       <div
         key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-[#4a4638] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+        className={PDP_TAB_PANEL}
       >
         {activeTab === 'Description' &&
           ((result as ScrapeResult & { description?: string }).description ? (
@@ -544,9 +519,9 @@ export default function WestsideProductView({
       : true
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10 font-sans">
       <div
-        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+        className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: platform logo + brand/gender context pills,
             then title, then selected-option badges. Mobile: first
@@ -560,21 +535,12 @@ export default function WestsideProductView({
             </a>
           </div>
 
-          <h1 className="mt-2 text-2xl font-medium leading-snug tracking-tight text-[#1c1c1c] sm:text-3xl">
+          <h1 className={PDP_TITLE}>
             {result.title ?? <span className="italic text-[#a39d8c]">No title found</span>}
           </h1>
 
-          {/* Selected-option badges — "Color: Black", "Size: XS" —
-              sourced live from selectedByDimension, so they always
-              match whatever swatch/pill is currently highlighted in
-              the variants section below. */}
-          {Object.keys(selectedByDimension).length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {Object.entries(selectedByDimension).map(([dimension, value]) => (
-                <SelectedOptionBadge key={dimension} dimension={dimension} value={value} />
-              ))}
-            </div>
-          )}
+          {/* (The selected colour/size used to be repeated here as
+              badges; the option rows below already show it.) */}
         </div>
 
         {/* Image gallery — shared component, Westside theme.

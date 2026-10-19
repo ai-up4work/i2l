@@ -10,6 +10,8 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_TITLE } from './pdp-styles'
+import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -259,7 +261,7 @@ function EbayCommerceActions({
             all the leftover row width once Get Quote is pinned to its
             natural size on desktop (see below). */}
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#d6d6d6] px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-[#d6d6d6] px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -288,7 +290,7 @@ function EbayCommerceActions({
             icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
             color="#ffb100"
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 hover:brightness-95"
           >
             {justAdded ? 'ADDED' : 'ADD TO CART'}
           </RequestActionButton>
@@ -362,25 +364,10 @@ function ProductInfoTabs({
 
   return (
     <div className="mt-8 border-t border-[#eaeaea] pt-6">
-      <div className="flex gap-5 border-b border-[#eaeaea]">
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab
-                ? 'border-[#3665F3] text-[#191919]'
-                : 'border-transparent text-[#8a8a8a] hover:text-[#191919]'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
       <div
         key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-[#535353] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+        className={PDP_TAB_PANEL}
       >
         {activeTab === 'Description' &&
           (conditionDescription || (result as ScrapeResult & { description?: string }).description ? (
@@ -519,9 +506,9 @@ export default function EbayProductView({
   const allSpecs = [...derivedSpecs, ...(itemSpecifics ?? [])]
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10 font-sans">
       <div
-        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+        className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: platform/seller badge + condition, then title.
             Mobile: first (area "info"). Desktop: top-right column. */}
@@ -543,7 +530,7 @@ export default function EbayProductView({
             )}
           </div>
 
-          <h1 className="mt-2 text-2xl font-bold leading-snug tracking-tight text-[#191919] sm:text-3xl">
+          <h1 className={PDP_TITLE}>
             {result.title ?? <span className="italic text-[#8a8a8a]">No title found</span>}
           </h1>
         </div>

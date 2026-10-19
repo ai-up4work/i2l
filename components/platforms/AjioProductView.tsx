@@ -28,6 +28,8 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_BRAND_LINE, PDP_LABEL, PDP_TITLE } from './pdp-styles'
+import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
 
 /**
  * Renders a scrape result using the same structural layout as
@@ -385,7 +387,7 @@ function AjioCommerceActions({
         {/* Atomic group: qty stepper + wishlist + Add to Bag. Never
             splits across lines. */}
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-[#cfcfcf] px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-[#cfcfcf] px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -425,7 +427,7 @@ function AjioCommerceActions({
             icon={justAdded ? <Check size={16} className="text-white" /> : <ShoppingBag size={16} />}
             color={AJIO_INK}
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold text-white hover:brightness-95"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 text-white hover:brightness-95"
           >
             {justAdded ? 'ADDED' : 'ADD TO BAG'}
           </RequestActionButton>
@@ -500,24 +502,10 @@ function ProductInfoTabs({ result }: { result: ScrapeResult }) {
 
   return (
     <div className="mt-8 border-t border-[#e6e6e6] pt-6">
-      <div className="flex gap-5 border-b border-[#e6e6e6]">
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
-              activeTab === tab ? 'text-[#2c4152]' : 'border-transparent text-[#8a8a8a] hover:text-[#2c4152]'
-            }`}
-            style={activeTab === tab ? { borderColor: AJIO_INK } : undefined}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
       <div
         key={activeTab}
-        className="min-h-[96px] pb-2 pt-4 text-sm leading-relaxed text-[#484848] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both]"
+        className={PDP_TAB_PANEL}
       >
         {activeTab === 'Description' &&
           (() => {
@@ -692,7 +680,7 @@ export default function AjioProductView({
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10 font-sans">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10 font-sans">
       {result.unavailable && (
         <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-[#e6e6e6] bg-[#fafafa] px-4 py-3">
           <PackageX size={16} className="mt-0.5 flex-none" style={{ color: AJIO_ORANGE }} strokeWidth={1.8} />
@@ -706,7 +694,7 @@ export default function AjioProductView({
       )}
 
       <div
-        className="grid gap-8 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
+        className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 [grid-template-areas:'info'_'gallery'_'rest'] sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-y-5 sm:[grid-template-areas:'gallery_info'_'gallery_rest']"
       >
         {/* Top of buy box: platform logo + rating, then brand + name.
             Mobile: first (area "info"). Desktop: top-right column. */}
@@ -723,16 +711,14 @@ export default function AjioProductView({
             )}
           </div>
 
-          {brand && <p className="mt-2 text-lg font-bold leading-tight text-[#2c4152]">{brand}</p>}
+          {brand && <p className={PDP_BRAND_LINE}>{brand}</p>}
 
-          <h1
-            className={`${brand ? 'mt-0.5' : 'mt-2'} text-base font-normal leading-snug text-[#767676] sm:text-lg`}
-          >
+          <h1 className={PDP_TITLE}>
             {name ? (
               <>
                 {name}
                 {selectedSize && (
-                  <span className="font-semibold text-[#2c4152]"> | {selectedSize}</span>
+                  <span className="font-body text-lg font-semibold text-ink/45 sm:text-xl"> · {selectedSize}</span>
                 )}
               </>
             ) : (
@@ -806,9 +792,9 @@ export default function AjioProductView({
                 return (
                   <div key={dim.dimension}>
                     <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <p className="text-[13px] text-[#2c4152]">
-                        <span className="font-semibold">{dim.dimension}</span>
-                        {selectedLabel && <span className="text-[#767676]"> — {selectedLabel}</span>}
+                      <p className={PDP_LABEL}>
+                        {dim.dimension}
+                        {selectedLabel && <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-[#2c4152]">{selectedLabel}</span>}
                       </p>
                       {isSize && <AjioSizeChart sizeChart={result.sizeChart} selectedSize={selectedSize} />}
                     </div>

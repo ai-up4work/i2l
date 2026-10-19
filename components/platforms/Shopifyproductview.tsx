@@ -11,6 +11,7 @@ import ProductInfoTabs, { type ProductInfoTabsData } from '@/components/stores/P
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import { PDP_GRID, PDP_TITLE } from './pdp-styles'
 
 /**
  * Renders a Shopify scrape result (source: 'shopify_api') using the
@@ -164,9 +165,46 @@ function VariantRow({
   selectedLabel: string | null
   onPick: (label: string, image: string | null | undefined, outOfStock: boolean | undefined) => void
 }) {
+  // Options without pictures (sizes, mostly) read better as compact chips
+  // than as big blank tiles — same chip style as every other store view.
+  if (!dim.options.some((o) => !!o.image)) {
+    return (
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">
+          {dim.dimension}
+          {selectedLabel && <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-ink/70">{selectedLabel}</span>}
+        </p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {dim.options.map((opt) => {
+            const isSelected = opt.label === selectedLabel
+            return (
+              <button
+                key={opt.label}
+                type="button"
+                onClick={() => onPick(opt.label, opt.image, opt.outOfStock)}
+                disabled={opt.outOfStock}
+                title={opt.outOfStock ? `${opt.label} — out of stock` : opt.label}
+                aria-pressed={isSelected}
+                className={`min-w-[2.75rem] rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                  isSelected
+                    ? 'border-teal-deep bg-teal-deep text-white'
+                    : opt.outOfStock
+                      ? 'cursor-not-allowed border-ink/8 text-ink/25 line-through'
+                      : 'border-ink/15 text-ink/70 hover:border-ink/35'
+                }`}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide mt-4 text-ink/45">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">
         {dim.dimension}
         {selectedLabel && <span className="normal-case tracking-normal text-ink/70"> — {selectedLabel}</span>}
       </p>
@@ -273,7 +311,7 @@ function ShopifyCommerceActions({
             it absorbs all the leftover row width once GET QUOTE is
             pinned to its natural size on desktop (see below). */}
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-          <div className="flex flex-none items-center gap-3.5 rounded-xl border border-ink/15 px-2.5 py-1.5">
+          <div className="flex flex-none items-center gap-2 rounded-xl border border-ink/15 px-1.5 py-1.5 sm:gap-3.5 sm:px-2.5">
             <button
               type="button"
               aria-label="Decrease quantity"
@@ -313,7 +351,7 @@ function ShopifyCommerceActions({
             icon={justAdded ? <Check size={16} className="text-teal-deep" /> : <ShoppingBag size={16} />}
             color="#000000"
             disabledColor="#c7c7c7"
-            className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold sm:px-5 hover:brightness-95"
           >
             {justAdded ? 'ADDED' : 'ADD TO CART'}
           </RequestActionButton>
@@ -488,10 +526,36 @@ export default function ShopifyProductView({
   void onSelectVariant
 
   return (
-    <div className="mx-auto max-w-6xl px-6 lg:px-10">
+    <div className="mx-auto w-full min-w-0 max-w-6xl sm:px-6 lg:px-10">
     
 
-      <div className="grid gap-8 sm:grid-cols-2">
+      <div className={PDP_GRID}>
+        {/* Title block — same place and type as every other store view. */}
+        <div className="min-w-0 [grid-area:info]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
+              {/* Brand logos get a taller box than Shopify's own small
+                  wordmark; width follows the file's aspect ratio. */}
+              <Image
+                src={logo.src}
+                alt={logo.alt}
+                width={logo.isBrand ? 90 : 60}
+                height={logo.isBrand ? 28 : 12}
+                style={{ height: logo.isBrand ? 28 : 12, width: 'auto' }}
+              />
+            </a>
+            {result.rating && (
+              <>
+                <span className="text-ink/20">·</span>
+                <Stars rating={result.rating} count={result.review_count} />
+              </>
+            )}
+          </div>
+          <h1 className={PDP_TITLE}>{result.title ?? <span className="italic text-ink/40">No title found</span>}</h1>
+          {result.seller && <p className="mt-1.5 text-xs font-semibold text-ink/45">by {result.seller}</p>}
+        </div>
+
+        <div className="min-w-0 [grid-area:gallery]">
         {/* Image gallery — shared component, app default theme. Keyed by
             the SELECTED IMAGE too (not just result.url) so switching
             variants forces the gallery to reset its own active-thumbnail
@@ -509,42 +573,18 @@ export default function ShopifyProductView({
             placeholderText: 'text-ink/40',
           }}
         />
+        </div>
 
-        {/* Buy box — same element order as AmazonProductView: title ->
-            seller -> rating -> price/discount -> stock -> variant rows
-            -> link -> commerce actions. */}
-        <div className="min-w-0">
-          <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center mr-2">
-            {/* Brand logos get a taller box than Shopify's own small
-                wordmark; width follows the file's aspect ratio. */}
-            <Image
-              src={logo.src}
-              alt={logo.alt}
-              width={logo.isBrand ? 90 : 60}
-              height={logo.isBrand ? 28 : 12}
-              style={{ height: logo.isBrand ? 28 : 12, width: 'auto' }}
-            />
-          </a>
-          <h1 className="font-display text-2xl font-extrabold mt-2 tracking-tight text-ink sm:text-3xl">
-            {result.title ?? <span className="italic text-ink/40">No title found</span>}
-          </h1>
-
-          {result.seller && <p className="mt-1.5 text-xs font-semibold text-ink/45">by {result.seller}</p>}
-
-          {result.rating && (
-            <div className="mt-2">
-              <Stars rating={result.rating} count={result.review_count} />
-            </div>
-          )}
-
-          <div className="mt-3 flex flex-wrap items-baseline gap-2">
-            {pctOff !== null && <span className="text-sm font-bold text-indigo-deep">-{pctOff}%</span>}
+        {/* Price, options, stock, buttons. */}
+        <div className="min-w-0 [grid-area:rest]">
+          <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <p className="text-3xl font-bold text-teal-deep">{price}</p>
             ) : (
               <p className="text-base font-semibold text-ink/40">No price found</p>
             )}
             {mrp && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
+            {pctOff !== null && <span className="text-sm font-bold text-indigo-deep">{pctOff}% off</span>}
           </div>
 
           {!!result.variants?.length && (
