@@ -5,6 +5,7 @@
 // Shop menu. Used by the seller wizard and Social Stores.
 
 import { Check } from 'lucide-react'
+import CategoryImage from '@/components/shared/CategoryImage'
 import { STORE_CATEGORIES, normalizeStoreCategories } from '@/lib/store-categories'
 
 export function StoreCategoryPicker({
@@ -31,7 +32,8 @@ export function StoreCategoryPicker({
   return (
     <div>
       <div role="group" aria-label="Store categories" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {STORE_CATEGORIES.map(({ name, icon: Icon }) => {
+        {STORE_CATEGORIES.map((category) => {
+          const { name } = category
           const on = picked.has(name)
           return (
             <button
@@ -41,14 +43,18 @@ export function StoreCategoryPicker({
               aria-checked={on}
               disabled={disabled}
               onClick={() => toggle(name)}
-              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+              className={`flex items-center gap-2.5 rounded-xl border p-2 pr-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                 on ? 'border-teal-deep bg-teal/[0.07] font-semibold text-ink ring-1 ring-teal-deep' : 'border-ink/12 bg-card text-ink/70 hover:border-ink/25'
               }`}
             >
-              <span
-                className={`grid h-7 w-7 flex-none place-items-center rounded-lg ${on ? 'bg-teal-deep text-white' : 'bg-teal/10 text-teal-deep'}`}
-              >
-                {on ? <Check size={14} strokeWidth={2.5} /> : <Icon size={14} strokeWidth={2} />}
+              {/* Same photo as the landing page / Shop menu, with a tick on top when picked. */}
+              <span className="relative h-10 w-10 flex-none overflow-hidden rounded-lg">
+                <CategoryImage category={category} className="absolute inset-0 h-full w-full" iconClassName="h-4 w-4" />
+                {on && (
+                  <span className="absolute inset-0 grid place-items-center bg-teal-deep/70 text-white">
+                    <Check size={16} strokeWidth={2.75} />
+                  </span>
+                )}
               </span>
               <span className="min-w-0 leading-snug">{name}</span>
             </button>
