@@ -11,7 +11,13 @@ import {
   amazonScraperApiConfigured,
 } from './extractors/amazon'
 import type { AmazonVariantDimension, AmazonSizeChartTable } from './extractors/amazon'
-import { parseFlipkart } from './extractors/flipkart'
+// CHANGED: also imports the Parse.bot tier helpers.
+import {
+  parseFlipkart,
+  flipkartParseBotConfigured,
+  fetchFlipkartViaParseBot,
+  mapParseBotProductToFlipkart,
+} from './extractors/flipkart'
 import {
   parseMeesho,
   SITE_ID as MEESHO_SITE_ID,
@@ -178,7 +184,7 @@ export type ScrapeResult = {
   //   - 'fingerprint_fetch': self-hosted TLS-fingerprint fetch (Ajio, final fallback)
   //   - 'scrapingdog': Scrapingdog hosted headless-render API, India-geo-targeted
   //   - 'scrape_do': scrape.do hosted headless-render API, India-geo-targeted
-  //   - 'parsebot': Parse.bot hosted scraper API — structured JSON, not HTML scraping (Ajio, most preferred)
+  //   - 'parsebot': Parse.bot hosted scraper API — structured JSON, not HTML scraping (Ajio, Flipkart; most preferred)
   source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
   /**
@@ -1788,6 +1794,45 @@ async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> 
   return result
 }
 
+// ---------- Flipkart via Parse.bot (hosted scraper API, no DOM scraping) ----------
+//
+// Preferred path for Flipkart whenever PARSE_API_KEY +
+// PARSE_FLIPKART_SCRAPER_ID are configured (see extractors/flipkart.ts's
+// "TIER 1" header comment).
+//
+// Unlike Ajio, a Parse failure here does NOT end the scrape: the caller
+// falls through to the DOM pipeline (flipkart.ts's "TIER 2").
+//
+// mapParseBotProductToFlipkart emits _flipkartWarning/_flipkartUnavailable
+// as internal flags (flipkart has no consumeXMeta helper), so they're
+// stripped here and surfaced as `warning`/`unavailable`.
+async function scrapeFlipkartProductViaParseBot(
+  url: string,
+  { signal, needVariants }: { signal?: AbortSignal; needVariants?: boolean } = {}
+): Promise<ScrapeResult> {
+  const { data, error } = await fetchFlipkartViaParseBot(url, { signal })
+  if (!data) return { url, site: 'flipkart', error: error ?? 'Parse.bot request failed' }
+
+  const parsed = mapParseBotProductToFlipkart(data)
+  const warning: string | undefined = parsed._flipkartWarning
+  const unavailable: boolean | undefined = parsed._flipkartUnavailable
+  delete parsed._flipkartWarning
+  delete parsed._flipkartUnavailable
+
+  const result: ScrapeResult = { url, site: 'flipkart', source: 'parsebot', ...parsed }
+  if (warning) result.warning = warning
+  if (unavailable) result.unavailable = true
+
+  // The current Parse endpoint returns no `variants` (see
+  // PARSE_VARIANTS_REVISION_PROMPT in flipkart.ts).
+  if (needVariants && !(result.variants && result.variants.length)) {
+    result.warning =
+      (result.warning ? result.warning + ' | ' : '') +
+      "Variant data was requested, but the Parse.bot Flipkart endpoint doesn't return a size/color picker yet."
+  }
+  return result
+}
+
 // ---------- Site-specific parsers ----------
 //
 // Amazon, Flipkart, Meesho, Myntra, eBay, Ajio, JioMart, Snapdeal, and
@@ -1805,9 +1850,10 @@ async function scrapeAjioProductViaParseBot(url: string): Promise<ScrapeResult> 
 // registered only as the SECONDARY fallback used if that Shopify-API
 // call itself fails.
 //
-// eBay's entry (parseEbay) and Ajio's entry (parseAjio) are the FALLBACK
-// paths — used when EBAY_APP_ID/EBAY_CERT_ID / PARSE_API_KEY aren't
-// configured.
+// eBay's entry (parseEbay), Ajio's entry (parseAjio) and Flipkart's entry
+// (parseFlipkart) are the FALLBACK paths — used when EBAY_APP_ID/
+// EBAY_CERT_ID / PARSE_API_KEY aren't configured (or Parse fails, for
+// Flipkart).
 
 function parseGeneric($: CheerioAPI, url: string) {
   const domainHint = domainCurrency(url)
@@ -1870,6 +1916,8 @@ function parseHtml(html: string, url: string, site: Exclude<SiteId, 'shopify' | 
     parsed.price = parsed.mrp
   }
 
+  // NOTE: 'LKR' is kept as-is from the original. If this is not a
+  // deliberate Sri Lanka default, replace with domainCurrency(url).
   if (!parsed.currencyCode) {
     parsed.currencyCode = 'LKR'
   }
@@ -1943,6 +1991,10 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // the final result below so the right logo shows either way.
   let displaySite: SiteId | null = null
 
+  // Set when Parse.bot was tried for Flipkart and failed, so the DOM
+  // fallback's result can say why it was used.
+  let parseBotFallbackNote: string | null = null
+
   if (site === 'shopify') {
     const shopifyResult = await scrapeShopifyProduct(url)
     if (!shopifyResult.error) return shopifyResult
@@ -1979,6 +2031,15 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     // Falls through to the legacy pipeline only if PARSE_API_KEY is unset.
     if (site === AJIO_SITE_ID && ajioParseBotConfigured()) {
       return await scrapeAjioProductViaParseBot(url)
+    }
+
+    // Prefer Parse.bot's hosted Flipkart scraper whenever PARSE_API_KEY +
+    // PARSE_FLIPKART_SCRAPER_ID are configured. On failure, fall through
+    // to the DOM pipeline and remember why.
+    if (site === 'flipkart' && flipkartParseBotConfigured()) {
+      const viaParse = await scrapeFlipkartProductViaParseBot(url, { signal, needVariants })
+      if (!viaParse.error) return viaParse
+      parseBotFallbackNote = `Parse.bot failed (${viaParse.error}) — used DOM scrape instead.`
     }
   }
 
@@ -2128,6 +2189,11 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
   // though this result came from the generic HTML fallback.
   if (displaySite) result.site = displaySite
   if (error) result.warning = error
+  // Explain why the DOM pipeline was used for a Flipkart URL when
+  // Parse.bot was configured but failed.
+  if (parseBotFallbackNote) {
+    result.warning = (result.warning ? result.warning + ' | ' : '') + parseBotFallbackNote
+  }
   if (ogOnly) result.ogOnly = true
   if (fellBackFromStorePlatform) {
     result.ogOnly = true

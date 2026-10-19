@@ -458,15 +458,18 @@ export function parseFlipkart($: CheerioAPI, url: string) {
 //   fetchFlipkartViaParseBot(url)         → { data, error }, never throws
 //   mapParseBotProductToFlipkart(data)    → same result shape as parseFlipkart()
 //
+//   GET https://api.parse.bot/scraper/{scraper_id}/{endpoint}?{urlParam}=<target>
+//   headers: X-API-Key
+//   <target> is the product's relative path (pathname + ?pid=&lid=) by
+//   default, because that form is what was confirmed against the real
+//   scraper. Set PARSE_FLIPKART_URL_MODE=full to send the full URL instead.
+//
 // SERVER-ONLY (API key). Env vars:
 //   PARSE_API_KEY                pmx_...   (shared with Ajio)
-//   PARSE_FLIPKART_SCRAPER_ID    scraper_id of the Flipkart API built in the Parse dashboard
-//   PARSE_FLIPKART_ENDPOINT      endpoint name              (default: get_product)
-//   PARSE_FLIPKART_URL_PARAM     name of the URL body param (default: url)
-//
-//   POST https://api.parse.bot/scraper/{scraper_id}/{endpoint}
-//   headers: X-API-Key, Content-Type: application/json
-//   body:    { "<url param>": "<flipkart product url>" }
+//   PARSE_FLIPKART_SCRAPER_ID    e.g. dfeb72c1-9b76-4102-a752-70e10f3a0c50
+//   PARSE_FLIPKART_ENDPOINT      endpoint name              (default: get_product_details)
+//   PARSE_FLIPKART_URL_PARAM     name of the URL query param (default: url)
+//   PARSE_FLIPKART_URL_MODE      'path' (default) | 'full'
 //
 // Response shape mapped below (confirmed from a real call):
 //   { status: "success", data: {
@@ -657,7 +660,8 @@ export function mapParseBotProductToFlipkart(payload: Record<string, unknown>): 
     // Flipkart's "| 306" next to the stars is the ratings count, same as the DOM parser reads.
     review_count: toStr(ratingObj ? pick(ratingObj, 'total_ratings', 'total_reviews') : pick(r, 'review_count')),
     availability: inStock === undefined ? statusText ?? 'In Stock (assumed)' : inStock ? 'In Stock' : 'Unavailable',
-    seller: toStr(sellerObj ? sellerObj.name : r.seller),
+    // Parse returns "Fulfilled by RetailNet" — keep just the seller name.
+    seller: toStr(sellerObj ? sellerObj.name : r.seller)?.replace(/^fulfilled by\s+/i, '') ?? null,
     images,
     brand: toStr(r.brand),
     description: toStr(r.description),
@@ -683,6 +687,25 @@ export function mapParseBotProductToFlipkart(payload: Record<string, unknown>): 
 
 const parseCache = new Map<string, { at: number; payload: ParseRaw }>()
 
+// The scraper was confirmed with a relative path (pathname + query). Only
+// pid/lid are kept from the query: fm, pageUID and the like are tracking
+// noise, and they would also make the same product miss the URL-keyed cache.
+function toParseTarget(url: string): string {
+  if (process.env.PARSE_FLIPKART_URL_MODE === 'full') return url
+  try {
+    const u = new URL(url)
+    const qs = new URLSearchParams()
+    for (const k of ['pid', 'lid']) {
+      const v = u.searchParams.get(k)
+      if (v) qs.set(k, v)
+    }
+    const q = qs.toString()
+    return u.pathname + (q ? `?${q}` : u.search)
+  } catch {
+    return url
+  }
+}
+
 /**
  * Calls the Flipkart endpoint on Parse. Never throws — returns
  * { data: null, error } on any failure so the caller can fall back to the
@@ -694,24 +717,29 @@ export async function fetchFlipkartViaParseBot(
 ): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
   const key = process.env.PARSE_API_KEY
   const scraperId = process.env.PARSE_FLIPKART_SCRAPER_ID
-  const endpoint = process.env.PARSE_FLIPKART_ENDPOINT || 'get_product'
+  const endpoint = process.env.PARSE_FLIPKART_ENDPOINT || 'get_product_details'
   const urlParam = process.env.PARSE_FLIPKART_URL_PARAM || 'url'
   if (!key || !scraperId) {
     return { data: null, error: 'Parse is not configured (PARSE_API_KEY / PARSE_FLIPKART_SCRAPER_ID).' }
   }
 
-  const hit = parseCache.get(url)
+  const target = toParseTarget(url)
+
+  const hit = parseCache.get(target)
   if (hit && Date.now() - hit.at < PARSE_CACHE_TTL_MS) return { data: structuredClone(hit.payload), error: null }
 
   try {
     const timeout = AbortSignal.timeout(PARSE_TIMEOUT_MS)
-    const res = await fetch(`${PARSE_BASE}/scraper/${encodeURIComponent(scraperId)}/${encodeURIComponent(endpoint)}`, {
-      method: 'POST',
-      headers: { 'X-API-Key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ [urlParam]: url }),
-      signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
-      cache: 'no-store',
-    })
+    const qs = new URLSearchParams({ [urlParam]: target }) // encodes the path/query for us
+    const res = await fetch(
+      `${PARSE_BASE}/scraper/${encodeURIComponent(scraperId)}/${encodeURIComponent(endpoint)}?${qs}`,
+      {
+        method: 'GET',
+        headers: { 'X-API-Key': key, Accept: 'application/json' },
+        signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
+        cache: 'no-store',
+      }
+    )
 
     if (!res.ok) {
       const detail = (await res.text().catch(() => '')).slice(0, 200)
@@ -729,7 +757,7 @@ export async function fetchFlipkartViaParseBot(
       return { data: null, error: 'Parse response had no product title — endpoint output does not match the expected shape.' }
     }
 
-    parseCache.set(url, { at: Date.now(), payload })
+    parseCache.set(target, { at: Date.now(), payload })
     return { data: structuredClone(payload), error: null }
   } catch (e) {
     return { data: null, error: e instanceof Error ? e.message : 'Parse request failed' }
