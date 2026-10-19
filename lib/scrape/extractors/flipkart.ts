@@ -1,101 +1,37 @@
 // lib/scrape/extractors/flipkart.ts
 //
 // Flipkart-specific scraping logic, split out into its own module the same
-// way amazon.ts is.
+// way amazon.ts is. Two tiers live in this file:
 //
-// REWRITE NOTE (see conversation): the previous version's selectors
-// (Nx9bqj/CxhGGd, _30jeq3/_16Jk6d, etc.) target a hash-class build of
-// Flipkart that no longer matches what the site actually serves. A real
-// captured page showed the current build uses a CSS-in-JS engine
-// (`css-g5y9jx`, `r-xxxxxxx` atomic classes) where:
-//   - The visible price is NOT parseable text. It's rendered as a
-//     character-column "odometer" widget (each digit in its own
-//     absolutely-positioned div, mid-animation). There is no DOM text
-//     node that just says "₹655" — so price/MRP extraction has been
-//     REMOVED from this file entirely. parseHtml() in parsers.ts already
-//     falls back to JSON-LD / embedded client-state / og:meta for any
-//     site, so Flipkart price now comes from there.
-//   - "Add to cart" / "Buy now" are plain `<div>` text, not <button>/<a>.
-//     The old exact-tag-and-text-match check could never see them, which
-//     was the root cause of the false-positive "unavailable" bug: a
-//     sold-out sibling *variant swatch* elsewhere on the page (styled as
-//     "Out of stock" text) got picked up by a whole-body text fallback,
-//     while the real buy button was invisible to the button check.
-//   - Rating is plain text ("4.2") immediately followed by a small green
-//     star <svg> (fill #008042ff); review count is a sibling "| 236".
+//   TIER 1 — Parse.bot (preferred, used whenever PARSE_API_KEY +
+//            PARSE_FLIPKART_SCRAPER_ID are set): a hosted scraper API
+//            returns structured JSON, so none of Flipkart's markup
+//            matters. See the "PARSE.BOT TIER" section at the bottom.
+//            Added because the DOM selectors below fail in production —
+//            Flipkart's CSS-in-JS build (hashed/atomic classes, odometer
+//            price widget, plain-<div> buy buttons) keeps changing under
+//            them.
+//   TIER 2 — DOM extractors (parseFlipkart and friends), unchanged. Still
+//            the fallback when Parse isn't configured or fails.
 //
-// SECOND REWRITE NOTE (options/variants extraction): the first pass at
-// extractFlipkartOptions()/extractFlipkartAllVariants() below assumed the
-// swatch tiles live INSIDE the same container as the "Selected Color:" /
-// "Select Size" label text (`$(el).parent()`). Two real captured pages
-// (a saree PDP with a size-less color swatch row, and a kurta-set PDP
-// with both a "Selected Color: Purple" row and a "Select Size" row)
-// showed this is wrong on both counts:
-//   1. The label div and the swatch-tile div are SIBLINGS under a shared
-//      wrapper, not parent/child — `$(el).parent()` lands on the row
-//      that contains ONLY the label text, which has zero tiles in it.
-//      The tiles are in that row's *next sibling*.
-//   2. The old label regex required the cleaned text to be EXACTLY
-//      "Size" / "Color" / "Style". Real Flipkart renders "Select Size"
-//      and "Selected Color:" — neither ever matched, so the dimension
-//      loop never fired at all on a real page, independent of bug #1.
-// Both are fixed below. Color tiles also turned out to have no visible
-// text or useful alt text (every swatch <img> uses alt="Image"), so
-// deriveTileLabel() falls back to a slug derived from the image filename
-// rather than leaving every color option's label collapsed to the
-// literal string "Image".
-//
-// THIRD REWRITE NOTE (price/MRP — this is what was making `mrp` come
-// back null on every Flipkart result): a real captured discount-price
-// row shows that price/MRP are NOT always the animated "odometer" from
-// the first rewrite note above. On (at least) this page's discount row,
-// three sibling `css-g5y9jx` cells sit under one shared row wrapper:
-//   1. a green discount-percent badge (down-arrow svg + "81%" text,
-//      svg path using `stroke="#008042ff"` — note this is `stroke`, not
-//      `fill`, so it doesn't collide with the rating star's `fill`
-//      check above),
-//   2. the MRP as plain, un-animated text ("3,999" — no ₹ symbol),
-//      marked ONLY by an inline `text-decoration-line: line-through`
-//      style — there's no stable class name to key off here since the
-//      hashed classes (`v1zwn21o` etc.) aren't safe to rely on,
-//   3. the selling price as plain text ("₹755"), a sibling cell with no
-//      strikethrough.
-// This is real, readable DOM text — not the odometer digit-widget the
-// first rewrite note describes — so extractFlipkartPriceBlock() below
-// reads it directly when present. It's tried FIRST in parseFlipkart();
-// if a given page's build still uses the odometer instead (this
-// function finds no strikethrough element and returns nulls), price/mrp
-// stay null here exactly as before and parseHtml()'s existing
-// JSON-LD/embedded-state/og:meta fallback chain in parsers.ts still
-// covers it, unchanged.
-//
-// FOURTH REWRITE NOTE (per-tile "Out Of Stock" — see conversation): a
-// real captured saree PDP shows an individual color swatch can be
-// unavailable while the rest of the listing (and other swatches) are
-// perfectly buyable. Flipkart renders this as an "Out Of Stock" text
-// badge overlaid directly on THAT swatch tile's <picture>/<img>. This is
-// completely separate from isFlipkartUnavailable() below, which only
-// looks at the page-level buybox/CTA for the *currently selected*
-// variant — it says nothing about sibling swatches. Previously,
-// extractFlipkartAllVariants() had no way to represent "this specific
-// tile is dead," so a reviewer (and the UI) had no signal that a given
-// swatch shouldn't be clickable. isTileOutOfStock() below reads the same
-// tile the loop already visits and flags it via the new `outOfStock`
-// field on FlipkartVariantOption (see AmazonVariantOption in amazon.ts,
-// which this type aliases) — the picker UI is responsible for actually
-// disabling the button.
-//
-// TYPE-FIX NOTE: this file previously annotated several helper params as
-// `cheerio.Cheerio`, referencing a `cheerio` namespace that was never
-// imported (only the named types `CheerioAPI`/`Cheerio` were imported
-// from the 'cheerio' package). That fails to compile with "Cannot find
-// namespace 'cheerio'". Fixed by using the proper generic form
-// `Cheerio<Element>` everywhere a cheerio-wrapped node is passed around.
-// `Element` itself is a `domhandler` type (cheerio builds its DOM on
-// top of domhandler nodes) and is NOT re-exported from the 'cheerio'
-// package in this version — importing it from 'cheerio' fails with
-// "Module '"cheerio"' has no exported member 'Element'". It has to be
-// imported from 'domhandler' directly instead.
+// ---------- History of the DOM extractor (kept for context) ----------
+//   REWRITE 1: old hash-class selectors (Nx9bqj, _30jeq3...) no longer
+//     match. Current build is CSS-in-JS (`css-g5y9jx`, `r-xxxxxxx`); price
+//     can render as an animated odometer (no parseable text); Add to
+//     cart / Buy now are plain <div>s (root cause of a false-positive
+//     "unavailable" bug); rating is "4.2" followed by a green star <svg>.
+//   REWRITE 2: swatch tiles are the label row's NEXT SIBLING, not inside
+//     the label's parent; labels read "Select Size" / "Selected Color:",
+//     not bare "Size"; color swatches have alt="Image" so labels fall
+//     back to the image filename.
+//   REWRITE 3: some pages render price/MRP as plain text — MRP marked only
+//     by inline `text-decoration-line: line-through`, price in a sibling
+//     cell — read directly by extractFlipkartPriceBlock(); odometer pages
+//     still fall back to parseHtml()'s JSON-LD/embedded-state/og chain.
+//   REWRITE 4: per-swatch "Out Of Stock" overlay badge → `outOfStock` on
+//     each variant option, separate from the page-level buybox check.
+//   TYPE-FIX: use `Cheerio<Element>` with `Element` imported from
+//     'domhandler' (not re-exported from 'cheerio' in this version).
 import type { CheerioAPI, Cheerio } from 'cheerio'
 import type { Element } from 'domhandler'
 import { cleanText, detectCurrencyAndClean, domainCurrency } from '../shared'
@@ -103,6 +39,10 @@ import type { AmazonVariantDimension, AmazonVariantOption } from './amazon'
 
 export type FlipkartVariantOption = AmazonVariantOption
 export type FlipkartVariantDimension = AmazonVariantDimension
+
+// ======================================================================
+// TIER 2 — DOM extractors (fallback)
+// ======================================================================
 
 // ---------- Title ----------
 //
@@ -137,7 +77,7 @@ function ownText($el: Cheerio<Element>): string {
     .trim()
 }
 
-// ---------- Price / MRP (strikethrough-based, see THIRD REWRITE NOTE) ----------
+// ---------- Price / MRP (strikethrough-based) ----------
 //
 // Matches purely on the inline `text-decoration-line: line-through`
 // style rather than any class name, since the hashed classes aren't
@@ -245,17 +185,15 @@ export function extractFlipkartRating($: CheerioAPI): { rating: string | null; r
 //      phrase (not a substring of a longer sentence — reviews and
 //      filter labels shouldn't trip this).
 //   2. NO element anywhere on the page has own-text matching an
-//      add-to-cart/buy-now/buy-at style CTA. Unlike the old version,
-//      this checks ALL elements by own text, not just <button>/<a> —
-//      Flipkart's current buy button is a plain styled <div>.
-// Requiring both closes the false-positive this bug produced: a sibling
-// variant swatch showing "Out of stock" no longer matters once the real
-// buy button is correctly detected as present.
+//      add-to-cart/buy-now/buy-at style CTA. This checks ALL elements by
+//      own text, not just <button>/<a> — Flipkart's current buy button
+//      is a plain styled <div>.
+// Requiring both closes the false-positive where a sibling variant
+// swatch showing "Out of stock" tripped the whole listing.
 //
-// NOTE: this is deliberately page-level only — it tells you whether the
-// CURRENTLY SELECTED variant can be bought. It says nothing about
-// whether an individual, non-selected swatch tile is itself sold out;
-// that's handled per-tile by isTileOutOfStock() below.
+// NOTE: deliberately page-level only — it tells you whether the
+// CURRENTLY SELECTED variant can be bought. Per-swatch stock is handled
+// by isTileOutOfStock() below.
 const SOLD_OUT_RE = /^(sold out|out of stock|currently unavailable)$/i
 const BUY_CTA_RE = /^(add to cart|buy now|buy at\s*[₹$]?[\d,.]*)$/i
 
@@ -274,17 +212,13 @@ export function isFlipkartUnavailable($: CheerioAPI): boolean {
   return soldOutText && !hasBuyButton
 }
 
-// ---------- Per-tile out-of-stock flag (see FOURTH REWRITE NOTE) ----------
+// ---------- Per-tile out-of-stock flag ----------
 //
 // Real markup overlays an "Out Of Stock" text badge directly on the
 // swatch tile's image for that specific option. A tile otherwise renders
-// no readable text at all (the <img> only carries a generic alt="Image",
-// which cleanText() does pick up as element text via alt-text fallback
-// in some Cheerio setups, but never matches this phrase), so any tile
-// whose full text matches this is unambiguously the overlay badge, not
-// unrelated copy. Kept intentionally narrow to the exact phrasing seen
-// on captured pages — widen if a page shows different wording (e.g.
-// "Sold Out") on a swatch tile.
+// no readable text at all, so any tile whose full text matches this is
+// unambiguously the overlay badge. Kept narrow to the phrasing seen on
+// captured pages — widen if a page shows e.g. "Sold Out" on a tile.
 const TILE_OUT_OF_STOCK_RE = /out\s*of\s*stock/i
 
 function isTileOutOfStock($tile: Cheerio<Element>): boolean {
@@ -296,20 +230,12 @@ function isTileOutOfStock($tile: Cheerio<Element>): boolean {
 //
 // Real Flipkart markup, confirmed against two captured pages:
 //   - Color: the row literally states "Selected Color: Purple" as plain
-//     text — when the label starts with "Selected", read the value
-//     straight out of the label row's own text instead of hunting for a
-//     "selected" swatch tile.
-//   - Size: only a bare "Select Size" heading exists on the page (no
-//     "Selected Size: X" sentence), so for that case we still need to
-//     find the currently-selected tile — spotted by its swatch border
-//     being rendered in the dark "selected" color (rgb(31, 31, 31))
-//     versus the default light gray (rgb(214, 214, 214)) every
-//     unselected tile uses.
-//   - In both cases, the label sits in its own row div, and the actual
-//     swatch tiles live in that row's NEXT SIBLING — not inside the same
-//     element as the label. `label.parent()` (the old code) is the row
-//     that holds only the label text and finds zero tiles; you have to
-//     go one level up and then to the next sibling.
+//     text — read the value straight out of the label row's own text.
+//   - Size: only a bare "Select Size" heading exists, so the selected
+//     tile is spotted by its swatch border being the dark "selected"
+//     color (rgb(31, 31, 31)) vs the default light gray.
+//   - In both cases the swatch tiles live in the label row's NEXT
+//     SIBLING — not inside the same element as the label.
 const DIMENSION_LABEL_RE = /^(?:select(?:ed)?\s+)?(?:size|colou?r|style)s?\s*:?\s*$/i
 const SELECTED_SWATCH_BORDER_RE = /rgb\(\s*31\s*,\s*31\s*,\s*31\s*\)/i
 
@@ -321,13 +247,11 @@ function normalizeDimensionLabel(rawLabel: string): string | null {
 }
 
 // Flipkart gives every swatch <img> a generic alt="Image" with no other
-// human-readable text nearby (this is especially true for color
-// swatches — there's no "Purple"/"Gold" text anywhere in the tile
-// itself). Falling back to cleanText()/alt alone means every tile in a
-// color row collapses to the same label ("Image"), which breaks
-// dedup/keying in the UI. As a last resort, derive a stable label from
-// the image filename so tiles are at least uniquely identifiable, even
-// though it won't be a pretty color name.
+// human-readable text nearby (especially color swatches). Falling back to
+// cleanText()/alt alone collapses every tile in a color row to "Image",
+// which breaks dedup/keying in the UI. As a last resort, derive a stable
+// label from the image filename so tiles are at least uniquely
+// identifiable.
 function deriveTileLabel($tile: Cheerio<Element>): string | null {
   const text = cleanText($tile)
   if (text) return text
@@ -407,14 +331,12 @@ function resolveFlipkartUrl(href: string | undefined | null, pageUrl: string): s
 // ---------- All variants (full swatch/size picker) ----------
 //
 // Same swatch-container fix as extractFlipkartOptions() above: tiles are
-// the label row's next sibling, found via `.parent().next()`, not via
-// `.parent().find(...)`. Price-per-tile extraction here
-// (`[class*="price" i]`) is a soft attempt and may simply come back null
-// per tile on this build; that's fine, VariantPicker/FlipkartProductView
-// already render tiles without a price when none is found. Each tile is
-// also checked for the per-tile "Out Of Stock" overlay badge (see
-// FOURTH REWRITE NOTE) — this is independent of isFlipkartUnavailable(),
-// which only covers the currently-selected variant's own buybox.
+// the label row's next sibling, found via `.parent().next()`.
+// Price-per-tile extraction (`[class*="price" i]`) is a soft attempt and
+// may come back null per tile on this build; the picker renders tiles
+// without a price when none is found. Each tile is also checked for the
+// per-tile "Out Of Stock" overlay badge — independent of
+// isFlipkartUnavailable(), which only covers the selected variant.
 export function extractFlipkartAllVariants($: CheerioAPI, pageUrl: string): FlipkartVariantDimension[] {
   const domainHint = domainCurrency(pageUrl)
   const dimensions: FlipkartVariantDimension[] = []
@@ -463,17 +385,16 @@ export function extractFlipkartAllVariants($: CheerioAPI, pageUrl: string): Flip
   return dimensions
 }
 
-// ---------- Composed parser ----------
+// ---------- Composed DOM parser ----------
 
 export function parseFlipkart($: CheerioAPI, url: string) {
   const domainHint = domainCurrency(url)
 
-  // Try the direct DOM strikethrough-price block FIRST (see THIRD
-  // REWRITE NOTE) — cheap, and correct whenever the page renders price
-  // as plain text like this. Falls through to null/null on pages that
-  // still use the animated odometer widget, in which case parseHtml()'s
-  // JSON-LD/embedded-state/og:meta fallback chain (in parsers.ts) covers
-  // it exactly as before.
+  // Try the direct DOM strikethrough-price block FIRST — cheap, and
+  // correct whenever the page renders price as plain text. Falls through
+  // to null/null on pages that still use the animated odometer widget, in
+  // which case parseHtml()'s JSON-LD/embedded-state/og:meta fallback
+  // chain (in parsers.ts) covers it.
   const { price: rawPrice, mrp: rawMrp } = extractFlipkartPriceBlock($)
   const { amount: price, code: priceCurrency } = detectCurrencyAndClean(rawPrice, domainHint)
   const { amount: mrp } = detectCurrencyAndClean(rawMrp, domainHint)
@@ -489,9 +410,9 @@ export function parseFlipkart($: CheerioAPI, url: string) {
     const src = $(el).attr('data-src')
     if (src && src.includes('rukminim')) images.add(src)
   })
-  // The sample page also serves full-res product photos via <picture>/
-  // <source srcset> without a data-src on the <img> itself — pick up the
-  // largest srcset entry from rukminim <source> tags too.
+  // Full-res product photos also come via <picture>/<source srcset>
+  // without a data-src on the <img> itself — pick up the largest srcset
+  // entry from rukminim <source> tags too.
   $('source[srcset]').each((_, el) => {
     const srcset = $(el).attr('srcset') || ''
     const first = srcset.split(',')[0]?.trim().split(' ')[0]
@@ -524,4 +445,293 @@ export function parseFlipkart($: CheerioAPI, url: string) {
   if (variants.length) result.variants = variants
 
   return result
+}
+
+// ======================================================================
+// TIER 1 — PARSE.BOT TIER (preferred when configured)
+// ======================================================================
+//
+// Same shape as Ajio's Parse.bot tier (ajioParseBotConfigured /
+// fetchAjioViaParseBot / mapParseBotProductTo*), so parsers.ts wires it
+// the same way:
+//   flipkartParseBotConfigured()          → env check
+//   fetchFlipkartViaParseBot(url)         → { data, error }, never throws
+//   mapParseBotProductToFlipkart(data)    → same result shape as parseFlipkart()
+//
+// SERVER-ONLY (API key). Env vars:
+//   PARSE_API_KEY                pmx_...   (shared with Ajio)
+//   PARSE_FLIPKART_SCRAPER_ID    scraper_id of the Flipkart API built in the Parse dashboard
+//   PARSE_FLIPKART_ENDPOINT      endpoint name              (default: get_product)
+//   PARSE_FLIPKART_URL_PARAM     name of the URL body param (default: url)
+//
+//   POST https://api.parse.bot/scraper/{scraper_id}/{endpoint}
+//   headers: X-API-Key, Content-Type: application/json
+//   body:    { "<url param>": "<flipkart product url>" }
+//
+// Response shape mapped below (confirmed from a real call):
+//   { status: "success", data: {
+//       product_id, listing_id, title, brand, category_path: string[],
+//       price: { final_price, mrp, discount_percent, bank_offer_price, is_special_price },
+//       availability: { in_stock, status, cod_available, return_policy },
+//       rating: { average, total_ratings, total_reviews, breakdown },
+//       seller: { name, rating },
+//       images: string[], videos: [{ video_url, thumbnail_url }],
+//       highlights: string[]  ("Key: Value"), description, specifications: [] } }
+//
+// `variants` (Color/Size rows) is NOT in that response yet. If the endpoint
+// is revised to return it (see PARSE_VARIANTS_REVISION_PROMPT) it's mapped
+// too; until then products with swatches come back without a picker.
+
+const PARSE_BASE = 'https://api.parse.bot'
+const PARSE_TIMEOUT_MS = 30_000
+const PARSE_CACHE_TTL_MS = 10 * 60_000 // every call costs credits; don't re-pay for the same URL within 10 min
+
+/** Paste into Parse's "revise" box to add per-swatch variants to the existing endpoint. */
+export const PARSE_VARIANTS_REVISION_PROMPT = `
+Add a "variants" field to the Flipkart product response: one entry per option row on the page (Color, Size, Style...).
+"variants": [
+  { "dimension": "Color",
+    "options": [
+      { "label": "Purple", "price": 755, "image": "https://...", "url": "https://www.flipkart.com/...",
+        "selected": true, "out_of_stock": false }
+    ] }
+]
+"url" must be the product URL that selects that option, "selected" marks the currently chosen one, and
+"out_of_stock" is per option (separate from availability.in_stock). Return [] when the product has no options.
+`.trim()
+
+export function flipkartParseBotConfigured(): boolean {
+  return Boolean(process.env.PARSE_API_KEY && process.env.PARSE_FLIPKART_SCRAPER_ID)
+}
+
+// ---------- coercion helpers ----------
+
+type ParseRaw = Record<string, unknown>
+
+const isObj = (v: unknown): v is ParseRaw => !!v && typeof v === 'object' && !Array.isArray(v)
+
+const pick = (o: ParseRaw | null | undefined, ...keys: string[]): unknown => {
+  if (!o) return undefined
+  for (const k of keys) if (o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k]
+  return undefined
+}
+
+function toNum(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v !== 'string') return null
+  const n = Number(v.replace(/[^0-9.\-]/g, ''))
+  return v.trim() && Number.isFinite(n) ? n : null
+}
+
+// ScrapeResult carries prices as strings ("755"), same as every other site.
+function toNumStr(v: unknown): string | null {
+  const n = toNum(v)
+  return n == null ? null : String(n)
+}
+
+function toStr(v: unknown): string | null {
+  if (v == null || typeof v === 'object') return null
+  const s = String(v).trim()
+  return s || null
+}
+
+function toBool(v: unknown): boolean | undefined {
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase()
+    if (['true', 'yes', '1', 'in stock', 'in_stock', 'available'].includes(s)) return true
+    if (['false', 'no', '0', 'out of stock', 'out_of_stock', 'sold out', 'unavailable'].includes(s)) return false
+  }
+  return undefined
+}
+
+// ---------- mapping ----------
+
+function mapParseSpecs(highlights: unknown, specifications: unknown): { name: string; value: string }[] {
+  const out: { name: string; value: string }[] = []
+  const seen = new Set<string>()
+  const push = (name: string | null, value: string | null) => {
+    if (!name || !value) return
+    const key = `${name}::${value}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ name, value })
+  }
+
+  // highlights: ["Display Type: Analog", "Diameter: 50 mm"]
+  if (Array.isArray(highlights)) {
+    for (const h of highlights) {
+      const s = toStr(h)
+      if (!s) continue
+      const i = s.indexOf(':')
+      if (i > 0) push(s.slice(0, i).trim(), s.slice(i + 1).trim())
+    }
+  }
+
+  // specifications: [{name,value}] or grouped [{title, items:[{name,value}]}]
+  const walk = (list: unknown) => {
+    if (!Array.isArray(list)) return
+    for (const s of list) {
+      if (!isObj(s)) continue
+      const name = toStr(pick(s, 'name', 'key', 'label'))
+      const value = toStr(pick(s, 'value', 'val'))
+      if (name && value) push(name, value)
+      else walk(pick(s, 'items', 'specs', 'specifications', 'values'))
+    }
+  }
+  walk(specifications)
+  return out
+}
+
+function mapParseVariants(raw: unknown, currencyCode: string): FlipkartVariantDimension[] {
+  if (!Array.isArray(raw)) return []
+  const out: FlipkartVariantDimension[] = []
+
+  for (const d of raw) {
+    if (!isObj(d)) continue
+    const dimension = toStr(pick(d, 'dimension', 'name', 'type'))
+    const rawOptions = pick(d, 'options', 'values')
+    if (!dimension || !Array.isArray(rawOptions)) continue
+
+    const options: FlipkartVariantOption[] = []
+    for (const o of rawOptions) {
+      const opt: ParseRaw = isObj(o) ? o : { label: o }
+      const label = toStr(pick(opt, 'label', 'name', 'value'))
+      if (!label) continue
+      options.push({
+        label,
+        price: toNumStr(opt.price),
+        currencyCode,
+        image: toStr(pick(opt, 'image', 'image_url', 'img')),
+        url: toStr(pick(opt, 'url', 'link', 'href')),
+        selected: toBool(opt.selected) ?? false,
+        outOfStock: toBool(pick(opt, 'out_of_stock', 'outOfStock', 'sold_out')) ?? false,
+      } as FlipkartVariantOption)
+    }
+    if (options.length) out.push({ dimension, options })
+  }
+  return out
+}
+
+/** Same result shape as parseFlipkart() (plus a few richer fields). */
+export function mapParseBotProductToFlipkart(payload: Record<string, unknown>): Record<string, any> {
+  const r: ParseRaw = isObj(payload.data) ? payload.data : isObj(payload.result) ? payload.result : payload
+
+  const priceObj = isObj(r.price) ? r.price : null
+  const availObj = isObj(r.availability) ? r.availability : null
+  const ratingObj = isObj(r.rating) ? r.rating : null
+  const sellerObj = isObj(r.seller) ? r.seller : null
+
+  // Flipkart prices are always INR; the feed carries no currency field.
+  const currencyCode = toStr(pick(r, 'currency', 'currency_code')) ?? 'INR'
+
+  const price = toNumStr(priceObj ? pick(priceObj, 'final_price', 'selling_price', 'price') : pick(r, 'price', 'selling_price'))
+  const mrp = toNumStr(priceObj ? pick(priceObj, 'mrp', 'original_price') : pick(r, 'mrp', 'original_price'))
+
+  const images = Array.isArray(r.images)
+    ? r.images.map((x) => toStr(x)).filter((x): x is string => !!x)
+    : []
+
+  const variants = mapParseVariants(r.variants, currencyCode)
+  const options: Record<string, string> = {}
+  for (const d of variants) {
+    const sel = d.options.find((o) => o.selected)
+    if (sel) options[d.dimension] = sel.label
+  }
+
+  const inStock = toBool(availObj ? pick(availObj, 'in_stock', 'inStock') : pick(r, 'in_stock', 'inStock'))
+  const statusText = toStr(availObj ? availObj.status : r.availability)
+
+  const categoryPath = Array.isArray(r.category_path)
+    ? r.category_path.map((x) => toStr(x)).filter(Boolean).join(' > ')
+    : toStr(r.category_path)
+
+  const itemSpecifics = mapParseSpecs(r.highlights, r.specifications)
+
+  const result: Record<string, any> = {
+    title: toStr(r.title ?? r.name),
+    price,
+    mrp,
+    currencyCode,
+    rating: toStr(ratingObj ? pick(ratingObj, 'average', 'value') : r.rating),
+    // Flipkart's "| 306" next to the stars is the ratings count, same as the DOM parser reads.
+    review_count: toStr(ratingObj ? pick(ratingObj, 'total_ratings', 'total_reviews') : pick(r, 'review_count')),
+    availability: inStock === undefined ? statusText ?? 'In Stock (assumed)' : inStock ? 'In Stock' : 'Unavailable',
+    seller: toStr(sellerObj ? sellerObj.name : r.seller),
+    images,
+    brand: toStr(r.brand),
+    description: toStr(r.description),
+    categoryPath: categoryPath || null,
+    itemSpecifics: itemSpecifics.length ? itemSpecifics : null,
+    discountPercentage: toNum(priceObj ? priceObj.discount_percent : r.discount_percent),
+    // Extras not declared on ScrapeResult (carried through like eBay's extras).
+    productId: toStr(r.product_id),
+    bankOfferPrice: toNumStr(priceObj ? priceObj.bank_offer_price : undefined),
+    codAvailable: availObj ? toBool(availObj.cod_available) ?? null : null,
+  }
+
+  if (inStock === false) {
+    result._flipkartUnavailable = true
+    result._flipkartWarning = 'Parse reported this listing as not buyable (availability.in_stock = false).'
+  }
+  if (Object.keys(options).length) result.options = options
+  if (variants.length) result.variants = variants
+  return result
+}
+
+// ---------- call ----------
+
+const parseCache = new Map<string, { at: number; payload: ParseRaw }>()
+
+/**
+ * Calls the Flipkart endpoint on Parse. Never throws — returns
+ * { data: null, error } on any failure so the caller can fall back to the
+ * DOM pipeline (same contract as fetchAjioViaParseBot).
+ */
+export async function fetchFlipkartViaParseBot(
+  url: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
+  const key = process.env.PARSE_API_KEY
+  const scraperId = process.env.PARSE_FLIPKART_SCRAPER_ID
+  const endpoint = process.env.PARSE_FLIPKART_ENDPOINT || 'get_product'
+  const urlParam = process.env.PARSE_FLIPKART_URL_PARAM || 'url'
+  if (!key || !scraperId) {
+    return { data: null, error: 'Parse is not configured (PARSE_API_KEY / PARSE_FLIPKART_SCRAPER_ID).' }
+  }
+
+  const hit = parseCache.get(url)
+  if (hit && Date.now() - hit.at < PARSE_CACHE_TTL_MS) return { data: structuredClone(hit.payload), error: null }
+
+  try {
+    const timeout = AbortSignal.timeout(PARSE_TIMEOUT_MS)
+    const res = await fetch(`${PARSE_BASE}/scraper/${encodeURIComponent(scraperId)}/${encodeURIComponent(endpoint)}`, {
+      method: 'POST',
+      headers: { 'X-API-Key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ [urlParam]: url }),
+      signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
+      cache: 'no-store',
+    })
+
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 200)
+      return { data: null, error: `Parse returned ${res.status}${detail ? `: ${detail}` : ''}` }
+    }
+
+    const payload = (await res.json()) as ParseRaw
+    if (typeof payload.status === 'string' && payload.status !== 'success') {
+      return {
+        data: null,
+        error: `Parse returned status "${payload.status}"${payload.error ? `: ${String(payload.error).slice(0, 200)}` : ''}`,
+      }
+    }
+    if (!isObj(payload.data ?? payload.result) || !toStr((payload.data as ParseRaw | undefined)?.title ?? (payload.result as ParseRaw | undefined)?.title)) {
+      return { data: null, error: 'Parse response had no product title — endpoint output does not match the expected shape.' }
+    }
+
+    parseCache.set(url, { at: Date.now(), payload })
+    return { data: structuredClone(payload), error: null }
+  } catch (e) {
+    return { data: null, error: e instanceof Error ? e.message : 'Parse request failed' }
+  }
 }
