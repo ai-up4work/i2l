@@ -51,6 +51,12 @@ import {
 // top bar, flex-1-stretched sidebar) instead of the older bordered-panel
 // look this page used before — every handler and piece of state below
 // is unchanged from that version, only the markup/styling around it.
+//
+// OVERFLOW FIX: long unbroken strings (e.g. a Flipkart/Amazon URL with a
+// huge query string) used to push the grid column wider than the
+// viewport, because flex/grid children default to min-width:auto. Fixed
+// with min-w-0 on SectionCard, the grid columns, and the link wrapper,
+// plus break-all / break-words on the long-text elements.
 
 /* ---------- tokens (same as the order detail page) ---------- */
 
@@ -112,12 +118,12 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <section className={`flex flex-col rounded-2xl border border-ink/10 bg-card ${className}`}>
+    <section className={`flex min-w-0 flex-col rounded-2xl border border-ink/10 bg-card ${className}`}>
       <header className="flex items-center justify-between gap-2 px-5 pt-5">
         <h2 className="font-display text-lg font-semibold text-ink">{title}</h2>
         {right}
       </header>
-      <div className="flex-1 p-5 pt-4">{children}</div>
+      <div className="min-w-0 flex-1 p-5 pt-4">{children}</div>
     </section>
   )
 }
@@ -633,7 +639,7 @@ export default function RequestDetailPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-parchment font-body text-ink">
       {/* Top bar */}
       <div className="sticky top-0 z-20 border-b border-ink/[0.07] bg-parchment/90 backdrop-blur">
         <div className="mx-auto flex max-w-8xl items-center justify-between gap-4 px-6 py-3 lg:px-10">
@@ -729,9 +735,11 @@ export default function RequestDetailPage() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* minmax(0, …) tracks + min-w-0 children: a single unbreakable
+            string can no longer stretch a column past its share. */}
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           {/* Main column: one card per item ask */}
-          <div className="flex flex-col gap-6 lg:col-span-2">
+          <div className="flex min-w-0 flex-col gap-6">
             {request.items.map((item, idx) => (
               <SectionCard
                 key={item.id}
@@ -742,23 +750,24 @@ export default function RequestDetailPage() {
                   ) : undefined
                 }
               >
-                <div className="space-y-4">
-                  <div>
+                <div className="min-w-0 space-y-4">
+                  <div className="min-w-0">
                     <p className="text-xs font-semibold text-ink/45">Link</p>
                     <a
                       href={item.link}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-1 flex items-center gap-1.5 text-sm font-medium text-teal-deep hover:underline"
+                      className="mt-1 inline-flex max-w-full items-start gap-1.5 text-sm font-medium text-teal-deep hover:underline"
                     >
-                      {item.link} <ExternalLink size={12} />
+                      <span className="min-w-0 break-all">{item.link}</span>
+                      <ExternalLink size={12} className="mt-1 flex-none" />
                     </a>
                     <p className="mt-0.5 text-xs text-ink/40">Source: {item.sourceDomain}</p>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-semibold text-ink/45">Customer's note</p>
-                    <p className="mt-1 text-sm leading-relaxed text-ink/80">{item.note}</p>
+                    <p className="mt-1 break-words text-sm leading-relaxed text-ink/80">{item.note}</p>
                   </div>
 
                   {(item.needsVariantConfirmation || !!item.variantOptions?.length) && (
@@ -819,7 +828,7 @@ export default function RequestDetailPage() {
                             value={variantInputs[item.id] ?? ""}
                             onChange={(e) => setVariantInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
                             placeholder="e.g. Size M, Black"
-                            className={`flex-1 ${FIELD}`}
+                            className={`min-w-0 flex-1 ${FIELD}`}
                           />
                           <button
                             type="button"
@@ -831,7 +840,7 @@ export default function RequestDetailPage() {
                           </button>
                         </div>
                       )}
-                      <p className="mt-1.5 text-[11px] text-ink/35">
+                      <p className="mt-1.5 break-words text-[11px] text-ink/35">
                         Once saved, this gets added to the item name — e.g. "
                         {item.variantOptions?.length
                           ? item.variantOptions.map((d) => `${d.dimension}: ${variantDropdownSelections[item.id]?.[d.dimension] || "..."}`).join(", ")
@@ -889,7 +898,7 @@ export default function RequestDetailPage() {
                               }))
                             }
                             placeholder="Seller / store name"
-                            className={`flex-1 ${FIELD}`}
+                            className={`min-w-0 flex-1 ${FIELD}`}
                           />
                           <input
                             type="number"
@@ -924,7 +933,7 @@ export default function RequestDetailPage() {
                                 value={row.valuesText}
                                 onChange={(e) => updateVariantRow(item.id, vi, "valuesText", e.target.value)}
                                 placeholder="Values, comma-separated (e.g. S, M, L, XL)"
-                                className={`flex-1 text-xs ${FIELD}`}
+                                className={`min-w-0 flex-1 text-xs ${FIELD}`}
                               />
                               <button
                                 type="button"
@@ -964,7 +973,7 @@ export default function RequestDetailPage() {
                       </div>
                     ) : item.productTitle || item.productImageUrl || item.sellerName || item.variantOptions?.length ? (
                       <div className="mt-2 flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
                           {item.productImageUrl && (
                             <img
                               src={item.productImageUrl}
@@ -972,7 +981,7 @@ export default function RequestDetailPage() {
                               className="h-14 w-14 flex-none rounded-lg border border-ink/10 object-cover"
                             />
                           )}
-                          <div className="text-xs text-ink/60">
+                          <div className="min-w-0 break-words text-xs text-ink/60">
                             {item.productTitle && <p className="font-medium text-ink/80">{item.productTitle}</p>}
                             {item.sellerName && <p className="mt-0.5">{item.sellerName}</p>}
                             <p className="mt-0.5">Qty {item.quantity ?? 1}</p>
@@ -1007,11 +1016,11 @@ export default function RequestDetailPage() {
                       Customer's screenshot <span className="font-normal text-ink/30">(separate from the product photo above)</span>
                     </p>
                     {item.screenshotUrl ? (
-                      <div className="mt-2 flex items-start gap-3">
+                      <div className="mt-2 flex flex-wrap items-start gap-3">
                         <img
                           src={item.screenshotUrl}
                           alt="Product photo"
-                          className="max-h-64 rounded-lg border border-ink/10 object-cover"
+                          className="max-h-64 max-w-full rounded-lg border border-ink/10 object-cover"
                         />
                         {canWork && isOpen && (
                           <label
@@ -1136,7 +1145,7 @@ export default function RequestDetailPage() {
           </div>
 
           {/* Sidebar: request-level actions */}
-          <aside className="flex flex-col gap-6">
+          <aside className="flex min-w-0 flex-col gap-6">
             {canWork && isOpen && request.allItemsQuoted && (
               <SectionCard title="Payment">
                 {request.payment ? (
@@ -1144,7 +1153,7 @@ export default function RequestDetailPage() {
                     <p className="text-xs font-semibold text-emerald-700">
                       Payment confirmed · Rs. {request.payment.amount.toLocaleString()}
                     </p>
-                    <p className="mt-1 text-xs text-ink/50">
+                    <p className="mt-1 break-words text-xs text-ink/50">
                       {request.payment.method.replace("_", " ")}
                       {request.payment.reference ? ` · Ref: ${request.payment.reference}` : ""}
                     </p>
@@ -1264,7 +1273,7 @@ export default function RequestDetailPage() {
               </SectionCard>
             )}
 
-            <section className="flex flex-1 flex-col rounded-2xl border border-ink/10 bg-card p-5">
+            <section className="flex min-w-0 flex-1 flex-col rounded-2xl border border-ink/10 bg-card p-5">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
                 <MessageSquare size={16} className="text-teal-deep" />
                 Customer chat
