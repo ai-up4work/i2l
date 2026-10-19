@@ -93,14 +93,14 @@ export default function BoardsPage() {
 
   if (!wishlist.hydrated) {
     return (
-      <div className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
+      <div className="mx-auto max-w-8xl px-6 pb-16 lg:px-10">
         <BoardsPageSkeleton />
       </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 pb-16 lg:px-10">
+    <div className="mx-auto max-w-8xl px-6 pb-16 lg:px-10">
       <div className="mt-10 flex items-end justify-between">
         <div>
           <h1 className="font-display text-xl text-ink sm:text-2xl">My Boards</h1>

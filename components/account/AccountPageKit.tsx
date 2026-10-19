@@ -10,7 +10,7 @@ import type { ReactNode } from 'react'
 
 type IconType = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
 
-export function AccountPage({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+export function AccountPage({ children, wide = true }: { children: ReactNode; wide?: boolean }) {
   return (
     <div className={`mx-auto w-full ${wide ? 'max-w-6xl' : 'max-w-5xl'} px-4 pb-20 pt-4 sm:px-6 lg:px-10 lg:pt-8`}>
       {children}
