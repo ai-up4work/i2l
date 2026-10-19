@@ -28,7 +28,8 @@ import type { PricingSettings } from '@/lib/pricing-settings'
 import { localPickupFees, socialStoreCurrency, storeOriginOf, type StoreOrigin } from '@/lib/store-origin'
 import { storeSourceOf } from '@/lib/catalogue-stores'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
-import { scrapeProduct } from '@/lib/scrape/parsers'
+import { detectSite, scrapeProduct } from '@/lib/scrape/parsers'
+import { matchAffiliatedSellerUrl } from '@/lib/store-config-db'
 import { ECONOMY_LOCKED } from '@/lib/feature-flags'
 import type { StoreProduct } from '@/lib/store.types'
 import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
@@ -166,6 +167,11 @@ type SourcePrice = {
   inStock: boolean
   /** Size / colour the product needs but the bag line doesn't have. */
   missingOptions?: SelectionKey[]
+  /** The store this line is priced as. Worked out on the server — the
+   *  browser's `site` is only trusted for catalogue lines whose product
+   *  was actually found in that store. Drives store settings, Mall
+   *  fixed pricing, pickup fees and store-limited coupons. */
+  storeSlug: string | null
 }
 
 const OBSERVATION_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -242,8 +248,20 @@ function parsePrice(v: unknown): number | null {
 }
 
 async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, stores: Map<string, StoreInfo>): Promise<SourcePrice> {
-  const info = line.site ? stores.get(line.site) : undefined
+  const catalogueInfo = line.site ? stores.get(line.site) : undefined
   const isHttp = /^https?:\/\//i.test(line.url)
+
+  // For a pasted link, which store it belongs to comes from the link's own
+  // hostname — never from the `site` the browser sent. Otherwise a link
+  // could claim to be from a local store (LKR prices, margin included) or
+  // the Mall (fixed price) and be priced far too low.
+  let linkSlug: string | null = null
+  let linkInfo: StoreInfo | undefined
+  if (isHttp) {
+    const matched = await matchAffiliatedSellerUrl(line.url).catch(() => null)
+    linkSlug = matched?.platform ?? detectSite(line.url)
+    linkInfo = matched ? stores.get(matched.platform) : undefined
+  }
 
   // 1. Catalogue + Mall: the store's own product.
   if ((line.source === 'catalogue' || line.productHandle) && line.site) {
@@ -254,14 +272,17 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
         const variant = variantFor(product, line.selectedOptions)
         return {
           price: variantPrice(product, line.selectedOptions),
-          currency: info?.currency ?? product.currency,
-          weightKg: product.weightKg ?? line.weightKg,
-          origin: info?.origin ?? product.origin ?? null,
-          marginIncluded: info?.marginIncluded ?? product.marginIncluded,
+          currency: catalogueInfo?.currency ?? product.currency,
+          // The store's own weight only — the browser's copy came from
+          // this same product, so it can't add anything but a forged value.
+          weightKg: product.weightKg ?? null,
+          origin: catalogueInfo?.origin ?? product.origin ?? null,
+          marginIncluded: catalogueInfo?.marginIncluded ?? product.marginIncluded,
           source: line.site === 'wishdrop-mall' ? 'mall' : 'catalogue',
           verified: true,
           inStock: product.inStock !== false && (variant ? variant.available !== false : true),
           missingOptions: missingSelections(product, line.selectedOptions),
+          storeSlug: line.site,
         }
       }
     }
@@ -277,13 +298,14 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
     if (obs && Date.now() - new Date(obs.observed_at).getTime() < OBSERVATION_MAX_AGE_MS) {
       return {
         price: Number(obs.price),
-        currency: info?.currency ?? obs.currency ?? line.currencyCode ?? 'INR',
-        weightKg: obs.weight_kg != null ? Number(obs.weight_kg) : line.weightKg,
-        origin: info?.origin ?? null,
-        marginIncluded: info?.marginIncluded,
+        currency: linkInfo?.currency ?? obs.currency ?? line.currencyCode ?? 'INR',
+        weightKg: obs.weight_kg != null ? Number(obs.weight_kg) : null,
+        origin: linkInfo?.origin ?? null,
+        marginIncluded: linkInfo?.marginIncluded,
         source: 'observed',
         verified: true,
         inStock: true,
+        storeSlug: linkSlug,
       }
     }
     const fresh = await withTimeout(scrapeProduct(line.url, { needVariants: false }), LIVE_SCRAPE_TIMEOUT_MS)
@@ -301,18 +323,20 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
       })
       return {
         price: freshPrice,
-        currency: info?.currency ?? fresh.currencyCode ?? line.currencyCode ?? 'INR',
-        weightKg: weight ?? line.weightKg,
-        origin: info?.origin ?? null,
-        marginIncluded: info?.marginIncluded,
+        currency: linkInfo?.currency ?? fresh.currencyCode ?? line.currencyCode ?? 'INR',
+        weightKg: weight,
+        origin: linkInfo?.origin ?? null,
+        marginIncluded: linkInfo?.marginIncluded,
         source: 'live_scrape',
         verified: true,
         inStock: !(fresh as { unavailable?: boolean }).unavailable,
+        storeSlug: linkSlug,
       }
     }
   }
 
   // 3. Couldn't confirm it — keep the customer's price, flag for staff.
+  const info = isHttp ? linkInfo : catalogueInfo
   return {
     price: parsePrice(line.sourcePrice) ?? 0,
     currency: info?.currency ?? line.currencyCode ?? 'USD',
@@ -322,6 +346,7 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
     source: 'customer',
     verified: false,
     inStock: true,
+    storeSlug: isHttp ? linkSlug : line.site,
   }
 }
 
@@ -342,6 +367,8 @@ export type PricedLine = {
   priceSource: PriceSource
   inStock: boolean
   missingOptions: SelectionKey[]
+  /** Server-checked store for this line (see SourcePrice.storeSlug). */
+  storeSlug: string | null
 }
 
 export type CartPricing = {
@@ -373,7 +400,7 @@ export async function priceCart(
         price: src.price,
         currency: src.currency,
         weightKg: src.weightKg ?? undefined,
-        storeSlug: input.site,
+        storeSlug: src.storeSlug,
       },
       s,
     )
@@ -390,11 +417,12 @@ export async function priceCart(
       priceSource: src.source,
       inStock: src.inStock,
       missingOptions: src.missingOptions ?? [],
+      storeSlug: src.storeSlug,
     }
   })
 
   const localLines = priced.filter((l) => l.origin === 'LK')
-  const pickup = localPickupFees(localLines.map((l) => ({ storeSlug: l.input.site, origin: 'LK' as const })), s)
+  const pickup = localPickupFees(localLines.map((l) => ({ storeSlug: l.storeSlug, origin: 'LK' as const })), s)
 
   return {
     lines: priced,
@@ -459,7 +487,7 @@ async function applyCoupon(
   if (!resolved.ok) return { ...none, error: resolved.error }
   const result = computeDiscount(
     resolved.value.coupon,
-    pricing.lines.map((l) => ({ key: l.input.id, storeSlug: l.input.site, priceLKR: l.priceLKR })),
+    pricing.lines.map((l) => ({ key: l.input.id, storeSlug: l.storeSlug, priceLKR: l.priceLKR })),
   )
   if (!result.ok) return { ...none, error: result.error }
   return {
@@ -474,7 +502,7 @@ async function applyCoupon(
 /** Every usable coupon on the account, with what it saves on this cart. */
 async function cartCoupons(admin: AdminClient, userId: string, pricing: CartPricing): Promise<CartCoupon[]> {
   const all = await listCustomerCouponsWithRows(admin, userId)
-  const lines = pricing.lines.map((l) => ({ key: l.input.id, storeSlug: l.input.site, priceLKR: l.priceLKR }))
+  const lines = pricing.lines.map((l) => ({ key: l.input.id, storeSlug: l.storeSlug, priceLKR: l.priceLKR }))
   const out: CartCoupon[] = all
     .filter(({ view }) => view.status === 'available')
     .map(({ view, row }) => {

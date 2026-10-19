@@ -23,6 +23,8 @@ import {
   LinkIcon,
 } from 'lucide-react'
 import AirmailStripe from '@/components/shared/AirmailStripe'
+import { FEATURED_STORE_CATEGORIES, categoryHref } from '@/lib/store-categories'
+import CategoryImage from '@/components/shared/CategoryImage'
 import { destinations } from '@/content/data'
 import Testimonials from '@/components/landing/Testimonials'
 import Header, {
@@ -308,17 +310,8 @@ const topDeals: Deal[] = [
   },
 ]
 
-const shopCategories = [
-  { name: 'Electronics', image: '/categories/electronics.png', href: '/stores?category=electronics' },
-  { name: 'Fashion', image: '/categories/fashion.png', href: '/stores?category=fashion' },
-  { name: 'Beauty', image: '/categories/beauty.png', href: '/stores?category=beauty' },
-  { name: 'Home & Living', image: '/categories/home.png', href: '/stores?category=home' },
-  { name: 'Sports', image: '/categories/sports.png', href: '/stores?category=sports' },
-  { name: 'Toys & Games', image: '/categories/toys.png', href: '/stores?category=toys' },
-  { name: 'Anime', image: '/categories/anime.png', href: '/stores?category=anime' },
-  { name: 'Books', image: '/categories/books.png', href: '/stores?category=books' },
-]
-
+// The featured categories, same as the Shop menu in the header
+// (lib/store-categories.ts). The full list is on /categories.
 function ShopByCategory() {
   return (
     <section className="mx-auto max-w-9xl px-12 py-4 lg:px-20 bg-card">
@@ -329,16 +322,15 @@ function ShopByCategory() {
         <h2 className="mt-2 font-display font-semibold text-3xl text-indigo sm:text-4xl">Find what you love</h2>
       </Reveal>
 
-      <div className="mt-8 grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-8 lg:gap-5">
-        {shopCategories.map((category, index) => (
-          <Reveal key={category.name} delay={index * 60}>
-            <a href={category.href} className="group flex flex-col items-center gap-2.5 text-center">
+      <div className="mt-8 grid grid-cols-3 gap-4 lg:grid-cols-9 lg:gap-5">
+        {FEATURED_STORE_CATEGORIES.map((category, index) => (
+          <Reveal key={category.slug} delay={index * 60}>
+            <a href={categoryHref(category)} className="group flex flex-col items-center gap-2.5 text-center">
               <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-2xl bg-ink/5 transition-colors duration-300 group-hover:bg-gold/10">
-                <Image
-                  src={category.image}
-                  alt=""
-                  fill
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
+                <CategoryImage
+                  category={category}
+                  className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-105"
+                  iconClassName="h-7 w-7"
                 />
               </span>
               <span className="font-body text-xs font-medium text-indigo sm:text-sm">{category.name}</span>
@@ -349,7 +341,7 @@ function ShopByCategory() {
 
       <div className="mt-10 mb-8 flex justify-center">
         <a
-          href="/stores"
+          href="/categories"
           className="rounded-xl border border-gold/75 px-6 py-3 font-body text-sm font-semibold text-ink transition-colors duration-300 hover:border-gold/40 hover:bg-indigo hover:text-parchment"
         >
           Explore all categories

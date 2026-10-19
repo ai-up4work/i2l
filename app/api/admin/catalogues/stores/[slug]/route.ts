@@ -18,6 +18,7 @@ import { isCatalogueStoreRow } from '@/lib/catalogue-stores'
 import { isStoreOrigin, socialStoreCurrency, storeOriginOf } from '@/lib/store-origin'
 import { isOwnCloudinaryUrl } from '@/lib/cloudinary'
 import { toAdminStore, type StoreRow } from '@/lib/catalogue-stores-admin'
+import { normalizeStoreCategories } from '@/lib/store-categories'
 
 type Params = { params: Promise<{ slug: string }> }
 type Admin = Extract<Awaited<ReturnType<typeof requireStaffRole>>, { ok: true }>['admin']
@@ -95,6 +96,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const name = String(body.name ?? '').trim().slice(0, 80)
     if (!name) return NextResponse.json({ error: 'Store name is required.' }, { status: 400 })
     patch.name = name
+  }
+  if (body.categories !== undefined) {
+    const cleaned = normalizeStoreCategories(body.categories)
+    if (!cleaned) return NextResponse.json({ error: 'categories must be a list of category names.' }, { status: 400 })
+    patch.categories = cleaned
   }
   if (body.description !== undefined) patch.description = text(body.description, 1000)
   if (body.tagline !== undefined) patch.tagline = text(body.tagline, 120)

@@ -1,3 +1,7 @@
+-- SUPERSEDED by data/wishdrop-staff-rls.sql (run that one; it creates public.is_staff()).
+-- The policies below were changed from "any signed-in user" to "active staff only"
+-- so re-running this file can no longer reopen the hole.
+
 -- data/Wishdrop-admin-orders-rls-fix.sql
 --
 -- ROOT CAUSE of "fresh orders show on /admin/orders but not on
@@ -51,12 +55,12 @@
 drop policy if exists "own orders" on public.orders;
 create policy "own orders or any authenticated (admin) session"
   on public.orders for select
-  using (auth.uid() = user_id or auth.role() = 'authenticated');
+  using (auth.uid() = user_id or public.is_staff());
 
 drop policy if exists "own order items" on public.order_items;
 create policy "own order items or any authenticated (admin) session"
   on public.order_items for select
   using (
     exists (select 1 from public.orders o where o.id = order_id and o.user_id = auth.uid())
-    or auth.role() = 'authenticated'
+    or public.is_staff()
   );

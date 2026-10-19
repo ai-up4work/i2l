@@ -24,6 +24,7 @@ import type { AdminStore } from '@/lib/catalogue-stores-admin'
 import type { StoreOrigin } from '@/lib/store-origin'
 import StoreCollections from '@/components/admin/catalogue/StoreCollections'
 import { StoreOriginPicker } from '@/components/admin/StoreOriginPicker'
+import { StoreCategoryPicker } from '@/components/admin/StoreCategoryPicker'
 import {
   BackLink,
   btnPrimary,
@@ -63,6 +64,7 @@ function NewStore() {
   const [contactPhone, setContactPhone] = useState('')
   const [margin, setMargin] = useState('25')
   const [origin, setOrigin] = useState<StoreOrigin>('IN')
+  const [categories, setCategories] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Opened from a seller application (?application=…): pre-fill, and
@@ -91,7 +93,7 @@ function NewStore() {
     try {
       const { store } = await api<{ store: AdminStore }>('/api/admin/catalogues/stores', {
         method: 'POST',
-        body: JSON.stringify({ name, slug: effectiveSlug, contactName, contactEmail, contactPhone, marginPercent: margin, storeOrigin: origin }),
+        body: JSON.stringify({ name, slug: effectiveSlug, contactName, contactEmail, contactPhone, marginPercent: margin, storeOrigin: origin, categories }),
       })
       if (fromApplication) {
         await fetch('/api/admin/catalogues/applications', {
@@ -158,6 +160,10 @@ function NewStore() {
                 </div>
               </FieldLabel>
             </div>
+          </Section>
+
+          <Section title="Categories" description="Shoppers find the store under these in Shop by category.">
+            <StoreCategoryPicker value={categories} onChange={setCategories} />
           </Section>
 
           <Section title="Store location" description="Staff only. Shoppers are never told where a store is.">
@@ -290,6 +296,7 @@ function ManageStore({ slug }: { slug: string }) {
       contactPhone: form.contactPhone,
       notes: form.notes,
       marginPercent: form.defaultMarginPercent,
+      categories: form.categories,
     }
     if (form.origin !== store.origin) payload.storeOrigin = form.origin
     // Only send images that changed — an older logo may be a plain link
@@ -482,6 +489,10 @@ function ManageStore({ slug }: { slug: string }) {
                   <input value={form.facebook} onChange={(e) => set('facebook', e.target.value)} placeholder="theirshop or facebook.com/theirshop" className={input} />
                 </FieldLabel>
               </div>
+            </Section>
+
+            <Section title="Categories" description="Shoppers find the store under these in Shop by category.">
+              <StoreCategoryPicker value={form.categories} onChange={(v) => set('categories', v)} />
             </Section>
 
             <Section title="Seller, margin and location" description="Staff only. Shoppers never see any of this.">

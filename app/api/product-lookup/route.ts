@@ -5,6 +5,8 @@ import { extractProductIdentifier } from '@/lib/store-providers/product-id'
 import { fetchStoreProductForRedirectCheck } from '@/lib/store-providers/product'
 import { upsertScrapeHealth } from '@/lib/supabase/scrape-health-write'
 import { looksLikeShortlink, resolveFinalUrl } from '@/lib/scrape/resolve-redirect'
+import { isRateLimited } from '@/lib/rate-limit'
+import { isPublicHttpUrl } from '@/lib/url-safety'
 
 // Must be >= the ScraperAPI TOTAL_BUDGET_MS (5 min) or the platform
 // will kill the function before scrapeProduct() gets a chance to
@@ -19,6 +21,18 @@ export async function GET(request: Request) {
 
   if (!url) {
     return NextResponse.json({ error: 'Missing required query param: url' }, { status: 400 })
+  }
+
+  // Lookups cost paid scraper credit — cap them per IP, and never fetch
+  // private/internal addresses.
+  if (await isRateLimited(request, 'product-lookup', 40, 10 * 60)) {
+    return NextResponse.json(
+      { error: 'You’re looking up links very quickly. Please wait a few minutes and try again.' },
+      { status: 429, headers: { 'Retry-After': '600' } },
+    )
+  }
+  if (!(await isPublicHttpUrl(url))) {
+    return NextResponse.json({ error: 'That link can’t be looked up.' }, { status: 400 })
   }
 
   // Internal QA testing traffic (app/demo/scraper-qa) sends this header
@@ -47,6 +61,9 @@ export async function GET(request: Request) {
   // any failure, so a shortener having a bad day never blocks the
   // request.
   const resolvedUrl = looksLikeShortlink(url) ? await resolveFinalUrl(url) : url
+  if (resolvedUrl !== url && !(await isPublicHttpUrl(resolvedUrl))) {
+    return NextResponse.json({ error: 'That link can’t be looked up.' }, { status: 400 })
+  }
   if (resolvedUrl !== url) {
     console.log('[product-lookup] resolved shortlink', { original: url, resolved: resolvedUrl })
   }

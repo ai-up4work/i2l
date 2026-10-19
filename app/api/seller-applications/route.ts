@@ -9,18 +9,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { isRateLimited } from '@/lib/rate-limit'
 
-const recent = new Map<string, number[]>()
-const WINDOW_MS = 60 * 60 * 1000
+// 5 applications per IP per hour, counted in Redis so it holds across
+// Vercel instances (an in-memory count reset on every new instance).
 const MAX_PER_WINDOW = 5
-
-function tooMany(ip: string): boolean {
-  const now = Date.now()
-  const times = (recent.get(ip) ?? []).filter((t) => now - t < WINDOW_MS)
-  times.push(now)
-  recent.set(ip, times)
-  return times.length > MAX_PER_WINDOW
-}
+const WINDOW_SECONDS = 60 * 60
 
 const text = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max)
 
@@ -30,8 +24,7 @@ export async function POST(req: NextRequest) {
   // Honeypot: real people never see or fill this field.
   if (text(body.company, 200)) return NextResponse.json({ ok: true })
 
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
-  if (tooMany(ip)) {
+  if (await isRateLimited(req, 'seller-application', MAX_PER_WINDOW, WINDOW_SECONDS)) {
     return NextResponse.json({ error: 'Too many applications from this connection. Please try again in an hour.' }, { status: 429 })
   }
 

@@ -220,8 +220,8 @@ export default function LoyaltyDemoPage() {
 
   // --- Gift card trigger -----------------------------------------------
 
-  const runRedeemGiftCard = () => {
-    const awarded = loyalty.redeemGiftCard(giftCardCode)
+  const runRedeemGiftCard = async () => {
+    const awarded = await loyalty.redeemGiftCard(giftCardCode)
     pushLog(
       awarded > 0 ? `Gift card redeemed (${giftCardCode})` : `Gift card redeem failed — invalid code`,
       awarded,

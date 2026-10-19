@@ -1,3 +1,7 @@
+-- SUPERSEDED by data/wishdrop-staff-rls.sql (run that one; it creates public.is_staff()).
+-- The policies below were changed from "any signed-in user" to "active staff only"
+-- so re-running this file can no longer reopen the hole.
+
 -- data/Wishdrop-qc-issues-rls-fix.sql
 --
 -- Same root cause as Wishdrop-admin-orders-rls-fix.sql and
@@ -97,22 +101,18 @@ drop policy if exists "own qc issues" on public.order_item_issues;
 drop policy if exists "own qc issues or any authenticated (admin) session" on public.order_item_issues;
 create policy "own qc issues or any authenticated (admin) session"
   on public.order_item_issues for all
-  using (auth.uid() = user_id or auth.role() = 'authenticated')
-  with check (auth.uid() = user_id or auth.role() = 'authenticated');
+  using (auth.uid() = user_id or public.is_staff())
+  with check (auth.uid() = user_id or public.is_staff());
 
-drop policy if exists "own coupons" on public.personal_coupons;
-drop policy if exists "own coupons or any authenticated (admin) session" on public.personal_coupons;
-create policy "own coupons or any authenticated (admin) session"
-  on public.personal_coupons for all
-  using (auth.uid() = user_id or auth.role() = 'authenticated')
-  with check (auth.uid() = user_id or auth.role() = 'authenticated');
+-- personal_coupons: left alone here — wishdrop-coupons-referrals-payments.sql
+-- makes it read-your-own-only and coupon writes happen on the server.
 
 drop policy if exists "own notifications" on public.notifications;
 drop policy if exists "own notifications or any authenticated (admin) session" on public.notifications;
 create policy "own notifications or any authenticated (admin) session"
   on public.notifications for all
-  using (auth.uid() = user_id or auth.role() = 'authenticated')
-  with check (auth.uid() = user_id or auth.role() = 'authenticated');
+  using (auth.uid() = user_id or public.is_staff())
+  with check (auth.uid() = user_id or public.is_staff());
 
 -- Storage: the "qc" (and "products"/"banners") upload folder(s) are now
 -- routed through createServiceRoleClient() in app/api/upload/route.ts,

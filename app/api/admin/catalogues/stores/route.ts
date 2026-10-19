@@ -19,6 +19,7 @@ import { isStoreOrigin, DEFAULT_STORE_ORIGIN } from '@/lib/store-origin'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
 import { isCatalogueStoreRow, storeSlugFromName, storeSlugProblem } from '@/lib/catalogue-stores'
 import { toAdminStore, type StoreRow } from '@/lib/catalogue-stores-admin'
+import { normalizeStoreCategories } from '@/lib/store-categories'
 
 export async function GET() {
   const auth = await requireStaffRole(SOURCING_ROLES)
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
     contactPhone?: string
     country?: string
     marginPercent?: number | string
+    categories?: unknown
   }
 
   const name = String(body.name ?? '').trim().slice(0, 80)
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
       // on the public stores page.
       status: 'inactive',
       country,
-      categories: [],
+      categories: normalizeStoreCategories(body.categories) ?? [],
       contact_name: String(body.contactName ?? '').trim().slice(0, 80) || null,
       contact_email: contactEmail || null,
       contact_phone: String(body.contactPhone ?? '').trim().slice(0, 30) || null,

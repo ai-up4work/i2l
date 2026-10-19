@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sourceForWizardConfig, storeSourceOf } from '@/lib/catalogue-stores'
 import { isStoreOrigin, DEFAULT_STORE_ORIGIN } from '@/lib/store-origin'
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth'
+import { normalizeStoreCategories } from '@/lib/store-categories'
 
 // Mirrors SellerStatus from data/sellers/data.ts.
 const VALID_STATUSES = ['active', 'pending_review', 'inactive'] as const
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
     status, // optional — the wizard decides 'active' (mock) vs 'pending_review'
     // (real feed, unverified). Anything invalid/omitted falls back to
     // pending_review, the safe default.
+    categories, // shopping categories (lib/store-categories.ts)
   } = body
 
   if (!storeName || !platform || !contactEmail) {
@@ -91,6 +93,7 @@ export async function POST(req: NextRequest) {
       // extractor store, not a social store (lib/catalogue-stores.ts).
       store_source: sourceForWizardConfig(providerConfig),
       store_origin: isStoreOrigin(storeOrigin) ? storeOrigin : DEFAULT_STORE_ORIGIN,
+      categories: normalizeStoreCategories(categories) ?? [],
     })
     .select()
     .single()

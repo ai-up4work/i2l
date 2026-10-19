@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { scrapeProduct } from "@/lib/scrape/parsers";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { recordPriceObservation } from "@/lib/checkout/server";
+import { isRateLimited } from "@/lib/rate-limit";
+import { isPublicHttpUrl } from "@/lib/url-safety";
+
+// Per IP, shared by GET and POST: lookups cost paid scraper credit.
+const LOOKUP_LIMIT = 40;
+const LOOKUP_WINDOW_SECONDS = 10 * 60;
+
+function tooManyResponse() {
+  return NextResponse.json(
+    { error: "You’re looking up links very quickly. Please wait a few minutes and try again." },
+    { status: 429, headers: { "Retry-After": String(LOOKUP_WINDOW_SECONDS) } }
+  );
+}
+
+function blockedUrlResponse() {
+  return NextResponse.json({ error: "That link can’t be looked up." }, { status: 400 });
+}
 
 // Remembers the price we just read so checkout can price this item on the
 // server (lib/checkout/server.ts) instead of trusting the browser. Only a
@@ -68,6 +85,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (await isRateLimited(req, "scrape", LOOKUP_LIMIT, LOOKUP_WINDOW_SECONDS)) return tooManyResponse();
+  if (!(await isPublicHttpUrl(url))) return blockedUrlResponse();
+
   try {
     const result = await scrapeProduct(url, {
       needVariants: !!needVariants,
@@ -101,6 +121,9 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  if (await isRateLimited(req, "scrape", LOOKUP_LIMIT, LOOKUP_WINDOW_SECONDS)) return tooManyResponse();
+  if (!(await isPublicHttpUrl(url))) return blockedUrlResponse();
 
   try {
     const result = await scrapeProduct(url, { needVariants, signal: req.signal });

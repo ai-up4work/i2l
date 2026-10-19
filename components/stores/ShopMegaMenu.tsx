@@ -3,41 +3,25 @@
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import {
-  Shirt,
-  Layers,
-  Gem,
-  Smartphone,
-  Sparkles,
-  Baby,
-  Heart,
-  Package,
   ChevronRight,
   Link2,
   Search,
 } from "lucide-react"
 import { useAffiliatedStores } from "@/hooks/useAffiliatedStores"
+import { STORE_CATEGORIES } from "@/lib/store-categories"
+import CategoryImage from "@/components/shared/CategoryImage"
 import { followedFirst, useFollowedStores } from "@/hooks/useFollowedStores"
 import type { AffiliatedStore } from "@/data/stores/data"
 import Flag from "@/components/ui/Flag"
 import { INNER_H } from "@/components/shared/headerMetrics"
 import { AIRMAIL_STRIPE_HEIGHT } from "@/components/shared/AirmailStripe"
 
-// Category chips link into /stores?category=<name>, filtering the same
-// `categories[]` field on AffiliatedStore that the /stores browse page
-// already reads. These 8 are real strings pulled straight from
-// affiliatedStores — not an invented taxonomy — so a click always finds a
-// non-empty result set. Add an icon here if a new category should surface
-// in the header; anything else still lives on the /stores page itself.
-const categoryIcons: { name: string; icon: typeof Shirt }[] = [
-  { name: "Clothing", icon: Shirt },
-  { name: "Ethnic Wear", icon: Layers },
-  { name: "Jewellery", icon: Gem },
-  { name: "Electronics", icon: Smartphone },
-  { name: "Beauty", icon: Sparkles },
-  { name: "Maternity Wear", icon: Baby },
-  { name: "Handmade", icon: Heart },
-  { name: "Collectibles", icon: Package },
-]
+// Category links open /categories filtered to that category (stores are
+// matched on their saved `categories`). The list itself lives in
+// lib/store-categories.ts so the header, the landing page, the
+// /categories page and the store forms always agree. The menu lists every
+// category (two columns of photo tiles); "All categories" opens /categories.
+const menuCategories = STORE_CATEGORIES
 
 // marketplaceStores/featuredLocalStores are now computed inside each of
 // ShopMegaMenuPanel/ShopMegaMenuMobile below (via useAffiliatedStores()),
@@ -277,26 +261,38 @@ export function ShopMegaMenuPanel({
             : "pointer-events-none invisible [transform:rotateX(-100deg)] opacity-0"
         }`}
       >
-        <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[minmax(0,240px)_1px_minmax(0,1fr)] px-4">
-          {/* Categories */}
+        <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[minmax(0,420px)_1px_minmax(0,1fr)] px-4 xl:grid-cols-[minmax(0,500px)_1px_minmax(0,1fr)]">
+          {/* Categories — every category, as photo tiles in two columns,
+              with a button to the full /categories page underneath. */}
           <div className="p-4">
-            <div className="px-3 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
+            <div className="px-1 pb-3 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
               Shop by category
             </div>
-            <div className="flex flex-col">
-              {categoryIcons.map(({ name, icon: Icon }) => (
+            <div className="grid grid-cols-2 gap-2">
+              {menuCategories.map((category) => (
                 <a
-                  key={name}
-                  href={`/stores?category=${encodeURIComponent(name)}`}
-                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-teal/10"
+                  key={category.slug}
+                  href={`/categories?category=${category.slug}`}
+                  className="group flex min-w-0 items-center gap-2.5 rounded-xl p-1.5 pr-2 ring-1 ring-ink/[0.06] transition-colors duration-150 hover:bg-teal/10 hover:ring-teal/25"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-deep">
-                    <Icon className="h-4 w-4" strokeWidth={2} />
+                  <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-ink/5">
+                    <CategoryImage
+                      category={category}
+                      className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-105"
+                      iconClassName="h-4 w-4"
+                    />
                   </span>
-                  <span className="text-sm font-medium font-body text-ink">{name}</span>
+                  <span className="min-w-0 text-[13px] font-medium leading-tight font-body text-ink">{category.name}</span>
                 </a>
               ))}
             </div>
+            <a
+              href="/categories"
+              className="mt-3 flex items-center justify-center gap-1 rounded-xl bg-indigo px-4 py-2.5 text-sm font-semibold font-body text-parchment transition-colors duration-150 hover:bg-teal-deep"
+            >
+              All categories
+              <ChevronRight className="h-4 w-4" strokeWidth={2} />
+            </a>
           </div>
 
           {/* Divider */}
@@ -314,7 +310,7 @@ export function ShopMegaMenuPanel({
             <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
               Marketplaces
             </div>
-            <div className="grid grid-cols-4 gap-x-2 gap-y-0.5">
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 xl:grid-cols-3 2xl:grid-cols-4">
               {marketplaceStores.slice(0, 8).map((store) => (
                 <StoreRow key={store.platform} store={store} />
               ))}
@@ -323,7 +319,7 @@ export function ShopMegaMenuPanel({
             <div className="px-3 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
               Affiliated Stores
             </div>
-            <div className="grid grid-cols-4 gap-x-2 gap-y-0.5">
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 xl:grid-cols-3 2xl:grid-cols-4">
               {featuredLocalStores.map((store) => (
                 <StoreRow key={store.platform} store={store} />
               ))}
@@ -484,18 +480,26 @@ export function ShopMegaMenuMobile({ onAddRequest }: { onAddRequest?: () => void
           )}
 
           {/* Categories */}
-          <SheetHeading>Shop by category</SheetHeading>
-          <div className="grid grid-cols-4 gap-2 px-5">
-            {categoryIcons.map(({ name, icon: Icon }) => (
+          <SheetHeading
+            action={
+              <a href="/categories" className="font-body text-xs font-semibold text-teal-deep">
+                See all
+              </a>
+            }
+          >
+            Shop by category
+          </SheetHeading>
+          <div className="grid grid-cols-3 gap-2 px-5">
+            {menuCategories.map((category) => (
               <a
-                key={name}
-                href={`/stores?category=${encodeURIComponent(name)}`}
-                className="flex flex-col items-center gap-1.5 rounded-2xl bg-card px-1 py-3 text-center ring-1 ring-ink/8 transition-colors active:bg-teal/10"
+                key={category.slug}
+                href={`/categories?category=${category.slug}`}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-card p-1.5 pb-2.5 text-center ring-1 ring-ink/8 transition-colors active:bg-teal/10"
               >
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-teal/10">
-                  <Icon className="h-[18px] w-[18px] text-teal-deep" strokeWidth={1.9} />
+                <span className="relative aspect-square w-full overflow-hidden rounded-xl bg-ink/5">
+                  <CategoryImage category={category} className="absolute inset-0 h-full w-full" iconClassName="h-5 w-5" />
                 </span>
-                <span className="w-full truncate px-0.5 font-body text-[11px] font-medium leading-tight text-ink/80">{name}</span>
+                <span className="line-clamp-2 w-full px-0.5 font-body text-[11px] font-medium leading-tight text-ink/80">{category.name}</span>
               </a>
             ))}
           </div>

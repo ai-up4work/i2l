@@ -195,28 +195,30 @@ function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> })
           {'title' in table && table.title && (
             <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#565959]">{table.title}</p>
           )}
-          <table className="w-full border-collapse text-left text-[12px] text-[#0F1111]">
-            <thead>
-              <tr className="border-b border-[#d5d9d9]">
-                {table.columns.map((col) => (
-                  <th key={col} className="py-1 pr-4 font-semibold">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {table.rows.map((row, r) => (
-                <tr key={r} className="border-b border-[#efefef] last:border-0">
+          {'columns' in table && (
+            <table className="w-full border-collapse text-left text-[12px] text-[#0F1111]">
+              <thead>
+                <tr className="border-b border-[#d5d9d9]">
                   {table.columns.map((col) => (
-                    <td key={col} className="py-1 pr-4">
-                      {row[col]}
-                    </td>
+                    <th key={col} className="py-1 pr-4 font-semibold">
+                      {col}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {table.rows.map((row, r) => (
+                  <tr key={r} className="border-b border-[#efefef] last:border-0">
+                    {table.columns.map((col) => (
+                      <td key={col} className="py-1 pr-4">
+                        {row[col]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       ))}
     </div>

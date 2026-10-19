@@ -18,6 +18,8 @@
 // correct behavior, not a shortcut, since the customer is already on the
 // "this needs a human" path either way.
 
+import { safeFetch } from '@/lib/url-safety'
+
 const FETCH_TIMEOUT_MS = 8_000
 // OG tags are almost always in <head>, well within the first ~200KB even
 // on a heavy page — capping how much we read keeps this fast and cheap
@@ -76,9 +78,10 @@ export async function fetchOgMetadata(url: string): Promise<OgMetadata> {
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
   try {
-    const res = await fetch(url, {
+    // safeFetch follows redirects itself and refuses any hop that points
+    // at a private/internal address.
+    const res = await safeFetch(url, {
       signal: controller.signal,
-      redirect: 'follow',
       headers: {
         // A plain server-side fetch with no browser UA gets blocked or
         // served a stripped page by a lot of sites — a realistic UA

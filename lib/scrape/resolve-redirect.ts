@@ -24,6 +24,8 @@
 // `new URL(url).hostname`. This only matters for genuine redirect
 // chains where the visible domain isn't the real destination at all.
 
+import { safeFetch } from '@/lib/url-safety'
+
 /**
  * Follows HTTP redirects to find the real destination URL, if `url`
  * turns out to be a shortlink. Returns the original URL unchanged on
@@ -44,9 +46,10 @@ export async function resolveFinalUrl(url: string, timeoutMs = 8000): Promise<st
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await fetch(url, {
+    // safeFetch follows redirects itself and refuses any hop that points
+    // at a private/internal address (throws -> original URL returned).
+    const res = await safeFetch(url, {
       method: 'GET',
-      redirect: 'follow',
       signal: controller.signal,
       headers: {
         // A generic browser UA — some shorteners serve an interstitial
@@ -55,7 +58,7 @@ export async function resolveFinalUrl(url: string, timeoutMs = 8000): Promise<st
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       },
-    })
+    }, 10)
     // Stop reading the body the moment we have the final URL/headers —
     // fetch() has already followed every redirect hop by this point
     // (that's what `redirect: 'follow'` did), so nothing past this is

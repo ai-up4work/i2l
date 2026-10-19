@@ -34,7 +34,7 @@ export function parseSnapdeal($: CheerioAPI, url: string) {
     if (src) images.add(src)
   })
 
-  const bodyText = cleanText($('body')).toLowerCase()
+  const bodyText = (cleanText($('body')) ?? '').toLowerCase()
   const hasBuyControl = $(BUY_CONTROL_SELECTORS).length > 0
   const looksUnavailable =
     !hasBuyControl && (UNAVAILABLE_TEXT_PATTERNS.some((re) => re.test(bodyText)) || (!amount && !priceRaw))

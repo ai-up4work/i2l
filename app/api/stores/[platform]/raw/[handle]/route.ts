@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { mockProducts } from '@/components/dashboard/data';
 import { getSellerAndConfig } from '@/lib/store-config-db';
 import type { StoreApiError } from '@/lib/store.types';
+import { isRateLimited } from '@/lib/rate-limit';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (compatible; StoreCatalog/1.0)',
@@ -44,6 +45,13 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ platform: string; handle: string }> }
 ): Promise<NextResponse> {
+  if (await isRateLimited(req, 'raw-product', 30, 10 * 60)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' } satisfies StoreApiError, {
+      status: 429,
+      headers: { 'Retry-After': '600' },
+    });
+  }
+
   try {
     const { platform, handle } = await params;
 

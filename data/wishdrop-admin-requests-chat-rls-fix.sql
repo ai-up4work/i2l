@@ -1,3 +1,7 @@
+-- SUPERSEDED by data/wishdrop-staff-rls.sql (run that one; it creates public.is_staff()).
+-- The policies below were changed from "any signed-in user" to "active staff only"
+-- so re-running this file can no longer reopen the hole.
+
 -- data/Wishdrop-admin-requests-chat-rls-fix.sql
 --
 -- Same root cause as Wishdrop-admin-orders-rls-fix.sql, applied to the
@@ -35,23 +39,23 @@
 drop policy if exists "own requests" on public.requests;
 create policy "own requests or any authenticated (admin) session"
   on public.requests for all
-  using (auth.uid() = user_id or auth.role() = 'authenticated')
-  with check (auth.uid() = user_id or auth.role() = 'authenticated');
+  using (auth.uid() = user_id or public.is_staff())
+  with check (auth.uid() = user_id or public.is_staff());
 
 drop policy if exists "own chat threads" on public.chat_threads;
 create policy "own chat threads or any authenticated (admin) session"
   on public.chat_threads for all
-  using (auth.uid() = user_id or auth.role() = 'authenticated')
-  with check (auth.uid() = user_id or auth.role() = 'authenticated');
+  using (auth.uid() = user_id or public.is_staff())
+  with check (auth.uid() = user_id or public.is_staff());
 
 drop policy if exists "own thread messages" on public.chat_messages;
 create policy "own thread messages or any authenticated (admin) session"
   on public.chat_messages for all
   using (
     exists (select 1 from public.chat_threads t where t.id = thread_id and t.user_id = auth.uid())
-    or auth.role() = 'authenticated'
+    or public.is_staff()
   )
   with check (
     exists (select 1 from public.chat_threads t where t.id = thread_id and t.user_id = auth.uid())
-    or auth.role() = 'authenticated'
+    or public.is_staff()
   );

@@ -50,6 +50,8 @@ import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/a
 import StoreBrandingEditor from '@/components/admin/seller/StoreBrandingEditor'
 import { hasCustomExtractor } from '@/lib/store-providers/sellers'
 import { StoreOriginPicker } from '@/components/admin/StoreOriginPicker'
+import { StoreCategoryPicker } from '@/components/admin/StoreCategoryPicker'
+import { normalizeStoreCategories } from '@/lib/store-categories'
 import { CategoryTilesPanel } from '@/components/admin/seller/CategoryTilesPanel'
 import { categoryTilesOf, mergeCategoryTiles, type CategoryImageCandidate, type CategoryTile } from '@/lib/category-tiles'
 import { STORE_ORIGIN_LABEL, type StoreOrigin } from '@/lib/store-origin'
@@ -189,6 +191,9 @@ export default function SellerFormClient({
     notes: seller?.admin.notes ?? '',
     status: seller?.admin.status ?? ('active' as SellerStatus),
     storeOrigin: (seller?.store.origin ?? 'IN') as StoreOrigin,
+    // Shopping categories (lib/store-categories.ts) — where shoppers find
+    // this store on /categories and in the header's Shop menu.
+    categories: normalizeStoreCategories(seller?.store.categories) ?? [],
   })
   const [profileSaved, setProfileSaved] = useState(false)
 
@@ -255,6 +260,7 @@ export default function SellerFormClient({
           contactEmail: form.contactEmail,
           contactPhone: form.contactPhone,
           storeOrigin: form.storeOrigin,
+          categories: form.categories,
           notes: form.notes,
           // Always resolved so we never PATCH an empty logo_url over a
           // perfectly good saved one.
@@ -1089,6 +1095,7 @@ export default function SellerFormClient({
           contactEmail: form.contactEmail,
           contactPhone: form.contactPhone,
           storeOrigin: form.storeOrigin,
+          categories: form.categories,
           notes: form.notes,
           // Data URLs for now (see the branding note at the top) — a real
           // backend should upload to storage and keep only the hosted URL.
@@ -1364,6 +1371,21 @@ export default function SellerFormClient({
       <Field label="Store location">
         <StoreOriginPicker value={form.storeOrigin} onChange={(v) => setForm((prev) => ({ ...prev, storeOrigin: v }))} />
       </Field>
+
+      {/* A div, not <Field> (a <label>): clicking a label's text would
+          toggle the first category button inside it. */}
+      <div>
+        <span className="text-xs font-semibold text-ink/50">Categories</span>
+        <div className="mt-1.5">
+          <StoreCategoryPicker
+            value={form.categories}
+            onChange={(categories) => {
+              setForm((prev) => ({ ...prev, categories }))
+              setProfileSaved(false)
+            }}
+          />
+        </div>
+      </div>
 
       <Field label="Contact email" required>
         <input type="email" value={form.contactEmail} onChange={set('contactEmail')} placeholder="name@store.com" className={inputClass} />
@@ -2337,6 +2359,7 @@ export default function SellerFormClient({
                       <SummaryRow term="Contact name" value={form.contactName || '—'} />
                       <SummaryRow term="Contact phone" value={form.contactPhone || '—'} />
                       <SummaryRow term="Store location" value={STORE_ORIGIN_LABEL[form.storeOrigin]} />
+                      <SummaryRow term="Categories" value={form.categories.length ? form.categories.join(', ') : '—'} />
                       <SummaryRow term="Notes" value={form.notes || '—'} multiline />
                     </dl>
                     <div className="flex items-center justify-between gap-2 border-t border-ink/10 pt-5">

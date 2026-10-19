@@ -15,6 +15,7 @@ export function normaliseMockProduct(p: (typeof mockProducts)[number]): StorePro
     price: p.price,
     currency: p.currency,
     inStock: true,
+    stockCount: null,
     category: p.category,
     condition: p.condition,
     description: p.description,

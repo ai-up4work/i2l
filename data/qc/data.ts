@@ -1,4 +1,4 @@
-import { MOCK_PURCHASE_LINES, type PurchaseLine } from "@/data/purchases/data"
+import type { PurchaseLine } from "@/data/purchases/data"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 
 // A QC line only exists once its purchase line has actually been bought and
@@ -83,9 +83,11 @@ export interface QCRow extends QCLine {
   purchase: PurchaseLine
 }
 
-export function getQCRows(): QCRow[] {
+// Purchase lines now live in AdminDataContext (useAdminData().purchaseLines),
+// so callers pass them in — the old MOCK_PURCHASE_LINES export is gone.
+export function getQCRows(purchaseLines: PurchaseLine[]): QCRow[] {
   return MOCK_QC_LINES.map((qc) => {
-    const purchase = MOCK_PURCHASE_LINES.find((p) => p.id === qc.purchaseLineId)
+    const purchase = purchaseLines.find((p) => p.id === qc.purchaseLineId)
     if (!purchase) {
       throw new Error(`QC line ${qc.id} references missing purchase line ${qc.purchaseLineId}`)
     }

@@ -19,6 +19,7 @@ import { isStoreOrigin } from '@/lib/store-origin'
 import { categoryTilesOf } from '@/lib/category-tiles'
 import { requireStaffRole, SOURCING_ROLES, DELETE_ROLES } from '@/lib/supabase/admin-auth'
 import type { Database } from '@/lib/supabase/types'
+import { normalizeStoreCategories } from '@/lib/store-categories'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ platform: string }> }) {
   const authCheck = await requireStaffRole(SOURCING_ROLES)
@@ -53,6 +54,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
     coverUrl, // string = set; null = clear; undefined = leave alone
     storeOrigin, // 'IN' | 'LK' — store location, lib/store-origin.ts
     categoryTiles, // "Shop by category" images only — merged into the saved provider_config
+    categories, // shopping categories (lib/store-categories.ts) — string[]
   } = body
 
   const patch: Database['public']['Tables']['sellers']['Update'] = {}
@@ -65,6 +67,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pl
   if (status !== undefined) patch.status = status
   if (logoUrl !== undefined) patch.logo_url = logoUrl || null
   if (coverUrl !== undefined) patch.cover_url = coverUrl || null
+  if (categories !== undefined) {
+    const cleaned = normalizeStoreCategories(categories)
+    if (!cleaned) return NextResponse.json({ error: 'categories must be a list of category names.' }, { status: 400 })
+    patch.categories = cleaned
+  }
   if (storeOrigin !== undefined) {
     if (!isStoreOrigin(storeOrigin)) return NextResponse.json({ error: 'storeOrigin must be "IN" or "LK".' }, { status: 400 })
     patch.store_origin = storeOrigin

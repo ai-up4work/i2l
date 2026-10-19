@@ -24,7 +24,9 @@ more than once.
 | 16 | `data/wishdrop-account-sync.sql` | Cart, wishlist and boards become account-based: the database is the source of truth, the browser only caches. Fixes items coming back after removing them, and quantities differing between devices. Boards are saved to the account for the first time, and shared-board links work | **Run this BEFORE deploying the new code.** Turns on Realtime for the three tables |
 | 17 | `data/wishdrop-coupons-referrals-payments.sql` | Server-side checkout (prices worked out on the server), signed coupons with who-has-it / who-used-it tracking, real referrals, manual WhatsApp payments (staff mark paid), cancelling unpaid orders, refunds (paid orders can't be deleted). Copies unused old coupons over, and stops customers writing coupons or referrals from the browser | **Run BEFORE deploying the new code.** Set `COUPON_SIGNING_SECRET` on Vercel — see COUPONS_REFERRALS_PAYMENTS.md |
 | 18 | `data/wishdrop-audit-log.sql` | Audit log: the database records every important change (orders, requests, payments, refunds, coupons, staff, stores, products, settings) with who did it, when, from which page and what changed. Append-only. Super Admin → Audit log | Run after 17. Nothing else to set up |
+| 19 | `data/wishdrop-staff-rls.sql` | Locks orders, order items, requests, chat threads/messages, QC issues and notifications to "your own rows or active staff" (adds `public.is_staff()`). Replaces the old "any signed-in user" rules | Run after 18. Nothing else to set up |
 
-Still open (not done in this work): the database rules on chat messages,
-chat threads, orders, order items and QC issues allow ANY signed-in user,
-not just staff — see the notes in the conversation. Fix before launch.
+Fixed: the database rules on chat messages, chat threads, orders, order items,
+requests, QC issues and notifications now allow only the owner or active staff
+(step 19). The three older `*-rls-fix.sql` files were updated to match, so
+re-running them no longer reopens access.

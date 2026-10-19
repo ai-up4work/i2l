@@ -5,6 +5,7 @@
 // shape sent to the admin UI.
 
 import { storeOriginOf } from '@/lib/store-origin'
+import { normalizeStoreCategories } from '@/lib/store-categories'
 
 export const STORE_COLUMNS =
   'id, platform_slug, name, type, status, description, logo_url, country, contact_name, contact_email, contact_phone, notes, provider_type, provider_config, owner_user_id, default_margin_percent, created_at'
@@ -22,6 +23,8 @@ export function toAdminStore(row: StoreRow, counts?: { total: number; active: nu
     status: row.status as string,
     origin: storeOriginOf(row),
     description: (row.description as string | null) ?? '',
+    // Normalised so older names (e.g. "Beauty") show as today's category.
+    categories: normalizeStoreCategories(row.categories) ?? [],
     logoUrl: (row.logo_url as string | null) ?? '',
     coverUrl: (row.cover_url as string | null) ?? '',
     tagline: (row.tagline as string | null) ?? '',
