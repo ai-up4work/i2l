@@ -16,11 +16,18 @@
 //   • A lookup that asked for variants also answers a later one that didn't.
 //   • Callers that must see the live page (the scraper QA tool) pass
 //     `fresh: true` to skip the cache (the fresh result still refreshes it).
+//   • Older copy (up to 24 hours): each success is also kept as a "last
+//     known" copy. A caller that passes `allowStale: true` (the customer's
+//     item screen) gets it instantly, marked `stale: true`, when the 1-hour
+//     copy has expired — and then asks again normally to get the live price
+//     while the shopper is already looking at the product. Checkout never
+//     passes it, so prices are always confirmed against a fresh read.
 
 import { createHash } from 'node:crypto'
 import { sharedRedis } from '@/lib/rate-limit'
 
 export const SCRAPE_CACHE_TTL_SECONDS = Number(process.env.SCRAPE_CACHE_TTL_SECONDS) || 60 * 60
+export const SCRAPE_STALE_TTL_SECONDS = Number(process.env.SCRAPE_STALE_TTL_SECONDS) || 24 * 60 * 60
 
 const VERSION = 'v1' // bump to drop every cached result after a parser change
 const MEMORY_MAX = 500
@@ -47,9 +54,9 @@ export function normalizeProductUrl(raw: string): string {
   }
 }
 
-function cacheKey(url: string, needVariants: boolean, kind = 'scrape'): string {
+function cacheKey(url: string, needVariants: boolean, kind = 'scrape', stale = false): string {
   const h = createHash('sha256').update(normalizeProductUrl(url)).digest('hex').slice(0, 32)
-  return `wd:${kind}:${VERSION}:${needVariants ? 'v' : 'b'}:${h}`
+  return `wd:${kind}:${VERSION}:${stale ? 'old:' : ''}${needVariants ? 'v' : 'b'}:${h}`
 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
@@ -104,7 +111,7 @@ async function write(key: string, value: string, ttlSeconds: number) {
 
 // ── Public ─────────────────────────────────────────────────────────────────
 
-type Cacheable = { error?: string | null; cachedAt?: string }
+type Cacheable = { error?: string | null; cachedAt?: string; stale?: boolean }
 
 type CacheOptions<T> = {
   needVariants?: boolean
@@ -112,6 +119,10 @@ type CacheOptions<T> = {
   signal?: AbortSignal
   /** Separate key space for other lookups that reuse this cache (e.g. 'og'). */
   kind?: string
+  /** Accept the up-to-24-hour "last known" copy (marked `stale: true`) when
+   *  the 1-hour one has expired. The caller should then ask again without
+   *  this to get the live result. */
+  allowStale?: boolean
   /** What counts as worth caching. Default: no `error`. */
   isSuccess?: (result: T) => boolean
 }
@@ -147,6 +158,20 @@ export async function withScrapeCache<T extends Cacheable>(
       }
     }
 
+    if (opts.allowStale) {
+      const oldKeys = needVariants ? [cacheKey(url, true, kind, true)] : [cacheKey(url, true, kind, true), cacheKey(url, false, kind, true)]
+      for (const k of oldKeys) {
+        const hit = await read(k)
+        if (hit) {
+          try {
+            return { ...(JSON.parse(hit) as T), stale: true }
+          } catch {
+            // corrupted entry — ignore
+          }
+        }
+      }
+    }
+
     const pending = inFlight.get(key) as Promise<T> | undefined
     if (pending) {
       const shared = await pending
@@ -159,9 +184,12 @@ export async function withScrapeCache<T extends Cacheable>(
   const run: Promise<T> = (async () => {
     const result = await lookup()
     if (result && isSuccess(result)) {
-      const stamped = { ...result, cachedAt: new Date().toISOString() }
+      const stamped = JSON.stringify({ ...result, stale: undefined, cachedAt: new Date().toISOString() })
       try {
-        await write(key, JSON.stringify(stamped), SCRAPE_CACHE_TTL_SECONDS)
+        await Promise.all([
+          write(key, stamped, SCRAPE_CACHE_TTL_SECONDS),
+          write(cacheKey(url, needVariants, kind, true), stamped, SCRAPE_STALE_TTL_SECONDS),
+        ])
       } catch {
         // a result that can't be stored is still returned
       }

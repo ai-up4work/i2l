@@ -291,7 +291,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => {})
 
-      const product = await lookup(url)
+      const product = await lookup(url, (live) => {
+        if (latestUrlRef.current !== url || live.error) return
+        setDraft((current) => applyScrapeResultToDraft(current, live))
+      })
       if (!product || product.error) return
 
       setDraft((current) => applyScrapeResultToDraft(current, product))
@@ -310,7 +313,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   const selectVariant = useCallback(
     async (url: string) => {
-      const product = await lookup(url)
+      const product = await lookup(url, (live) => {
+        if (live.error) return
+        setDraft((current) => applyScrapeResultToDraft(current, live))
+      })
       if (!product || product.error) return
 
       setDraft((current) => applyScrapeResultToDraft(current, product))

@@ -1,6 +1,6 @@
 // hooks/useProductLookup.ts
 'use client'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 
 // A failed scrape (captcha, rate-limit, a proxy tier timing out, a
@@ -10,14 +10,19 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 // at all; it only costs 5 extra seconds on the minority of requests
 // that needed it.
 const RETRY_DELAY_MS = 5000
+// FAST: only retry a failure that came back quickly (a dropped connection,
+// a momentary block). A slow failure means the server already went through
+// every method it has — running that whole chain again would just double
+// the wait before the shopper sees the "couldn't read it" screen.
+const QUICK_FAILURE_MS = 15_000
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchProductLookup(url: string): Promise<{ ok: boolean; data: ScrapeResult | null }> {
+async function fetchProductLookup(url: string, refresh = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
   try {
-    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}`)
+    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}`)
     const data = (await res.json().catch(() => null)) as ScrapeResult | null
     return { ok: res.ok && !!data && !data.error, data }
   } catch {
@@ -89,8 +94,18 @@ export function useProductLookup() {
   // rich platform view (AmazonProductView, FlipkartProductView, etc.),
   // exactly the way ScraperQaClient does with its own `result` state.
   const [result, setResult] = useState<ScrapeResult | null>(null)
+  // Bumped on every lookup/reset, so a late live refresh for an older
+  // link never replaces what the shopper is looking at now.
+  const generation = useRef(0)
 
-  const lookup = useCallback(async (url: string): Promise<ScrapeResult | null> => {
+  /**
+   * `onRefreshed`: when the first answer was an older copy (`stale`), the
+   * live result is fetched straight after and handed here (and to
+   * `result`) — callers use it to update anything they filled in from the
+   * older copy.
+   */
+  const lookup = useCallback(async (url: string, onRefreshed?: (fresh: ScrapeResult) => void): Promise<ScrapeResult | null> => {
+    const myGeneration = ++generation.current
     setLoading(true)
     setError(null)
     // FIX: previously left unset here, `result` (and therefore
@@ -109,14 +124,33 @@ export function useProductLookup() {
     // selectVariant's re-scrape, since both call this same lookup().
     setResult(null)
 
+    const startedAt = Date.now()
     let attempt = await fetchProductLookup(url)
-    if (!attempt.ok) {
+    if (!attempt.ok && (!attempt.data || Date.now() - startedAt < QUICK_FAILURE_MS)) {
       await sleep(RETRY_DELAY_MS)
+      if (generation.current !== myGeneration) return null
       attempt = await fetchProductLookup(url)
     }
+    if (generation.current !== myGeneration) return null
 
     if (attempt.ok && attempt.data) {
       const data = attempt.data
+      if (data.stale) {
+        // FAST: an older copy (1–24h) — show it now, get the live one
+        // behind it. The item screen shows "Updating price…" meanwhile.
+        void fetchProductLookup(url, true).then((live) => {
+          if (generation.current !== myGeneration) return
+          if (live.ok && live.data) {
+            setError(live.data.warning ?? null)
+            setResult(live.data)
+            onRefreshed?.(live.data)
+          } else {
+            // Couldn't get a live read right now: keep the older copy,
+            // shown as "price from N hours ago" instead of "updating".
+            setResult({ ...data, stale: false })
+          }
+        })
+      }
       if (data.warning) {
         // Non-fatal — we may still have partial data, but flag it so the
         // UI can tell the person to double-check what was auto-filled.
@@ -164,6 +198,7 @@ export function useProductLookup() {
   }, [])
 
   const reset = useCallback(() => {
+    generation.current++
     setLoading(false)
     setError(null)
     setResult(null)

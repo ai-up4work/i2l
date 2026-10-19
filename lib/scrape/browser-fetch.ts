@@ -343,16 +343,21 @@ async function newStealthContext(browser: Browser): Promise<BrowserContext> {
   return context
 }
 
+const SKIPPED_RESOURCE_TYPES = new Set(['image', 'media', 'font'])
+const TRACKER_HOST_RE =
+  /^https?:\/\/([^/]+\.)?(google-analytics\.com|googletagmanager\.com|doubleclick\.net|googlesyndication\.com|googleadservices\.com|facebook\.net|facebook\.com\/tr|connect\.facebook\.net|hotjar\.com|clarity\.ms|criteo\.(com|net)|taboola\.com|outbrain\.com|moengage\.com|clevertap-prod\.com|branch\.io|appsflyer\.com|newrelic\.com|nr-data\.net|bat\.bing\.com|snapchat\.com|tiktok\.com|analytics\.tiktok\.com|segment\.(io|com)|mixpanel\.com|amplitude\.com|webengage\.com|sentry\.io)\b/i
+
 async function simulateHumanInteraction(page: Page): Promise<void> {
   try {
-    const steps = 3 + Math.floor(Math.random() * 3)
+    // FAST: 2–3 quick moves (was 3–5) — still looks like a person.
+    const steps = 2 + Math.floor(Math.random() * 2)
     let x = 100 + Math.random() * 200
     let y = 100 + Math.random() * 200
     for (let i = 0; i < steps; i++) {
       x += (Math.random() - 0.5) * 300
       y += (Math.random() - 0.5) * 200
       await page.mouse.move(Math.max(0, x), Math.max(0, y), { steps: 5 + Math.floor(Math.random() * 5) })
-      await page.waitForTimeout(60 + Math.random() * 120)
+      await page.waitForTimeout(40 + Math.random() * 60)
     }
     await page.mouse.wheel(0, 300 + Math.random() * 400)
     await page.waitForTimeout(150 + Math.random() * 200)
@@ -428,6 +433,21 @@ export async function fetchRendered(
     const page = await context.newPage()
 
     if (onRequest) page.on('request', onRequest)
+
+    // FAST: we only read the page's HTML, so don't download pictures,
+    // video, fonts or analytics/ad scripts. Image addresses are still in
+    // the HTML; stylesheets and the store's own scripts still load (some
+    // sites won't start without them). SCRAPE_RENDER_LOAD_ASSETS=1 turns
+    // this off.
+    if (process.env.SCRAPE_RENDER_LOAD_ASSETS !== '1') {
+      await page.route('**/*', (route) => {
+        const req = route.request()
+        if (SKIPPED_RESOURCE_TYPES.has(req.resourceType()) || TRACKER_HOST_RE.test(req.url())) {
+          return route.abort().catch(() => {})
+        }
+        return route.continue().catch(() => {})
+      })
+    }
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
 

@@ -1036,17 +1036,81 @@ function GenericProductView(
   )
 }
 
-function SlowLoadNotice() {
-  const [show, setShow] = useState(false)
+// What the top bar says while a listing loads, so a slow store never
+// looks frozen. Time-based (the server doesn't stream its steps), matched
+// to how the lookup actually runs: a quick read first, then slower ways in.
+const LOADING_STAGES: { at: number; text: string; bar: number }[] = [
+  { at: 0, text: 'Opening the store…', bar: 25 },
+  { at: 2500, text: 'Reading price and photos…', bar: 50 },
+  { at: 8000, text: 'This store is slow — trying another way…', bar: 70 },
+  { at: 20000, text: 'Almost there — some stores take up to a minute…', bar: 85 },
+  { at: 45000, text: 'Still trying — hang tight…', bar: 92 },
+]
+
+function useLoadingStage(active: boolean) {
+  const [stage, setStage] = useState(0)
   useEffect(() => {
-    const t = setTimeout(() => setShow(true), 6000)
-    return () => clearTimeout(t)
-  }, [])
-  if (!show) return null
+    setStage(0)
+    if (!active) return
+    const timers = LOADING_STAGES.slice(1).map((s, i) => setTimeout(() => setStage(i + 1), s.at))
+    return () => timers.forEach(clearTimeout)
+  }, [active])
+  return LOADING_STAGES[stage]
+}
+
+/** "3 h ago" for a cached read older than the 1-hour cache, else null. */
+function readAge(cachedAt?: string): string | null {
+  if (!cachedAt) return null
+  const mins = Math.round((Date.now() - Date.parse(cachedAt)) / 60000)
+  if (!Number.isFinite(mins) || mins < 60) return null
+  return `${Math.round(mins / 60)} h ago`
+}
+
+// Status pill pinned to the top of the item screen: loading steps, then
+// "Updating price…" while an older copy is on screen and the live read is
+// on its way, or the age of an older copy when the live read couldn't be
+// had. Hidden once there's nothing to say.
+function ListingStatus({
+  loading,
+  stale,
+  cachedAt,
+}: {
+  loading: boolean
+  stale: boolean
+  cachedAt?: string
+}) {
+  const stage = useLoadingStage(loading)
+  const age = !loading && !stale ? readAge(cachedAt) : null
+  const busy = loading || stale
+  if (!busy && !age) return null
+  const text = loading ? stage.text : stale ? 'Updating price…' : `Price checked ${age}`
+  // Zero-height and pulling back the column gap, so it floats over the
+  // empty strip above the listing and nothing jumps when it disappears.
   return (
-    <p className="text-center text-xs text-ink/45 motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]">
-      Still working — some sites take a little longer to read. Hang tight.
-    </p>
+    <div className="pointer-events-none sticky top-0 z-10 -mb-6 flex h-0 items-start justify-center overflow-visible sm:-mb-7">
+      <div
+        role="status"
+        aria-live="polite"
+        className="relative flex max-w-full items-center gap-2 overflow-hidden rounded-full border border-ink/10 bg-white/95 py-1.5 pl-3 pr-4 shadow-sm backdrop-blur motion-safe:[animation:contentFadeIn_0.3s_ease-out_both]"
+      >
+        {busy ? (
+          <Loader2 size={14} className="flex-none animate-spin text-teal-deep" strokeWidth={2.25} />
+        ) : (
+          <Info size={14} className="flex-none text-ink/45" strokeWidth={2.25} />
+        )}
+        <span key={text} className="truncate text-xs font-semibold text-ink/70 motion-safe:[animation:tabFadeIn_0.3s_ease-out_both] sm:text-[13px]">
+          {text}
+        </span>
+        {busy && (
+          <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-ink/5">
+            <span
+              className="block h-full rounded-r-full bg-teal-deep transition-[width] duration-[2500ms] ease-out"
+              style={{ width: `${loading ? stage.bar : 85}%` }}
+            />
+          </span>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1564,6 +1628,11 @@ export default function ItemInfoModal({
             [&::-webkit-scrollbar-thumb]:rounded-full
             [&::-webkit-scrollbar-thumb]:bg-ink/20"
         >
+          <ListingStatus
+            loading={showLoading}
+            stale={!showLoading && !failedRead && !!result?.stale}
+            cachedAt={!showLoading && !failedRead ? result?.cachedAt : undefined}
+          />
           {showLoading ? (
             // Same wrapper (`pt-8`, same fade-in) as both branches below,
             // so ProductSkeleton — which now mirrors ChatListingView's
@@ -1575,7 +1644,6 @@ export default function ItemInfoModal({
                 previewImage={result?.images?.[0] ?? null}
                 previewTitle={result?.title ?? null}
               />
-              <SlowLoadNotice />
             </div>
           ) : failedRead ? (
             // Same wrapper (same `pt-8`, same fade-in) as the success

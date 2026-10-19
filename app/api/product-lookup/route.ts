@@ -111,7 +111,10 @@ export async function GET(request: Request) {
   // means an abandoned request actually stops the upstream ScraperAPI
   // call instead of running to completion (and billing) with nobody
   // there to receive the result.
-  const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal, fresh: isQaTraffic })
+  // `refresh=1` is the item screen asking for the live result after it was
+  // shown an older copy (see `allowStale` in lib/scrape/result-cache.ts).
+  const allowStale = !isQaTraffic && searchParams.get('refresh') !== '1'
+  const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal, fresh: isQaTraffic, allowStale })
   if (resolvedUrl !== url) result.resolvedFromShortlink = true
 
   // FIX: every real diagnostic detail scrapeProduct() computes (which
@@ -127,7 +130,8 @@ export async function GET(request: Request) {
     console.error(`[product-lookup] FAILED site=${result.site ?? 'unknown'} url=${resolvedUrl} — ${result.error}`)
   }
 
-  if (!isQaTraffic) {
+  // A cached copy isn't a new scrape attempt — don't count it in Scrape health.
+  if (!isQaTraffic && !result.cachedAt) {
     // Fire-and-forget: this is the one real call site the Scrape health
     // panel's fail_count/success_count depend on (see
     // scrape-health-write.ts's own header for the gap this closes) —

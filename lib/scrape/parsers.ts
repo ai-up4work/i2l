@@ -149,6 +149,7 @@ import {
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
 import { withScrapeCache } from '@/lib/scrape/result-cache'
+import { rememberedRoute, rememberRoute, forgetRoute, type FetchRoute } from '@/lib/scrape/route-memory'
 
 export type ScrapeResult = {
   url: string
@@ -172,6 +173,9 @@ export type ScrapeResult = {
   warning?: string
   /** Set when this result came from the 1-hour lookup cache (lib/scrape/result-cache.ts): when it was first fetched. */
   cachedAt?: string
+  /** An older copy (1–24 hours) returned straight away so the shopper isn't
+   *  kept waiting; the item screen fetches the live result right after. */
+  stale?: boolean
   description?: string | null
   // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi',
   // 'scrapingdog', and 'scrape_do' — all are non-'direct' tiers reached
@@ -770,6 +774,11 @@ async function fetchDirectOnce(
     return { html, error: null, status: res.status }
   } catch (e) {
     clearTimeout(timer)
+    // Our own timer fired (not the caller hanging up): say so plainly, so
+    // the retry loop knows a slower method is a better next step.
+    if (controller.signal.aborted && !signal?.aborted) {
+      return { html: null, error: `TIMEOUT: no answer within ${Math.round(timeoutMs / 1000)}s`, status: null }
+    }
     const cause = e && typeof e === 'object' && 'cause' in e ? (e as any).cause : undefined
     const causeMsg = cause instanceof Error ? cause.message : cause ? String(cause) : null
     const causeCode = cause && typeof cause === 'object' ? (cause as any).code : undefined
@@ -1075,122 +1084,143 @@ function describeBlockPage(html: string): string {
 
 const RETRYABLE_STATUSES = new Set([403, 429, 503])
 
+// How long one plain fetch may take. Short when a slower method is lined
+// up behind it (a store that's going to answer usually does within a couple
+// of seconds); the old 15s when the plain fetch is the only way in.
+const DIRECT_TIMEOUT_MS = Number(process.env.SCRAPE_DIRECT_TIMEOUT_MS) || 8000
+const DIRECT_TIMEOUT_ALONE_MS = 15000
+
+type FetchOutcome = { html: string | null; error: string | null; source: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' }
+
 async function fetchDirectWithRetries(
   url: string,
   site: SiteId,
   {
-    timeoutMs = 15000,
+    timeoutMs,
     maxAttempts = 3,
     signal,
   }: { timeoutMs?: number; maxAttempts?: number; signal?: AbortSignal } = {}
-): Promise<{ html: string | null; error: string | null; source: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' }> {
-  let lastError: string | null = null
-  const primeUrl = PRIME_HOSTS[site]
+): Promise<FetchOutcome> {
+  const lastResortTiers = LAST_RESORT_FALLBACK[site] ?? []
+  const usesRender = RENDER_FALLBACK_HOSTS.has(site)
+  // Is there anything to fall back on after the plain fetch? If so, a
+  // clear block or a timeout isn't worth retrying with other headers.
+  const hasLaterTiers = usesRender || lastResortTiers.some((t) => t.configured())
+  const directTimeoutMs = timeoutMs ?? (hasLaterTiers ? DIRECT_TIMEOUT_MS : DIRECT_TIMEOUT_ALONE_MS)
 
-  let primedCookie: string | undefined
-  if (primeUrl) {
-    primedCookie = await primeCookies(primeUrl, pickHeaderProfile(0), 5000)
-    if (primedCookie) await jitterDelay(150, 400)
-  }
-
-  // Site-specific "does this static HTML actually have the real product
-  // markup" check — see STATIC_CONTENT_SUFFICIENT above.
-  const contentCheck = STATIC_CONTENT_SUFFICIENT[site]
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (signal?.aborted) {
-      return { html: null, error: 'Client disconnected', source: 'direct' }
+  // ── Step: plain fetch ────────────────────────────────────────────────
+  const tryDirect = async (): Promise<{ html: string | null; error: string | null }> => {
+    let lastError: string | null = null
+    const primeUrl = PRIME_HOSTS[site]
+    let primedCookie: string | undefined
+    if (primeUrl) {
+      primedCookie = await primeCookies(primeUrl, pickHeaderProfile(0), 5000)
+      if (primedCookie) await jitterDelay(150, 400)
     }
-    if (attempt > 0) await jitterDelay(300 + attempt * 200, 900 + attempt * 300)
 
-    const headers = pickHeaderProfile(attempt)
-    if (primedCookie) headers['Cookie'] = primedCookie
+    // Site-specific "does this static HTML actually have the real product
+    // markup" check — see STATIC_CONTENT_SUFFICIENT above.
+    const contentCheck = STATIC_CONTENT_SUFFICIENT[site]
 
-    const { html, error, status } = await fetchDirectOnce(url, headers, timeoutMs, signal)
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (signal?.aborted) return { html: null, error: 'Client disconnected' }
+      if (attempt > 0) await jitterDelay(300 + attempt * 200, 900 + attempt * 300)
 
-    if (html && !error) {
-      if (!contentCheck || contentCheck(html)) {
-        return { html, error: null, source: 'direct' }
+      const headers = pickHeaderProfile(attempt)
+      if (primedCookie) headers['Cookie'] = primedCookie
+
+      const { html, error, status } = await fetchDirectOnce(url, headers, directTimeoutMs, signal)
+
+      if (html && !error) {
+        if (!contentCheck || contentCheck(html)) return { html, error: null }
+        // Static fetch succeeded (200, not blocked, not a generic JS-shell)
+        // but this site's confirmed content check says the real product
+        // markup still isn't there. Don't keep retrying the same static
+        // fetch — fall through to the render tier below.
+        lastError = 'JS_SHELL: static HTML lacks confirmed product markup — page appears to hydrate client-side'
+        break
       }
-      // Static fetch succeeded (200, not blocked, not a generic JS-shell)
-      // but this site's confirmed content check says the real product
-      // markup still isn't there. Don't keep retrying the same static
-      // fetch — fall through to the render tier below.
-      lastError = 'JS_SHELL: static HTML lacks confirmed product markup — page appears to hydrate client-side'
-      break
+
+      // html-but-blocked/js-shell is treated like a null-html failure —
+      // record and keep going. Only bail out early for a genuine
+      // non-retryable HTTP error page (a real 404/410) where no
+      // downstream tier could plausibly help.
+      lastError = error
+      const isBlockedOrShell = !!error && (error.startsWith('BLOCKED') || error.startsWith('JS_SHELL'))
+      if (!isBlockedOrShell && status != null && !RETRYABLE_STATUSES.has(status)) break
+      // FAST: a CAPTCHA page, a JS shell or a timeout won't change with
+      // different headers a second later. When a slower method is lined
+      // up behind this one, go to it now instead of retrying.
+      if (hasLaterTiers && !!error && (isBlockedOrShell || error.startsWith('TIMEOUT'))) break
     }
-
-    // FIX: previously `if (html) return { html, error, source: 'direct' }`
-    // short-circuited on ANY non-null html, including a 200 that was
-    // actually BLOCKED (CAPTCHA/decoy page, e.g. Myntra's "Site
-    // Maintenance") or JS_SHELL. That skipped retries, the render tier,
-    // AND every LAST_RESORT_FALLBACK tier. Now html-but-blocked/js-shell
-    // is treated like a null-html failure — record and keep going. Only
-    // bail out early for a genuine non-retryable HTTP error page (a real
-    // 404/410) where no downstream tier could plausibly help.
-    lastError = error
-    const isBlockedOrShell = !!error && (error.startsWith('BLOCKED') || error.startsWith('JS_SHELL'))
-    if (!isBlockedOrShell && status != null && !RETRYABLE_STATUSES.has(status)) break
+    return { html: null, error: lastError }
   }
 
-  if (signal?.aborted) {
-    return { html: null, error: 'Client disconnected', source: 'direct' }
-  }
-
-  // Tracks the render tier's own failure reason separately from
-  // `lastError`, which the last-resort fallback is free to overwrite. The
-  // render-tier reason is almost always the more actionable one to
-  // surface (the last-resort TLS tier never executes JS).
-  let renderTierError: string | null = null
-
-  if (RENDER_FALLBACK_HOSTS.has(site)) {
+  // ── Step: headless browser ───────────────────────────────────────────
+  const tryRender = async (): Promise<{ html: string | null; error: string | null }> => {
     const rendered = await fetchRendered(url, {
       waitForSelector: RENDER_WAIT_SELECTOR[site],
     })
-
     if (rendered.html && looksBlocked(rendered.html)) {
       // Deliberately NOT asserting a cause: a real JS-executing Chromium
       // getting walled off is just as consistent with browser/behavioral
-      // fingerprinting as with IP reputation or geography. If a
-      // country-targeted hosted render succeeds afterwards, that's real
-      // evidence — but this callsite doesn't have it yet.
-      renderTierError = `BLOCKED: CAPTCHA/robot-check page (via headless browser — cause not yet determined: could be IP reputation, geography, or browser/behavioral fingerprinting specific to the headless tier). ${describeBlockPage(rendered.html)}`
-      lastError = renderTierError
-    } else if (rendered.html && looksLikeJsRequiredShell(rendered.html)) {
-      renderTierError = 'JS_SHELL: page still requires JavaScript rendering even via headless browser'
-      lastError = renderTierError
-    } else if (rendered.html) {
-      return { html: rendered.html, error: null, source: 'direct' }
-    } else {
-      renderTierError = rendered.error ?? lastError
-      lastError = renderTierError
+      // fingerprinting as with IP reputation or geography.
+      return {
+        html: null,
+        error: `BLOCKED: CAPTCHA/robot-check page (via headless browser — cause not yet determined: could be IP reputation, geography, or browser/behavioral fingerprinting specific to the headless tier). ${describeBlockPage(rendered.html)}`,
+      }
     }
+    if (rendered.html && looksLikeJsRequiredShell(rendered.html)) {
+      return { html: null, error: 'JS_SHELL: page still requires JavaScript rendering even via headless browser' }
+    }
+    if (rendered.html) return { html: rendered.html, error: null }
+    return { html: null, error: rendered.error }
   }
 
-  if (signal?.aborted) {
-    return { html: null, error: 'Client disconnected', source: 'direct' }
-  }
+  // ── Order: the normal chain, or the method that last worked first ────
+  type Step = { route: FetchRoute; run: () => Promise<{ html: string | null; error: string | null }>; tier?: LastResortTier }
+  const fullOrder: Step[] = [
+    { route: 'direct', run: tryDirect },
+    ...(usesRender ? [{ route: 'render' as const, run: tryRender }] : []),
+    ...lastResortTiers.map((tier) => ({ route: tier.source as FetchRoute, run: () => tier.fetch(url, { signal }), tier })),
+  ]
 
-  // Walk this site's registered last-resort tiers IN ORDER, stopping at
-  // the first one that's both configured and succeeds. Errors from every
-  // attempted tier are accumulated rather than overwritten.
-  const lastResortTiers = LAST_RESORT_FALLBACK[site] ?? []
+  const remembered = await rememberedRoute(site)
+  const hinted = remembered && remembered !== 'direct' ? fullOrder.find((s) => s.route === remembered && (!s.tier || s.tier.configured())) : undefined
+  const order = hinted ? [hinted, ...fullOrder.filter((s) => s !== hinted)] : fullOrder
+
+  let lastError: string | null = null
+  // Kept separately: the headless browser's reason is almost always the
+  // more actionable one to surface (the last-resort TLS tier never
+  // executes JS).
+  let renderTierError: string | null = null
   const fallbackErrors: string[] = []
 
-  for (const tier of lastResortTiers) {
-    if (!tier.configured()) {
-      fallbackErrors.push(`[${tier.source}] tier registered but not configured in this environment — skipped`)
+  for (const [i, step] of order.entries()) {
+    if (signal?.aborted) return { html: null, error: 'Client disconnected', source: 'direct' }
+    if (step.tier && !step.tier.configured()) {
+      fallbackErrors.push(`[${step.route}] tier registered but not configured in this environment — skipped`)
       continue
     }
 
-    const viaFallback = await tier.fetch(url, { signal })
-    if (viaFallback.html) {
-      return { html: viaFallback.html, error: null, source: tier.source }
+    const { html, error } = await step.run()
+    if (html) {
+      // Remember a new winner (not the plain fetch — that's tried first
+      // anyway, and nothing to remember when it works).
+      if (step.route !== 'direct' && remembered !== step.route) await rememberRoute(site, step.route)
+      if (step.route === 'direct' && remembered) await forgetRoute(site)
+      return { html, error: null, source: step.tier ? step.tier.source : 'direct' }
     }
-    if (viaFallback.error) {
-      fallbackErrors.push(`[${tier.source}] ${viaFallback.error}`)
-    }
+
+    // The remembered method failed this time: forget it, carry on with the rest.
+    if (i === 0 && hinted) await forgetRoute(site)
+
+    if (step.route === 'direct') lastError = error
+    else if (step.route === 'render') renderTierError = lastError = error ?? lastError
+    else if (error) fallbackErrors.push(`[${step.route}] ${error}`)
   }
+
+  if (signal?.aborted) return { html: null, error: 'Client disconnected', source: 'direct' }
 
   if (fallbackErrors.length) {
     // Combine rather than overwrite: the render tier's failure (when
@@ -1911,6 +1941,10 @@ export type ScrapeProductOptions = {
   /** Skip the 1-hour cache and fetch the live page (the scraper QA tool).
    *  The fresh result still refreshes the cache. */
   fresh?: boolean
+  /** Accept an older (up to 24h) copy, marked `stale`, when the 1-hour one
+   *  has expired. Only for showing the shopper something quickly — never
+   *  for checkout. */
+  allowStale?: boolean
 }
 
 const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
