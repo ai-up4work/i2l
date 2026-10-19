@@ -148,6 +148,7 @@ import {
 } from './extractors/lenskart'
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
+import { withScrapeCache } from '@/lib/scrape/result-cache'
 
 export type ScrapeResult = {
   url: string
@@ -169,6 +170,8 @@ export type ScrapeResult = {
   sizeChart?: (AmazonSizeChartTable | MyntraSizeChartTable | AjioSizeChartTable)[] | null
   error?: string
   warning?: string
+  /** Set when this result came from the 1-hour lookup cache (lib/scrape/result-cache.ts): when it was first fetched. */
+  cachedAt?: string
   description?: string | null
   // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi',
   // 'scrapingdog', and 'scrape_do' — all are non-'direct' tiers reached
@@ -1905,6 +1908,9 @@ export type ScrapeProductOptions = {
    * ScraperAPI, Scrapingdog, or scrape.do request) instead of them
    * running — and being billed — to completion. */
   signal?: AbortSignal
+  /** Skip the 1-hour cache and fetch the live page (the scraper QA tool).
+   *  The fresh result still refreshes the cache. */
+  fresh?: boolean
 }
 
 const VARIANT_REQUIRES_RENDER = new Set<SiteId>([
@@ -1922,7 +1928,16 @@ function hasVariantData(parsed: Record<string, any>): boolean {
   return !!parsed.options || (Array.isArray(parsed.variants) && parsed.variants.length > 0)
 }
 
+/**
+ * The one entry point for every product lookup. Successful results are
+ * cached for 1 hour per link (shared through Redis) and simultaneous
+ * lookups of the same link run once — see lib/scrape/result-cache.ts.
+ */
 export async function scrapeProduct(url: string, options: ScrapeProductOptions = {}): Promise<ScrapeResult> {
+  return withScrapeCache(url, options, () => scrapeProductUncached(url, options))
+}
+
+async function scrapeProductUncached(url: string, options: ScrapeProductOptions = {}): Promise<ScrapeResult> {
   const { needVariants = false, signal } = options
 
   let site = detectSite(url)

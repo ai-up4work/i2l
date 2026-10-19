@@ -19,6 +19,7 @@
 // "this needs a human" path either way.
 
 import { safeFetch } from '@/lib/url-safety'
+import { withScrapeCache } from '@/lib/scrape/result-cache'
 
 const FETCH_TIMEOUT_MS = 8_000
 // OG tags are almost always in <head>, well within the first ~200KB even
@@ -74,6 +75,16 @@ function resolveUrl(maybeRelative: string, base: string): string {
  * required step.
  */
 export async function fetchOgMetadata(url: string): Promise<OgMetadata> {
+  // Same 1-hour shared cache as product lookups; only previews that found
+  // something are kept.
+  return withScrapeCache<OgMetadata & { cachedAt?: string }>(
+    url,
+    { kind: 'og', isSuccess: (m) => !!(m.title || m.image || m.description) },
+    () => fetchOgMetadataUncached(url),
+  )
+}
+
+async function fetchOgMetadataUncached(url: string): Promise<OgMetadata> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 

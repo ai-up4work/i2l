@@ -111,7 +111,7 @@ export async function GET(request: Request) {
   // means an abandoned request actually stops the upstream ScraperAPI
   // call instead of running to completion (and billing) with nobody
   // there to receive the result.
-  const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal })
+  const result = await scrapeProduct(resolvedUrl, { needVariants, signal: request.signal, fresh: isQaTraffic })
   if (resolvedUrl !== url) result.resolvedFromShortlink = true
 
   // FIX: every real diagnostic detail scrapeProduct() computes (which
