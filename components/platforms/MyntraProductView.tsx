@@ -9,7 +9,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
-import { PDP_TITLE } from './pdp-styles'
+import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
 
 /**
@@ -160,7 +160,7 @@ function SizeRow({
   return (
     <div>
       <p className="text-[10px] mt-4 font-bold uppercase tracking-wide text-[#535766]">
-        Size{selectedLabel && <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-[#282c3f]">{selectedLabel}</span>}
+        {dim.dimension}{selectedLabel && <span className="ml-1.5 text-[11px] font-semibold normal-case tracking-normal text-[#282c3f]">{selectedLabel}</span>}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {dim.options.map((opt) => {
@@ -592,7 +592,7 @@ export default function MyntraProductView({
         {/* Rest of buy box: price/savings -> color swatches -> size row
             (+ size chart) -> stock -> commerce actions.
             Mobile: third (area "rest"). Desktop: bottom-right column. */}
-        <div className="min-w-0 [grid-area:rest]">
+        <div className={PDP_REST}>
           <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <span className="text-3xl font-bold text-[#282c3f]">{price}</span>

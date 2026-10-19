@@ -761,7 +761,7 @@ function ChatListingView({
 
         {/* Rest of buy box: price, notice, qty + chat action.
             Mobile: third (area "rest"). Desktop: bottom-right column. */}
-        <div className="min-w-0 [grid-area:rest]">
+        <div className="min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:first-child]:mt-auto sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6">
           {priceLabel ? (
             <p className="text-3xl font-bold text-teal-deep">{priceLabel}</p>
           ) : (
@@ -1193,7 +1193,7 @@ function ProductSkeleton({
             bordered qty-stepper + full-width button shape. Always
             skeletal regardless of preview state — price/notice/CTA all
             need the full scrape. */}
-        <div className="min-w-0 [grid-area:rest]">
+        <div className="min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:first-child]:mt-auto sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6">
           <div className="h-9 w-40 animate-pulse rounded-md bg-ink/10" />
 
           <div className="mt-4 h-[52px] animate-pulse rounded-xl bg-ink/5" />

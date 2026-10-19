@@ -10,7 +10,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
-import { PDP_TITLE } from './pdp-styles'
+import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
 
 /**
@@ -491,7 +491,7 @@ export default function EbayProductView({
         {/* Rest of buy box: price/discount -> auction block -> variants
             -> quantity/returns meta -> stock -> commerce actions.
             Mobile: third (area "rest"). Desktop: bottom-right column. */}
-        <div className="min-w-0 [grid-area:rest]">
+        <div className={PDP_REST}>
           <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <p className="text-3xl font-bold text-[#191919]">{price}</p>

@@ -330,11 +330,9 @@ export function ShopMegaMenuPanel({
               of Affiliated Stores) — an acceptable trade for readable
               names. */}
           <div className="max-h-[480px] overflow-y-auto nav-scroll p-4 mt-8">
-            {marketplaceStores.length > 0 && (
-              <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
-                Marketplaces
-              </div>
-            )}
+            <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-ink/40 font-body">
+              Marketplaces
+            </div>
             <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 xl:grid-cols-3 2xl:grid-cols-4">
               {marketplaceStores.slice(0, 8).map((store) => (
                 <StoreRow key={store.platform} store={store} />

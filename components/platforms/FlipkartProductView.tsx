@@ -9,7 +9,7 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
-import { PDP_LABEL, PDP_TITLE } from './pdp-styles'
+import { PDP_LABEL, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
 
 /**
@@ -446,7 +446,7 @@ export default function FlipkartProductView({
         {/* Rest of buy box: price -> variants -> stock -> commerce
             actions. Mobile: third (area "rest"). Desktop: bottom-right
             column. */}
-        <div className="min-w-0 [grid-area:rest]">
+        <div className={PDP_REST}>
           {/* PRICE ROW — restyled to match Flipkart's own PDP shape:
               a small green "-X%" badge, then the struck MRP, then the
               bold final price, all on one baseline. Previously the

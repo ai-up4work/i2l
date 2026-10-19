@@ -10,7 +10,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
-import { PDP_GRID, PDP_TITLE } from './pdp-styles'
+import { PDP_GRID, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
 
 /**
@@ -414,7 +414,7 @@ export default function WooCommerceProductView({
         </div>
 
         {/* Price, options, stock, buttons. */}
-        <div className="min-w-0 [grid-area:rest]">
+        <div className={PDP_REST}>
           <div className="flex flex-wrap items-baseline gap-2">
             {price ? (
               <p className="text-3xl font-bold text-teal-deep">{price}</p>

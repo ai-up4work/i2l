@@ -29,7 +29,7 @@ import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import { SITE_LOGOS } from '@/lib/platform-logos'
-import { PDP_BRAND_LINE, PDP_CONTAINER, PDP_GRID, PDP_LABEL, PDP_TITLE } from './pdp-styles'
+import { PDP_BRAND_LINE, PDP_CONTAINER, PDP_GRID, PDP_LABEL, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
 
 export type PlatformTheme = {
@@ -347,7 +347,7 @@ export default function ThemedProductView({ theme, ...props }: PlatformViewProps
           )}
         </div>
 
-        <div className="min-w-0 [grid-area:rest]">
+        <div className={PDP_REST}>
           <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
             {price ? (
               <p className="text-3xl font-bold" style={{ color: theme.price }}>
