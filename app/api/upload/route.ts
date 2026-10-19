@@ -7,8 +7,12 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 // Which bucket each "folder" belongs to, and whether uploads under it are
 // scoped to the uploading user's own subfolder (true for user-owned content
 // like avatars/reviews, false for shared content like product images).
-const FOLDER_CONFIG: Record<string, { bucket: string; scopedToUser: boolean }> = {
+// viaServer: written with the service role (the path is still scoped to the
+// signed-in user's own folder), so it doesn't depend on a storage policy.
+const FOLDER_CONFIG: Record<string, { bucket: string; scopedToUser: boolean; viaServer?: boolean }> = {
   avatars: { bucket: 'uploads', scopedToUser: true },
+  // A customer's photo/screenshot of an item we couldn't read (item screen).
+  requests: { bucket: 'uploads', scopedToUser: true, viaServer: true },
   reviews: { bucket: 'uploads', scopedToUser: true },
   products: { bucket: 'uploads', scopedToUser: false },
   banners: { bucket: 'uploads', scopedToUser: false },
@@ -76,7 +80,7 @@ export async function POST(req: NextRequest) {
   // storage RLS entirely for ops-driven content, same interim-fix
   // reasoning as the SQL files: real staff-auth-aware policies are the
   // eventual fix, this unblocks the feature today.
-  const storage = config.scopedToUser ? supabase.storage : createServiceRoleClient().storage
+  const storage = config.scopedToUser && !config.viaServer ? supabase.storage : createServiceRoleClient().storage
 
   const { error: uploadError } = await storage
     .from(config.bucket)

@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, RefreshCw, MessageCircle, Truck, Plane, Info, Link, ExternalLink } from 'lucide-react'
+import { X, ShoppingCart, Zap, ShoppingBag, Minus, Plus, MessageCircleQuestion, RefreshCw, MessageCircle, Truck, Plane, Info, Link, ExternalLink, ChevronDown, ImagePlus, Loader2 } from 'lucide-react'
+import { useImageUpload } from '@/lib/upload/useImageUpload'
+import PriceEstimator from '@/components/shared/PriceEstimator'
+import { isEconomyLocked } from '@/lib/feature-flags'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import ProductGallery from '@/components/stores/ProductGallery'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
@@ -100,7 +103,8 @@ type ItemOverlayProps = {
    * goes through Add to Cart / the QuoteModal instead and never touches
    * this prop at all.
    */
-  onSubmitRequest?: () => Promise<{ ok: boolean; error?: string }>
+  /** `itemName` / `photoUrl`: optional name and photo the customer added for an item we couldn't read. */
+  onSubmitRequest?: (opts?: { itemName?: string; photoUrl?: string }) => Promise<{ ok: boolean; error?: string }>
   onDeliveryChoiceChange?: (choice: DeliveryChoice) => void
   loading?: boolean
   onRetry?: () => void
@@ -210,6 +214,11 @@ function toPriceableItem(result: ScrapeResult): ProductPriceableItem {
   }
 }
 
+function isEmptyRead(result: ScrapeResult): boolean {
+  const hasPrice = result.price != null && String(result.price).trim() !== ''
+  return !result.title && !hasPrice && !(result.images && result.images.length)
+}
+
 function canBuildBreakdown(result: ScrapeResult): boolean {
   return !result.ogOnly && result.price != null && !Number.isNaN(Number(result.price)) && Number(result.price) > 0
 }
@@ -227,7 +236,8 @@ function DeliveryModeToggle({
   onChange: (value: DeliveryChoice) => void
 }) {
   const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode; disabled?: boolean }[] = [
-    { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={14} strokeWidth={1.8} />, disabled: true },
+    // Switched on/off in Admin → Pricing engine (isEconomyLocked).
+    { key: 'economy', label: 'Economy', sub: '3–4 weeks', icon: <Truck size={14} strokeWidth={1.8} />, disabled: isEconomyLocked() },
     { key: 'express', label: 'Express', sub: '12–15 days', icon: <Plane size={14} strokeWidth={1.8} /> },
   ]
   const activeIndex = options.findIndex((o) => o.key === value)
@@ -617,6 +627,8 @@ function ChatListingView({
   submitError,
   onRetry,
   retryDisabled,
+  extra,
+  photo,
 }: {
   /** ScrapeResult['site'] — looked up in SITE_LOGOS below. May be a site
    * this app doesn't recognize at all (an unread/ogOnly listing can come
@@ -641,6 +653,11 @@ function ChatListingView({
   submitError?: string | null
   onRetry?: () => void
   retryDisabled?: boolean
+  /** Shown under the notice — the price estimator on unread listings. */
+  extra?: ReactNode
+  /** When there's no product image: let the customer add their own photo
+   *  or screenshot by tapping the empty image (unread listings only). */
+  photo?: CustomerPhoto
 }) {
   // Flips to true if PLACEHOLDER_IMAGE 404s (file missing / wrong name).
   const [placeholderFailed, setPlaceholderFailed] = useState(false)
@@ -721,6 +738,8 @@ function ChatListingView({
                 placeholderText: 'text-ink/40',
               }}
             />
+          ) : photo ? (
+            <CustomerPhotoPicker photo={photo} />
           ) : (
             <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white">
               {placeholderFailed ? (
@@ -753,6 +772,8 @@ function ChatListingView({
             <MessageCircleQuestion size={16} className="mt-0.5 flex-none text-teal-deep" />
             <span>{notice}</span>
           </div>
+
+          {extra}
 
           <div className="mt-6 flex flex-col gap-3">
             {submitError && (
@@ -788,10 +809,10 @@ function ChatListingView({
                 loading={!!loading}
                 loadingLabel={loadingLabel}
                 unavailable={!!unavailable}
-                icon={<MessageCircle size={16} />}
+                icon={<MessageCircle size={16} className="shrink-0" />}
                 color="#000000"
                 disabledColor="#c7c7c7"
-                className="flex-1 whitespace-nowrap rounded-xl px-5 py-3 text-sm font-bold hover:brightness-95"
+                className="min-w-0 flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-xs font-bold hover:brightness-95 sm:px-5 sm:text-sm"
               >
                 CHAT ABOUT THIS ITEM
               </RequestActionButton>
@@ -813,6 +834,128 @@ function ChatListingView({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Optional photo/screenshot the customer adds for a link we couldn't read
+// (they can show the colour or size they want in it). Saved on the request
+// as its screenshot; staff can keep, replace or remove it on the request page.
+type CustomerPhoto = {
+  url: string | null
+  uploading: boolean
+  error: string | null
+  onPick: (file: File) => void
+  onRemove: () => void
+}
+
+function CustomerPhotoPicker({ photo }: { photo: CustomerPhoto }) {
+  const input = (
+    <input
+      type="file"
+      accept="image/jpeg,image/png,image/webp,image/gif"
+      className="hidden"
+      disabled={photo.uploading}
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (file) photo.onPick(file)
+      }}
+    />
+  )
+  if (photo.url) {
+    return (
+      <div>
+        <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white">
+          {/* eslint-disable-next-line @next/next/no-img-element -- customer upload preview */}
+          <img src={photo.url} alt="Your photo" className="h-full w-full object-contain" />
+          {photo.uploading && (
+            <span className="absolute inset-0 grid place-items-center bg-white/70">
+              <Loader2 size={22} className="animate-spin text-teal-deep" />
+            </span>
+          )}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <label className="cursor-pointer rounded-lg border border-ink/15 bg-white px-3 py-1.5 font-body text-xs font-semibold text-ink/70 hover:bg-parchment/60">
+            {input}
+            Change photo
+          </label>
+          <button
+            type="button"
+            onClick={photo.onRemove}
+            disabled={photo.uploading}
+            className="rounded-lg px-3 py-1.5 font-body text-xs font-semibold text-red-700 hover:bg-red-600/5 disabled:opacity-60"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <label
+      className={`group relative flex aspect-square w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border-2 border-dashed border-ink/15 bg-white px-6 text-center transition-colors hover:border-teal/50 hover:bg-teal/[0.03] ${
+        photo.uploading ? 'cursor-wait' : 'cursor-pointer'
+      }`}
+    >
+      {input}
+      <span className="grid h-14 w-14 place-items-center rounded-2xl bg-teal/10 text-teal-deep transition-colors group-hover:bg-teal-deep group-hover:text-white">
+        {photo.uploading ? <Loader2 size={24} className="animate-spin" /> : <ImagePlus size={24} strokeWidth={1.8} />}
+      </span>
+      <span className="font-body text-sm font-semibold text-ink">{photo.uploading ? 'Uploading…' : 'Add a photo or screenshot'}</span>
+      <span className="max-w-xs font-body text-xs leading-relaxed text-ink/50">
+        Optional. Show us the item — you can circle the colour or size you want.
+      </span>
+      {photo.error && <span className="font-body text-xs font-medium text-red-600">{photo.error}</span>}
+    </label>
+  )
+}
+
+// Optional: what the customer calls the item, for a link we couldn't read.
+// Saved as the request's name (staff can keep or change it on the request
+// page) and used in their first chat message.
+function ItemNameField({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <label className="mt-3 block">
+      <span className="mb-1 flex items-baseline justify-between gap-2 font-body text-xs font-semibold text-ink/60">
+        What is it?
+        <span className="font-normal text-ink/40">Optional</span>
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value.slice(0, 120))}
+        disabled={disabled}
+        maxLength={120}
+        autoComplete="off"
+        placeholder="e.g. Black silk saree with gold border"
+        className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3.5 font-body text-sm text-ink outline-none transition-shadow placeholder:text-ink/35 focus:border-teal/50 focus:ring-2 focus:ring-teal/15 disabled:opacity-60"
+      />
+      <span className="mt-1 block font-body text-[11px] text-ink/45">Helps our team find the right item faster.</span>
+    </label>
+  )
+}
+
+// On a listing we couldn't price, let the shopper type the rupee price
+// they can see on the store (and the weight) for a rough final price in
+// LKR — a quick look only; the chat button below is still how they order.
+function UnreadPriceEstimate({ initialPriceINR }: { initialPriceINR?: number | null }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-3 rounded-xl ring-1 ring-inset ring-ink/10">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left font-body text-sm font-semibold text-teal-deep"
+      >
+        <span>See the rupee price on the store? Estimate the final price</span>
+        <ChevronDown size={16} className={`flex-none transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-ink/10 p-3.5">
+          <PriceEstimator compact initialPriceINR={initialPriceINR} />
+        </div>
+      )}
     </div>
   )
 }
@@ -850,6 +993,15 @@ function GenericProductView(
       images={result.images ?? []}
       priceLabel={priceLabel}
       notice="This one needs a quick manual check — sizes, colors, and the final price. Start a chat and our team will confirm everything with you there, before anything is charged."
+      extra={
+        // Indian stores only: hide it when the listing is priced in another
+        // currency (e.g. a USD store) — the estimator takes rupees.
+        !result.currencyCode || result.currencyCode === 'INR' ? (
+          <UnreadPriceEstimate
+            initialPriceINR={result.currencyCode === 'INR' && result.price != null ? Number(String(result.price).replace(/[^0-9.]/g, '')) : null}
+          />
+        ) : undefined
+      }
       qty={qty}
       onQtyChange={onQtyChange}
       onAction={onGoToChat}
@@ -1006,6 +1158,9 @@ function UnreadableListingFallback({
   onContinueViaChat,
   submitting,
   submitError,
+  itemName,
+  onItemNameChange,
+  photo,
 }: {
   url?: string | null
   /** ScrapeResult['site'] when a failure still identified which
@@ -1020,6 +1175,9 @@ function UnreadableListingFallback({
   onContinueViaChat: () => void
   submitting?: boolean
   submitError?: string | null
+  itemName: string
+  onItemNameChange: (value: string) => void
+  photo: CustomerPhoto
 }) {
   const hostname = hostnameFromUrl(url)
   return (
@@ -1030,8 +1188,15 @@ function UnreadableListingFallback({
       title={title}
       emptyTitle="We couldn’t load this listing automatically"
       images={image ? [image] : []}
+      photo={image ? undefined : photo}
       priceLabel={null}
       notice="We couldn’t read the details for this one. Start a chat and our team will check the price, sizes, and options with you there, before anything is charged."
+      extra={
+        <>
+          {!title && <ItemNameField value={itemName} onChange={onItemNameChange} disabled={!!submitting} />}
+          <UnreadPriceEstimate />
+        </>
+      }
       qty={qty}
       onQtyChange={onQtyChange}
       onAction={onContinueViaChat}
@@ -1071,6 +1236,10 @@ export default function ItemInfoModal({
   // GenericProductView/UnreadableListingFallback. Channel 1/2's Add to
   // Cart / QuoteModal path never touches these.
   const [submitting, setSubmitting] = useState(false)
+  // Optional customer-typed name and photo for a link we couldn't read.
+  const [itemName, setItemName] = useState('')
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const photoUpload = useImageUpload()
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Variant selection reported by the platform view (e.g. { Size: 'M' }),
@@ -1124,7 +1293,11 @@ export default function ItemInfoModal({
       // listing changes.
       setDeliveryChoice('express')
       setSubmitError(null)
+      setItemName('')
+      setPhotoUrl(null)
+      photoUpload.reset()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result])
 
   useEffect(() => {
@@ -1154,9 +1327,13 @@ export default function ItemInfoModal({
   if (!mounted) return null
 
   const showLoading = !result || loading
-  const productSnapshot = result && !result.error ? toProductSnapshot(result) : null
+  // A result with no title, no price and no images is a failed read even if
+  // it carries no error (e.g. one saved before the scraper flagged these) —
+  // show the "couldn't load" screen, never an empty product page.
+  const failedRead = !!result && (!!result.error || isEmptyRead(result))
+  const productSnapshot = result && !failedRead ? toProductSnapshot(result) : null
   const inWishlist = productSnapshot ? wishlist.isInWishlist(productSnapshot.id) : false
-  const hasBreakdown = !!result && !result.error && canBuildBreakdown(result)
+  const hasBreakdown = !!result && !failedRead && canBuildBreakdown(result)
 
   // Only trust a selection that was reported for THIS product's url.
   const selectedOptions: SelectedOptions =
@@ -1215,7 +1392,7 @@ export default function ItemInfoModal({
     if (!onSubmitRequest) return
     setSubmitError(null)
     setSubmitting(true)
-    const res = await onSubmitRequest()
+    const res = await onSubmitRequest({ itemName: itemName.trim() || undefined, photoUrl: photoUrl ?? undefined })
     setSubmitting(false)
     if (!res.ok) {
       setSubmitError(res.error ?? 'Something went wrong starting the chat. Please try again.')
@@ -1224,7 +1401,7 @@ export default function ItemInfoModal({
     onClose()
   }
 
-  const commerceProps = result && !result.error
+  const commerceProps = result && !failedRead
     ? {
         result,
         onSelectVariant: handleSelectVariant,
@@ -1339,7 +1516,7 @@ export default function ItemInfoModal({
       >
         <div className="flex flex-none items-center justify-between gap-3 border-b border-ink/10 px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:px-7 sm:py-4">
           <div
-            key={showLoading ? 'loading' : result?.error ? 'error' : 'listing'}
+            key={showLoading ? 'loading' : failedRead ? 'error' : 'listing'}
             className="flex min-w-0 items-center gap-1.5 motion-safe:[animation:tabFadeIn_0.25s_ease-out_both]"
           >
             <Zap size={13} className="flex-none text-teal-deep" strokeWidth={2.25} />
@@ -1378,7 +1555,7 @@ export default function ItemInfoModal({
               />
               <SlowLoadNotice />
             </div>
-          ) : result!.error ? (
+          ) : failedRead ? (
             // Same wrapper (same `pt-8`, same fade-in) as the success
             // branch below, so the failure screen lines up with it
             // instead of sitting higher up under the floating close
@@ -1395,6 +1572,21 @@ export default function ItemInfoModal({
                 onContinueViaChat={handleStartChat}
                 submitting={submitting}
                 submitError={submitError}
+                itemName={itemName}
+                onItemNameChange={setItemName}
+                photo={{
+                  url: photoUrl,
+                  uploading: photoUpload.uploading,
+                  error: photoUpload.error,
+                  onPick: async (file) => {
+                    const url = await photoUpload.upload(file, 'requests')
+                    if (url) setPhotoUrl(url)
+                  },
+                  onRemove: () => {
+                    setPhotoUrl(null)
+                    photoUpload.reset()
+                  },
+                }}
               />
             </div>
           ) : (

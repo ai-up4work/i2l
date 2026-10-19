@@ -55,6 +55,9 @@ export interface PricingSettings {
     economyPostalRatePerKgLKR: number
     /** Flat extra margin per item, shown to shoppers as the service charge. */
     extraMarginLKR: number
+    /** Economy delivery on offer. Off = shown as "Coming soon" and can't be
+     *  chosen anywhere (lib/feature-flags.ts isEconomyLocked). */
+    economyEnabled: boolean
   }
 
   /** Local Sri Lankan stores (lib/store-origin.ts). */
@@ -106,6 +109,7 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
     deliveryFeeLKR: 450,
     economyPostalRatePerKgLKR: 3500,
     extraMarginLKR: 250,
+    economyEnabled: false,
   },
   local: {
     pickupFeeLKR: 500,
@@ -199,6 +203,7 @@ export function normalizePricingSettings(raw: unknown): PricingSettings {
       deliveryFeeLKR: num(sf.deliveryFeeLKR, d.storefront.deliveryFeeLKR, PRICING_LIMITS.money),
       economyPostalRatePerKgLKR: num(sf.economyPostalRatePerKgLKR, d.storefront.economyPostalRatePerKgLKR, PRICING_LIMITS.money),
       extraMarginLKR: num(sf.extraMarginLKR, d.storefront.extraMarginLKR, PRICING_LIMITS.money),
+      economyEnabled: typeof sf.economyEnabled === 'boolean' ? sf.economyEnabled : d.storefront.economyEnabled,
     },
     local: {
       pickupFeeLKR: num(lo.pickupFeeLKR, d.local.pickupFeeLKR, PRICING_LIMITS.money),

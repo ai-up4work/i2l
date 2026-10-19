@@ -17,6 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { ToggleSwitch } from '@/components/admin/Toggleswitch'
 import { Calculator, History, Plus, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react'
 import {
   BackLink,
@@ -104,7 +105,7 @@ function isBad(n: number): boolean {
 function draftProblems(s: PricingSettings): string[] {
   const problems: string[] = []
   const check = (label: string, v: number) => isBad(v) && problems.push(label)
-  for (const [k, v] of Object.entries(s.storefront)) check(`Storefront: ${k}`, v)
+  for (const [k, v] of Object.entries(s.storefront)) if (typeof v === 'number') check(`Storefront: ${k}`, v)
   for (const [k, v] of Object.entries(s.local)) check(`Local stores: ${k}`, v)
   check('Wishdrop Mall delivery fee', s.mall.deliveryFeeLKR)
   check('Customs freight rate', s.customs.freightRatePerKgLKR)
@@ -333,6 +334,33 @@ export default function PricingEnginePage() {
               <NumberField label="Delivery fee" suffix="LKR" value={sf.deliveryFeeLKR} saved={sfSaved.deliveryFeeLKR} onChange={(v) => update((s) => (s.storefront.deliveryFeeLKR = v))} hint="Flat, per item" disabled={disabled} />
             </div>
             <p className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-ink/40">Economy</p>
+            <div
+              className={`mb-4 flex items-start justify-between gap-4 rounded-xl border p-4 ${
+                sf.economyEnabled ? 'border-teal-deep/30 bg-teal/[0.05]' : 'border-ink/10 bg-parchment/60'
+              }`}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">
+                  Offer Economy delivery
+                  {sf.economyEnabled !== sfSaved.economyEnabled && (
+                    <span className="ml-2 rounded-full bg-gold/20 px-2 py-0.5 text-[11px] font-semibold text-gold-deep">
+                      Was {sfSaved.economyEnabled ? 'on' : 'off'}
+                    </span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink/55">
+                  {sf.economyEnabled
+                    ? 'On: shoppers can choose Economy on product pages, in the cart and at checkout, and see its price in the estimator.'
+                    : 'Off: Economy shows as “Coming soon” everywhere and can’t be chosen. Checkout always uses Express.'}
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={sf.economyEnabled}
+                onChange={() => update((s) => (s.storefront.economyEnabled = !s.storefront.economyEnabled))}
+                disabled={disabled}
+                label="Offer Economy delivery"
+              />
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <NumberField label="Postal charge" suffix="LKR / kg" value={sf.economyPostalRatePerKgLKR} saved={sfSaved.economyPostalRatePerKgLKR} onChange={(v) => update((s) => (s.storefront.economyPostalRatePerKgLKR = v))} hint="No separate delivery fee" disabled={disabled} />
             </div>

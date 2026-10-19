@@ -417,7 +417,8 @@ export async function reassignRequestReal(requestId: string, staffId: string): P
  * before an order gets created — after that, the order's own
  * order_items.screenshot_url would need editing separately.
  */
-export async function setRequestScreenshotReal(requestId: string, screenshotUrl: string): Promise<{ ok: boolean; error?: string }> {
+/** null removes the photo. */
+export async function setRequestScreenshotReal(requestId: string, screenshotUrl: string | null): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
   const { error } = await supabase.from('requests').update({ screenshot_url: screenshotUrl }).eq('id', requestId)
   return error ? { ok: false, error: error.message } : { ok: true }

@@ -114,7 +114,9 @@ type DashboardContextValue = {
   startItemInfo: (event: FormEvent) => Promise<void>
   beginRequestForUrl: (url: string) => Promise<void>
   saveItemInfo: (event: FormEvent) => void
-  confirmRequest: () => Promise<ConfirmResult>
+  /** `itemName`: optional name the customer typed for an item we couldn't
+   *  read. Becomes the request's item_name (staff can keep or change it). */
+  confirmRequest: (opts?: { itemName?: string; photoUrl?: string }) => Promise<ConfirmResult>
   setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
 }
@@ -332,7 +334,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     setDraft((current) => ({ ...current, deliveryChoice: choice }))
   }, [])
 
-  const confirmRequest = useCallback(async (): Promise<ConfirmResult> => {
+  const confirmRequest = useCallback(async (opts?: { itemName?: string; photoUrl?: string }): Promise<ConfirmResult> => {
+    // What the customer called it, if they typed a name (couldn't-read items).
+    const customerItemName = (opts?.itemName ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)
     if (!user) {
       setTimeout(() => {
         router.push(LOGIN_REDIRECT_PATH)
@@ -367,8 +371,11 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         // matched, or the site blocked scraping outright).
         const hasRealImage = draft.image && draft.image !== productImage[0]
         const og = hasRealImage ? null : await fetchOgMetadataClient(draft.url)
-        const screenshotUrl = hasRealImage ? draft.image : (og?.image ?? undefined)
-        const displayTitle = draft.name.trim() || og?.title || draft.url
+        // The customer's own photo (item screen) wins over anything we found;
+        // staff can keep, replace or remove it on the request page.
+        const customerPhoto = opts?.photoUrl && /^https:\/\//.test(opts.photoUrl) ? opts.photoUrl : undefined
+        const screenshotUrl = customerPhoto ?? (hasRealImage ? draft.image : (og?.image ?? undefined))
+        const displayTitle = customerItemName || draft.name.trim() || og?.title || draft.url
 
         const variantNote = draft.needsVariantConfirmation
           ? "\n\nNote: this item may come in different sizes/colors — please let us know which one you'd like when you get a chance."
@@ -386,7 +393,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             user_id: user.id,
             link: draft.url,
             note: buildRequestNote(draft),
-            item_name: draft.name,
+            // The customer's own name for it wins; staff can edit it on the
+            // request page (Product title).
+            item_name: customerItemName || draft.name,
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
             chat_thread_id: threadId,

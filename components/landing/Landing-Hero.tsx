@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowRight, Check, Link as LinkIcon } from 'lucide-react'
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
+import PriceEstimatorDialog from '@/components/shared/PriceEstimatorDialog'
 import { OUTER_H } from '@/components/shared/headerMetrics'
 import { AIRMAIL_STRIPE_HEIGHT } from '@/components/shared/AirmailStripe'
 // Same flow FinalCTA and /account's "Buy for me" form use — see
@@ -220,6 +221,11 @@ export default function Hero() {
               </li>
             ))}
           </ul>
+
+          {/* No link yet? A rough price from the rupee price + weight. */}
+          <div {...rise(340)} className={`${rise(340).className} mt-4 pl-1`}>
+            <PriceEstimatorDialog />
+          </div>
 
           {/* Secondary path: browse partner stores. Leads with real logos as
               a trust signal; rotates through the local-store pool. */}

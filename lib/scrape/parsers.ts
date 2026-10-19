@@ -2216,6 +2216,22 @@ export async function scrapeProduct(url: string, options: ScrapeProductOptions =
     result.unavailable = true
   }
 
+  // Nothing at all came back — no title, no price, no images. That's a
+  // blocked request or a JS loading shell (common on Meesho), not a real
+  // listing, so report it as a failure: callers then show the "We couldn't
+  // load this listing" screen (with chat + price estimate) instead of an
+  // empty product page that still says "In stock" with Add to Cart.
+  const hasPrice = result.price != null && String(result.price).trim() !== ''
+  if (!result.title && !hasPrice && !(result.images && result.images.length)) {
+    return {
+      url,
+      site: result.site,
+      source,
+      error: 'Nothing could be read from this page — the store likely blocked the request or only sent a loading page.',
+      ...(result.warning ? { warning: result.warning } : {}),
+    }
+  }
+
   if (!result.title) {
     result.warning =
       (result.warning ? result.warning + ' | ' : '') +

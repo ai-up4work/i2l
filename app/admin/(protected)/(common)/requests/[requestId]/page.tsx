@@ -16,6 +16,7 @@ import {
   RotateCw,
   Send,
   X,
+  Trash2,
 } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
@@ -1032,6 +1033,19 @@ export default function RequestDetailPage() {
                             {uploadingScreenshot ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
                             Replace
                           </label>
+                        )}
+                        {canWork && isOpen && (
+                          <button
+                            type="button"
+                            disabled={uploadingScreenshot}
+                            onClick={() => {
+                              if (window.confirm("Remove the customer's photo from this request?")) setRequestScreenshot(request.id, item.id, null)
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg border border-red-600/20 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-600/5 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Trash2 size={12} />
+                            Remove
+                          </button>
                         )}
                       </div>
                     ) : (

@@ -30,7 +30,7 @@ import { storeSourceOf } from '@/lib/catalogue-stores'
 import { fetchStoreProduct } from '@/lib/store-providers/product'
 import { detectSite, scrapeProduct } from '@/lib/scrape/parsers'
 import { matchAffiliatedSellerUrl } from '@/lib/store-config-db'
-import { ECONOMY_LOCKED } from '@/lib/feature-flags'
+import { isEconomyLocked } from '@/lib/feature-flags'
 import type { StoreProduct } from '@/lib/store.types'
 import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
 import { getOrCreateGeneralThread } from '@/lib/supabase/chat'
@@ -528,8 +528,10 @@ async function cartCoupons(admin: AdminClient, userId: string, pricing: CartPric
   return out
 }
 
-function checkDelivery(delivery: DeliveryChoice): DeliveryChoice {
-  return delivery === 'economy' && !ECONOMY_LOCKED ? 'economy' : 'express'
+/** Economy only when it's switched on in Admin → Pricing engine. */
+async function checkDelivery(delivery: DeliveryChoice): Promise<DeliveryChoice> {
+  if (delivery !== 'economy') return 'express'
+  return isEconomyLocked(await ensurePricingSettings()) ? 'express' : 'economy'
 }
 
 export async function quoteCheckout(
@@ -537,7 +539,7 @@ export async function quoteCheckout(
   input: { lines: CheckoutLineInput[]; delivery: DeliveryChoice; couponToken: string | null },
 ): Promise<CheckoutQuote> {
   const admin = createServiceRoleClient()
-  const pricing = await priceCart(admin, input.lines, checkDelivery(input.delivery))
+  const pricing = await priceCart(admin, input.lines, await checkDelivery(input.delivery))
   const [c, availableCoupons] = await Promise.all([
     applyCoupon(admin, userId, input.couponToken, pricing),
     cartCoupons(admin, userId, pricing).catch((err) => {
@@ -649,7 +651,7 @@ export async function placeCheckout(
   input: { lines: CheckoutLineInput[]; delivery: DeliveryChoice; couponToken: string | null; recipient: CheckoutRecipient },
 ): Promise<PlaceResult> {
   const admin = createServiceRoleClient()
-  const delivery = checkDelivery(input.delivery)
+  const delivery = await checkDelivery(input.delivery)
 
   // Wishdrop Mall stock first — cheapest way to fail.
   const problems = await checkMallStock(

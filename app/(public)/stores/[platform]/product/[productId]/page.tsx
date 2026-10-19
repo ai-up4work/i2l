@@ -12,7 +12,7 @@ import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue'
 import { MoreFromStore, StickyBuyBar } from '@/components/stores/social/SocialProductExtras'
 import { getDualDeliveryPricing } from '@/lib/pricing'
 import { ensurePricingSettings } from '@/lib/pricing-settings-server'
-import { ECONOMY_LOCKED } from '@/lib/feature-flags'
+import { isEconomyLocked } from '@/lib/feature-flags'
 import ProductPurchasePanel from '@/components/stores/ProductPurchasePanel'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
@@ -277,14 +277,15 @@ export default async function ProductDetailPage({
   // work-desk calculator.
   // Saved pricing settings (Admin → Pricing engine) — passed explicitly so
   // this never depends on render order with the root layout.
-  const dualPricing = getDualDeliveryPricing(product, await ensurePricingSettings())
+  const pricingSettings = await ensurePricingSettings()
+  const dualPricing = getDualDeliveryPricing(product, pricingSettings)
 
-  // Economy is temporarily locked sitewide (see the top-of-file comment)
-  // via the shared ECONOMY_LOCKED flag. While it's on, only Express is
+  // Economy can be switched off sitewide (Admin → Pricing engine; see
+  // isEconomyLocked in lib/feature-flags.ts). While it's on, only Express is
   // actually bookable, so `primaryPricing` (fed into the two "primary
   // price" call sites below: JSON-LD, ViewTracker) is Express; once the
   // flag is off it's Economy again with no other edits needed here.
-  const economyLocked = ECONOMY_LOCKED
+  const economyLocked = isEconomyLocked(pricingSettings)
   const primaryPricing = economyLocked ? dualPricing.express : dualPricing.economy
 
   const productPath = handlePath(store.platform, productId)

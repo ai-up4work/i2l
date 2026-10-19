@@ -1,6 +1,7 @@
 // app/account/cart/page.tsx
 'use client'
 
+import { isEconomyLocked } from '@/lib/feature-flags'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -238,8 +239,10 @@ function DeliveryModeToggle({
   value: DeliveryChoice
   onChange: (value: DeliveryChoice) => void
 }) {
+  const economyLocked = isEconomyLocked()
   const options: { key: DeliveryChoice; label: string; sub: string; icon: React.ReactNode; disabled?: boolean }[] = [
-    { key: 'economy', label: 'Economy', sub: 'Coming soon', icon: <Truck size={15} strokeWidth={1.8} />, disabled: true },
+    // Switched on/off in Admin → Pricing engine (isEconomyLocked).
+    { key: 'economy', label: 'Economy', sub: economyLocked ? 'Coming soon' : '3–4 weeks', icon: <Truck size={15} strokeWidth={1.8} />, disabled: economyLocked },
     { key: 'express', label: 'Express', sub: '12–15 days', icon: <Plane size={15} strokeWidth={1.8} /> },
   ]
   return (

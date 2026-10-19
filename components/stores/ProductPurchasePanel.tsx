@@ -26,7 +26,7 @@
 // now (see the cart page's DeliveryModeToggle, which does the same thing
 // with a grayed-out "Coming soon" sub-label and defaults to Express).
 // `economyLocked` — passed down from page.tsx, and defaulting to the
-// shared ECONOMY_LOCKED flag in lib/feature-flags.ts — swaps this card's
+// shared Economy switch (isEconomyLocked in lib/feature-flags.ts, set in Admin → Pricing engine) — swaps this card's
 // visual hierarchy: Express becomes the full-opacity, "recommended" row
 // and Economy becomes a muted, non-interactive row with its price
 // hidden behind a "Coming soon" label instead of a real number. The
@@ -73,7 +73,7 @@ import { ChevronRight, Clock, Package, Star, Weight, Zap } from 'lucide-react'
 import { getDualDeliveryPricing, formatLKR } from '@/lib/pricing'
 import { localPickupFeeLKR } from '@/lib/store-origin'
 import { findMatchingVariant, isMatchableOption } from '@/lib/product-options'
-import { ECONOMY_LOCKED, type VariantStatus } from '@/lib/feature-flags'
+import { isEconomyLocked, type VariantStatus } from '@/lib/feature-flags'
 import ProductActions from '@/components/stores/ProductActions'
 import ProductGallery from '@/components/stores/ProductGallery'
 import ProductRequestButton from '@/components/stores/ProductRequestButton'
@@ -142,7 +142,7 @@ export default function ProductPurchasePanel({
   storeName,
   storeLogo,
   isMarketplace,
-  economyLocked = ECONOMY_LOCKED,
+  economyLocked = isEconomyLocked(),
   social,
 }: {
   product: StoreProduct
@@ -151,7 +151,7 @@ export default function ProductPurchasePanel({
   storeLogo: string
   isMarketplace: boolean
   /** Economy delivery is temporarily unavailable sitewide — see the
-   * top-of-file comment. Defaults to the shared ECONOMY_LOCKED flag so
+   * top-of-file comment. Defaults to the shared Economy switch (isEconomyLocked) so
    * any caller that hasn't been updated yet still agrees with the rest
    * of the site. */
   economyLocked?: boolean

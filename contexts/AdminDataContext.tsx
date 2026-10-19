@@ -1150,7 +1150,8 @@ interface AdminDataContextValue {
   /** Sets/edits the quote for ONE item on the request — always appended to that item's quoteHistory, never silently overwritten. Status flips to "quoted" only once every item has a quote. */
   setQuote: (requestId: string, itemId: string, amount: number) => void
   /** Manually attaches/replaces a request item's product photo — the admin-upload path for when the OG scrape found no image (or the wrong one). */
-  setRequestScreenshot: (requestId: string, itemId: string, url: string) => void
+  /** url null removes the customer's photo. */
+  setRequestScreenshot: (requestId: string, itemId: string, url: string | null) => void
   /** Records the confirmed variant (size/color/etc.) once the admin has confirmed it with the customer. Prepended onto the order's item name at confirm time. */
   setRequestVariant: (requestId: string, itemId: string, variant: string) => void
   markRequestReplied: (requestId: string) => void
@@ -2868,11 +2869,11 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * carries onto the new order's order_items.screenshot_url, so this is
    * also how a missing/bad photo gets fixed before the order is created.
    */
-  const setRequestScreenshot = (requestId: string, itemId: string, url: string) => {
+  const setRequestScreenshot = (requestId: string, itemId: string, url: string | null) => {
     setRequests((prev) =>
       prev.map((r) =>
         r.id === requestId
-          ? { ...r, items: r.items.map((item) => (item.id === itemId ? { ...item, screenshotUrl: url } : item)) }
+          ? { ...r, items: r.items.map((item) => (item.id === itemId ? { ...item, screenshotUrl: url ?? undefined } : item)) }
           : r
       )
     )

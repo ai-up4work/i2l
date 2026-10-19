@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { Landmark, Scale } from 'lucide-react'
 import { Card, CtaEnvelope, IconCard, PageHero, Section } from '@/components/public/PageKit'
-import { ECONOMY_LOCKED } from '@/lib/feature-flags'
+import { isEconomyLocked } from '@/lib/feature-flags'
 import { ensurePricingSettings } from '@/lib/pricing-settings-server'
+import PriceEstimator from '@/components/shared/PriceEstimator'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata = pageMetadata({
@@ -14,7 +15,9 @@ export const metadata = pageMetadata({
 export default async function ShippingPricingPage() {
   // Published rates come straight from the saved pricing settings
   // (Admin → Pricing engine), so this page can't drift from real prices.
-  const { storefront: sf, customs } = await ensurePricingSettings()
+  const pricingSettings = await ensurePricingSettings()
+  const { storefront: sf, customs } = pricingSettings
+  const economyLocked = isEconomyLocked(pricingSettings)
   const expressRows = [
     { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
     { label: 'Freight charge', value: `~LKR ${sf.freightRatePerKgLKR.toLocaleString()} per kg, billed in ${sf.weightBlockKg}kg blocks` },
@@ -77,6 +80,17 @@ export default async function ShippingPricingPage() {
         }
       />
 
+      <Section
+        id="estimate"
+        eyebrow="Try it"
+        title="Estimate a price"
+        intro="Know the price in rupees? Type it in with roughly how heavy it is, and see about what it costs delivered to you."
+      >
+        <div className="rounded-[28px] bg-card p-4 ring-1 ring-ink/[0.08] sm:p-6">
+          <PriceEstimator />
+        </div>
+      </Section>
+
       <Section>
         <div className="grid gap-5 lg:grid-cols-2">
           <RateCard
@@ -88,7 +102,7 @@ export default async function ShippingPricingPage() {
           />
           <RateCard
             name="Economy"
-            tag={ECONOMY_LOCKED ? 'Coming soon' : 'Lower cost'}
+            tag={economyLocked ? 'Coming soon' : 'Lower cost'}
             tagClass="bg-gold/15 text-gold-deep"
             text="One postal-charges line by weight and no separate delivery fee. Usually slower than Express."
             rows={economyRows}
