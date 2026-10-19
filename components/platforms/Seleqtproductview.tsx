@@ -10,7 +10,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a Seleqt (seleqt.wishlink.com) scrape result — same structural
@@ -211,60 +211,9 @@ function SeleqtCommerceActions({
   )
 }
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-ink/70">{label}</dt>
-      <dd className="text-right text-ink/55">{value}</dd>
-    </div>
-  )
-}
 
 function ProductInfoTabs({ result }: { result: PlatformViewProps['result'] }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const specifics = result.itemSpecifics ?? []
-  const hasDetails = !!result.brand || specifics.length > 0
-
-  return (
-    <div className="mt-8 border-t border-ink/10 pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div key={activeTab} className={PDP_TAB_PANEL}>
-        {activeTab === 'Description' &&
-          // FIX: whitespace-pre-line — a second real product's
-          // description (Janasya, product/1074623) came back as four
-          // separate sentences joined by literal \n characters, same as
-          // the real site's own Product Highlights paragraph (which
-          // uses this exact CSS property — see seleqt.ts's
-          // extractDescription doc comment). A plain <p> collapses
-          // those into one run-on line; the first product tested had a
-          // single-line description, so this never showed up until a
-          // longer one did.
-          (result.description ? (
-            <p className="whitespace-pre-line">{result.description}</p>
-          ) : (
-            <p className="text-ink/40">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.brand && <DetailRow label="Brand" value={result.brand} />}
-            {specifics.map((s) => (
-              <DetailRow key={s.name} label={s.name} value={s.value} />
-            ))}
-            {!hasDetails && <p className="text-ink/40">We don&apos;t have any additional details for this listing.</p>}
-          </dl>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <p className="text-ink/40">We don&apos;t have shipping details from the seller for this listing.</p>
-        )}
-      </div>
-    </div>
-  )
+  return <PdpInfoTabs result={result} accent="#6D28D9" />
 }
 
 /* ---------------------------------------------------------------------

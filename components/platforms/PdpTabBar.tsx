@@ -16,10 +16,13 @@ export default function PdpTabBar<T extends string>({
   tabs,
   active,
   onChange,
+  accent,
 }: {
   tabs: readonly T[]
   active: T
   onChange: (tab: T) => void
+  /** Store colour for the active tab's label and a thin line under it. */
+  accent?: string
 }) {
   const railRef = useRef<HTMLDivElement | null>(null)
   const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
@@ -44,7 +47,9 @@ export default function PdpTabBar<T extends string>({
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-1 rounded-full bg-parchment shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring-1 ring-inset ring-ink/[0.06] transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{ width: indicator.width, transform: `translateX(${indicator.left}px)` }}
-        />
+        >
+          {accent && <span className="absolute inset-x-3 bottom-0.5 h-0.5 rounded-full" style={{ backgroundColor: accent }} />}
+        </div>
       )}
       {tabs.map((tab) => (
         <button
@@ -56,6 +61,7 @@ export default function PdpTabBar<T extends string>({
           }}
           onClick={() => onChange(tab)}
           aria-pressed={active === tab}
+          style={active === tab && accent ? { color: accent } : undefined}
           className={`relative z-10 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-semibold sm:px-3.5 sm:text-sm transition-colors duration-200 ${
             active === tab ? 'text-ink' : 'text-ink/45 hover:text-ink/70'
           }`}

@@ -30,7 +30,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '@/components/stores/RequestActionButton'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_BRAND_LINE, PDP_CONTAINER, PDP_GRID, PDP_LABEL, PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 export type PlatformTheme = {
   /** Key into SITE_LOGOS. */
@@ -260,60 +260,11 @@ function SizeChartTables({ chart, selectedSize }: { chart: NonNullable<ScrapeRes
   )
 }
 
-const TABS = ['Description', 'Details', 'Shipping & Returns'] as const
 
-function InfoTabs({ result }: { result: ScrapeResult }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>('Description')
-  const chart = result.sizeChart && result.sizeChart.length ? result.sizeChart : null
-  return (
-    <div className="mt-8 border-t border-ink/10 pt-6">
-      <PdpTabBar tabs={TABS} active={tab} onChange={setTab} />
-      <div key={tab} className={PDP_TAB_PANEL}>
-        {tab === 'Description' &&
-          (result.description ? (
-            <p>{result.description}</p>
-          ) : (
-            <p className="text-ink/45">We don&apos;t have a description for this listing. Here&apos;s the title instead: {result.title ?? 'no title available.'}</p>
-          ))}
-        {tab === 'Details' && (
-          <div className="flex flex-col gap-4">
-            <dl className="flex flex-col gap-1.5 text-xs">
-              {result.brand && <Row label="Brand" value={result.brand} />}
-              {result.seller && <Row label="Seller" value={result.seller} />}
-              {result.itemSpecifics?.map((s) => <Row key={s.name} label={s.name} value={s.value} />)}
-              {!result.brand && !result.seller && !result.itemSpecifics?.length && !chart && (
-                <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
-              )}
-            </dl>
-            {chart && (
-              <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/45">Size chart</p>
-                <div className="rounded-lg border border-ink/10 bg-card p-3">
-                  <SizeChartTables chart={chart} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {tab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.availability ? <Row label="Availability" value={result.availability} /> : null}
-            <p className="mt-1 text-ink/45">Delivery to Sri Lanka and timing are confirmed with your quote.</p>
-          </dl>
-        )}
-      </div>
-    </div>
-  )
+function InfoTabs({ result, accent }: { result: ScrapeResult; accent: string }) {
+  return <PdpInfoTabs result={result} accent={accent} />
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-ink/70">{label}</dt>
-      <dd className="text-right text-ink/55">{value}</dd>
-    </div>
-  )
-}
 
 export default function ThemedProductView({ theme, ...props }: PlatformViewProps & { theme: PlatformTheme }) {
   const { result, onSelectVariant, onSelectionChange, initialSelection, qty, onQtyChange, inWishlist, onToggleWishlist, onAddToCart, justAdded, onRequestReview, loading, canAct } = props
@@ -511,7 +462,7 @@ export default function ThemedProductView({ theme, ...props }: PlatformViewProps
         </div>
       </div>
 
-      <InfoTabs result={result} />
+      <InfoTabs result={result} accent={theme.accent} />
     </div>
   )
 }

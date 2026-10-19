@@ -11,7 +11,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -329,17 +329,6 @@ function EbayCommerceActions({
  * slot as AmazonProductView.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-[#191919]/80">{label}</dt>
-      <dd className="text-right text-[#6b6b6b]">{value}</dd>
-    </div>
-  )
-}
 
 function ProductInfoTabs({
   result,
@@ -356,77 +345,24 @@ function ProductInfoTabs({
   quantitySold?: number | null
   paymentMethods?: string[] | null
 }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const categoryPath = (result as any).categoryPath as string | null | undefined
-  const itemLocation = (result as any).itemLocation as string | null | undefined
-  const returnsAccepted = (result as any).returnsAccepted as boolean | null | undefined
-  const returnPeriodDays = (result as any).returnPeriodDays as number | null | undefined
-
+  const stockLine = [
+    quantityAvailable != null ? `${quantityAvailable} available` : null,
+    quantitySold != null ? `${quantitySold} sold` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
   return (
-    <div className="mt-8 border-t border-[#eaeaea] pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          (conditionDescription || (result as ScrapeResult & { description?: string }).description ? (
-            <p>{conditionDescription || (result as ScrapeResult & { description?: string }).description}</p>
-          ) : (
-            <p className="text-[#a3a3a3]">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <div className="flex flex-col gap-4">
-            <dl className="flex flex-col gap-1.5 text-xs">
-              {categoryPath && <DetailRow label="Category" value={categoryPath} />}
-              {allSpecs.map((spec) => (
-                <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-              ))}
-              {(quantityAvailable != null || quantitySold != null) && (
-                <DetailRow
-                  label="Availability"
-                  value={[
-                    quantityAvailable != null ? `${quantityAvailable} available` : null,
-                    quantitySold != null ? `${quantitySold} sold` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                />
-              )}
-              {paymentMethods?.length ? <DetailRow label="Payment" value={paymentMethods.join(', ')} /> : null}
-              {!categoryPath && !allSpecs.length && quantityAvailable == null && quantitySold == null && (
-                <p className="text-[#a3a3a3]">We don&apos;t have any additional details for this listing.</p>
-              )}
-            </dl>
-          </div>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {itemLocation && <DetailRow label="Ships from" value={itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                returnsAccepted
-                  ? `Accepted${returnPeriodDays ? ` within ${returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !itemLocation && (
-                <p className="mt-1 text-[#a3a3a3]">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
+    <PdpInfoTabs
+      result={result}
+      accent="#3665F3"
+      descriptionText={conditionDescription || result.description || null}
+      details={[
+        { label: 'Category', value: result.categoryPath ?? '' },
+        ...allSpecs.map((s) => ({ label: s.name, value: s.value })),
+        { label: 'Stock', value: stockLine },
+        { label: 'Payment', value: paymentMethods?.join(', ') ?? '' },
+      ]}
+    />
   )
 }
 

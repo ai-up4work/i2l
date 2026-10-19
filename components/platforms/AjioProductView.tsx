@@ -29,7 +29,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_BRAND_LINE, PDP_LABEL, PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a scrape result using the same structural layout as
@@ -459,17 +459,6 @@ function AjioCommerceActions({
  * ProductInfoTabs — Description / Details / Shipping & Returns
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-[#2c4152]/80">{label}</dt>
-      <dd className="text-right text-[#767676]">{value}</dd>
-    </div>
-  )
-}
 
 /** Drops leaked <style>/<script> blocks, tags and raw CSS rule text from
  * scraped descriptions; returns null if what's left is empty or still
@@ -496,79 +485,14 @@ function sanitizeDescription(raw: string | null | undefined): string | null {
 }
 
 function ProductInfoTabs({ result }: { result: ScrapeResult }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const optionEntries = Object.entries(result.options ?? {})
-  const legalInfo = result.legalInfo ?? []
-
   return (
-    <div className="mt-8 border-t border-[#e6e6e6] pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          (() => {
-            const cleaned = sanitizeDescription((result as ScrapeResult & { description?: string }).description)
-            return cleaned ? (
-              <p>{cleaned}</p>
-            ) : (
-              <p className="text-[#8a8a8a]">
-                We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-                {result.title ?? 'no title available.'}
-              </p>
-            )
-          })()}
-        {activeTab === 'Details' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.brand && <DetailRow label="Brand" value={result.brand} />}
-            {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-            {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-            {optionEntries.map(([label, value]) => (
-              <DetailRow key={label} label={label} value={String(value)} />
-            ))}
-            {result.itemSpecifics?.map((spec) => (
-              <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-            ))}
-            {legalInfo.map((info) => (
-              <DetailRow key={info.name} label={info.name} value={info.value} />
-            ))}
-            {!result.brand &&
-              !result.mpn &&
-              !result.categoryPath &&
-              !optionEntries.length &&
-              !result.itemSpecifics?.length &&
-              !legalInfo.length && (
-                <p className="text-[#8a8a8a]">We don&apos;t have any additional details for this listing.</p>
-              )}
-          </dl>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.seller && <DetailRow label="Sold by" value={result.seller} />}
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation &&
-              !result.seller && (
-                <p className="mt-1 text-[#8a8a8a]">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
+    <PdpInfoTabs
+      result={result}
+      accent="#2C4152"
+      descriptionText={sanitizeDescription(result.description)}
+      extraDetails={Object.entries(result.options ?? {}).map(([label, value]) => ({ label, value: String(value) }))}
+      detailSections={result.legalInfo?.length ? [{ title: 'Legal & compliance', rows: result.legalInfo.map((r) => ({ label: r.name, value: r.value })) }] : undefined}
+    />
   )
 }
 

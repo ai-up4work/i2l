@@ -11,7 +11,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a scrape result using the SAME visual language as the
@@ -629,126 +629,9 @@ function AmazonCommerceActions({
  * rendered as the bottom-most, full-width section of the whole view.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-ink/70">{label}</dt>
-      <dd className="text-right text-ink/55">{value}</dd>
-    </div>
-  )
-}
-
-/** Renders the REAL scraped size chart tables only — one block per table. */
-function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> }) {
-  return (
-    <div className="flex flex-col gap-3">
-      {chart.map((table, i) => (
-        <div key={i}>
-          {'title' in table && table.title && (
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-ink/45">{table.title}</p>
-          )}
-          {'columns' in table && (
-            <table className="w-full border-collapse text-left text-[12px] text-ink">
-              <thead>
-                <tr className="border-b border-ink/10">
-                  {table.columns.map((col) => (
-                    <th key={col} className="py-1 pr-4 font-semibold">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {table.rows.map((row, r) => (
-                  <tr key={r} className="border-b border-ink/5 last:border-0">
-                    {table.columns.map((col) => (
-                      <td key={col} className="py-1 pr-4">
-                        {row[col]}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function ProductInfoTabs({ result }: { result: ScrapeResult }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const hasRealSizeChart = !!result.sizeChart && result.sizeChart.length > 0
-
-  return (
-    <div className="mt-8 border-t border-ink/10 pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          ((result as ScrapeResult & { description?: string }).description ? (
-            <p>{(result as ScrapeResult & { description?: string }).description}</p>
-          ) : (
-            <p className="text-ink/45">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <div className="flex flex-col gap-4">
-            <dl className="flex flex-col gap-1.5 text-xs">
-              {result.brand && <DetailRow label="Brand" value={result.brand} />}
-              {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-              {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-              {result.itemSpecifics?.map((spec) => (
-                <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-              ))}
-              {!result.brand && !result.mpn && !result.itemSpecifics?.length && !hasRealSizeChart && (
-                <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
-              )}
-            </dl>
-
-            {hasRealSizeChart && (
-              <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/45">Size chart</p>
-                <div className="rounded-lg border border-ink/10 bg-card p-3">
-                  <SizeChart chart={result.sizeChart!} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation && (
-                <p className="mt-1 text-ink/45">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
-  )
+  return <PdpInfoTabs result={result} accent="#0f766e" />
 }
 
 /* ---------------------------------------------------------------------

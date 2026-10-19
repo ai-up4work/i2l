@@ -1,7 +1,7 @@
 // app/demo/scraper-qa/platforms/NykaaProductView.tsx
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
 import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
@@ -11,6 +11,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_BRAND_LINE, PDP_LABEL, PDP_TITLE } from './pdp-styles'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -231,17 +232,6 @@ function NykaaCommerceActions({
  * card panel, same treatment now shared across the platform views.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 rounded-lg px-2 py-1.5 transition-colors hover:bg-[#fc2779]/[0.04]">
-      <dt className="text-[#767676]">{label}</dt>
-      <dd className="text-right font-medium text-[#282828]">{value}</dd>
-    </div>
-  )
-}
 
 /**
  * Some scrapes (Amazon-style "A+ content" descriptions in particular)
@@ -313,145 +303,43 @@ function extractComboItems(text: string): { items: ComboItem[]; remainder: strin
   return { items, remainder }
 }
 
-// Sliding pink pill indicator behind the active tab, measured from the
-// real button rects so it stays exact regardless of label width.
-function useSlidingIndicator(activeTab: InfoTab) {
-  const railRef = useRef<HTMLDivElement | null>(null)
-  const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
-  const [style, setStyle] = useState<{ left: number; width: number } | null>(null)
-
-  useLayoutEffect(() => {
-    const rail = railRef.current
-    const btn = btnRefs.current.get(activeTab)
-    if (!rail || !btn) return
-    const railRect = rail.getBoundingClientRect()
-    const btnRect = btn.getBoundingClientRect()
-    setStyle({ left: btnRect.left - railRect.left + rail.scrollLeft, width: btnRect.width })
-  }, [activeTab])
-
-  return { railRef, btnRefs, style }
-}
 
 function ProductInfoTabs({ result }: { result: ScrapeResult }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const { railRef, btnRefs, style: indicatorStyle } = useSlidingIndicator(activeTab)
-
-  const hasSpecifics = !!(result.brand || result.mpn || result.categoryPath || result.itemSpecifics?.length)
-
+  const cleaned = sanitizeDescription(result.description)
+  const combo = cleaned ? extractComboItems(cleaned) : null
   return (
-    <div className="mt-8 border-t border-[#ececec] pt-6">
-      <div
-        ref={railRef}
-        className="relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#fc2779]/[0.04] p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {indicatorStyle && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-1 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring-1 ring-inset ring-[#282828]/[0.06] transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-            style={{ width: indicatorStyle.width, transform: `translateX(${indicatorStyle.left}px)` }}
-          />
-        )}
-        {INFO_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            ref={(el) => {
-              if (el) btnRefs.current.set(tab, el)
-              else btnRefs.current.delete(tab)
-            }}
-            onClick={() => setActiveTab(tab)}
-            aria-pressed={activeTab === tab}
-            className={`relative z-10 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-semibold sm:px-3.5 sm:text-sm transition-colors duration-200 ${
-              activeTab === tab ? 'text-[#282828]' : 'text-[#a3a3a3] hover:text-[#282828]/70'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      <div
-        key={activeTab}
-        className="mt-4 min-h-[96px] rounded-2xl border border-[#282828]/[0.06] bg-[#fafafa] p-4 text-sm leading-relaxed text-[#484848] motion-safe:[animation:tabFadeIn_0.18s_ease-out_both] sm:p-5"
-      >
-        {activeTab === 'Description' &&
-          (() => {
-            const cleaned = sanitizeDescription((result as ScrapeResult & { description?: string }).description)
-            if (!cleaned) {
-              return (
-                <p className="text-[#a3a3a3]">
-                  We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-                  {result.title ?? 'no title available.'}
-                </p>
-              )
-            }
-
-            const combo = extractComboItems(cleaned)
-            if (!combo) return <p>{cleaned}</p>
-
-            return (
-              <div className="flex flex-col gap-4">
-                {combo.remainder && <p>{combo.remainder}</p>}
-                <div>
-                  <p className="mb-2 text-[11px] font-semibold text-[#282828]/60">
-                    What&apos;s in this combo ({combo.items.length} {combo.items.length === 1 ? 'item' : 'items'})
-                  </p>
-                  <ul className="flex flex-col divide-y divide-[#282828]/[0.06] overflow-hidden rounded-xl border border-[#282828]/[0.06] bg-white">
-                    {combo.items.map((item, i) => (
-                      <li key={i} className="flex items-center justify-between gap-4 px-3 py-2.5">
-                        <span className="min-w-0 flex-1 text-[13px] font-medium text-[#282828]">{item.name}</span>
-                        <span className="flex flex-none items-center gap-3 text-xs text-[#767676]">
-                          {item.qty && <span>Qty {item.qty}</span>}
-                          {item.mrp && (
-                            <span className="font-semibold" style={{ color: NYKAA_PINK }}>
-                              {fmt(item.mrp, result.currencyCode) ?? `₹${item.mrp}`}
-                            </span>
-                          )}
+    <PdpInfoTabs
+      result={result}
+      accent={NYKAA_PINK}
+      descriptionText={cleaned}
+      description={
+        combo ? (
+          <div className="flex flex-col gap-4">
+            {combo.remainder && <p>{combo.remainder}</p>}
+            <div>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ink/45">
+                What&apos;s in this combo ({combo.items.length} {combo.items.length === 1 ? 'item' : 'items'})
+              </p>
+              <ul className="flex flex-col divide-y divide-ink/[0.06] overflow-hidden rounded-xl border border-ink/[0.08] bg-parchment">
+                {combo.items.map((item, i) => (
+                  <li key={i} className="flex items-center justify-between gap-4 px-3 py-2.5">
+                    <span className="min-w-0 flex-1 text-[13px] font-medium text-ink">{item.name}</span>
+                    <span className="flex flex-none items-center gap-3 text-xs text-ink/55">
+                      {item.qty && <span>Qty {item.qty}</span>}
+                      {item.mrp && (
+                        <span className="font-semibold" style={{ color: NYKAA_PINK }}>
+                          {fmt(item.mrp, result.currencyCode) ?? `₹${item.mrp}`}
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )
-          })()}
-
-        {activeTab === 'Details' && (
-          <dl className="mx-auto flex w-full max-w-xl flex-col divide-y divide-[#282828]/[0.06] text-xs">
-            {result.brand && <DetailRow label="Brand" value={result.brand} />}
-            {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-            {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-            {result.itemSpecifics?.map((spec) => (
-              <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-            ))}
-            {!hasSpecifics && <p className="text-[#a3a3a3]">We don&apos;t have any additional details for this listing.</p>}
-          </dl>
-        )}
-
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="mx-auto flex w-full max-w-xl flex-col divide-y divide-[#282828]/[0.06] text-xs">
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation && (
-                <p className="mt-1 text-[#a3a3a3]">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : undefined
+      }
+    />
   )
 }
 

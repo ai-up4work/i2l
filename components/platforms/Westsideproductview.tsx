@@ -11,7 +11,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -327,145 +327,21 @@ function WestsideCommerceActions({
  * attributes, so dumping it verbatim would confuse more than it helps.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-[#1c1c1c]/80">{label}</dt>
-      <dd className="text-right text-[#8a8474]">{value}</dd>
-    </div>
-  )
-}
-
-function SizeChart({ chart }: { chart: NonNullable<ScrapeResult['sizeChart']> }) {
-  return (
-    <div className="flex flex-col gap-3">
-      {chart.map((table, i) => (
-        <div key={i}>
-          {(() => {
-            const normalized = table as unknown as {
-              title?: string
-              columns?: string[]
-              headers?: string[]
-              rows?: unknown[]
-              data?: unknown[]
-            }
-            const columns = normalized.columns ?? normalized.headers ?? []
-            const rows = normalized.rows ?? normalized.data ?? []
-
-            return (
-              <>
-                {normalized.title && (
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#a39d8c]">
-                    {normalized.title}
-                  </p>
-                )}
-          <table className="w-full border-collapse text-left text-[12px] text-[#1c1c1c]">
-            <thead>
-              <tr className="border-b border-[#e5e1d6]">
-                {columns.map((col) => (
-                  <th key={col} className="py-1 pr-4 font-semibold">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, r) => (
-                <tr key={r} className="border-b border-[#f0ede4] last:border-0">
-                  {columns.map((col, c) => (
-                    <td key={col} className="py-1 pr-4">
-                      {String(Array.isArray(row) ? row[c] ?? '' : (row as Record<string, unknown>)[col] ?? '')}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-              </>
-            )
-          })()}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function ProductInfoTabs({ result }: { result: ScrapeResult }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const hasRealSizeChart = !!result.sizeChart && result.sizeChart.length > 0
-
-  const sku = (result as any).sku as string | null | undefined
-  const productType = (result as any).productType as string | null | undefined
-  const category = (result as any).category as string | null | undefined
-  const gender = (result as any).gender as string | null | undefined
-  const weightKg = (result as any).weightKg as number | null | undefined
-
-  const hasDetails = !!(result.brand || sku || category || productType || gender || weightKg != null || hasRealSizeChart)
-
+  const r = result as ScrapeResult & { sku?: string | null; productType?: string | null; category?: string | null; gender?: string | null; weightKg?: number | null }
   return (
-    <div className="mt-8 border-t border-[#e5e1d6] pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          ((result as ScrapeResult & { description?: string }).description ? (
-            <p>{(result as ScrapeResult & { description?: string }).description}</p>
-          ) : (
-            <p className="text-[#a39d8c]">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <div className="flex flex-col gap-4">
-            <dl className="flex flex-col gap-1.5 text-xs">
-              {result.brand && <DetailRow label="Brand" value={result.brand} />}
-              {sku && <DetailRow label="SKU" value={sku} />}
-              {(category || productType) && <DetailRow label="Category" value={category ?? productType!} />}
-              {gender && <DetailRow label="Gender" value={gender.charAt(0).toUpperCase() + gender.slice(1)} />}
-              {weightKg != null && <DetailRow label="Weight" value={`${weightKg} kg`} />}
-              {!hasDetails && <p className="text-[#a39d8c]">We don&apos;t have any additional details for this listing.</p>}
-            </dl>
-
-            {hasRealSizeChart && (
-              <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#a39d8c]">Size chart</p>
-                <div className="rounded-lg border border-[#e5e1d6] bg-[#faf8f2] p-3">
-                  <SizeChart chart={result.sizeChart!} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation && (
-                <p className="mt-1 text-[#a39d8c]">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
+    <PdpInfoTabs
+      result={result}
+      accent="#a9812f"
+      details={[
+        { label: 'Brand', value: result.brand ?? '' },
+        { label: 'SKU', value: r.sku ?? '' },
+        { label: 'Category', value: r.category ?? r.productType ?? '' },
+        { label: 'Gender', value: r.gender ? r.gender.charAt(0).toUpperCase() + r.gender.slice(1) : '' },
+        { label: 'Weight', value: r.weightKg != null ? `${r.weightKg} kg` : '' },
+      ]}
+    />
   )
 }
 

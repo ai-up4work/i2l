@@ -11,7 +11,7 @@ import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_GRID, PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a WooCommerce scrape result (source: 'woocommerce_api') using
@@ -330,77 +330,9 @@ function WooCommerceCommerceActions({
  * structure and bottom-most full-width slot as AmazonProductView.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-ink/70">{label}</dt>
-      <dd className="text-right text-ink/55">{value}</dd>
-    </div>
-  )
-}
 
 function ProductInfoTabs({ result }: { result: ScrapeResult }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-
-  return (
-    <div className="mt-8 border-t border-ink/10 pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          ((result as ScrapeResult & { description?: string }).description ? (
-            <p>{(result as ScrapeResult & { description?: string }).description}</p>
-          ) : (
-            <p className="text-ink/45">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.brand && <DetailRow label="Brand" value={result.brand} />}
-            {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-            {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-            {result.itemSpecifics?.map((spec) => (
-              <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-            ))}
-            {!result.brand && !result.mpn && !result.itemSpecifics?.length && (
-              <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
-            )}
-          </dl>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.seller && <DetailRow label="Sold by" value={result.seller} />}
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation &&
-              !result.seller && (
-                <p className="mt-1 text-ink/45">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
-  )
+  return <PdpInfoTabs result={result} accent="#0f766e" />
 }
 
 /* ---------------------------------------------------------------------

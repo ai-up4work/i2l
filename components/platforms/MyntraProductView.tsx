@@ -10,7 +10,7 @@ import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs from './PdpInfoTabs'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -460,17 +460,6 @@ function MyntraCommerceActions({
  * is folded into the Details tab here.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="font-semibold text-[#282c3f]/80">{label}</dt>
-      <dd className="text-right text-[#94969f]">{value}</dd>
-    </div>
-  )
-}
 
 function ProductInfoTabs({
   result,
@@ -483,60 +472,17 @@ function ProductInfoTabs({
   manufacturer?: string | null
   myntraStyleId?: number | string | null
 }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-  const hasDetails = countryOfOrigin || manufacturer || myntraStyleId || result.brand
-
   return (
-    <div className="mt-8 border-t border-[#eaeaec] pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          ((result as ScrapeResult & { description?: string }).description ? (
-            <p>{(result as ScrapeResult & { description?: string }).description}</p>
-          ) : (
-            <p className="text-[#94969f]">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-        {activeTab === 'Details' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.brand && <DetailRow label="Brand" value={result.brand} />}
-            {myntraStyleId != null && <DetailRow label="Style ID" value={String(myntraStyleId)} />}
-            {countryOfOrigin && <DetailRow label="Country of Origin" value={countryOfOrigin} />}
-            {manufacturer && <DetailRow label="Manufacturer" value={manufacturer} />}
-            {!hasDetails && <p className="text-[#94969f]">We don&apos;t have any additional details for this listing.</p>}
-          </dl>
-        )}
-        {activeTab === 'Shipping & Returns' && (
-          <dl className="flex flex-col gap-1.5 text-xs">
-            {result.seller && <DetailRow label="Sold by" value={result.seller} />}
-            {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-            <DetailRow
-              label="Returns"
-              value={
-                result.returnsAccepted
-                  ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                  : 'Not accepted by seller'
-              }
-            />
-            {result.availability ? (
-              <DetailRow label="Availability" value={result.availability} />
-            ) : (
-              !result.itemLocation &&
-              !result.seller && (
-                <p className="mt-1 text-[#94969f]">
-                  We don&apos;t have shipping details from the seller for this listing.
-                </p>
-              )
-            )}
-          </dl>
-        )}
-      </div>
-    </div>
+    <PdpInfoTabs
+      result={result}
+      accent="#ff3f6c"
+      details={[
+        { label: 'Brand', value: result.brand ?? '' },
+        { label: 'Style ID', value: myntraStyleId != null ? String(myntraStyleId) : '' },
+        { label: 'Country of origin', value: countryOfOrigin ?? '' },
+        { label: 'Manufacturer', value: manufacturer ?? '' },
+      ]}
+    />
   )
 }
 

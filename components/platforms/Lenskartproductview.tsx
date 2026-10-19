@@ -11,7 +11,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_TITLE } from './pdp-styles'
-import PdpTabBar, { PDP_TAB_PANEL } from './PdpTabBar'
+import PdpInfoTabs, { defaultDetailRows } from './PdpInfoTabs'
 
 /**
  * Lenskart look-alike view, same structural pattern as
@@ -396,17 +396,6 @@ function LenskartCommerceActions({
  * when the scrape actually produced data for them.
  * ------------------------------------------------------------------- */
 
-const INFO_TABS = ['Description', 'Details', 'Shipping & Returns'] as const
-type InfoTab = (typeof INFO_TABS)[number]
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="flex-none font-semibold text-ink/70">{label}</dt>
-      <dd className="text-right text-ink/55">{value}</dd>
-    </div>
-  )
-}
 
 function ProductInfoTabs({
   result,
@@ -415,84 +404,24 @@ function ProductInfoTabs({
   result: LenskartResult
   selectedByDimension: Record<string, string>
 }) {
-  const [activeTab, setActiveTab] = useState<InfoTab>('Description')
-
-  const description = result.description?.trim() || null
   const style = result.styleDescription?.trim() || null
-  const chosenVariantRows = (result.variants ?? [])
-    .map((dim) => {
-      const chosen = selectedByDimension[dim.dimension]
-      const opt = (dim.options as Option[]).find((o) => o.label === chosen)
-      return { name: dim.dimension, value: chosen ? (opt?.subtitle ? `${chosen} (${opt.subtitle})` : chosen) : '' }
-    })
-    .filter((r) => !!r.value)
-
-  const hasDetails =
-    !!result.brand || !!style || !!result.mpn || !!result.categoryPath || !!result.itemSpecifics?.length || chosenVariantRows.length > 0
-
-  const hasReturns = result.returnsAccepted != null
-
+  const chosenVariantRows = (result.variants ?? []).map((dim) => {
+    const chosen = selectedByDimension[dim.dimension]
+    const opt = (dim.options as Option[]).find((o) => o.label === chosen)
+    return { label: dim.dimension, value: chosen ? (opt?.subtitle ? `${chosen} (${opt.subtitle})` : chosen) : '' }
+  })
   return (
-    <div className="mt-8 border-t border-ink/10 pt-6">
-      <PdpTabBar tabs={INFO_TABS} active={activeTab} onChange={setActiveTab} />
-      <div
-        key={activeTab}
-        className={PDP_TAB_PANEL}
-      >
-        {activeTab === 'Description' &&
-          (description ? (
-            <p>{description}</p>
-          ) : style ? (
-            <p>
-              {[result.brand, style].filter(Boolean).join(' — ')}
-              <span className="mt-2 block text-ink/45">Lenskart doesn&apos;t provide a longer description for this listing.</span>
-            </p>
-          ) : (
-            <p className="text-ink/45">
-              We don&apos;t have a description for this listing. Here&apos;s the title instead:{' '}
-              {result.title ?? 'no title available.'}
-            </p>
-          ))}
-
-        {activeTab === 'Details' &&
-          (hasDetails ? (
-            <dl className="flex flex-col gap-1.5 text-xs">
-              {result.brand && <DetailRow label="Brand" value={result.brand} />}
-              {style && <DetailRow label="Style" value={style} />}
-              {chosenVariantRows.map((row) => (
-                <DetailRow key={row.name} label={row.name} value={row.value} />
-              ))}
-              {result.mpn && <DetailRow label="Model" value={result.mpn} />}
-              {result.categoryPath && <DetailRow label="Category" value={result.categoryPath} />}
-              {result.itemSpecifics?.map((spec) => (
-                <DetailRow key={spec.name} label={spec.name} value={spec.value} />
-              ))}
-            </dl>
-          ) : (
-            <p className="text-ink/45">We don&apos;t have any additional details for this listing.</p>
-          ))}
-
-        {activeTab === 'Shipping & Returns' &&
-          (result.itemLocation || hasReturns || result.availability ? (
-            <dl className="flex flex-col gap-1.5 text-xs">
-              {result.itemLocation && <DetailRow label="Ships from" value={result.itemLocation} />}
-              {hasReturns && (
-                <DetailRow
-                  label="Returns"
-                  value={
-                    result.returnsAccepted
-                      ? `Accepted${result.returnPeriodDays ? ` within ${result.returnPeriodDays} days` : ''}`
-                      : 'Not accepted'
-                  }
-                />
-              )}
-              {result.availability && <DetailRow label="Availability" value={result.availability} />}
-            </dl>
-          ) : (
-            <p className="text-ink/45">We don&apos;t have shipping or return details for this listing.</p>
-          ))}
-      </div>
-    </div>
+    <PdpInfoTabs
+      result={result}
+      accent="#000042"
+      descriptionText={result.description?.trim() || (style ? [result.brand, style].filter(Boolean).join(' — ') : null)}
+      details={[
+        { label: 'Brand', value: result.brand ?? '' },
+        { label: 'Style', value: style ?? '' },
+        ...chosenVariantRows,
+        ...defaultDetailRows({ ...result, brand: null }),
+      ]}
+    />
   )
 }
 
