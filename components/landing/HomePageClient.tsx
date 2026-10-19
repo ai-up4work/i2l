@@ -23,7 +23,8 @@ import {
   LinkIcon,
 } from 'lucide-react'
 import AirmailStripe from '@/components/shared/AirmailStripe'
-import { FEATURED_STORE_CATEGORIES, categoryHref } from '@/lib/store-categories'
+import { FEATURED_STORE_CATEGORIES, categoriesWithStores, categoryHref } from '@/lib/store-categories'
+import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
 import CategoryImage from '@/components/shared/CategoryImage'
 import { destinations } from '@/content/data'
 import Testimonials from '@/components/landing/Testimonials'
@@ -313,6 +314,10 @@ const topDeals: Deal[] = [
 // The featured categories, same as the Shop menu in the header
 // (lib/store-categories.ts). The full list is on /categories.
 function ShopByCategory() {
+  // Categories with no store yet are greyed out ("Coming soon"). Until the
+  // stores have loaded, everything shows as normal.
+  const { stores, loading } = useAffiliatedStores()
+  const liveCategories = categoriesWithStores(stores)
   return (
     <section className="mx-auto max-w-9xl px-12 py-4 lg:px-20 bg-card">
       <Reveal className="mt-20">
@@ -323,9 +328,10 @@ function ShopByCategory() {
       </Reveal>
 
       <div className="mt-8 grid grid-cols-3 gap-4 lg:grid-cols-9 lg:gap-5">
-        {FEATURED_STORE_CATEGORIES.map((category, index) => (
-          <Reveal key={category.slug} delay={index * 60}>
-            <a href={categoryHref(category)} className="group flex flex-col items-center gap-2.5 text-center">
+        {FEATURED_STORE_CATEGORIES.map((category, index) => {
+          const empty = !loading && !liveCategories.has(category.slug)
+          const tile = (
+            <>
               <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-2xl bg-ink/5 transition-colors duration-300 group-hover:bg-gold/10">
                 <CategoryImage
                   category={category}
@@ -334,9 +340,27 @@ function ShopByCategory() {
                 />
               </span>
               <span className="font-body text-xs font-medium text-indigo sm:text-sm">{category.name}</span>
-            </a>
-          </Reveal>
-        ))}
+              {empty && <span className="-mt-2 font-body text-[11px] text-ink/45">Coming soon</span>}
+            </>
+          )
+          return (
+            <Reveal key={category.slug} delay={index * 60}>
+              {empty ? (
+                <span
+                  aria-disabled="true"
+                  title="No stores in this category yet"
+                  className="flex cursor-not-allowed flex-col items-center gap-2.5 text-center opacity-50 grayscale"
+                >
+                  {tile}
+                </span>
+              ) : (
+                <a href={categoryHref(category)} className="group flex flex-col items-center gap-2.5 text-center">
+                  {tile}
+                </a>
+              )}
+            </Reveal>
+          )
+        })}
       </div>
 
       <div className="mt-10 mb-8 flex justify-center">

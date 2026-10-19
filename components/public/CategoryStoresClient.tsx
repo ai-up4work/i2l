@@ -86,14 +86,21 @@ function CategoryTile({
   active: boolean
   onSelect: () => void
 }) {
+  // No stores yet: greyed out and not clickable (unless it's the one already
+  // open from a link, so it can still be cleared).
+  const empty = count === 0 && !active
   return (
     <button
       type="button"
       aria-pressed={active}
+      disabled={empty}
+      title={empty ? 'No stores in this category yet' : undefined}
       onClick={onSelect}
       className={`group flex items-center gap-3 rounded-2xl p-3 text-left ring-1 transition-all sm:p-3.5 ${
         active
           ? 'bg-indigo text-parchment ring-indigo'
+          : empty
+          ? 'cursor-not-allowed bg-card text-indigo opacity-50 grayscale ring-ink/[0.08]'
           : 'bg-card text-indigo ring-ink/[0.08] hover:-translate-y-0.5 hover:ring-teal/30'
       }`}
     >
@@ -103,7 +110,7 @@ function CategoryTile({
       <span className="min-w-0">
         <span className="block font-body text-sm font-semibold leading-tight">{category.name}</span>
         <span className={`block font-body text-xs ${active ? 'text-parchment/65' : 'text-ink/45'}`}>
-          {count} store{count === 1 ? '' : 's'}
+          {count === 0 ? 'Coming soon' : `${count} store${count === 1 ? '' : 's'}`}
         </span>
       </span>
     </button>

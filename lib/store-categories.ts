@@ -106,3 +106,17 @@ export function normalizeStoreCategories(raw: unknown): string[] | null {
 export function storeHasCategory(storeCategories: string[] | null | undefined, category: StoreCategory): boolean {
   return (storeCategories ?? []).some((c) => findStoreCategory(c)?.slug === category.slug)
 }
+
+/**
+ * Slugs of the categories that have at least one store. Categories without
+ * a store are shown greyed out ("Coming soon") on the landing page, in the
+ * Shop menu and on /categories, so shoppers never click into an empty list.
+ */
+export function categoriesWithStores(stores: { categories?: string[] | null }[]): Set<string> {
+  const out = new Set<string>()
+  for (const s of stores) for (const c of s.categories ?? []) {
+    const cat = findStoreCategory(c)
+    if (cat) out.add(cat.slug)
+  }
+  return out
+}
