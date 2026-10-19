@@ -11,6 +11,11 @@ import Redis from 'ioredis'
 
 let client: Redis | null | undefined
 
+/** Shared Redis client (WISH_DROP_REDIS_URL), or null when not configured. Also used by lib/scrape/parsebot.ts. */
+export function sharedRedis(): Redis | null {
+  return redis()
+}
+
 function redis(): Redis | null {
   if (client !== undefined) return client
   const url = process.env.WISH_DROP_REDIS_URL || process.env.REDIS_URL

@@ -1,6 +1,7 @@
 // lib/scrape/extractors/ajio.ts
 import type { CheerioAPI } from 'cheerio'
-import { cleanText, looksBlocked, looksLikeJsRequiredShell, readErrorBodySnippet } from '../shared'
+import { cleanText, looksBlocked, looksLikeJsRequiredShell } from '../shared'
+import { callParseBot, parseBotConfigured } from '../parsebot'
 import { fetchWithTlsFingerprintRetries } from '../tls-fetch'
 
 // ---------------------------------------------------------------------
@@ -351,7 +352,7 @@ export const PARSE_BOT_SCRAPER_ID = '403a6af9-bd94-47a3-a922-1ea3484b2be8'
 const PARSE_BOT_SNAPSHOT_VERSION = '9'
 
 export function ajioParseBotConfigured(): boolean {
-  return Boolean(process.env.PARSE_API_KEY)
+  return parseBotConfigured()
 }
 
 /**
@@ -364,10 +365,12 @@ export function extractAjioParseBotProductId(url: string): string | null {
   return m ? m[1] : null
 }
 
+/** One Parse.bot call through the shared client (lib/scrape/parsebot.ts),
+ *  which spreads calls over every key and moves on when one runs out. */
 export async function fetchAjioViaParseBot(
   url: string,
   opts: { signal?: AbortSignal } = {}
-): Promise<{ data: Record<string, any> | null; error: string | null }> {
+): Promise<{ data: Record<string, any> | null; error: string | null; attempts?: string[] }> {
   const productId = extractAjioParseBotProductId(url)
   if (!productId) {
     return {
@@ -376,44 +379,13 @@ export async function fetchAjioViaParseBot(
         "Couldn't find a /p/{productCode}_{colorSlug} segment in this Ajio URL — Parse.bot's product_id param needs exactly that.",
     }
   }
-
-  const apiKey = process.env.PARSE_API_KEY
-  if (!apiKey) {
-    return { data: null, error: 'PARSE_API_KEY is not set.' }
-  }
-
-  const endpoint = `https://api.parse.bot/scraper/${PARSE_BOT_SCRAPER_ID}/get_product_detail?product_id=${encodeURIComponent(productId)}`
-
-  try {
-    const res = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'X-API-Key': apiKey,
-        'API-Snapshot-Version': PARSE_BOT_SNAPSHOT_VERSION,
-      },
-      signal: opts.signal,
-    })
-
-    if (!res.ok) {
-      const snippet = await readErrorBodySnippet(res).catch(() => null)
-      return {
-        data: null,
-        error: `Parse.bot returned HTTP ${res.status}${snippet ? `: ${snippet}` : ''}`,
-      }
-    }
-
-    const json = await res.json()
-    if (json?.status && json.status !== 'success') {
-      return { data: null, error: `Parse.bot reported status "${json.status}" for product_id=${productId}` }
-    }
-
-    return { data: json, error: null }
-  } catch (e) {
-    return {
-      data: null,
-      error: `Parse.bot request failed: ${e instanceof Error ? e.message : String(e)}`,
-    }
-  }
+  const { data, error, attempts } = await callParseBot<Record<string, any>>(
+    PARSE_BOT_SCRAPER_ID,
+    'get_product_detail',
+    { product_id: productId },
+    { snapshotVersion: PARSE_BOT_SNAPSHOT_VERSION, signal: opts.signal },
+  )
+  return { data, error: error ? `${error} (product_id=${productId})` : null, attempts }
 }
 
 // ---------- Parse.bot output types ----------

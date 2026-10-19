@@ -1,0 +1,67 @@
+{
+    "status": "success",
+    "data": {
+        "product_id": "WATFTA6QZEGASZWB",
+        "listing_id": "LSTWATFTA6QZEGASZWBF1LVBB",
+        "title": "Mathey-Tissot Swiss Made Mathy I Quartz Ronda 515 H3 Movement White Dial Analog Watch  - For Men H450BI",
+        "brand": "Mathey-Tissot",
+        "category_path": [
+            "Watches",
+            "Wrist Watches",
+            "Mathey-Tissot Wrist Watches"
+        ],
+        "price": {
+            "final_price": 15299,
+            "mrp": 36000,
+            "discount_percent": 58,
+            "bank_offer_price": 14534,
+            "is_special_price": true
+        },
+        "availability": {
+            "in_stock": true,
+            "status": "IN_STOCK",
+            "cod_available": true,
+            "return_policy": "7_day_return_policy_lifestyle"
+        },
+        "rating": {
+            "average": 4.3,
+            "total_ratings": 306,
+            "total_reviews": 26,
+            "breakdown": {
+                "1_star": 22,
+                "2_star": 9,
+                "3_star": 17,
+                "4_star": 55,
+                "5_star": 203
+            }
+        },
+        "seller": {
+            "name": "Fulfilled by RetailNet",
+            "rating": 4.3
+        },
+        "images": [
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/d/p/n/-original-imahrgtguhujnf3n.jpeg?q=70",
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/n/q/1/1-h450bi-mathey-tissot-men-resized-original-imahhrzusyfyfenh.jpeg?q=70",
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/n/k/0/1-h450bi-mathey-tissot-men-original-imahhrzu68gexyub.jpeg?q=70",
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/k/k/g/1-h450bi-mathey-tissot-men-original-imahhrzunav4hdje.jpeg?q=70",
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/e/t/a/1-h450bi-mathey-tissot-men-original-imahhrzuhupmyfty.jpeg?q=70",
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/k/b/n/1-d450rn-mathey-tissot-women-original-imahftz9bz7hkb6t.jpeg?q=70",
+            "https://rukminim1.flixcart.com/image/832/832/xif0q/watch/m/c/k/1-h450bi-mathey-tissot-men-original-imahhrzugnpjhsne.jpeg?q=70"
+        ],
+        "videos": [
+            {
+                "content_id": "CNSOz5M_ciRXqJkUzYSuYJbg",
+                "video_url": "https://vod1.flixcart.com//fk-p-transcode-video/cgt/FPS/CNSOz5M_ciRXqJkUzYSuYJbg/manifest.m3u8",
+                "thumbnail_url": "https://rukminim1.flixcart.com/fk-p-thumbnail/832/832/images/cgt/FPS/CNSOz5M_ciRXqJkUzYSuYJbg/manifest.jpg?q=70"
+            }
+        ],
+        "highlights": [
+            "Display Type: Analog",
+            "Occasion: Casual",
+            "Diameter: 50 mm",
+            "Dial Color: Silver"
+        ],
+        "description": null,
+        "specifications": []
+    }
+}

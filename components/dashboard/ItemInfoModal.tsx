@@ -892,22 +892,44 @@ function CustomerPhotoPicker({ photo }: { photo: CustomerPhoto }) {
       </div>
     )
   }
+  // Empty state: the usual "No image found" illustration, with an
+  // "Add a photo" button on top. The whole picture is tappable.
   return (
     <label
-      className={`group relative flex aspect-square w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border-2 border-dashed border-ink/15 bg-white px-6 text-center transition-colors hover:border-teal/50 hover:bg-teal/[0.03] ${
+      className={`group relative block aspect-square w-full overflow-hidden rounded-xl border border-ink/10 bg-white ${
         photo.uploading ? 'cursor-wait' : 'cursor-pointer'
       }`}
     >
       {input}
-      <span className="grid h-14 w-14 place-items-center rounded-2xl bg-teal/10 text-teal-deep transition-colors group-hover:bg-teal-deep group-hover:text-white">
-        {photo.uploading ? <Loader2 size={24} className="animate-spin" /> : <ImagePlus size={24} strokeWidth={1.8} />}
+      <PlaceholderArt />
+      <span className="pointer-events-none absolute inset-0 bg-ink/0 transition-colors duration-200 group-hover:bg-ink/[0.03]" />
+      <span className="absolute inset-x-0 top-4 flex justify-center px-4">
+        <span className="inline-flex items-center gap-2 rounded-full bg-teal-deep px-4 py-2.5 font-body text-sm font-semibold text-white shadow-[0_12px_28px_-10px_rgba(11,114,128,0.65)] transition-transform duration-200 group-hover:scale-[1.03] group-active:scale-[0.98]">
+          {photo.uploading ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} strokeWidth={2} />}
+          {photo.uploading ? 'Uploading…' : 'Add a photo'}
+        </span>
       </span>
-      <span className="font-body text-sm font-semibold text-ink">{photo.uploading ? 'Uploading…' : 'Add a photo or screenshot'}</span>
-      <span className="max-w-xs font-body text-xs leading-relaxed text-ink/50">
-        Optional. Show us the item — you can circle the colour or size you want.
+      <span className="absolute inset-x-0 bottom-3 px-4 text-center font-body text-[11px] leading-snug text-ink/50">
+        {photo.error ? (
+          <span className="font-medium text-red-600">{photo.error}</span>
+        ) : (
+          'Optional — a screenshot helps. You can circle the colour or size you want.'
+        )}
       </span>
-      {photo.error && <span className="font-body text-xs font-medium text-red-600">{photo.error}</span>}
     </label>
+  )
+}
+
+/** The shop's "No image found" illustration, with a plain icon if that file is missing. */
+function PlaceholderArt() {
+  const [failed, setFailed] = useState(false)
+  return failed ? (
+    <span className="grid h-full w-full place-items-center text-ink/20">
+      <ShoppingBag size={48} strokeWidth={1.2} />
+    </span>
+  ) : (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={PLACEHOLDER_IMAGE} alt="" onError={() => setFailed(true)} className="h-full w-full object-cover" />
   )
 }
 
