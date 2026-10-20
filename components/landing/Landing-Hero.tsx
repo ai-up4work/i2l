@@ -64,7 +64,8 @@ function rise(delay: number): { className: string; style: CSSProperties } {
   }
 }
 
-const PROMISES = ['Instant price in LKR', 'No account needed to check', 'Quality checked before shipping']
+// Kept short so all three fit on one line beside the link box on desktop.
+const PROMISES = ['Instant LKR price', 'No sign-up needed', 'Quality checked']
 
 export default function Hero() {
   const router = useRouter()
@@ -212,7 +213,7 @@ export default function Hero() {
             {PROMISES.map((item) => (
               <li
                 key={item}
-                className="flex items-center gap-1.5 font-body text-xs font-medium text-ink/60"
+                className="flex items-center gap-1.5 whitespace-nowrap font-body text-xs font-medium text-ink/60"
               >
                 <span className="grid h-4 w-4 place-items-center rounded-full bg-teal/12 text-teal-deep">
                   <Check size={10} strokeWidth={3} aria-hidden="true" />
