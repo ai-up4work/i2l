@@ -65,7 +65,7 @@ function rise(delay: number): { className: string; style: CSSProperties } {
 }
 
 // Kept short so all three fit on one line beside the link box on desktop.
-const PROMISES = ['Instant LKR price', 'No sign-up needed to check', 'Quality checked']
+const PROMISES = ['Instant LKR price', 'No sign-up needed to check', 'Quality checked products']
 
 export default function Hero() {
   const router = useRouter()
@@ -227,7 +227,7 @@ export default function Hero() {
               A real second option (card), not a footnote link — new
               visitors often know an item's rupee price before they have
               its link. Kept quieter than the link box above. */}
-          <div {...rise(340)} className={`${rise(340).className} mt-5`}>
+          <div {...rise(340)} className={`${rise(340).className} mt-8`}>
             <PriceEstimatorDialog
               triggerClassName="group flex w-full items-center gap-3.5 rounded-2xl border border-gold/35 bg-gold/[0.07] px-4 py-3 text-left transition-colors duration-200 hover:border-gold/60 hover:bg-gold/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
               trigger={
