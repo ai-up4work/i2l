@@ -1206,7 +1206,7 @@ index 0000000..f6d8e42
 +  return s.length > 70 ? `${s.slice(0, 67)}…` : s
 +}
 diff --git a/components/admin/seller/shared.tsx b/components/admin/seller/shared.tsx
-index 1e72d2f..184d14b 100644
+index 1e72d2f..0e6eda1 100644
 --- a/components/admin/seller/shared.tsx
 +++ b/components/admin/seller/shared.tsx
 @@ -14,6 +14,7 @@ import {
@@ -1255,6 +1255,24 @@ index 1e72d2f..184d14b 100644
        }
        const products = result.sampleProducts ?? []
        if (products.length === 0) return { status: 'skip', detail: 'No sample products to check.' }
+@@ -379,9 +378,14 @@ export const CHECKS: CheckDef[] = [
+             'None of the sampled products have variant data \u2014 this may just mean the catalog (or at least this sample) is single-SKU items with no size/color options. Use "Test a specific product" below on one you know has options to confirm.',
+         }
+       }
+-      const brokenVariant = withVariants.some((p) => p.variants!.some((v) => !v.price || v.price <= 0))
+-      return brokenVariant
+-        ? { status: 'fail', detail: 'Some variants are missing a price.' }
++      const broken = withVariants.flatMap((p) =>
++        p.variants!.filter((v) => !v.price || v.price <= 0).map((v) => `${p.name} \u2192 ${v.title || v.id}`)
++      )
++      return broken.length
++        ? {
++            status: 'fail',
++            detail: `${broken.length} variant(s) have no price: ${broken.slice(0, 3).join('; ')}${broken.length > 3 ? '\u2026' : ''}. Check the Variant price field path.`,
++          }
+         : {
+             status: 'pass',
+             detail: `Checked ${withVariants.length} product(s) with variants \u2014 pricing present on every option.`,
 diff --git a/lib/jsonapi-config.ts b/lib/jsonapi-config.ts
 new file mode 100644
 index 0000000..9ad406a
@@ -1633,7 +1651,7 @@ index 61a247d..6a981d4 100644
 +}
 \ No newline at end of file
 diff --git a/lib/store-providers/jsonapi.ts b/lib/store-providers/jsonapi.ts
-index 169aa67..4ef742a 100644
+index 169aa67..d93ded6 100644
 --- a/lib/store-providers/jsonapi.ts
 +++ b/lib/store-providers/jsonapi.ts
 @@ -11,8 +11,8 @@ const HEADERS = {
@@ -2113,7 +2131,7 @@ index 169aa67..4ef742a 100644
   */
  function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice: number): StoreProductVariant[] | undefined {
    if (!config.variantsField) return undefined;
-@@ -187,13 +440,21 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
+@@ -187,16 +440,30 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
  
    const variants = rawVariants.map((rv, idx) => {
      const id = (config.variantIdField && readString(rv, config.variantIdField)) || String(idx);
@@ -2125,8 +2143,11 @@ index 169aa67..4ef742a 100644
      const options = (config.variantOptionsField && readStringArray(rv, config.variantOptionsField)) || [];
 -    return { id, title, price, compareAtPrice, available, options };
 +    const title = (config.variantTitleField && readString(rv, config.variantTitleField)) || options.join(' / ') || id;
++    // A variant price of 0 / blank / non-numeric means "not set" (feeds
++    // often send 0 for an unavailable size), so it falls back to the
++    // parent's price rather than showing the item as free.
 +    const ownPrice = config.variantPriceField ? readNumber(rv, config.variantPriceField, NaN) : NaN;
-+    const price = Number.isFinite(ownPrice) ? applyPriceUnit(ownPrice, config) : parentPrice;
++    const price = Number.isFinite(ownPrice) && ownPrice > 0 ? applyPriceUnit(ownPrice, config) : parentPrice;
 +    const compareAtRaw = config.variantCompareAtPriceField ? readNumber(rv, config.variantCompareAtPriceField, NaN) : NaN;
 +    const compareAtPrice = Number.isFinite(compareAtRaw) && applyPriceUnit(compareAtRaw, config) > price
 +      ? applyPriceUnit(compareAtRaw, config)
@@ -2140,8 +2161,15 @@ index 169aa67..4ef742a 100644
 +    return variant;
    });
  
-   return variants.length ? variants : undefined;
-@@ -206,16 +467,17 @@ export function normaliseJsonApiProduct(
+-  return variants.length ? variants : undefined;
++  // A variant with no price of its own AND no parent price can't be sold
++  // at any honest price — drop it rather than list it as free.
++  const priced = variants.filter((v) => v.price > 0);
++  return priced.length ? priced : undefined;
+ }
+ 
+ export function normaliseJsonApiProduct(
+@@ -206,16 +473,17 @@ export function normaliseJsonApiProduct(
    config: JsonApiProviderConfig
  ): StoreProduct {
    const id = readString(raw, config.idField) || readString(raw, 'id');
@@ -2161,7 +2189,7 @@ index 169aa67..4ef742a 100644
  
    // Trim/collapse: these free-text fields are hand-entered by shop owners
    // and inconsistent (trailing spaces, mixed casing) far more often than
-@@ -236,16 +498,38 @@ export function normaliseJsonApiProduct(
+@@ -236,16 +504,38 @@ export function normaliseJsonApiProduct(
    const ratingRaw = config.averageRatingField ? readNumber(raw, config.averageRatingField, NaN) : NaN;
    const reviewCountRaw = config.reviewCountField ? readNumber(raw, config.reviewCountField, NaN) : NaN;
  
@@ -2203,7 +2231,7 @@ index 169aa67..4ef742a 100644
      storeSlug: platform,
      name: readString(raw, config.nameField).trim(),
      image,
-@@ -254,10 +538,10 @@ export function normaliseJsonApiProduct(
+@@ -254,10 +544,10 @@ export function normaliseJsonApiProduct(
      stockCount: config.stockFieldType === 'quantity' && config.stockField
        ? readNumber(raw, config.stockField, 0)
        : 0,
@@ -2216,7 +2244,7 @@ index 169aa67..4ef742a 100644
      category: category || 'General',
      condition: (config.conditionField && readString(raw, config.conditionField)) || 'New',
      description: stripHtml(readString(raw, config.descriptionField)),
-@@ -267,7 +551,7 @@ export function normaliseJsonApiProduct(
+@@ -267,7 +557,7 @@ export function normaliseJsonApiProduct(
      productType: config.productTypeField ? readString(raw, config.productTypeField) || undefined : undefined,
      tags: tags.length ? tags : undefined,
      options: readOptions(raw, config, sizes, colors),
@@ -2225,7 +2253,7 @@ index 169aa67..4ef742a 100644
      sizes,
      colors,
      gender,
-@@ -279,14 +563,40 @@ export function normaliseJsonApiProduct(
+@@ -279,14 +569,40 @@ export function normaliseJsonApiProduct(
    };
  }
  
@@ -2272,7 +2300,7 @@ index 169aa67..4ef742a 100644
   */
  export async function fetchJsonApiProducts(
    platform: string,
-@@ -294,39 +604,42 @@ export async function fetchJsonApiProducts(
+@@ -294,39 +610,42 @@ export async function fetchJsonApiProducts(
    storeName: string,
    params: ProviderFetchParams
  ): Promise<ProviderFetchResult> {
@@ -2335,7 +2363,7 @@ index 169aa67..4ef742a 100644
    }
  
    if (params.search && !config.searchEndpoint && !config.searchQueryParam) {
-@@ -345,14 +658,13 @@ export async function fetchJsonApiProducts(
+@@ -345,14 +664,13 @@ export async function fetchJsonApiProducts(
    const totalPages = Math.max(1, Math.ceil(total / params.perPage));
    const sliced = products.slice((params.page - 1) * params.perPage, params.page * params.perPage);
  
@@ -2353,7 +2381,7 @@ index 169aa67..4ef742a 100644
   */
  export async function fetchJsonApiProduct(
    platform: string,
-@@ -361,82 +673,166 @@ export async function fetchJsonApiProduct(
+@@ -361,82 +679,166 @@ export async function fetchJsonApiProduct(
    handle: string
  ): Promise<StoreProduct | null> {
    if (config.detailEndpoint) {

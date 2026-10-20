@@ -442,8 +442,11 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
     const id = (config.variantIdField && readString(rv, config.variantIdField)) || String(idx);
     const options = (config.variantOptionsField && readStringArray(rv, config.variantOptionsField)) || [];
     const title = (config.variantTitleField && readString(rv, config.variantTitleField)) || options.join(' / ') || id;
+    // A variant price of 0 / blank / non-numeric means "not set" (feeds
+    // often send 0 for an unavailable size), so it falls back to the
+    // parent's price rather than showing the item as free.
     const ownPrice = config.variantPriceField ? readNumber(rv, config.variantPriceField, NaN) : NaN;
-    const price = Number.isFinite(ownPrice) ? applyPriceUnit(ownPrice, config) : parentPrice;
+    const price = Number.isFinite(ownPrice) && ownPrice > 0 ? applyPriceUnit(ownPrice, config) : parentPrice;
     const compareAtRaw = config.variantCompareAtPriceField ? readNumber(rv, config.variantCompareAtPriceField, NaN) : NaN;
     const compareAtPrice = Number.isFinite(compareAtRaw) && applyPriceUnit(compareAtRaw, config) > price
       ? applyPriceUnit(compareAtRaw, config)
@@ -457,7 +460,10 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
     return variant;
   });
 
-  return variants.length ? variants : undefined;
+  // A variant with no price of its own AND no parent price can't be sold
+  // at any honest price — drop it rather than list it as free.
+  const priced = variants.filter((v) => v.price > 0);
+  return priced.length ? priced : undefined;
 }
 
 export function normaliseJsonApiProduct(

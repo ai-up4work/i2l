@@ -378,9 +378,14 @@ export const CHECKS: CheckDef[] = [
             'None of the sampled products have variant data \u2014 this may just mean the catalog (or at least this sample) is single-SKU items with no size/color options. Use "Test a specific product" below on one you know has options to confirm.',
         }
       }
-      const brokenVariant = withVariants.some((p) => p.variants!.some((v) => !v.price || v.price <= 0))
-      return brokenVariant
-        ? { status: 'fail', detail: 'Some variants are missing a price.' }
+      const broken = withVariants.flatMap((p) =>
+        p.variants!.filter((v) => !v.price || v.price <= 0).map((v) => `${p.name} \u2192 ${v.title || v.id}`)
+      )
+      return broken.length
+        ? {
+            status: 'fail',
+            detail: `${broken.length} variant(s) have no price: ${broken.slice(0, 3).join('; ')}${broken.length > 3 ? '\u2026' : ''}. Check the Variant price field path.`,
+          }
         : {
             status: 'pass',
             detail: `Checked ${withVariants.length} product(s) with variants \u2014 pricing present on every option.`,
