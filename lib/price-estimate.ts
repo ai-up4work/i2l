@@ -41,21 +41,23 @@ const fmtNum = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits:
  * common unit slip. Nothing we quote is over 100 kg or under 100 g, so:
  *   - more than 100  → they typed grams: 500 → 0.5 kg, 1500 → 1.5 kg
  *   - under 0.1      → raised to the 100 g minimum
- * `note` says what was assumed (shown under the box) so it can be fixed.
+ * `unit` is the unit the number was read in (shown inside the box, so it
+ * flips to "g" as soon as the number is read as grams); `note` says what
+ * was assumed (shown under the box) so it can be fixed.
  * Empty / zero / not a number → { kg: null } (the default weight applies).
  */
-export function interpretWeightInput(text: string): { kg: number | null; note: string | null } {
+export function interpretWeightInput(text: string): { kg: number | null; unit: 'kg' | 'g'; note: string | null } {
   const n = Number(text)
-  if (!text.trim() || !Number.isFinite(n) || n <= 0) return { kg: null, note: null }
+  if (!text.trim() || !Number.isFinite(n) || n <= 0) return { kg: null, unit: 'kg', note: null }
   const { minWeightKg, maxWeightKg } = ESTIMATE_LIMITS
   if (n > maxWeightKg) {
     const kg = Math.min(maxWeightKg, Math.max(minWeightKg, Math.round(n) / 1000))
-    return { kg, note: `Read as ${fmtNum(Math.round(n))} g (${fmtNum(kg)} kg)` }
+    return { kg, unit: 'g', note: `= ${fmtNum(kg)} kg` }
   }
   if (n < minWeightKg) {
-    return { kg: minWeightKg, note: `Under 100 g, so we used ${fmtNum(minWeightKg)} kg` }
+    return { kg: minWeightKg, unit: 'kg', note: `Under 100 g, so we used ${fmtNum(minWeightKg)} kg` }
   }
-  return { kg: n, note: null }
+  return { kg: n, unit: 'kg', note: null }
 }
 
 export type PriceEstimate = {

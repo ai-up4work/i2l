@@ -120,7 +120,13 @@ export default function PriceEstimator({
               placeholder={preset != null ? String(WEIGHT_PRESETS[preset].kg) : '0.5'}
               className={`${field} h-9 pr-9 text-sm`}
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-ink/45">kg</span>
+            <span
+              className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs ${
+                typedWeight.unit === 'g' && preset == null ? 'font-semibold text-gold-deep' : 'text-ink/45'
+              }`}
+            >
+              {preset == null ? typedWeight.unit : 'kg'}
+            </span>
           </div>
         </div>
         {preset == null && typedWeight.note && (
@@ -279,7 +285,13 @@ export default function PriceEstimator({
                 placeholder="0.5"
                 className={`${small} h-8 pr-7 text-xs`}
               />
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-body text-[11px] text-ink/45">kg</span>
+              <span
+                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-body text-[11px] ${
+                  typedWeight.unit === 'g' && preset == null ? 'font-semibold text-gold-deep' : 'text-ink/45'
+                }`}
+              >
+                {preset == null ? typedWeight.unit : 'kg'}
+              </span>
             </span>
           </label>
           <span className="flex items-center gap-2">

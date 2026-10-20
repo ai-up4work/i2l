@@ -3630,7 +3630,7 @@ index 0f87292..174b91d 100644
      </>
    )
 diff --git a/components/shared/PriceEstimator.tsx b/components/shared/PriceEstimator.tsx
-index f89d119..7918e91 100644
+index f89d119..13f0b06 100644
 --- a/components/shared/PriceEstimator.tsx
 +++ b/components/shared/PriceEstimator.tsx
 @@ -11,7 +11,7 @@
@@ -3697,7 +3697,7 @@ index f89d119..7918e91 100644
              <input
                id={`${id}-weight`}
                inputMode="decimal"
-@@ -95,12 +117,17 @@ export default function PriceEstimator({
+@@ -95,12 +117,23 @@ export default function PriceEstimator({
                  setWeightText(e.target.value.replace(/[^0-9.]/g, '').slice(0, 5))
                  setPreset(null)
                }}
@@ -3705,7 +3705,14 @@ index f89d119..7918e91 100644
 +              placeholder={preset != null ? String(WEIGHT_PRESETS[preset].kg) : '0.5'}
                className={`${field} h-9 pr-9 text-sm`}
              />
-             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-ink/45">kg</span>
+-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-ink/45">kg</span>
++            <span
++              className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs ${
++                typedWeight.unit === 'g' && preset == null ? 'font-semibold text-gold-deep' : 'text-ink/45'
++              }`}
++            >
++              {preset == null ? typedWeight.unit : 'kg'}
++            </span>
            </div>
          </div>
 +        {preset == null && typedWeight.note && (
@@ -3716,7 +3723,22 @@ index f89d119..7918e91 100644
        </div>
  
        <div className="flex items-center justify-between gap-3">
-@@ -268,6 +295,9 @@ export default function PriceEstimator({
+@@ -252,7 +285,13 @@ export default function PriceEstimator({
+                 placeholder="0.5"
+                 className={`${small} h-8 pr-7 text-xs`}
+               />
+-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-body text-[11px] text-ink/45">kg</span>
++              <span
++                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-body text-[11px] ${
++                  typedWeight.unit === 'g' && preset == null ? 'font-semibold text-gold-deep' : 'text-ink/45'
++                }`}
++              >
++                {preset == null ? typedWeight.unit : 'kg'}
++              </span>
+             </span>
+           </label>
+           <span className="flex items-center gap-2">
+@@ -268,6 +307,9 @@ export default function PriceEstimator({
              </span>
            </span>
          </div>
@@ -4261,10 +4283,10 @@ index 0000000..9ad406a
 +  return out
 +}
 diff --git a/lib/price-estimate.ts b/lib/price-estimate.ts
-index 52d5929..7e912e6 100644
+index 52d5929..8562d5e 100644
 --- a/lib/price-estimate.ts
 +++ b/lib/price-estimate.ts
-@@ -31,7 +31,32 @@ export const WEIGHT_PRESETS: { label: string; kg: number }[] = [
+@@ -31,7 +31,34 @@ export const WEIGHT_PRESETS: { label: string; kg: number }[] = [
    { label: 'Headphones', kg: 0.6 },
  ]
  
@@ -4279,26 +4301,28 @@ index 52d5929..7e912e6 100644
 + * common unit slip. Nothing we quote is over 100 kg or under 100 g, so:
 + *   - more than 100  → they typed grams: 500 → 0.5 kg, 1500 → 1.5 kg
 + *   - under 0.1      → raised to the 100 g minimum
-+ * `note` says what was assumed (shown under the box) so it can be fixed.
++ * `unit` is the unit the number was read in (shown inside the box, so it
++ * flips to "g" as soon as the number is read as grams); `note` says what
++ * was assumed (shown under the box) so it can be fixed.
 + * Empty / zero / not a number → { kg: null } (the default weight applies).
 + */
-+export function interpretWeightInput(text: string): { kg: number | null; note: string | null } {
++export function interpretWeightInput(text: string): { kg: number | null; unit: 'kg' | 'g'; note: string | null } {
 +  const n = Number(text)
-+  if (!text.trim() || !Number.isFinite(n) || n <= 0) return { kg: null, note: null }
++  if (!text.trim() || !Number.isFinite(n) || n <= 0) return { kg: null, unit: 'kg', note: null }
 +  const { minWeightKg, maxWeightKg } = ESTIMATE_LIMITS
 +  if (n > maxWeightKg) {
 +    const kg = Math.min(maxWeightKg, Math.max(minWeightKg, Math.round(n) / 1000))
-+    return { kg, note: `Read as ${fmtNum(Math.round(n))} g (${fmtNum(kg)} kg)` }
++    return { kg, unit: 'g', note: `= ${fmtNum(kg)} kg` }
 +  }
 +  if (n < minWeightKg) {
-+    return { kg: minWeightKg, note: `Under 100 g, so we used ${fmtNum(minWeightKg)} kg` }
++    return { kg: minWeightKg, unit: 'kg', note: `Under 100 g, so we used ${fmtNum(minWeightKg)} kg` }
 +  }
-+  return { kg: n, note: null }
++  return { kg: n, unit: 'kg', note: null }
 +}
  
  export type PriceEstimate = {
    /** One option per delivery method on offer (Express only while Economy is locked). */
-@@ -60,7 +85,9 @@ export function estimateIndianItem(
+@@ -60,7 +87,9 @@ export function estimateIndianItem(
    const qty = Math.min(ESTIMATE_LIMITS.maxQty, Math.max(1, Math.floor(Number(input.qty) || 1)))
    const given = Number(input.weightKg)
    const weightIsDefault = !(Number.isFinite(given) && given > 0)
