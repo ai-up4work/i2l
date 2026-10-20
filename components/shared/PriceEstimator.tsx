@@ -11,7 +11,37 @@
 import { useId, useMemo, useState } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import { formatLKR } from '@/lib/pricing'
-import { ESTIMATE_LIMITS, WEIGHT_PRESETS, defaultEstimateWeightKg, estimateIndianItem, interpretWeightInput } from '@/lib/price-estimate'
+import {
+  ESTIMATE_LIMITS,
+  WEIGHT_PRESETS,
+  defaultEstimateWeightKg,
+  estimateIndianItem,
+  interpretWeightInput,
+  type WeightUnit,
+} from '@/lib/price-estimate'
+
+/** kg / g switch that sits inside the weight box. */
+function UnitSwitch({ unit, onChange, size = 'md' }: { unit: WeightUnit; onChange: (u: WeightUnit) => void; size?: 'md' | 'sm' }) {
+  const pad = size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+  return (
+    <span role="radiogroup" aria-label="Weight unit" className="flex items-center gap-0.5 rounded-md bg-parchment/70 p-0.5 ring-1 ring-ink/10">
+      {(['kg', 'g'] as const).map((u) => (
+        <button
+          key={u}
+          type="button"
+          role="radio"
+          aria-checked={unit === u}
+          onClick={() => onChange(u)}
+          className={`rounded font-body font-semibold leading-none transition-colors ${pad} ${
+            unit === u ? 'bg-indigo text-parchment' : 'text-ink/50 hover:text-ink/80'
+          }`}
+        >
+          {u}
+        </button>
+      ))}
+    </span>
+  )
+}
 
 export default function PriceEstimator({
   initialPriceINR,
@@ -28,11 +58,22 @@ export default function PriceEstimator({
   const [priceText, setPriceText] = useState(initialPriceINR && initialPriceINR > 0 ? String(Math.round(initialPriceINR)) : '')
   const [preset, setPreset] = useState<number | null>(null) // index into WEIGHT_PRESETS
   const [weightText, setWeightText] = useState('')
+  const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg')
   const [qty, setQty] = useState(1)
 
   const priceINR = Number(priceText.replace(/[^0-9.]/g, ''))
   // Typed weight is read forgivingly: "500" in the kg box means 500 g.
-  const typedWeight = interpretWeightInput(weightText)
+  const typedWeight = interpretWeightInput(weightText, weightUnit)
+  // When the shopper leaves the box, the switch follows the unit the number
+  // was actually read in (e.g. "540" in kg → switches to g), so what they
+  // see matches what's priced. Not while typing: "500" g starts as "5".
+  const settleWeightUnit = () => {
+    if (typedWeight.kg != null && typedWeight.readAs !== weightUnit) setWeightUnit(typedWeight.readAs)
+  }
+  const chooseWeightUnit = (u: WeightUnit) => {
+    setWeightUnit(u)
+    setPreset(null)
+  }
   const weightKg = preset != null ? WEIGHT_PRESETS[preset].kg : typedWeight.kg
   const estimate = useMemo(() => estimateIndianItem({ priceINR, weightKg, qty }), [priceINR, weightKg, qty])
 
@@ -97,7 +138,7 @@ export default function PriceEstimator({
             }}
             className={`${field} min-w-0 flex-1 text-sm text-ink/70 sm:hidden`}
           >
-            <option value="">What is it? (optional)</option>
+            <option value="">What is it?</option>
             {WEIGHT_PRESETS.map((p, i) => (
               <option key={p.label} value={i}>
                 {p.label} · ~{p.kg} kg
@@ -107,25 +148,22 @@ export default function PriceEstimator({
           <label htmlFor={`${id}-weight`} className="sr-only font-body text-xs text-ink/50 sm:not-sr-only">
             or exact weight
           </label>
-          <div className="relative w-28 flex-none">
+          <div className="relative w-40 flex-none">
             <input
               id={`${id}-weight`}
               inputMode="decimal"
               autoComplete="off"
               value={weightText}
               onChange={(e) => {
-                setWeightText(e.target.value.replace(/[^0-9.]/g, '').slice(0, 5))
+                setWeightText(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))
                 setPreset(null)
               }}
-              placeholder={preset != null ? String(WEIGHT_PRESETS[preset].kg) : '0.5'}
-              className={`${field} h-9 pr-9 text-sm`}
+              onBlur={settleWeightUnit}
+              placeholder={preset != null ? String(WEIGHT_PRESETS[preset].kg) : weightUnit === 'g' ? '500' : '0.5'}
+              className={`${field} h-9 pr-[84px] text-sm`}
             />
-            <span
-              className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs ${
-                typedWeight.unit === 'g' && preset == null ? 'font-semibold text-gold-deep' : 'text-ink/45'
-              }`}
-            >
-              {preset == null ? typedWeight.unit : 'kg'}
+            <span className="absolute right-2 top-1/2 -translate-y-1/2">
+              <UnitSwitch unit={preset != null ? 'kg' : weightUnit} onChange={chooseWeightUnit} />
             </span>
           </div>
         </div>
@@ -273,24 +311,21 @@ export default function PriceEstimator({
         <div className="flex items-center justify-between gap-3">
           <label className="flex items-center gap-2">
             <span className="font-body text-[11px] text-ink/50">or weight</span>
-            <span className="relative w-20">
+            <span className="relative w-32">
               <input
                 inputMode="decimal"
                 autoComplete="off"
                 value={weightText}
                 onChange={(e) => {
-                  setWeightText(e.target.value.replace(/[^0-9.]/g, '').slice(0, 5))
+                  setWeightText(e.target.value.replace(/[^0-9.]/g, '').slice(0, 7))
                   setPreset(null)
                 }}
-                placeholder="0.5"
-                className={`${small} h-8 pr-7 text-xs`}
+                onBlur={settleWeightUnit}
+                placeholder={weightUnit === 'g' ? '500' : '0.5'}
+                className={`${small} h-8 pr-[64px] text-xs`}
               />
-              <span
-                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-body text-[11px] ${
-                  typedWeight.unit === 'g' && preset == null ? 'font-semibold text-gold-deep' : 'text-ink/45'
-                }`}
-              >
-                {preset == null ? typedWeight.unit : 'kg'}
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2">
+                <UnitSwitch size="sm" unit={preset != null ? 'kg' : weightUnit} onChange={chooseWeightUnit} />
               </span>
             </span>
           </label>

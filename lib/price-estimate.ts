@@ -31,33 +31,49 @@ export const WEIGHT_PRESETS: { label: string; kg: number }[] = [
   { label: 'Headphones', kg: 0.6 },
 ]
 
-/** Weights we'd ever quote: 100 g to 100 kg. */
-export const ESTIMATE_LIMITS = { maxPriceINR: 10_000_000, minWeightKg: 0.1, maxWeightKg: 100, maxQty: 50 }
+/** Weights we'd ever quote: 100 g to 110 kg. */
+export const ESTIMATE_LIMITS = { maxPriceINR: 10_000_000, minWeightKg: 0.1, maxWeightKg: 110, maxQty: 50 }
+
+export type WeightUnit = 'kg' | 'g'
 
 const fmtNum = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 3 })
 
 /**
- * Reads what a shopper typed into the "kg" weight box, forgiving the
- * common unit slip. Nothing we quote is over 100 kg or under 100 g, so:
- *   - more than 100  → they typed grams: 500 → 0.5 kg, 1500 → 1.5 kg
- *   - under 0.1      → raised to the 100 g minimum
- * `unit` is the unit the number was read in (shown inside the box, so it
- * flips to "g" as soon as the number is read as grams); `note` says what
- * was assumed (shown under the box) so it can be fixed.
+ * Reads the weight box: the number typed plus the unit the shopper picked
+ * (kg / g), forgiving the common unit slip. Nothing we quote is under
+ * 100 g or over 110 kg, so:
+ *   - in kg, more than 110      → they meant grams: 540 → 540 g (0.54 kg)
+ *   - in g, less than 100       → they meant kilograms: 5 → 5 kg
+ *   - still outside the range   → clamped to 100 g / 110 kg
+ * `readAs` is the unit the number was actually read in — the box flips its
+ * switch to it when the shopper leaves the box. `note` (shown under the
+ * box) says what was assumed, so it can be fixed.
  * Empty / zero / not a number → { kg: null } (the default weight applies).
  */
-export function interpretWeightInput(text: string): { kg: number | null; unit: 'kg' | 'g'; note: string | null } {
+export function interpretWeightInput(
+  text: string,
+  unit: WeightUnit = 'kg',
+): { kg: number | null; readAs: WeightUnit; note: string | null } {
   const n = Number(text)
-  if (!text.trim() || !Number.isFinite(n) || n <= 0) return { kg: null, unit: 'kg', note: null }
+  if (!text.trim() || !Number.isFinite(n) || n <= 0) return { kg: null, readAs: unit, note: null }
   const { minWeightKg, maxWeightKg } = ESTIMATE_LIMITS
-  if (n > maxWeightKg) {
-    const kg = Math.min(maxWeightKg, Math.max(minWeightKg, Math.round(n) / 1000))
-    return { kg, unit: 'g', note: `= ${fmtNum(kg)} kg` }
-  }
-  if (n < minWeightKg) {
-    return { kg: minWeightKg, unit: 'kg', note: `Under 100 g, so we used ${fmtNum(minWeightKg)} kg` }
-  }
-  return { kg: n, unit: 'kg', note: null }
+  const clamp = (kg: number) => Math.min(maxWeightKg, Math.max(minWeightKg, kg))
+
+  // Which unit does this number really mean?
+  let readAs: WeightUnit = unit
+  if (unit === 'kg' && n > maxWeightKg) readAs = 'g'
+  else if (unit === 'g' && n < minWeightKg * 1000) readAs = 'kg'
+
+  const raw = readAs === 'g' ? n / 1000 : n
+  const kg = clamp(raw)
+
+  let note: string | null = null
+  if (raw < minWeightKg) note = `Under 100 g, so we used 100 g`
+  else if (raw > maxWeightKg) note = `Over ${maxWeightKg} kg, so we used ${maxWeightKg} kg`
+  else if (readAs !== unit) note = readAs === 'g' ? `Read as ${fmtNum(n)} g (${fmtNum(kg)} kg)` : `Read as ${fmtNum(n)} kg`
+  else if (readAs === 'g') note = `= ${fmtNum(kg)} kg`
+
+  return { kg, readAs, note }
 }
 
 export type PriceEstimate = {
