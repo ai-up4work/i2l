@@ -65,7 +65,7 @@ function rise(delay: number): { className: string; style: CSSProperties } {
 }
 
 // Kept short so all three fit on one line beside the link box on desktop.
-const PROMISES = ['Instant LKR price', 'No sign-up needed', 'Quality checked']
+const PROMISES = ['Instant LKR price', 'No sign-up needed to check', 'Quality checked']
 
 export default function Hero() {
   const router = useRouter()
