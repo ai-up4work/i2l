@@ -38,7 +38,7 @@ function groupByDay(messages: ChatMessage[]) {
 }
 
 export default function ChatPanel({
-  positionClassName = 'bottom-24 right-6',
+  positionClassName = 'bottom-18 right-6',
   hidden = false,
 }: {
   positionClassName?: string

@@ -126,7 +126,7 @@ export default function Hero() {
         <div className="absolute inset-0 bg-parchment/80 lg:bg-transparent lg:bg-gradient-to-r lg:from-parchment/85 lg:via-parchment/30 lg:to-transparent" />
       </div>
 
-      <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-16 pt-10 sm:pt-14 lg:min-h-[calc(100svh-74px)] lg:px-10 lg:pb-20 lg:pt-6">
+      <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-16 pt-10 sm:pt-14 lg:min-h-[calc(100svh-74px)] lg:px-4 lg:pb-20 lg:pt-6">
         {/* ── Copy + quote form ────────────────────────────────────────── */}
         <div className="max-w-xl">
           <p

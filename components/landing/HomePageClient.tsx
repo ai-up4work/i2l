@@ -442,16 +442,19 @@ function FinalCTA() {
   const steps = ['Paste the link', 'Get a price in LKR', 'Delivered home']
 
   return (
-    <section className="px-6 py-20 lg:px-10 lg:py-24">
+    // Mobile: tighter section padding. Desktop (lg) values unchanged.
+    <section className="px-4 py-10 sm:px-6 sm:py-16 lg:px-10 lg:py-24">
       <Reveal className="mx-auto max-w-[1600px]">
         <div
-          className="rounded-[30px] p-[9px] shadow-[0_40px_80px_-40px_rgba(8,39,79,0.45)]"
+          // Mobile: thinner stripe border + smaller radius.
+          className="rounded-[22px] p-[6px] shadow-[0_40px_80px_-40px_rgba(8,39,79,0.45)] sm:rounded-[30px] sm:p-[9px]"
           style={{
             background:
               'repeating-linear-gradient(45deg,#C1272D 0 10px,#FBF6EC 10px 20px,#1E3A5F 20px 30px,#FBF6EC 30px 40px)',
           }}
         >
-          <div className="relative overflow-hidden rounded-[22px] bg-card px-6 py-12 sm:px-12 lg:px-20 lg:py-16">
+          {/* Mobile: much less vertical padding inside the card. */}
+          <div className="relative overflow-hidden rounded-[16px] bg-card px-5 py-7 sm:rounded-[22px] sm:px-12 sm:py-12 lg:px-20 lg:py-16">
             {/* Decoration: postmark + cancellation waves, top-right */}
             <svg
               aria-hidden="true"
@@ -477,20 +480,21 @@ function FinalCTA() {
               ))}
             </svg>
 
-            <div className="relative grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)] lg:gap-16">
+            <div className="relative grid items-center gap-5 sm:gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)] lg:gap-16">
               <div className="max-w-xl">
-                <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-deep">
+                <p className="font-body text-[10px] font-semibold uppercase tracking-[0.2em] text-teal-deep sm:text-[11px]">
                   Ready to shop anywhere?
                 </p>
                 <h2
-                  className="mt-3 font-display font-semibold leading-[1.05] tracking-[-0.015em] text-indigo"
-                  style={{ fontSize: 'clamp(2rem, 2.2vw + 1.1rem, 3rem)' }}
+                  className="mt-2 font-display font-semibold leading-[1.05] tracking-[-0.015em] text-indigo sm:mt-3"
+                  // Smaller floor on mobile (was 2rem).
+                  style={{ fontSize: 'clamp(1.5rem, 2.2vw + 1rem, 3rem)' }}
                 >
                   Got a link?
                   <br />
                   We&apos;ll handle <span className="whitespace-nowrap text-teal">the rest.</span>
                 </h2>
-                <p className="mt-4 max-w-md font-body text-base leading-relaxed text-ink/65">
+                <p className="mt-2.5 max-w-md font-body text-sm leading-relaxed text-ink/65 sm:mt-4 sm:text-base">
                   Paste a product from your favourite Indian store. We&apos;ll price it in rupees and
                   bring it to your door in Sri Lanka.
                 </p>
@@ -499,7 +503,7 @@ function FinalCTA() {
               <div>
                 <form
                   onSubmit={handleSubmit}
-                  className="flex w-full items-center gap-1 rounded-2xl border border-indigo/10 bg-parchment/60 p-1.5 pl-4 transition-[border-color,box-shadow] duration-200 focus-within:border-teal/40 focus-within:bg-card focus-within:shadow-[0_0_0_4px_rgba(14,140,156,0.12)]"
+                  className="flex w-full items-center gap-1 rounded-2xl border border-indigo/10 bg-parchment/60 p-1 pl-3 transition-[border-color,box-shadow] duration-200 focus-within:border-teal/40 focus-within:bg-card focus-within:shadow-[0_0_0_4px_rgba(14,140,156,0.12)] sm:p-1.5 sm:pl-4"
                 >
                   <LinkIcon size={17} className="shrink-0 text-indigo/35" aria-hidden="true" />
                   <input
@@ -509,24 +513,28 @@ function FinalCTA() {
                     value={link}
                     onChange={(event) => setLink(event.target.value)}
                     placeholder="Paste a product link…"
-                    className="h-11 w-full min-w-0 bg-transparent px-3 font-body text-[15px] text-ink outline-none placeholder:text-ink/40"
+                    className="h-10 w-full min-w-0 bg-transparent px-2 font-body text-[15px] text-ink outline-none placeholder:text-ink/40 sm:h-11 sm:px-3"
                   />
                   <button
                     type="submit"
                     disabled={!link.trim()}
                     aria-label="Get my quote"
-                    className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal px-3.5 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-teal-deep active:scale-[0.97] disabled:cursor-default disabled:opacity-75 disabled:active:scale-100 sm:px-5"
+                    className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal px-3.5 font-body text-sm font-semibold text-parchment transition-all duration-200 hover:bg-teal-deep active:scale-[0.97] disabled:cursor-default disabled:opacity-75 disabled:active:scale-100 sm:h-11 sm:px-5"
                   >
                     <span className="hidden sm:inline">Get my quote</span>
                     <ArrowRight size={16} aria-hidden="true" />
                   </button>
                 </form>
 
-                {/* three-step recap, echoing How It Works */}
-                <ol className="mt-5 grid gap-2.5 pl-1 sm:grid-cols-3 sm:gap-3">
+                {/* three-step recap, echoing How It Works.
+                    Mobile: one wrapping row instead of three stacked lines. */}
+                <ol className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 pl-1 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-3">
                   {steps.map((step, i) => (
-                    <li key={step} className="flex items-center gap-2 font-body text-xs font-medium leading-snug text-ink/60">
-                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-indigo text-[10px] font-bold text-parchment">
+                    <li
+                      key={step}
+                      className="flex items-center gap-1.5 font-body text-[11px] font-medium leading-snug text-ink/60 sm:gap-2 sm:text-xs"
+                    >
+                      <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-indigo text-[9px] font-bold text-parchment sm:h-5 sm:w-5 sm:text-[10px]">
                         {i + 1}
                       </span>
                       {step}
@@ -634,7 +642,7 @@ export default function HomePageClient() {
   return (
     <DashboardProvider>
       <main className="bg-parchment">
-          <style>{`
+        <style>{`
             @keyframes float-slow {
               0%, 100% { transform: translateY(0); }
               50% { transform: translateY(-10px); }
@@ -658,23 +666,23 @@ export default function HomePageClient() {
             }
           `}</style>
 
-          <Header />
+        <Header />
 
-          <Hero />
-          {/* <Partners /> */}
-          <ShopByCategory />
-          <WhyChooseWishdrop />
-          <StatsBand />
-          <HowItWorks />
-          <Destinations />
-          <Community />
-          <Testimonials />
-          <FinalCTA />
-          <Footer />
-          <ChatButton />
-          <ChatPanel />
-          <HomeItemModal />
-        </main>
+        <Hero />
+        {/* <Partners /> */}
+        <ShopByCategory />
+        <WhyChooseWishdrop />
+        <StatsBand />
+        <HowItWorks />
+        <Destinations />
+        <Community />
+        <Testimonials />
+        <FinalCTA />
+        <Footer />
+        <ChatButton />
+        <ChatPanel />
+        <HomeItemModal />
+      </main>
     </DashboardProvider>
   )
 }

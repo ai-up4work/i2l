@@ -9,7 +9,7 @@ export default function ChatButton({
   // overrides this with its own offset so the button still sits above
   // MobileBottomNav on small screens and drops to a plain bottom-6 on
   // desktop, same as it already did before this button was wired up.
-  positionClassName = 'bottom-6 right-6',
+  positionClassName = 'bottom-2 right-6',
   // While true, the button is not rendered at all — used so it
   // disappears while ItemInfoModal (or any other full-screen overlay)
   // is covering the account area, rather than floating on top of it.
