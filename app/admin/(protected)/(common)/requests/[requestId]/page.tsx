@@ -731,7 +731,7 @@ export default function RequestDetailPage() {
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Main column: one card per item ask */}
-          <div className="flex flex-col gap-6 lg:col-span-2">
+          <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
             {request.items.map((item, idx) => (
               <SectionCard
                 key={item.id}
@@ -745,13 +745,18 @@ export default function RequestDetailPage() {
                 <div className="space-y-4">
                   <div>
                     <p className="text-xs font-semibold text-ink/45">Link</p>
+                    {/* Product URLs are one long unbroken string (tracking
+                        params and all) — let them break anywhere, cap at two
+                        lines, full address on hover. */}
                     <a
                       href={item.link}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-1 flex items-center gap-1.5 text-sm font-medium text-teal-deep hover:underline"
+                      title={item.link}
+                      className="mt-1 flex min-w-0 items-start gap-1.5 text-sm font-medium text-teal-deep hover:underline"
                     >
-                      {item.link} <ExternalLink size={12} />
+                      <span className="line-clamp-2 min-w-0 break-all">{item.link}</span>
+                      <ExternalLink size={12} className="mt-1 flex-none" />
                     </a>
                     <p className="mt-0.5 text-xs text-ink/40">Source: {item.sourceDomain}</p>
                   </div>
@@ -1287,7 +1292,7 @@ export default function RequestDetailPage() {
                             m.sender === "customer" ? "border-l-ink/20 bg-parchment/50" : "border-l-teal-deep bg-teal/[0.05]"
                           }`}
                         >
-                          <p className="line-clamp-2 break-words text-ink/80">{m.text ?? "Sent an attachment"}</p>
+                          <p className="line-clamp-2 text-ink/80 [overflow-wrap:anywhere]">{m.text ?? "Sent an attachment"}</p>
                           <p className="mt-1 text-xs text-ink/40">
                             {m.sender_name}, {new Date(m.created_at).toLocaleString()}
                           </p>
@@ -1354,7 +1359,7 @@ export default function RequestDetailPage() {
                             : "rounded-tr-sm bg-teal/10 ring-teal/20"
                         }`}
                       >
-                        {m.text && <p className="whitespace-pre-wrap break-words text-ink/85">{m.text}</p>}
+                        {m.text && <p className="whitespace-pre-wrap text-ink/85 [overflow-wrap:anywhere]">{m.text}</p>}
                         {m.attachment_url && (
                           <MessageAttachment
                             url={m.attachment_url}

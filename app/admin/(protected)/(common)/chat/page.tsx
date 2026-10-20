@@ -742,7 +742,9 @@ function AdminChatPageInner() {
   return (
     <div className="flex h-full w-full overflow-hidden text-ink">
       {/* ── Left: conversation (now gets the full height) ── */}
-      <div className="relative flex min-h-0 flex-1 flex-col bg-parchment">
+      {/* min-w-0: a long unbroken message (e.g. a product link) must never
+          widen the pane past the window and push staff replies off-screen. */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-parchment">
         {selectedThread ? (
           <>
             {(orderIdsInOpenThread.length > 0 || requestIdsInOpenThread.length > 0) && (
@@ -880,7 +882,7 @@ function AdminChatPageInner() {
                             </>
                           )}
 
-                          <div className={`flex max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
+                          <div className={`flex min-w-0 max-w-[65%] flex-col ${isOps ? 'items-end' : 'items-start'}`}>
                           <span className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-ink/45">
                             {isOps ? (m.sender_name || 'Staff') : displayHandle(selectedThread.profiles)}
                             {orderTag && (
@@ -919,7 +921,7 @@ function AdminChatPageInner() {
                             }`}
                           >
                             {quoted && (
-                              <div className="mb-1 rounded border-l-[3px] border-teal-deep bg-ink/5 px-2 py-1 text-[12.5px] text-ink/60">
+                              <div className="mb-1 rounded border-l-[3px] border-teal-deep bg-ink/5 px-2 py-1 text-[12.5px] text-ink/60 [overflow-wrap:anywhere]">
                                 {quoted}
                               </div>
                             )}
@@ -944,7 +946,9 @@ function AdminChatPageInner() {
                             )}
 
                             <div className="flex items-end gap-1.5">
-                              {text && <p className="whitespace-pre-wrap break-words">{text}</p>}
+                              {/* overflow-wrap:anywhere (not just break-words) so links
+                                  and other long strings wrap inside the bubble. */}
+                              {text && <p className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>}
                               <span className={`ml-auto flex flex-none items-center gap-0.5 pb-[1px] text-[11px] ${isOps ? 'text-white/75' : 'text-ink/50'}`}>
                                 {formatTime(m.created_at)}
                                 {isOps && m.sent_via_whatsapp && (
