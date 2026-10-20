@@ -686,16 +686,29 @@ function AdminChatPageInner() {
         // same way the realtime handler already does.
         setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
       } else {
-        for (let i = 0; i < pendingFiles.length; i++) {
-          const url = await uploadChatAttachment(supabase, selectedId, pendingFiles[i])
+        // Same rules as the customer side (contexts/ChatContext.tsx):
+        // upload everything first; one photo keeps the text as its
+        // caption, several photos are followed by the text on its own.
+        const urls = await Promise.all(pendingFiles.map((f) => uploadChatAttachment(supabase, selectedId, f)))
+        const captionOnPhoto = urls.length === 1
+        for (const url of urls) {
           const row = await sendChatMessage(supabase, {
             threadId: selectedId,
             sender: 'ops',
             senderName: staffName,
-            text: i === 0 ? firstText : '',
+            text: captionOnPhoto ? firstText : '',
             attachmentUrl: url,
           })
           // Same race, same fix — see the single-message branch above.
+          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
+        }
+        if (!captionOnPhoto && firstText) {
+          const row = await sendChatMessage(supabase, {
+            threadId: selectedId,
+            sender: 'ops',
+            senderName: staffName,
+            text: firstText,
+          })
           setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
         }
       }

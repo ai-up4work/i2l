@@ -393,17 +393,34 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // the one that's a no-op, regardless of ordering.
           setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
         } else {
-          for (let i = 0; i < files.length; i++) {
-            const url = await uploadChatAttachment(supabaseRef.current, threadId, files[i])
+          // Upload every file first, so a failed upload sends nothing at
+          // all (no half-sent set of photos) and the shopper can retry.
+          const urls = await Promise.all(files.map((f) => uploadChatAttachment(supabaseRef.current, threadId, f)))
+          // One photo + text: the text is that photo's caption. Several
+          // photos + text: the photos go first, then the text as its own
+          // message after them — "can I get these?" is about all of them,
+          // not just the first (WhatsApp-style).
+          const captionOnPhoto = urls.length === 1
+          for (const url of urls) {
             const row = await sendChatMessage(supabaseRef.current, {
               threadId,
               sender: 'customer',
               senderName,
-              text: i === 0 ? firstText : '',
+              text: captionOnPhoto ? firstText : '',
               attachmentUrl: url,
               ...(orderId ? { orderId } : {}),
             })
             // Same race, same fix — see the single-message branch above.
+            setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
+          }
+          if (!captionOnPhoto && firstText) {
+            const row = await sendChatMessage(supabaseRef.current, {
+              threadId,
+              sender: 'customer',
+              senderName,
+              text: firstText,
+              ...(orderId ? { orderId } : {}),
+            })
             setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
           }
         }
