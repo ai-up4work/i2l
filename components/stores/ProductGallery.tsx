@@ -305,7 +305,10 @@ export default function ProductGallery({ images, videos, alt, title, resetKey, t
 
   return (
     <div className="min-w-0 w-full">
+      {/* data-gallery-main: the main photo frame, without the thumbnail
+          strip — the product page sizes its buy box to this height. */}
       <div
+        data-gallery-main
         className={`group relative overflow-hidden rounded-2xl border ${t.frameBorder} bg-card`}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}

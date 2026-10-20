@@ -126,7 +126,9 @@ export default function ProductActions({
         />
       </div>
 
-      <div>
+      {/* lg: the hint below hangs under this block (absolute), so the
+          buttons' bottom edge — not the hint's — lines up with the photo. */}
+      <div className="relative">
       <div className={`flex flex-wrap items-center gap-3 ${hasSizes || hasColors ? 'mt-4 lg:mt-0' : ''}`}>
         <div className="flex shrink-0 items-center overflow-hidden rounded-xl border border-ink/15">
           <button
@@ -191,9 +193,9 @@ export default function ProductActions({
       </div>
 
       {selectionHint ? (
-        <p className="mt-1.5 text-[11px] font-medium text-gold-deep">{selectionHint}</p>
+        <p className="mt-1.5 text-[11px] font-medium text-gold-deep lg:absolute lg:left-0 lg:top-full">{selectionHint}</p>
       ) : (
-        <p className="mt-1.5 text-[11px] text-ink/40">Max 10 per order</p>
+        <p className="mt-1.5 text-[11px] text-ink/40 lg:absolute lg:left-0 lg:top-full">Max 10 per order</p>
       )}
       </div>
     </div>

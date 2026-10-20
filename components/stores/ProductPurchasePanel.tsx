@@ -67,7 +67,7 @@
 'use client'
 
 import { arrivalRange } from '@/lib/delivery-dates'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ChevronRight, Clock, Package, Star, Weight, Zap } from 'lucide-react'
 import { getDualDeliveryPricing, formatLKR } from '@/lib/pricing'
@@ -363,9 +363,25 @@ export default function ProductPurchasePanel({
     window.history.replaceState(window.history.state, '', u)
   }, [variantMatch?.id, isMarketplace])
 
+  // Desktop: the buy box matches the MAIN photo's height (not the photo +
+  // thumbnail strip), so the buttons line up with the bottom of the photo.
+  // Measured live — the photo's height changes with the image shown and
+  // the window size.
+  const galleryRef = useRef<HTMLDivElement | null>(null)
+  const [mainPhotoHeight, setMainPhotoHeight] = useState<number | null>(null)
+  useEffect(() => {
+    const main = galleryRef.current?.querySelector<HTMLElement>('[data-gallery-main]')
+    if (!main || typeof ResizeObserver === 'undefined') return
+    const update = () => setMainPhotoHeight(Math.round(main.getBoundingClientRect().height))
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(main)
+    return () => ro.disconnect()
+  }, [])
+
   return (
     <>
-      <div className={`relative min-w-0 ${!product.inStock ? 'grayscale-[0.4] opacity-90' : ''}`}>
+      <div ref={galleryRef} className={`relative min-w-0 ${!product.inStock ? 'grayscale-[0.4] opacity-90' : ''}`}>
         {/* resetKey ties the gallery's own internal "which photo is
             active" state to the photo being SHOWN for the current
             selection (the thumbnail URL, or the product's own image when
@@ -386,7 +402,11 @@ export default function ProductPurchasePanel({
           </span>
         )}
       </div>
-      <div id="buy-box" className="flex h-full min-w-0 flex-col">
+      <div
+        id="buy-box"
+        className="flex min-w-0 flex-col lg:min-h-[var(--main-photo-h)] lg:self-start"
+        style={mainPhotoHeight ? ({ '--main-photo-h': `${mainPhotoHeight}px` } as React.CSSProperties) : undefined}
+      >
         {social ? (
           <div className="flex items-center gap-3 rounded-2xl border border-ink/10 bg-card px-3.5 py-3">
             <Link href={social.storeHref} className="grid h-11 w-11 flex-none place-items-center overflow-hidden rounded-full border border-ink/10 bg-parchment">
