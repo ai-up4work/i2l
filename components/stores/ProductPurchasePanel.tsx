@@ -514,18 +514,7 @@ export default function ProductPurchasePanel({
                 </span>
               )}
             </div>
-            {dualPricing.localStore ? (
-              // Local shop (lib/store-origin.ts), feed / extractor store.
-              // Same words as every other product — the handling fee is
-              // the service charge — so nothing says the shop is local.
-              <p className="mt-1 text-xs text-ink/55">
-                At checkout: {formatLKR(localPickupFeeLKR())} service charge + {dualPricing.express.formattedDeliveryFee} delivery.
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-ink/55">
-                + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
-              </p>
-            )}
+            
           </div>
         ) : (
           <>
