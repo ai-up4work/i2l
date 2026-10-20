@@ -14,6 +14,7 @@ import {
 import Image from 'next/image'
 
 import { EXTRACTOR_TYPE_LABEL } from '@/data/sellers/data'
+import type { JsonApiFields } from '@/lib/jsonapi-config'
 import type {
   StoreProviderType,
   JsonApiProviderConfig,
@@ -96,17 +97,8 @@ export const EXTRACTOR_OPTIONS: {
   },
 ]
 
-export type JsonFieldsState = Pick<
-  JsonApiProviderConfig,
-  | 'listEndpoint'
-  | 'idField'
-  | 'nameField'
-  | 'priceField'
-  | 'imageField'
-  | 'categoryField'
-  | 'sizesField'
-  | 'colorField'
->
+/** Every editable jsonapi option — see lib/store-config.ts JsonApiProviderConfig. */
+export type JsonFieldsState = JsonApiFields
 
 export type HtmlSelectorsState = HtmlScrapeProviderConfig['selectors']
 
@@ -366,8 +358,15 @@ export const CHECKS: CheckDef[] = [
     id: 'variants',
     title: 'Variants & options price correctly',
     evaluate: ({ result, providerType, jsonFields }) => {
-      if (providerType === 'jsonapi' && !jsonFields.sizesField && !jsonFields.colorField) {
-        return { status: 'skip', detail: 'No size or color field mapped \u2014 nothing to check.' }
+      if (
+        providerType === 'jsonapi' &&
+        !jsonFields.sizesField &&
+        !jsonFields.colorField &&
+        !jsonFields.colorsField &&
+        !jsonFields.optionsField &&
+        !jsonFields.variantsField
+      ) {
+        return { status: 'skip', detail: 'No size, color, options or variants field mapped \u2014 nothing to check.' }
       }
       const products = result.sampleProducts ?? []
       if (products.length === 0) return { status: 'skip', detail: 'No sample products to check.' }

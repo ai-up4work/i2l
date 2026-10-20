@@ -177,10 +177,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
     if (providerConfig.type === 'jsonapi') {
       const categories = await fetchJsonApiCategories(providerConfig)
       const collections: SellerCollectionRow[] = categories.map((c) => ({
-        id: c.value,
+        id: c.id ?? c.value,
         name: c.value,
         productCount: c.count,
-        image: null,
+        image: c.image ?? null,
       }))
       return NextResponse.json({ collections })
     }

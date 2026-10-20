@@ -1,0 +1,2421 @@
+diff --git a/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx b/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx
+index 0d63c77..1f602b5 100644
+--- a/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx
++++ b/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx
+@@ -48,6 +48,8 @@ import {
+ } from '@/components/admin/seller/shared'
+ import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/admin/seller/ProductCard'
+ import StoreBrandingEditor from '@/components/admin/seller/StoreBrandingEditor'
++import { JsonApiSettings } from '@/components/admin/seller/JsonApiSettings'
++import { cleanJsonApiFields, jsonApiFieldsFromConfig, jsonApiMissingRequired } from '@/lib/jsonapi-config'
+ import { hasCustomExtractor } from '@/lib/store-providers/sellers'
+ import { StoreOriginPicker } from '@/components/admin/StoreOriginPicker'
+ import { StoreCategoryPicker } from '@/components/admin/StoreCategoryPicker'
+@@ -530,19 +532,11 @@ export default function SellerFormClient({
+   }
+ 
+   const [jsonFields, setJsonFields] = useState<JsonFieldsState>(
+-    cfg?.type === 'jsonapi'
+-      ? {
+-          listEndpoint: cfg.listEndpoint,
+-          idField: cfg.idField,
+-          nameField: cfg.nameField,
+-          priceField: cfg.priceField,
+-          imageField: cfg.imageField,
+-          categoryField: cfg.categoryField ?? '',
+-          sizesField: cfg.sizesField ?? '',
+-          colorField: cfg.colorField ?? '',
+-        }
+-      : DEFAULT_JSON_FIELDS
++    cfg?.type === 'jsonapi' ? jsonApiFieldsFromConfig(cfg) : DEFAULT_JSON_FIELDS
+   )
++  // What actually gets tested/saved — empty strings dropped, numbers coerced.
++  const cleanedJsonFields = useMemo(() => cleanJsonApiFields(jsonFields), [jsonFields])
++  const jsonMissing = jsonApiMissingRequired(jsonFields)
+ 
+   const [htmlSelectors, setHtmlSelectors] = useState<HtmlSelectorsState>(
+     cfg?.type === 'html-scrape' ? cfg.selectors : DEFAULT_HTML_SELECTORS
+@@ -586,9 +580,6 @@ export default function SellerFormClient({
+   })
+   const resultsStale = lastTestedSignature !== null && lastTestedSignature !== currentSignature
+ 
+-  const setJsonField = (field: keyof JsonFieldsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
+-    setJsonFields((prev) => ({ ...prev, [field]: e.target.value }))
+-
+   const setHtmlSelector = (field: keyof HtmlSelectorsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
+     setHtmlSelectors((prev) => ({ ...prev, [field]: e.target.value }))
+ 
+@@ -656,7 +647,7 @@ export default function SellerFormClient({
+       }
+     }
+     if (providerType === 'jsonapi') {
+-      return { type: 'jsonapi', baseUrl, currency: currency || undefined, ...jsonFields }
++      return { ...cleanedJsonFields, type: 'jsonapi', baseUrl, currency: currency || undefined }
+     }
+     return {
+       type: 'html-scrape',
+@@ -858,7 +849,7 @@ export default function SellerFormClient({
+           providerType,
+           baseUrl,
+           currency,
+-          jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
++          jsonFields: providerType === 'jsonapi' ? cleanedJsonFields : undefined,
+           listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
+           htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
+           detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
+@@ -888,7 +879,7 @@ export default function SellerFormClient({
+     (providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape') &&
+     !!baseUrl &&
+     (providerType !== 'jsonapi' ||
+-      (jsonFields.idField && jsonFields.nameField && jsonFields.priceField && jsonFields.imageField)) &&
++      jsonMissing.length === 0) &&
+     (providerType !== 'html-scrape' ||
+       (!!listingUrl && !!htmlSelectors.productCard && !!htmlSelectors.title && !!htmlSelectors.image && !!htmlSelectors.link))
+ 
+@@ -916,7 +907,7 @@ export default function SellerFormClient({
+             baseUrl,
+             currency,
+             categoryImages: true,
+-            jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
++            jsonFields: providerType === 'jsonapi' ? cleanedJsonFields : undefined,
+             listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
+             htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
+             detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
+@@ -952,7 +943,7 @@ export default function SellerFormClient({
+           providerType,
+           baseUrl,
+           currency,
+-          jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
++          jsonFields: providerType === 'jsonapi' ? cleanedJsonFields : undefined,
+           listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
+           htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
+           detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
+@@ -1060,7 +1051,7 @@ export default function SellerFormClient({
+     providerType === 'mock'
+       ? true
+       : providerType === 'jsonapi'
+-      ? !!baseUrl && !!jsonFields.listEndpoint && !!jsonFields.idField && !!jsonFields.nameField && !!jsonFields.priceField && !!jsonFields.imageField
++      ? !!baseUrl && jsonMissing.length === 0
+       : !!baseUrl
+ 
+   const stepValid = [profileValid && logoValid, methodValid, true, canSubmit]
+@@ -1641,21 +1632,13 @@ export default function SellerFormClient({
+       )}
+ 
+       {providerType === 'jsonapi' && (
+-        <div className={`flex flex-col gap-3 p-4 ${groupClass}`}>
+-          <p className="text-xs font-semibold text-ink/50">
+-            JSON field mapping — confirm each against a real response before {isNew ? 'testing' : 'saving'}.
+-          </p>
+-          <SelectorField label="List endpoint" value={jsonFields.listEndpoint} onChange={setJsonField('listEndpoint')} placeholder="/products/" />
+-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+-            <SelectorField label="Id field" value={jsonFields.idField} onChange={setJsonField('idField')} placeholder="id" />
+-            <SelectorField label="Name field" value={jsonFields.nameField} onChange={setJsonField('nameField')} placeholder="name" />
+-            <SelectorField label="Price field" value={jsonFields.priceField} onChange={setJsonField('priceField')} placeholder="price" />
+-            <SelectorField label="Image field" value={jsonFields.imageField} onChange={setJsonField('imageField')} placeholder="image" />
+-            <SelectorField label="Category field (optional)" value={jsonFields.categoryField ?? ''} onChange={setJsonField('categoryField')} placeholder="type" />
+-            <SelectorField label="Sizes field (optional)" value={jsonFields.sizesField ?? ''} onChange={setJsonField('sizesField')} placeholder="sizes" />
+-            <SelectorField label="Color field (optional)" value={jsonFields.colorField ?? ''} onChange={setJsonField('colorField')} placeholder="color" />
+-          </div>
+-        </div>
++        <JsonApiSettings
++          value={jsonFields}
++          onChange={setJsonFields}
++          baseUrl={baseUrl}
++          currency={currency}
++          isNew={isNew}
++        />
+       )}
+ 
+       {providerType === 'html-scrape' && (
+diff --git a/app/api/admin/sellers/[platform]/collections/route.ts b/app/api/admin/sellers/[platform]/collections/route.ts
+index 4d16a51..afa1266 100644
+--- a/app/api/admin/sellers/[platform]/collections/route.ts
++++ b/app/api/admin/sellers/[platform]/collections/route.ts
+@@ -177,10 +177,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
+     if (providerConfig.type === 'jsonapi') {
+       const categories = await fetchJsonApiCategories(providerConfig)
+       const collections: SellerCollectionRow[] = categories.map((c) => ({
+-        id: c.value,
++        id: c.id ?? c.value,
+         name: c.value,
+         productCount: c.count,
+-        image: null,
++        image: c.image ?? null,
+       }))
+       return NextResponse.json({ collections })
+     }
+diff --git a/app/api/admin/sellers/test-extractor/route.ts b/app/api/admin/sellers/test-extractor/route.ts
+index ec5431c..e8d7fc0 100644
+--- a/app/api/admin/sellers/test-extractor/route.ts
++++ b/app/api/admin/sellers/test-extractor/route.ts
+@@ -35,7 +35,13 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth';
+-import { fetchJsonApiProduct, fetchJsonApiProducts, fetchJsonApiCategories } from '@/lib/store-providers/jsonapi';
++import {
++  fetchJsonApiProduct,
++  fetchJsonApiProducts,
++  fetchJsonApiCategories,
++  fetchJsonApiRawSample,
++} from '@/lib/store-providers/jsonapi';
++import { cleanJsonApiFields, jsonApiMissingRequired, type JsonApiFields } from '@/lib/jsonapi-config';
+ import {
+   fetchShopifyProduct,
+   fetchShopifyProducts,
+@@ -164,16 +170,8 @@ interface VariantScanResult {
+   examplesWithoutVariants?: { name: string; url?: string; image?: string }[];
+ }
+ 
+-interface JsonFieldsBody {
+-  listEndpoint: string;
+-  idField: string;
+-  nameField: string;
+-  priceField: string;
+-  imageField: string;
+-  categoryField?: string;
+-  sizesField?: string;
+-  colorField?: string;
+-}
++/** Every jsonapi option the seller form can set — see lib/store-config.ts. */
++type JsonFieldsBody = Partial<JsonApiFields>;
+ 
+ interface RequestBody {
+   providerType: 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape' | 'mock';
+@@ -197,7 +195,7 @@ interface RequestBody {
+    * the whole catalog (up to a cap) tallying variant vs non-variant
+    * products, for when the sample-based checklist isn't conclusive
+    * enough. */
+-  mode?: 'list' | 'single' | 'variant-scan';
++  mode?: 'list' | 'single' | 'variant-scan' | 'raw-sample';
+   /** Required when mode is 'single'. A full product URL copied from the
+    * seller's site, or a bare handle/slug/id — see extractHandle below for
+    * how each provider type's URL shape is parsed. */
+@@ -335,6 +333,32 @@ export async function POST(req: NextRequest) {
+     return NextResponse.json({ ok: false, error: 'A store base URL is required to run a test.' }, { status: 400 });
+   }
+ 
++  // jsonapi: one config builder for every mode, carrying the FULL mapping
++  // (auth, pagination, nested paths, variants, categories endpoint…), so
++  // the test exercises exactly what the saved seller will run.
++  const buildJsonApiConfig = (): JsonApiProviderConfig => ({
++    ...(cleanJsonApiFields(jsonFields ?? {}) as JsonApiFields),
++    type: 'jsonapi',
++    baseUrl,
++    // jsonapi backends have no generic endpoint to read currency from, so
++    // this relies on whatever the admin typed in (or a per-product
++    // currencyField, which the adapter prefers when mapped).
++    currency: typedCurrency || 'USD',
++    listEndpoint: jsonFields?.listEndpoint?.trim() || '/products/',
++  } as JsonApiProviderConfig);
++  const jsonMissing = providerType === 'jsonapi' ? jsonApiMissingRequired(jsonFields ?? {}) : [];
++
++  // ── mode: 'raw-sample' — first raw record, for writing field paths ─────
++  if (body.mode === 'raw-sample') {
++    if (providerType !== 'jsonapi') return fail('Raw samples are only available for JSON feeds.');
++    try {
++      const sample = await fetchJsonApiRawSample(buildJsonApiConfig());
++      return NextResponse.json({ ok: true, ...sample });
++    } catch (err) {
++      return fail(err instanceof Error ? err.message : 'The request failed.');
++    }
++  }
++
+   // html-scrape has no fixed URL convention to guess a handle from the
+   // way shopify/woocommerce do (see extractHandle below, which only
+   // knows those two) — it round-trips a pasted URL through the same
+@@ -434,25 +458,13 @@ export async function POST(req: NextRequest) {
+       }
+ 
+       // providerType === 'jsonapi'
+-      if (!jsonFields || !jsonFields.idField || !jsonFields.nameField || !jsonFields.priceField || !jsonFields.imageField) {
++      if (jsonMissing.length) {
+         return NextResponse.json<TestExtractorProductResult>({
+           ok: false,
+-          error: 'Id, name, price, and image fields must all be mapped before a single product can be tested.',
++          error: `Map these before a single product can be tested: ${jsonMissing.join(', ')}.`,
+         });
+       }
+-      const config: JsonApiProviderConfig = {
+-        type: 'jsonapi',
+-        baseUrl,
+-        currency: typedCurrency || 'USD',
+-        listEndpoint: jsonFields.listEndpoint || '/products/',
+-        idField: jsonFields.idField,
+-        nameField: jsonFields.nameField,
+-        priceField: jsonFields.priceField,
+-        imageField: jsonFields.imageField,
+-        categoryField: jsonFields.categoryField || undefined,
+-        sizesField: jsonFields.sizesField || undefined,
+-        colorField: jsonFields.colorField || undefined,
+-      };
++      const config = buildJsonApiConfig();
+       const product = await fetchJsonApiProduct('__test__', config, 'Test store', handle);
+       if (!product) {
+         return NextResponse.json<TestExtractorProductResult>({
+@@ -596,26 +608,11 @@ export async function POST(req: NextRequest) {
+     }
+ 
+     // providerType === 'jsonapi'
+-    if (!jsonFields || !jsonFields.idField || !jsonFields.nameField || !jsonFields.priceField || !jsonFields.imageField) {
+-      return fail('Id, name, price, and image fields must all be mapped before this feed can be tested.');
++    if (jsonMissing.length) {
++      return fail(`Map these before this feed can be tested: ${jsonMissing.join(', ')}.`);
+     }
+ 
+-    const config: JsonApiProviderConfig = {
+-      type: 'jsonapi',
+-      baseUrl,
+-      // jsonapi backends are ad-hoc (see store-config.ts) — there's no
+-      // generic endpoint to read currency from, so this always relies on
+-      // whatever the admin typed in.
+-      currency: typedCurrency || 'USD',
+-      listEndpoint: jsonFields.listEndpoint || '/products/',
+-      idField: jsonFields.idField,
+-      nameField: jsonFields.nameField,
+-      priceField: jsonFields.priceField,
+-      imageField: jsonFields.imageField,
+-      categoryField: jsonFields.categoryField || undefined,
+-      sizesField: jsonFields.sizesField || undefined,
+-      colorField: jsonFields.colorField || undefined,
+-    };
++    const config = buildJsonApiConfig();
+ 
+     const result = await fetchJsonApiProducts('__test__', config, 'Test store', DEFAULT_PARAMS);
+ 
+@@ -628,8 +625,8 @@ export async function POST(req: NextRequest) {
+     // so that's an acceptable cost for a one-off admin test.
+     let categories: TestExtractorCategory[] | undefined;
+     let categoriesNote: string | undefined;
+-    if (!jsonFields.categoryField) {
+-      categoriesNote = 'No category field mapped \u2014 nothing to check.';
++    if (!config.categoryField && !config.categoriesEndpoint) {
++      categoriesNote = 'No category field or categories endpoint mapped \u2014 nothing to check.';
+     } else {
+       try {
+         const summaries = await fetchJsonApiCategories(config);
+@@ -650,15 +647,10 @@ export async function POST(req: NextRequest) {
+       ok: true,
+       meta: {
+         totalProducts: result.total,
+-        // fetchJsonApiProducts has no upstream pagination to be uncertain
+-        // about — listEndpoint returns the FULL catalog in one response,
+-        // which is then sliced client-side into pages. `total` here is
+-        // therefore always an exact count, never a lower bound, even
+-        // though the underlying ProviderFetchResult doesn't set
+-        // totalIsExact itself (it comes back undefined/falsy, which would
+-        // otherwise make this check wrongly report "lower bound, could
+-        // not confirm the exact total").
+-        totalIsExact: true,
++        // fetchJsonApiProducts reads the whole catalogue (every upstream
++        // page, when paginated) before slicing, so `total` is exact unless
++        // the maxPages safety cap stopped it early.
++        totalIsExact: result.totalIsExact !== false,
+         totalPages: result.totalPages,
+       },
+       categories,
+diff --git a/components/admin/seller/JsonApiSettings.tsx b/components/admin/seller/JsonApiSettings.tsx
+new file mode 100644
+index 0000000..89a0d53
+--- /dev/null
++++ b/components/admin/seller/JsonApiSettings.tsx
+@@ -0,0 +1,805 @@
++// components/admin/seller/JsonApiSettings.tsx
++//
++// The "Method" settings for a jsonapi seller. Every option the adapter
++// supports (lib/store-config.ts → JsonApiProviderConfig) is editable
++// here, grouped into collapsible sections so a simple flat feed only
++// needs the two open-by-default groups, while a partner feed with auth,
++// pagination, nested fields and a categories endpoint can be configured
++// fully without touching code.
++//
++// "Load sample record" fetches the first raw record through the exact
++// same request path the adapter uses (auth, query params, listPath), then
++// offers every field path in it as autocomplete on each mapping input.
++'use client'
++
++import { useMemo, useState } from 'react'
++import { Check, ChevronDown, Copy, Loader2, X } from 'lucide-react'
++
++import { inputClass, monoInputClass, groupClass } from '@/components/admin/seller/shared'
++import type { JsonFieldsState } from '@/components/admin/seller/shared'
++import {
++  cleanJsonApiFields,
++  flattenFieldPaths,
++  jsonApiMissingRequired,
++} from '@/lib/jsonapi-config'
++import type { JsonApiAuthConfig, JsonApiPaginationConfig } from '@/lib/store-config'
++
++type Scope = 'product' | 'variant' | 'option' | 'response' | 'category' | 'none'
++
++type FieldDef = {
++  key: keyof JsonFieldsState
++  label: string
++  placeholder?: string
++  hint?: string
++  required?: boolean
++  /** Which sample record's paths to suggest. */
++  scope?: Scope
++  kind?: 'path' | 'text' | 'select' | 'bool' | 'list'
++  options?: [string, string][]
++}
++
++type SectionDef = {
++  id: string
++  title: string
++  description: string
++  defaultOpen?: boolean
++  fields?: FieldDef[]
++  custom?: 'auth' | 'request' | 'pagination' | 'raw'
++}
++
++const SECTIONS: SectionDef[] = [
++  {
++    id: 'endpoint',
++    title: 'Endpoints & response',
++    description: 'Where products come from, and where the product array sits in the response.',
++    defaultOpen: true,
++    fields: [
++      { key: 'listEndpoint', label: 'List endpoint', placeholder: '/api/products', required: true, kind: 'text', hint: 'Path on the base URL, or a full https URL.' },
++      { key: 'listPath', label: 'Products path in response', placeholder: 'products', scope: 'response', hint: 'Blank = bare array, or auto-detect products/items/data/results.' },
++      { key: 'detailEndpoint', label: 'Detail endpoint (optional)', placeholder: '/api/products/{id}', kind: 'text', hint: '{id} or {handle} is substituted. Blank = look up in the list.' },
++      { key: 'detailPath', label: 'Product path in detail response', placeholder: 'product', kind: 'text' },
++      { key: 'searchQueryParam', label: 'Search query param', placeholder: 'search', kind: 'text', hint: 'Server-side search on the list endpoint. Blank = search locally.' },
++      { key: 'searchEndpoint', label: 'Separate search endpoint', placeholder: '/api/search?q={q}', kind: 'text' },
++      { key: 'categoryQueryParam', label: 'Category query param', placeholder: 'category', kind: 'text', hint: 'Blank = filter by category locally.' },
++      {
++        key: 'categoryQueryValue',
++        label: 'Category param sends',
++        kind: 'select',
++        options: [
++          ['', 'Category name (default)'],
++          ['id', 'Category id (from categories endpoint)'],
++        ],
++      },
++    ],
++  },
++  {
++    id: 'core',
++    title: 'Core product fields',
++    description: 'The minimum mapping every product needs.',
++    defaultOpen: true,
++    fields: [
++      { key: 'idField', label: 'Id field', placeholder: 'id', required: true },
++      { key: 'nameField', label: 'Name field', placeholder: 'name', required: true },
++      { key: 'priceField', label: 'Price field', placeholder: 'price', required: true, hint: 'Fallbacks with |, e.g. sale_price|price' },
++      { key: 'imageField', label: 'Image field', placeholder: 'image', required: true, hint: 'Or set Images (array) below instead.' },
++      { key: 'handleField', label: 'Handle / slug field', placeholder: 'slug', hint: 'Blank = the id doubles as the handle.' },
++      { key: 'descriptionField', label: 'Description field', placeholder: 'description' },
++      { key: 'fullDescriptionField', label: 'Long description field', placeholder: 'body_html' },
++    ],
++  },
++  {
++    id: 'auth',
++    title: 'Authentication',
++    description: 'API key or token the feed requires.',
++    custom: 'auth',
++  },
++  {
++    id: 'request',
++    title: 'Request headers & query params',
++    description: 'Fixed values sent on every request.',
++    custom: 'request',
++  },
++  {
++    id: 'pagination',
++    title: 'Pagination',
++    description: 'For feeds that return the catalogue a page at a time.',
++    custom: 'pagination',
++  },
++  {
++    id: 'pricing',
++    title: 'Pricing & currency',
++    description: 'Sale prices, minor units and per-product currency.',
++    fields: [
++      {
++        key: 'priceUnit',
++        label: 'Price unit',
++        kind: 'select',
++        options: [
++          ['', 'Major (1100 = 1,100.00)'],
++          ['minor', 'Minor (110000 cents = 1,100.00)'],
++        ],
++      },
++      { key: 'regularPriceField', label: 'Regular price field', placeholder: 'regular_price' },
++      { key: 'salePriceField', label: 'Sale price field', placeholder: 'sale_price' },
++      { key: 'compareAtPriceField', label: 'Compare-at ("was") price field', placeholder: 'compare_at_price' },
++      { key: 'currencyField', label: 'Currency field', placeholder: 'currency', hint: 'Per product. Blank = the store currency above.' },
++    ],
++  },
++  {
++    id: 'media',
++    title: 'Images & links',
++    description: 'Galleries and the product page on the seller’s own site.',
++    fields: [
++      { key: 'imagesField', label: 'Images (array) field', placeholder: 'images', hint: 'Strings or objects with src/url. Wins over Image field.' },
++      { key: 'urlField', label: 'Product URL field', placeholder: 'url', hint: 'Absolute or relative to the base URL.' },
++      { key: 'productUrlPath', label: 'Product URL template', placeholder: '/products/{handle}', kind: 'text', hint: 'Used when there is no URL field. {handle} / {id}.' },
++    ],
++  },
++  {
++    id: 'stock',
++    title: 'Stock',
++    description: 'How availability is read.',
++    fields: [
++      { key: 'stockField', label: 'Stock field', placeholder: 'inStock' },
++      {
++        key: 'stockFieldType',
++        label: 'Stock field is a…',
++        kind: 'select',
++        options: [
++          ['', 'Boolean (default)'],
++          ['quantity', 'Quantity (> 0 = in stock)'],
++          ['status', 'Status text'],
++        ],
++      },
++      { key: 'outOfStockValues', label: 'Out-of-stock values', placeholder: 'sold out, unavailable', kind: 'list', hint: 'Comma separated. Status text only.' },
++      {
++        key: 'defaultInStock',
++        label: 'When stock is unknown',
++        kind: 'bool',
++        options: [
++          ['', 'Treat as in stock (default)'],
++          ['false', 'Treat as out of stock'],
++        ],
++      },
++    ],
++  },
++  {
++    id: 'variants',
++    title: 'Options & variants',
++    description: 'Sizes, colors, option axes and per-variant price, stock and image.',
++    fields: [
++      { key: 'sizesField', label: 'Sizes field', placeholder: 'sizes' },
++      { key: 'colorField', label: 'Color field (single)', placeholder: 'color' },
++      { key: 'colorsField', label: 'Colors field (array)', placeholder: 'colors' },
++      { key: 'optionsField', label: 'Options field', placeholder: 'options', hint: '[{ name, values }] option axes.' },
++      { key: 'variantsField', label: 'Variants field', placeholder: 'variants' },
++      { key: 'variantIdField', label: 'Variant id', placeholder: 'id', scope: 'variant' },
++      { key: 'variantTitleField', label: 'Variant title', placeholder: 'title', scope: 'variant', hint: 'Blank = joined option values.' },
++      { key: 'variantOptionsField', label: 'Variant option values', placeholder: 'options', scope: 'variant' },
++      { key: 'variantPriceField', label: 'Variant price', placeholder: 'price', scope: 'variant' },
++      { key: 'variantCompareAtPriceField', label: 'Variant compare-at price', placeholder: 'compare_at_price', scope: 'variant' },
++      { key: 'variantAvailableField', label: 'Variant stock / available', placeholder: 'inStock', scope: 'variant', hint: 'Boolean, quantity or status text.' },
++      { key: 'variantImageField', label: 'Variant image', placeholder: 'image', scope: 'variant' },
++    ],
++  },
++  {
++    id: 'categories',
++    title: 'Categories',
++    description: 'Product category field, and an optional real categories endpoint.',
++    fields: [
++      { key: 'categoryField', label: 'Product category field', placeholder: 'category' },
++      { key: 'productTypeField', label: 'Product type field', placeholder: 'type' },
++      { key: 'categoriesEndpoint', label: 'Categories endpoint', placeholder: '/api/categories', kind: 'text', hint: 'Blank = derive categories from products.' },
++      { key: 'categoriesPath', label: 'Categories path in response', placeholder: 'categories', kind: 'text' },
++      { key: 'categoryNameField', label: 'Category name', placeholder: 'name', kind: 'text' },
++      { key: 'categoryIdField', label: 'Category id', placeholder: 'id', kind: 'text' },
++      { key: 'categoryCountField', label: 'Category product count', placeholder: 'productCount', kind: 'text' },
++      { key: 'categoryImageField', label: 'Category image', placeholder: 'image', kind: 'text' },
++    ],
++  },
++  {
++    id: 'meta',
++    title: 'Extra product details',
++    description: 'SKU, brand, tags, ratings, weight and more.',
++    fields: [
++      { key: 'skuField', label: 'SKU field', placeholder: 'sku' },
++      { key: 'vendorField', label: 'Brand / vendor field', placeholder: 'brand' },
++      { key: 'tagsField', label: 'Tags field', placeholder: 'tags' },
++      { key: 'featuredField', label: 'Featured flag field', placeholder: 'featured', hint: 'true adds a "Featured" tag.' },
++      { key: 'conditionField', label: 'Condition field', placeholder: 'condition' },
++      { key: 'genderField', label: 'Gender field', placeholder: 'gender', hint: 'Values men / women / unisex.' },
++      { key: 'averageRatingField', label: 'Average rating field', placeholder: 'rating' },
++      { key: 'reviewCountField', label: 'Review count field', placeholder: 'reviewCount' },
++      { key: 'weightField', label: 'Weight field', placeholder: 'weight' },
++      {
++        key: 'weightUnit',
++        label: 'Weight unit',
++        kind: 'select',
++        hint: 'Required with the weight field.',
++        options: [
++          ['', '— not set —'],
++          ['kg', 'kg'],
++          ['g', 'g'],
++          ['lb', 'lb'],
++          ['oz', 'oz'],
++        ],
++      },
++    ],
++  },
++  {
++    id: 'raw',
++    title: 'Full config (JSON)',
++    description: 'View, copy, or paste an entire mapping at once.',
++    custom: 'raw',
++  },
++]
++
++// ── Small building blocks ────────────────────────────────────────────────────
++
++function Section({
++  title,
++  description,
++  setCount,
++  defaultOpen,
++  children,
++}: {
++  title: string
++  description: string
++  setCount: number
++  defaultOpen?: boolean
++  children: React.ReactNode
++}) {
++  const [open, setOpen] = useState(!!defaultOpen)
++  return (
++    <div className="rounded-lg border border-ink/10 bg-white/70">
++      <button
++        type="button"
++        onClick={() => setOpen((o) => !o)}
++        aria-expanded={open}
++        className="flex w-full items-center gap-3 px-3 py-2.5 text-left"
++      >
++        <ChevronDown size={14} className={`flex-none text-ink/40 transition-transform ${open ? '' : '-rotate-90'}`} />
++        <span className="min-w-0 flex-1">
++          <span className="block text-xs font-semibold text-ink">{title}</span>
++          {!open && <span className="block truncate text-[11px] text-ink/40">{description}</span>}
++        </span>
++        {setCount > 0 && (
++          <span className="flex-none rounded-full bg-teal/10 px-2 py-0.5 text-[10px] font-semibold text-teal-deep">
++            {setCount} set
++          </span>
++        )}
++      </button>
++      {open && (
++        <div className="flex flex-col gap-3 border-t border-ink/10 px-3 pb-3 pt-3">
++          <p className="text-[11px] leading-relaxed text-ink/45">{description}</p>
++          {children}
++        </div>
++      )}
++    </div>
++  )
++}
++
++function Label({ text, required, hint, children }: { text: string; required?: boolean; hint?: string; children: React.ReactNode }) {
++  return (
++    <label className="block">
++      <span className="text-xs text-ink/50">
++        {text}
++        {required && <span className="text-red-600"> *</span>}
++      </span>
++      <div className="mt-1">{children}</div>
++      {hint && <span className="mt-1 block text-[10.5px] leading-snug text-ink/35">{hint}</span>}
++    </label>
++  )
++}
++
++function KeyValueEditor({
++  rows,
++  onChange,
++  keyPlaceholder,
++  valuePlaceholder,
++  addLabel,
++}: {
++  rows: [string, string][]
++  onChange: (rows: [string, string][]) => void
++  keyPlaceholder: string
++  valuePlaceholder: string
++  addLabel: string
++}) {
++  return (
++    <div className="flex flex-col gap-2">
++      {rows.map(([k, v], i) => (
++        <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
++          <input
++            className={monoInputClass}
++            value={k}
++            placeholder={keyPlaceholder}
++            onChange={(e) => onChange(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))}
++          />
++          <input
++            className={monoInputClass}
++            value={v}
++            placeholder={valuePlaceholder}
++            onChange={(e) => onChange(rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)))}
++          />
++          <button
++            type="button"
++            onClick={() => onChange(rows.filter((_, j) => j !== i))}
++            title="Remove"
++            className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-ink/10 text-ink/40 hover:bg-red-600/5 hover:text-red-600"
++          >
++            <X size={14} />
++          </button>
++        </div>
++      ))}
++      <button
++        type="button"
++        onClick={() => onChange([...rows, ['', '']])}
++        className="self-start text-xs font-semibold text-teal-deep hover:underline"
++      >
++        + {addLabel}
++      </button>
++    </div>
++  )
++}
++
++// ── Main component ───────────────────────────────────────────────────────────
++
++type SampleState =
++  | { status: 'idle' }
++  | { status: 'loading' }
++  | { status: 'error'; error: string }
++  | { status: 'ok'; first: Record<string, unknown> | null; count: number; topLevelKeys: string[] }
++
++export function JsonApiSettings({
++  value,
++  onChange,
++  baseUrl,
++  currency,
++  isNew,
++}: {
++  value: JsonFieldsState
++  onChange: (next: JsonFieldsState) => void
++  baseUrl: string
++  currency: string
++  isNew: boolean
++}) {
++  const set = <K extends keyof JsonFieldsState>(key: K, v: JsonFieldsState[K]) => onChange({ ...value, [key]: v })
++
++  // Local row state for key/value editors so half-typed rows (empty key) survive re-renders.
++  const [headerRows, setHeaderRows] = useState<[string, string][]>(() => Object.entries(value.headers ?? {}))
++  const [queryRows, setQueryRows] = useState<[string, string][]>(() => Object.entries(value.queryParams ?? {}))
++  const commitRows = (key: 'headers' | 'queryParams', rows: [string, string][]) => {
++    if (key === 'headers') setHeaderRows(rows)
++    else setQueryRows(rows)
++    const rec = Object.fromEntries(rows.filter(([k]) => k.trim()))
++    onChange({ ...value, [key]: Object.keys(rec).length ? rec : undefined })
++  }
++
++  const auth = value.auth
++  const setAuth = (patch: Partial<JsonApiAuthConfig> | null) =>
++    onChange({ ...value, auth: patch === null ? undefined : ({ ...(auth ?? { type: 'header' }), ...patch } as JsonApiAuthConfig) })
++
++  const pg = value.pagination
++  const setPg = (patch: Partial<JsonApiPaginationConfig> | null) =>
++    onChange({
++      ...value,
++      pagination: patch === null ? undefined : ({ ...(pg ?? { type: 'page' }), ...patch } as JsonApiPaginationConfig),
++    })
++
++  // ── Sample record → path suggestions ──
++  const [sample, setSample] = useState<SampleState>({ status: 'idle' })
++  const missing = jsonApiMissingRequired(value)
++
++  const loadSample = async () => {
++    if (!baseUrl.trim() || !value.listEndpoint?.trim()) {
++      setSample({ status: 'error', error: 'Enter a base URL and list endpoint first.' })
++      return
++    }
++    setSample({ status: 'loading' })
++    try {
++      const res = await fetch('/api/admin/sellers/test-extractor', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          providerType: 'jsonapi',
++          baseUrl,
++          currency,
++          mode: 'raw-sample',
++          jsonFields: cleanJsonApiFields(value),
++        }),
++      })
++      const body = await res.json()
++      if (!body.ok) setSample({ status: 'error', error: body.error ?? 'The request failed.' })
++      else setSample({ status: 'ok', first: body.first, count: body.count, topLevelKeys: body.topLevelKeys ?? [] })
++    } catch (err) {
++      setSample({ status: 'error', error: err instanceof Error ? err.message : 'The request failed.' })
++    }
++  }
++
++  const suggestions = useMemo(() => {
++    const empty = { product: [], variant: [], option: [], response: [], category: [], none: [] } as Record<Scope, { path: string; preview: string }[]>
++    if (sample.status !== 'ok' || !sample.first) {
++      if (sample.status === 'ok') empty.response = sample.topLevelKeys.map((k) => ({ path: k, preview: '' }))
++      return empty
++    }
++    const first = sample.first
++    const variantArr = value.variantsField ? (readPath(first, value.variantsField) as unknown) : undefined
++    const optionArr = value.optionsField ? (readPath(first, value.optionsField) as unknown) : undefined
++    return {
++      ...empty,
++      product: flattenFieldPaths(first),
++      variant: Array.isArray(variantArr) && variantArr[0] ? flattenFieldPaths(variantArr[0]) : [],
++      option: Array.isArray(optionArr) && optionArr[0] ? flattenFieldPaths(optionArr[0]) : [],
++      response: sample.topLevelKeys.map((k) => ({ path: k, preview: '' })),
++    }
++  }, [sample, value.variantsField, value.optionsField])
++
++  const previewFor = (scope: Scope, path: string | undefined): string | undefined => {
++    if (!path || sample.status !== 'ok' || !sample.first) return undefined
++    if (scope === 'product') {
++      const v = readPath(sample.first, path)
++      return v === undefined ? '— not found in sample —' : short(v)
++    }
++    if (scope === 'variant' && value.variantsField) {
++      const arr = readPath(sample.first, value.variantsField)
++      if (!Array.isArray(arr) || !arr[0]) return undefined
++      const v = readPath(arr[0], path)
++      return v === undefined ? '— not found in first variant —' : short(v)
++    }
++    return undefined
++  }
++
++  const renderField = (f: FieldDef) => {
++    const raw = value[f.key] as unknown
++    const kind = f.kind ?? 'path'
++    const scope = f.scope ?? (kind === 'path' ? 'product' : 'none')
++    if (kind === 'select' || kind === 'bool') {
++      const current = kind === 'bool' ? (raw === false ? 'false' : '') : ((raw as string | undefined) ?? '')
++      return (
++        <Label key={String(f.key)} text={f.label} hint={f.hint}>
++          <select
++            className={inputClass}
++            value={current}
++            onChange={(e) => {
++              const v = e.target.value
++              if (kind === 'bool') set(f.key, (v === 'false' ? false : undefined) as never)
++              else set(f.key, (v || undefined) as never)
++            }}
++          >
++            {f.options!.map(([v, l]) => (
++              <option key={v} value={v}>
++                {l}
++              </option>
++            ))}
++          </select>
++        </Label>
++      )
++    }
++    const text = kind === 'list' ? (Array.isArray(raw) ? (raw as string[]).join(', ') : ((raw as string) ?? '')) : ((raw as string) ?? '')
++    const preview = kind === 'path' ? previewFor(scope, text) : undefined
++    const listId = kind === 'path' && suggestions[scope]?.length ? `jsonapi-paths-${scope}` : undefined
++    return (
++      <Label key={String(f.key)} text={f.label} required={f.required} hint={preview ? `Sample: ${preview}` : f.hint}>
++        <input
++          type="text"
++          className={monoInputClass}
++          value={text}
++          list={listId}
++          placeholder={f.placeholder}
++          onChange={(e) => set(f.key, e.target.value as never)}
++        />
++      </Label>
++    )
++  }
++
++  const countSet = (s: SectionDef): number => {
++    if (s.fields) return s.fields.filter((f) => !isBlank(value[f.key])).length
++    if (s.custom === 'auth') return auth?.type ? 1 : 0
++    if (s.custom === 'pagination') return pg?.type ? 1 : 0
++    if (s.custom === 'request') return Object.keys(value.headers ?? {}).length + Object.keys(value.queryParams ?? {}).length
++    return 0
++  }
++
++  // ── Raw JSON editor ──
++  const cleaned = cleanJsonApiFields(value)
++  const [rawDraft, setRawDraft] = useState<string | null>(null)
++  const [rawError, setRawError] = useState<string | null>(null)
++  const [copied, setCopied] = useState(false)
++  const applyRaw = () => {
++    try {
++      const parsed = JSON.parse(rawDraft ?? '{}')
++      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Must be a JSON object.')
++      const next = cleanJsonApiFields(parsed) as JsonFieldsState
++      onChange(next)
++      setHeaderRows(Object.entries(next.headers ?? {}))
++      setQueryRows(Object.entries(next.queryParams ?? {}))
++      setRawDraft(null)
++      setRawError(null)
++    } catch (err) {
++      setRawError(err instanceof Error ? err.message : 'Invalid JSON.')
++    }
++  }
++
++  const renderCustom = (kind: SectionDef['custom']) => {
++    if (kind === 'auth') {
++      return (
++        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
++          <Label text="Method">
++            <select
++              className={inputClass}
++              value={auth?.type ?? ''}
++              onChange={(e) => (e.target.value ? setAuth({ type: e.target.value as JsonApiAuthConfig['type'] }) : setAuth(null))}
++            >
++              <option value="">None (public feed)</option>
++              <option value="header">API key in a header</option>
++              <option value="query">API key as a query param</option>
++              <option value="bearer">Bearer token</option>
++              <option value="basic">Basic auth (user:password)</option>
++            </select>
++          </Label>
++          {(auth?.type === 'header' || auth?.type === 'query') && (
++            <Label text={auth.type === 'header' ? 'Header name' : 'Query param name'}>
++              <input
++                className={monoInputClass}
++                value={auth.name ?? ''}
++                placeholder={auth.type === 'header' ? 'x-api-key' : 'api_key'}
++                onChange={(e) => setAuth({ name: e.target.value })}
++              />
++            </Label>
++          )}
++          {auth?.type && (
++            <>
++              <Label text="Secret from server env var (recommended)" hint="Must start with STORE_SECRET_. Set it in the hosting environment, then redeploy.">
++                <input
++                  className={monoInputClass}
++                  value={auth.valueEnv ?? ''}
++                  placeholder="STORE_SECRET_OZ_SCENT"
++                  onChange={(e) => setAuth({ valueEnv: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
++                />
++              </Label>
++              <Label text="…or paste the key here" hint="Stored in the seller config — visible to anyone who can open this seller.">
++                <input
++                  type="password"
++                  autoComplete="off"
++                  className={monoInputClass}
++                  value={auth.value ?? ''}
++                  placeholder={auth.type === 'basic' ? 'user:password' : '••••••••'}
++                  onChange={(e) => setAuth({ value: e.target.value })}
++                />
++              </Label>
++              {auth.valueEnv && !auth.valueEnv.startsWith('STORE_SECRET_') && (
++                <p className="text-[11px] font-semibold text-red-700 sm:col-span-2">
++                  Env var names must start with STORE_SECRET_ — any other name is refused at request time.
++                </p>
++              )}
++            </>
++          )}
++        </div>
++      )
++    }
++
++    if (kind === 'request') {
++      return (
++        <>
++          <p className="text-[11px] font-semibold text-ink/50">Headers</p>
++          <KeyValueEditor
++            rows={headerRows}
++            onChange={(r) => commitRows('headers', r)}
++            keyPlaceholder="User-Agent"
++            valuePlaceholder="Mozilla/5.0 …"
++            addLabel="Add header"
++          />
++          <p className="pt-1 text-[11px] font-semibold text-ink/50">Query params</p>
++          <KeyValueEditor
++            rows={queryRows}
++            onChange={(r) => commitRows('queryParams', r)}
++            keyPlaceholder="lang"
++            valuePlaceholder="en"
++            addLabel="Add query param"
++          />
++        </>
++      )
++    }
++
++    if (kind === 'pagination') {
++      const t = pg?.type
++      const num = (k: 'pageSize' | 'startPage' | 'maxPages') => (e: React.ChangeEvent<HTMLInputElement>) =>
++        setPg({ [k]: e.target.value === '' ? undefined : Number(e.target.value) } as Partial<JsonApiPaginationConfig>)
++      const str = (k: keyof JsonApiPaginationConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
++        setPg({ [k]: e.target.value } as Partial<JsonApiPaginationConfig>)
++      return (
++        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
++          <Label text="Style">
++            <select
++              className={inputClass}
++              value={t ?? ''}
++              onChange={(e) => (e.target.value ? setPg({ type: e.target.value as JsonApiPaginationConfig['type'] }) : setPg(null))}
++            >
++              <option value="">None — one response has everything</option>
++              <option value="page">Page number (?page=2&limit=100)</option>
++              <option value="offset">Offset (?offset=100&limit=100)</option>
++              <option value="cursor">Cursor (?cursor=token)</option>
++            </select>
++          </Label>
++          {t && (
++            <>
++              <Label text={t === 'page' ? 'Page param' : t === 'offset' ? 'Offset param' : 'Cursor param'}>
++                <input className={monoInputClass} value={pg?.pageParam ?? ''} placeholder={t === 'page' ? 'page' : t === 'offset' ? 'offset' : 'cursor'} onChange={str('pageParam')} />
++              </Label>
++              <Label text="Page-size param" hint="Blank = 'limit'. Type none if the feed has no page-size param.">
++                <input className={monoInputClass} value={pg?.limitParam ?? ''} placeholder="limit" onChange={str('limitParam')} />
++              </Label>
++              <Label text="Page size" hint="Use the feed's max to save requests.">
++                <input type="number" min={1} className={monoInputClass} value={pg?.pageSize ?? ''} placeholder="100" onChange={num('pageSize')} />
++              </Label>
++              {t === 'page' && (
++                <Label text="First page number">
++                  <input type="number" min={0} className={monoInputClass} value={pg?.startPage ?? ''} placeholder="1" onChange={num('startPage')} />
++                </Label>
++              )}
++              <Label text="Max pages per load" hint="Safety cap.">
++                <input type="number" min={1} className={monoInputClass} value={pg?.maxPages ?? ''} placeholder="20" onChange={num('maxPages')} />
++              </Label>
++              <Label text="Total items path" hint="e.g. total or meta.total">
++                <input className={monoInputClass} value={pg?.totalPath ?? ''} placeholder="total" list={suggestions.response.length ? 'jsonapi-paths-response' : undefined} onChange={str('totalPath')} />
++              </Label>
++              <Label text="Total pages path">
++                <input className={monoInputClass} value={pg?.totalPagesPath ?? ''} placeholder="totalPages" onChange={str('totalPagesPath')} />
++              </Label>
++              <Label text="Has-more flag path">
++                <input className={monoInputClass} value={pg?.hasMorePath ?? ''} placeholder="hasMore" onChange={str('hasMorePath')} />
++              </Label>
++              {t === 'cursor' && (
++                <Label text="Next cursor path">
++                  <input className={monoInputClass} value={pg?.nextCursorPath ?? ''} placeholder="nextCursor" onChange={str('nextCursorPath')} />
++                </Label>
++              )}
++            </>
++          )}
++        </div>
++      )
++    }
++
++    // raw
++    const shown = rawDraft ?? JSON.stringify(cleaned, null, 2)
++    return (
++      <>
++        <textarea
++          className={`${monoInputClass} min-h-[220px] text-xs leading-relaxed`}
++          spellCheck={false}
++          value={shown}
++          onChange={(e) => {
++            setRawDraft(e.target.value)
++            setRawError(null)
++          }}
++        />
++        {rawError && <p className="text-[11px] font-semibold text-red-700">{rawError}</p>}
++        <div className="flex flex-wrap items-center gap-3">
++          <button
++            type="button"
++            disabled={rawDraft === null}
++            onClick={applyRaw}
++            className="rounded-lg bg-teal-deep px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
++          >
++            Apply JSON
++          </button>
++          {rawDraft !== null && (
++            <button type="button" onClick={() => { setRawDraft(null); setRawError(null) }} className="text-xs font-semibold text-ink/50 hover:underline">
++              Discard edits
++            </button>
++          )}
++          <button
++            type="button"
++            onClick={async () => {
++              try {
++                await navigator.clipboard.writeText(JSON.stringify(cleaned, null, 2))
++                setCopied(true)
++                setTimeout(() => setCopied(false), 1500)
++              } catch {
++                /* clipboard blocked — the text is selectable anyway */
++              }
++            }}
++            className="flex items-center gap-1 text-xs font-semibold text-teal-deep hover:underline"
++          >
++            {copied ? <Check size={12} /> : <Copy size={12} />}
++            {copied ? 'Copied' : 'Copy'}
++          </button>
++          <span className="text-[11px] text-ink/40">Base URL and currency are set above, not here.</span>
++        </div>
++      </>
++    )
++  }
++
++  return (
++    <div className={`flex flex-col gap-3 p-4 ${groupClass}`}>
++      <div className="flex flex-wrap items-center justify-between gap-3">
++        <p className="text-xs font-semibold text-ink/50">
++          JSON feed settings — confirm each against a real response before {isNew ? 'testing' : 'saving'}.
++        </p>
++        <button
++          type="button"
++          onClick={loadSample}
++          disabled={sample.status === 'loading'}
++          className="flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-ink/70 hover:border-teal/40 disabled:opacity-50"
++        >
++          {sample.status === 'loading' && <Loader2 size={12} className="animate-spin" />}
++          {sample.status === 'ok' ? 'Reload sample record' : 'Load sample record'}
++        </button>
++      </div>
++
++      {missing.length > 0 && (
++        <p className="text-[11px] text-ink/45">Still needed: {missing.join(', ')}.</p>
++      )}
++
++      {sample.status === 'error' && (
++        <div className="rounded-lg border border-red-600/25 bg-red-600/5 px-3 py-2 text-xs text-red-700">{sample.error}</div>
++      )}
++      {sample.status === 'ok' && (
++        <details className="rounded-lg border border-ink/10 bg-white/70 px-3 py-2 text-xs">
++          <summary className="cursor-pointer font-semibold text-ink/70">
++            {sample.first
++              ? `Sample loaded — ${sample.count} record(s) on the first page. Field paths now autocomplete.`
++              : `Response reached, but no product array found${sample.topLevelKeys.length ? ` (top-level keys: ${sample.topLevelKeys.join(', ')})` : ''}. Set “Products path in response”.`}
++          </summary>
++          {sample.first && (
++            <pre className="mt-2 max-h-72 overflow-auto rounded bg-ink/[0.03] p-2 text-[11px] leading-relaxed text-ink/70">
++              {JSON.stringify(sample.first, null, 2)}
++            </pre>
++          )}
++        </details>
++      )}
++
++      {(['product', 'variant', 'option', 'response'] as Scope[]).map((scope) =>
++        suggestions[scope].length ? (
++          <datalist key={scope} id={`jsonapi-paths-${scope}`}>
++            {suggestions[scope].map((s) => (
++              <option key={s.path} value={s.path}>
++                {s.preview}
++              </option>
++            ))}
++          </datalist>
++        ) : null
++      )}
++
++      {SECTIONS.map((s) => (
++        <Section key={s.id} title={s.title} description={s.description} setCount={countSet(s)} defaultOpen={s.defaultOpen}>
++          {s.fields ? (
++            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{s.fields.map(renderField)}</div>
++          ) : (
++            renderCustom(s.custom)
++          )}
++        </Section>
++      ))}
++    </div>
++  )
++}
++
++// ── helpers ──
++
++function isBlank(v: unknown): boolean {
++  if (v === undefined || v === null) return true
++  if (typeof v === 'string') return v.trim() === ''
++  if (Array.isArray(v)) return v.length === 0
++  return false
++}
++
++/** Client-side mirror of the adapter's path reader (dot paths, indexes, | fallbacks). */
++function readPath(raw: unknown, field: string): unknown {
++  for (const alt of field.split('|').map((f) => f.trim()).filter(Boolean)) {
++    const v = alt.split('.').reduce<unknown>((acc, key) => {
++      if (acc == null || typeof acc !== 'object') return undefined
++      if (Array.isArray(acc)) {
++        const i = Number(key)
++        return Number.isInteger(i) ? acc[i < 0 ? acc.length + i : i] : undefined
++      }
++      return (acc as Record<string, unknown>)[key]
++    }, raw)
++    if (v !== undefined && v !== null && v !== '') return v
++  }
++  return undefined
++}
++
++function short(v: unknown): string {
++  const s = typeof v === 'string' ? v : JSON.stringify(v)
++  return s.length > 70 ? `${s.slice(0, 67)}…` : s
++}
+diff --git a/components/admin/seller/shared.tsx b/components/admin/seller/shared.tsx
+index 1e72d2f..184d14b 100644
+--- a/components/admin/seller/shared.tsx
++++ b/components/admin/seller/shared.tsx
+@@ -14,6 +14,7 @@ import {
+ import Image from 'next/image'
+ 
+ import { EXTRACTOR_TYPE_LABEL } from '@/data/sellers/data'
++import type { JsonApiFields } from '@/lib/jsonapi-config'
+ import type {
+   StoreProviderType,
+   JsonApiProviderConfig,
+@@ -96,17 +97,8 @@ export const EXTRACTOR_OPTIONS: {
+   },
+ ]
+ 
+-export type JsonFieldsState = Pick<
+-  JsonApiProviderConfig,
+-  | 'listEndpoint'
+-  | 'idField'
+-  | 'nameField'
+-  | 'priceField'
+-  | 'imageField'
+-  | 'categoryField'
+-  | 'sizesField'
+-  | 'colorField'
+->
++/** Every editable jsonapi option — see lib/store-config.ts JsonApiProviderConfig. */
++export type JsonFieldsState = JsonApiFields
+ 
+ export type HtmlSelectorsState = HtmlScrapeProviderConfig['selectors']
+ 
+@@ -366,8 +358,15 @@ export const CHECKS: CheckDef[] = [
+     id: 'variants',
+     title: 'Variants & options price correctly',
+     evaluate: ({ result, providerType, jsonFields }) => {
+-      if (providerType === 'jsonapi' && !jsonFields.sizesField && !jsonFields.colorField) {
+-        return { status: 'skip', detail: 'No size or color field mapped \u2014 nothing to check.' }
++      if (
++        providerType === 'jsonapi' &&
++        !jsonFields.sizesField &&
++        !jsonFields.colorField &&
++        !jsonFields.colorsField &&
++        !jsonFields.optionsField &&
++        !jsonFields.variantsField
++      ) {
++        return { status: 'skip', detail: 'No size, color, options or variants field mapped \u2014 nothing to check.' }
+       }
+       const products = result.sampleProducts ?? []
+       if (products.length === 0) return { status: 'skip', detail: 'No sample products to check.' }
+diff --git a/lib/jsonapi-config.ts b/lib/jsonapi-config.ts
+new file mode 100644
+index 0000000..9ad406a
+--- /dev/null
++++ b/lib/jsonapi-config.ts
+@@ -0,0 +1,133 @@
++// lib/jsonapi-config.ts
++//
++// Pure helpers for the jsonapi provider config, safe to import from both
++// client components (the seller form) and server routes (test-extractor).
++// No fetches, no env access.
++
++import type { JsonApiProviderConfig } from '@/lib/store-config'
++
++/** Everything in a jsonapi config the admin edits — i.e. minus the parts the form owns elsewhere. */
++export type JsonApiFields = Omit<JsonApiProviderConfig, 'type' | 'baseUrl' | 'currency'>
++
++const NUMERIC_PAGINATION_KEYS = ['pageSize', 'startPage', 'maxPages'] as const
++
++function isEmpty(v: unknown): boolean {
++  if (v === undefined || v === null) return true
++  if (typeof v === 'string') return v.trim() === ''
++  if (Array.isArray(v)) return v.length === 0
++  if (typeof v === 'object') return Object.keys(v as object).length === 0
++  return false
++}
++
++function cleanRecord(rec: Record<string, string> | undefined): Record<string, string> | undefined {
++  if (!rec) return undefined
++  const out: Record<string, string> = {}
++  for (const [k, v] of Object.entries(rec)) {
++    if (k.trim() && typeof v === 'string' && v.trim()) out[k.trim()] = v.trim()
++  }
++  return Object.keys(out).length ? out : undefined
++}
++
++/**
++ * Normalises whatever the form currently holds into a minimal config:
++ * trims strings, drops empty values (so an unset field is truly unset,
++ * not ''), coerces pagination numbers, and removes auth/pagination blocks
++ * that aren't switched on. Never invents values.
++ */
++export function cleanJsonApiFields(fields: Partial<JsonApiFields>): JsonApiFields {
++  const out: Record<string, unknown> = {}
++
++  for (const [key, value] of Object.entries(fields)) {
++    if (key === 'type' || key === 'baseUrl' || key === 'currency') continue
++    if (key === 'headers' || key === 'queryParams') {
++      const rec = cleanRecord(value as Record<string, string>)
++      if (rec) out[key] = rec
++      continue
++    }
++    if (key === 'auth') {
++      const a = value as JsonApiFields['auth']
++      if (!a || !a.type) continue
++      const auth: Record<string, string> = { type: a.type }
++      if (a.name?.trim()) auth.name = a.name.trim()
++      if (a.valueEnv?.trim()) auth.valueEnv = a.valueEnv.trim()
++      if (a.value?.trim()) auth.value = a.value.trim()
++      out.auth = auth
++      continue
++    }
++    if (key === 'pagination') {
++      const p = value as JsonApiFields['pagination']
++      if (!p || !p.type) continue
++      const pg: Record<string, unknown> = { type: p.type }
++      for (const [pk, pv] of Object.entries(p)) {
++        if (pk === 'type') continue
++        if ((NUMERIC_PAGINATION_KEYS as readonly string[]).includes(pk)) {
++          const n = typeof pv === 'number' ? pv : parseInt(String(pv ?? ''), 10)
++          if (Number.isFinite(n) && n > 0) pg[pk] = n
++        } else if (typeof pv === 'string' && pv.trim()) {
++          pg[pk] = pv.trim()
++        }
++      }
++      out.pagination = pg
++      continue
++    }
++    if (key === 'outOfStockValues') {
++      const list = (Array.isArray(value) ? value : String(value ?? '').split(','))
++        .map((s) => String(s).trim())
++        .filter(Boolean)
++      if (list.length) out.outOfStockValues = list
++      continue
++    }
++    if (typeof value === 'string') {
++      if (value.trim()) out[key] = value.trim()
++      continue
++    }
++    if (!isEmpty(value)) out[key] = value
++  }
++
++  return out as JsonApiFields
++}
++
++/** Splits a saved provider_config into the editable fields (drops type/baseUrl/currency). */
++export function jsonApiFieldsFromConfig(cfg: JsonApiProviderConfig): JsonApiFields {
++  // eslint-disable-next-line @typescript-eslint/no-unused-vars
++  const { type, baseUrl, currency, ...rest } = cfg
++  return rest
++}
++
++/** Minimum mapping needed before a feed can be tested or saved. */
++export function jsonApiMissingRequired(fields: Partial<JsonApiFields>): string[] {
++  const missing: string[] = []
++  if (!fields.listEndpoint?.trim()) missing.push('List endpoint')
++  if (!fields.idField?.trim()) missing.push('Id field')
++  if (!fields.nameField?.trim()) missing.push('Name field')
++  if (!fields.priceField?.trim() && !fields.variantPriceField?.trim()) missing.push('Price field')
++  if (!fields.imageField?.trim() && !fields.imagesField?.trim()) missing.push('Image field')
++  return missing
++}
++
++/**
++ * Flattens one raw record into the field paths it contains, with a short
++ * preview of each value — e.g. 'variants.0.price' → '1100'. Drives the
++ * "pick a field" helper in the seller form.
++ */
++export function flattenFieldPaths(raw: unknown, maxDepth = 4): { path: string; preview: string }[] {
++  const out: { path: string; preview: string }[] = []
++  const walk = (value: unknown, path: string, depth: number) => {
++    if (depth > maxDepth) return
++    if (Array.isArray(value)) {
++      if (path) out.push({ path, preview: `[${value.length} item${value.length === 1 ? '' : 's'}]` })
++      if (value.length > 0) walk(value[0], path ? `${path}.0` : '0', depth + 1)
++      return
++    }
++    if (value && typeof value === 'object') {
++      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
++        walk(v, path ? `${path}.${k}` : k, depth + 1)
++      }
++      return
++    }
++    const s = typeof value === 'string' ? value : JSON.stringify(value)
++    out.push({ path, preview: s.length > 60 ? `${s.slice(0, 57)}…` : s })
++  }
++  walk(raw, '', 0)
++  return out
++}
+diff --git a/lib/store-config.ts b/lib/store-config.ts
+index 61a247d..bc0c876 100644
+--- a/lib/store-config.ts
++++ b/lib/store-config.ts
+@@ -57,7 +57,13 @@ export interface WooCommerceProviderConfig extends BaseProviderConfig {
+  * the frontend — e.g. a FastAPI/Express service the site's own frontend
+  * calls client-side. Not Next.js-specific despite how you'd usually
+  * discover it (via the frontend's Network tab): the adapter only cares
+- * that `listEndpoint` returns a flat JSON array of raw product objects.
++ * that `listEndpoint` returns an array of raw product objects — either
++ * bare, or wrapped (see listPath).
++ *
++ * Also covers proper partner/product-feed APIs (API-key auth, pagination,
++ * wrapped responses, nested fields, a separate categories endpoint) —
++ * see the "Advanced" options at the bottom of this interface and the
++ * 'oz-scent' entry in STORE_PROVIDERS for a worked example.
+  */
+ export interface JsonApiProviderConfig extends BaseProviderConfig {
+   type: 'jsonapi';
+@@ -228,6 +234,127 @@ export interface JsonApiProviderConfig extends BaseProviderConfig {
+   priceUnit?: 'major' | 'minor';
+   /** This backend has no in-stock signal, so default availability when the field is absent. */
+   defaultInStock?: boolean;
++
++  // ── Advanced: richer partner feeds ─────────────────────────────────────
++  // Everything below is optional and additive. A config that sets none of
++  // it behaves exactly like the original flat-array adapter.
++  //
++  // FIELD PATH SYNTAX (applies to every *Field / *Path option above and
++  // below): a dot path into the raw object, with numeric segments for
++  // array indexes and `|` for fallbacks tried left to right —
++  //   'price'                    → raw.price
++  //   'price.amount'             → raw.price.amount
++  //   'images.0.src'             → raw.images[0].src
++  //   'sale_price|price'         → raw.sale_price, else raw.price
++
++  /**
++   * Where the product array lives in the list response. Omit for a bare
++   * top-level array. For a wrapped response like `{ "products": [...] }`
++   * set 'products' (or 'data.items', etc). When unset and the response is
++   * an object rather than an array, the adapter looks for a common
++   * wrapper key (products/items/data/results/records) automatically.
++   */
++  listPath?: string;
++  /** Same as listPath, for the single-product detailEndpoint response (e.g. 'product' or 'data'). Omit if the detail endpoint returns the bare product object. */
++  detailPath?: string;
++
++  /**
++   * API-key / token authentication. Prefer `valueEnv` — the secret then
++   * lives only in the server environment, never in the database or admin
++   * UI. For safety, `valueEnv` must name a variable starting with
++   * STORE_SECRET_ (e.g. STORE_SECRET_OZ_SCENT); any other name is ignored,
++   * so an admin-edited config can never read and forward unrelated server
++   * secrets (Supabase keys etc) to a third-party host. `value` (a literal
++   * key stored in the config itself) works too, but is visible to anyone
++   * who can open the seller in the admin panel.
++   */
++  auth?: JsonApiAuthConfig;
++  /** Extra fixed query params sent on every request (list, detail, search, categories), e.g. { "lang": "en" }. */
++  queryParams?: Record<string, string>;
++
++  /**
++   * Upstream pagination. Omit for a feed that returns the whole catalogue
++   * in one response. When set, the adapter walks every page (up to
++   * maxPages) and then sorts/filters/slices the combined list exactly as
++   * it does for a single-shot feed.
++   */
++  pagination?: JsonApiPaginationConfig;
++
++  /** Raw field for a URL-safe slug, if distinct from the id. Becomes StoreProduct.handle; single-product lookups match either id or handle. */
++  handleField?: string;
++  /** Raw field holding the product's own page URL on the seller's site (absolute, or relative to baseUrl). Takes priority over productUrlPath. */
++  urlField?: string;
++  /** Raw per-product currency code (e.g. 'currency'). Falls back to config.currency when absent. */
++  currencyField?: string;
++  /** Raw field holding a "was"/compare-at price directly (rather than deriving one from regular vs sale). */
++  compareAtPriceField?: string;
++
++  /** Per-variant image URL field (e.g. 'image'), relative to each variant object. */
++  variantImageField?: string;
++
++  /**
++   * A real categories endpoint (e.g. '/api/partner/categories'), used in
++   * place of deriving categories from product data. Its response is read
++   * with categoriesPath + the category*Field options below.
++   */
++  categoriesEndpoint?: string;
++  /** Where the category array lives in that response, e.g. 'categories'. Auto-detected like listPath when unset. */
++  categoriesPath?: string;
++  /** Category display name — should match what categoryField yields on products. Default 'name'. */
++  categoryNameField?: string;
++  /** Category id/slug. Default 'id'. */
++  categoryIdField?: string;
++  /** Product count per category, if the endpoint reports one (e.g. 'productCount'). Counted from product data when unset. */
++  categoryCountField?: string;
++  /** Category image URL, if the endpoint has one. */
++  categoryImageField?: string;
++  /**
++   * What to send as categoryQueryParam's value: the category's display
++   * name (default) or its id from categoriesEndpoint.
++   */
++  categoryQueryValue?: 'name' | 'id';
++}
++
++export interface JsonApiAuthConfig {
++  /**
++   * - 'header' — sends `name: value` (default name 'x-api-key')
++   * - 'query'  — appends `?name=value` (default name 'api_key')
++   * - 'bearer' — sends `Authorization: Bearer value`
++   * - 'basic'  — sends `Authorization: Basic base64(value)`; value is 'user:password'
++   */
++  type: 'header' | 'query' | 'bearer' | 'basic';
++  name?: string;
++  /** Name of a server env var holding the secret. Must start with STORE_SECRET_. Preferred over `value`. */
++  valueEnv?: string;
++  /** Literal secret, stored in the config. Used only when valueEnv is unset or empty. */
++  value?: string;
++}
++
++export interface JsonApiPaginationConfig {
++  /**
++   * - 'page'   — ?page=N&limit=M (page numbers)
++   * - 'offset' — ?offset=N&limit=M (item offsets)
++   * - 'cursor' — ?cursor=<token from previous response>
++   */
++  type: 'page' | 'offset' | 'cursor';
++  /** Default 'page' (type page), 'offset' (type offset) or 'cursor' (type cursor). */
++  pageParam?: string;
++  /** Page-size param name. Default 'limit'. Set to 'none' if the feed takes no page-size param. */
++  limitParam?: string;
++  /** Items requested per page. Default 100. Use the feed's documented max to minimise requests. */
++  pageSize?: number;
++  /** First page number for type 'page'. Default 1. */
++  startPage?: number;
++  /** Safety cap on pages fetched per catalogue load. Default 20. */
++  maxPages?: number;
++  /** Response path to the total item count (e.g. 'total' or 'meta.total'). Lets the adapter stop exactly on the last page. */
++  totalPath?: string;
++  /** Response path to the total page count (e.g. 'totalPages'). */
++  totalPagesPath?: string;
++  /** Response path to a boolean "more pages exist" flag (e.g. 'hasMore'). */
++  hasMorePath?: string;
++  /** Response path to the next cursor token (type cursor). Paging stops when it is missing/empty. */
++  nextCursorPath?: string;
+ }
+ 
+ export type StoreProviderConfig =
+@@ -401,7 +528,47 @@ export const STORE_PROVIDERS: Record<string, StoreProviderConfig> = {
+ 
+       defaultInStock: true,        // no real inStock field on this backend — see note above about "sold out" being unreliable free text in `name`
+     },
+-    
++
++  // Partner product feed (documented API, not reverse-engineered). Shows
++  // the "advanced" jsonapi options: API-key auth, a wrapped response,
++  // page/limit pagination and a real categories endpoint. The key itself
++  // lives in the server env as STORE_SECRET_OZ_SCENT — never here.
++  'oz-scent': {
++    type: 'jsonapi',
++    baseUrl: 'https://ozscent.store',
++    currency: 'LKR',
++    auth: { type: 'header', name: 'x-api-key', valueEnv: 'STORE_SECRET_OZ_SCENT' },
++
++    listEndpoint: '/api/partner/products',
++    listPath: 'products',
++    pagination: { type: 'page', pageParam: 'page', limitParam: 'limit', pageSize: 200, totalPath: 'total' },
++
++    categoriesEndpoint: '/api/partner/categories',
++    categoriesPath: 'categories',
++    categoryNameField: 'name',   // matches the product `category` values, per OZ's notes
++    categoryIdField: 'id',
++    categoryCountField: 'productCount',
++
++    idField: 'id',
++    nameField: 'name',
++    priceField: 'price',
++    currencyField: 'currency',
++    imageField: 'image',
++    imagesField: 'images',
++    urlField: 'url',             // absolute https product page
++    descriptionField: 'description',
++    categoryField: 'category',
++    stockField: 'inStock',       // boolean
++    sizesField: 'sizes',
++    optionsField: 'options',     // [{ name: 'Size', values: [...] }]
++    variantsField: 'variants',
++    variantIdField: 'id',
++    variantOptionsField: 'options',
++    variantPriceField: 'price',
++    variantAvailableField: 'inStock',
++    variantImageField: 'image',
++  },
++
+   // Live feed. Ported from app/api/bedapper/route.ts, which hit
+   // bedapper.lk's public wc/store/v1 endpoint directly (no credentials).
+   // Platform slug is 'be-dapper' (hyphenated) to match affiliatedStores,
+@@ -590,6 +757,23 @@ const JSONAPI_FIELD_MAP_SPEC: readonly [
+   ['weightField', 'weightKg', 'Requires weightUnit to also be set — a field name alone doesn\'t establish the unit, so both must be present or neither takes effect.'],
+   ['weightUnit', 'weightKg', 'Paired with weightField — see above.'],
+   ['productUrlPath', 'url', 'Points to a page on the SELLER\'S OWN site, not this app\'s /stores/[platform]/product/[handle] route. Omit if the store has no per-product page at all.'],
++  ['urlField', 'url', 'Raw product-page URL; takes priority over productUrlPath. Relative values are resolved against baseUrl.'],
++  ['handleField', 'handle', 'URL-safe slug, when distinct from the id.'],
++  ['currencyField', 'currency', 'Per-product currency; falls back to the config currency.'],
++  ['compareAtPriceField', 'compareAtPrice, onSale', 'Explicit "was" price; onSale is set when it is higher than price.'],
++  ['regularPriceField', 'compareAtPrice, onSale', 'Paired with salePriceField / priceField to derive a discount.'],
++  ['salePriceField', 'price, onSale', 'Used as price when lower than regularPriceField.'],
++  ['stockField', 'inStock, stockCount', 'Interpreted per stockFieldType.'],
++  ['optionsField', 'options', 'Raw [{name, values}] array.'],
++  ['variantsField', 'variants', 'Raw per-variant array; mapped with the variant*Field options.'],
++  ['variantIdField', 'variants[].id', ''],
++  ['variantTitleField', 'variants[].title', 'Falls back to the joined option values.'],
++  ['variantPriceField', 'variants[].price', 'Falls back to the parent price.'],
++  ['variantAvailableField', 'variants[].available', 'Boolean, quantity or status text are all understood.'],
++  ['variantOptionsField', 'variants[].options', ''],
++  ['variantImageField', 'variants[].image', ''],
++  ['listPath', '(list response)', 'Where the product array sits in the list response.'],
++  ['categoriesEndpoint', '(categories)', 'Real categories endpoint, used instead of deriving categories from products.'],
+ ];
+ 
+ /**
+@@ -736,4 +920,4 @@ export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
+     /** Optional — falls back to the listing card's own title when unset. */
+     description?: string;
+   };
+-}
+\ No newline at end of file
++}
+\ No newline at end of file
+diff --git a/lib/store-providers/jsonapi.ts b/lib/store-providers/jsonapi.ts
+index 169aa67..250a22b 100644
+--- a/lib/store-providers/jsonapi.ts
++++ b/lib/store-providers/jsonapi.ts
+@@ -11,8 +11,8 @@ const HEADERS = {
+ };
+ 
+ /**
+- * These backends were never designed as a public catalog API — they're
+- * whatever ad-hoc shape a small store's own frontend happens to call.
++ * These backends range from ad-hoc shapes a small store's own frontend
++ * happens to call, to documented partner feeds with auth and pagination.
+  * Treat every field as untyped and possibly missing; don't assume the
+  * next product added to their catalog will look like the last one.
+  */
+@@ -20,6 +20,15 @@ type RawRecord = Record<string, unknown>;
+ 
+ const DEFAULT_OUT_OF_STOCK_VALUES = ['out of stock', 'outofstock', 'sold out', 'soldout', '0', 'false', 'no'];
+ 
++/** Keys checked (in order) when a response is an object and no listPath is configured. */
++const COMMON_LIST_KEYS = ['products', 'items', 'data', 'results', 'records', 'docs', 'nodes', 'list'];
++
++/** Env vars a config may read secrets from. Anything else is refused — see JsonApiAuthConfig. */
++const SECRET_ENV_PREFIX = 'STORE_SECRET_';
++
++const DEFAULT_MAX_PAGES = 20;
++const DEFAULT_PAGE_SIZE = 100;
++
+ const WEIGHT_TO_KG: Record<'kg' | 'g' | 'lb' | 'oz', number> = {
+   kg: 1,
+   g: 0.001,
+@@ -27,47 +36,257 @@ const WEIGHT_TO_KG: Record<'kg' | 'g' | 'lb' | 'oz', number> = {
+   oz: 0.0283495,
+ };
+ 
++// ── Field paths ──────────────────────────────────────────────────────────────
++
++function readSinglePath(raw: unknown, path: string): unknown {
++  if (!path.includes('.')) {
++    return raw && typeof raw === 'object' ? (raw as RawRecord)[path] : undefined;
++  }
++  return path.split('.').reduce<unknown>((acc, key) => {
++    if (acc == null || typeof acc !== 'object') return undefined;
++    if (Array.isArray(acc)) {
++      const idx = Number(key);
++      return Number.isInteger(idx) ? acc[idx < 0 ? acc.length + idx : idx] : undefined;
++    }
++    return (acc as RawRecord)[key];
++  }, raw);
++}
++
+ /**
+- * Supports dot-path access ('price.amount', 'stock.quantity') for richer
+- * backends that nest data, not just flat top-level keys — skyt-boutique
+- * doesn't need this (everything's flat), but a more structured API will.
++ * Reads a configured field path. Supports:
++ *   'price'             flat key
++ *   'price.amount'      nested object
++ *   'images.0.src'      array index (negative counts from the end)
++ *   'sale_price|price'  fallbacks, first non-empty wins
+  */
+-function readField(raw: RawRecord, field: string | undefined): unknown {
++export function readField(raw: unknown, field: string | undefined): unknown {
+   if (!field) return undefined;
+-  if (!field.includes('.')) return raw[field];
+-  return field.split('.').reduce<unknown>((acc, key) => {
+-    if (acc && typeof acc === 'object' && key in (acc as RawRecord)) {
+-      return (acc as RawRecord)[key];
+-    }
+-    return undefined;
+-  }, raw);
++  const alternatives = field.split('|').map((f) => f.trim()).filter(Boolean);
++  for (const alt of alternatives) {
++    const v = readSinglePath(raw, alt);
++    if (v !== undefined && v !== null && v !== '') return v;
++  }
++  return undefined;
+ }
+ 
+-function readString(raw: RawRecord, field: string | undefined, fallback = ''): string {
++function readString(raw: unknown, field: string | undefined, fallback = ''): string {
+   const v = readField(raw, field);
+-  return typeof v === 'string' ? v : fallback;
++  if (typeof v === 'string') return v;
++  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
++  return fallback;
+ }
+ 
+-function readNumber(raw: RawRecord, field: string | undefined, fallback = 0): number {
+-  const v = readField(raw, field);
++function toNumber(v: unknown): number {
+   if (typeof v === 'number') return v;
+   if (typeof v === 'string' && v.trim() !== '') {
+-    const n = parseFloat(v);
++    // Tolerate "1,100.00" and "Rs. 1100" style strings from hand-rolled feeds.
++    const n = parseFloat(v.replace(/[^0-9.\-]/g, ''));
+     if (!Number.isNaN(n)) return n;
+   }
+-  return fallback;
++  return NaN;
++}
++
++function readNumber(raw: unknown, field: string | undefined, fallback = 0): number {
++  const n = toNumber(readField(raw, field));
++  return Number.isFinite(n) ? n : fallback;
+ }
+ 
+-function readStringArray(raw: RawRecord, field: string | undefined): string[] | undefined {
++/**
++ * Arrays of strings, or arrays of objects where each has an obvious
++ * string (src/url/name/value/title) — e.g. images: [{ src: '...' }].
++ */
++function readStringArray(raw: unknown, field: string | undefined): string[] | undefined {
+   const v = readField(raw, field);
+-  return Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : undefined;
++  if (!Array.isArray(v)) return undefined;
++  const out: string[] = [];
++  for (const item of v) {
++    if (typeof item === 'string') {
++      if (item.trim()) out.push(item);
++    } else if (typeof item === 'number') {
++      out.push(String(item));
++    } else if (item && typeof item === 'object') {
++      const o = item as RawRecord;
++      const s = ['src', 'url', 'href', 'name', 'value', 'title', 'label'].map((k) => o[k]).find((x) => typeof x === 'string');
++      if (typeof s === 'string' && s.trim()) out.push(s);
++    }
++  }
++  return out.length ? out : undefined;
+ }
+ 
+-function readRawArray(raw: RawRecord, field: string | undefined): RawRecord[] | undefined {
++function readRawArray(raw: unknown, field: string | undefined): RawRecord[] | undefined {
+   const v = readField(raw, field);
+-  return Array.isArray(v) ? (v as RawRecord[]) : undefined;
++  return Array.isArray(v) ? (v.filter((x) => x && typeof x === 'object') as RawRecord[]) : undefined;
+ }
+ 
++/**
++ * Finds the record array inside a response. Explicit path first; then a
++ * bare array; then the common wrapper keys (one level, and one level
++ * under `data`). Returns [] when nothing array-shaped is found.
++ */
++export function extractRecordList(data: unknown, path: string | undefined): RawRecord[] {
++  if (path) {
++    const v = readField(data, path);
++    return Array.isArray(v) ? (v as RawRecord[]) : [];
++  }
++  if (Array.isArray(data)) return data as RawRecord[];
++  if (!data || typeof data !== 'object') return [];
++  const obj = data as RawRecord;
++  for (const key of COMMON_LIST_KEYS) {
++    if (Array.isArray(obj[key])) return obj[key] as RawRecord[];
++  }
++  if (obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)) {
++    const inner = obj.data as RawRecord;
++    for (const key of COMMON_LIST_KEYS) {
++      if (Array.isArray(inner[key])) return inner[key] as RawRecord[];
++    }
++  }
++  // Last resort: the only array-of-objects value at the top level.
++  const arrays = Object.values(obj).filter((v) => Array.isArray(v) && v.length > 0 && typeof v[0] === 'object');
++  return arrays.length === 1 ? (arrays[0] as RawRecord[]) : [];
++}
++
++// ── Requests ─────────────────────────────────────────────────────────────────
++
++function resolveSecret(config: JsonApiProviderConfig): string | undefined {
++  const auth = config.auth;
++  if (!auth) return undefined;
++  if (auth.valueEnv) {
++    if (!auth.valueEnv.startsWith(SECRET_ENV_PREFIX)) {
++      throw new Error(`Auth env var "${auth.valueEnv}" is not allowed — it must start with ${SECRET_ENV_PREFIX}.`);
++    }
++    const v = process.env[auth.valueEnv];
++    if (v) return v;
++    if (!auth.value) throw new Error(`Auth env var ${auth.valueEnv} is not set on the server.`);
++  }
++  return auth.value || undefined;
++}
++
++/** Builds a full request URL from an endpoint (path or absolute URL) plus config-level query params and auth. */
++function buildUrl(config: JsonApiProviderConfig, endpoint: string, params?: Record<string, string | number | undefined>): URL {
++  const url = /^https?:\/\//i.test(endpoint)
++    ? new URL(endpoint)
++    : new URL(`${config.baseUrl.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`);
++  for (const [k, v] of Object.entries(config.queryParams ?? {})) url.searchParams.set(k, v);
++  for (const [k, v] of Object.entries(params ?? {})) {
++    if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
++  }
++  const secret = resolveSecret(config);
++  if (secret && config.auth?.type === 'query') {
++    url.searchParams.set(config.auth.name || 'api_key', secret);
++  }
++  return url;
++}
++
++function buildHeaders(config: JsonApiProviderConfig): Record<string, string> {
++  const headers: Record<string, string> = { ...HEADERS, ...config.headers };
++  const secret = resolveSecret(config);
++  if (secret && config.auth) {
++    if (config.auth.type === 'header') headers[config.auth.name || 'x-api-key'] = secret;
++    if (config.auth.type === 'bearer') headers.Authorization = `Bearer ${secret}`;
++    if (config.auth.type === 'basic') headers.Authorization = `Basic ${Buffer.from(secret).toString('base64')}`;
++  }
++  return headers;
++}
++
++async function fetchJson(
++  config: JsonApiProviderConfig,
++  endpoint: string,
++  params: Record<string, string | number | undefined> | undefined,
++  label: string
++): Promise<{ status: number; data: unknown }> {
++  const url = buildUrl(config, endpoint, params);
++  const res = await fetch(url.toString(), {
++    headers: buildHeaders(config),
++    next: { revalidate: CACHE_SECONDS },
++  });
++  if (res.status === 401 || res.status === 403) {
++    throw new Error(`${label} returned ${res.status} — check the API key / auth settings.`);
++  }
++  if (res.status === 404) return { status: 404, data: null };
++  if (!res.ok) throw new Error(`${label} returned ${res.status}`);
++  try {
++    return { status: res.status, data: (await res.json()) as unknown };
++  } catch {
++    throw new Error(`${label} did not return valid JSON.`);
++  }
++}
++
++/** Page-size param name: default 'limit'; 'none' means the feed takes no page-size param. */
++function resolveLimitParam(name: string | undefined): string | undefined {
++  if (!name || !name.trim()) return 'limit';
++  return name.trim().toLowerCase() === 'none' ? undefined : name.trim();
++}
++
++/**
++ * Fetches every raw product record from listEndpoint, walking upstream
++ * pagination when configured. `capped` is true when maxPages stopped the
++ * walk before the feed said it was done.
++ */
++async function fetchAllRaw(
++  platform: string,
++  config: JsonApiProviderConfig,
++  extraParams: Record<string, string | undefined> = {},
++  endpoint = config.listEndpoint
++): Promise<{ records: RawRecord[]; capped: boolean; upstreamTotal?: number }> {
++  const label = `JSON API feed for ${platform}`;
++  const pg = config.pagination;
++
++  if (!pg) {
++    const { data } = await fetchJson(config, endpoint, extraParams, label);
++    return { records: extractRecordList(data, config.listPath), capped: false };
++  }
++
++  const pageSize = pg.pageSize && pg.pageSize > 0 ? pg.pageSize : DEFAULT_PAGE_SIZE;
++  const maxPages = pg.maxPages && pg.maxPages > 0 ? pg.maxPages : DEFAULT_MAX_PAGES;
++  const limitParam = resolveLimitParam(pg.limitParam);
++  const pageParam = pg.pageParam || (pg.type === 'offset' ? 'offset' : pg.type === 'cursor' ? 'cursor' : 'page');
++  const startPage = pg.startPage ?? 1;
++
++  const records: RawRecord[] = [];
++  const seenFirstIds = new Set<string>();
++  let cursor: string | undefined;
++  let upstreamTotal: number | undefined;
++
++  for (let i = 0; i < maxPages; i++) {
++    const params: Record<string, string | number | undefined> = { ...extraParams };
++    if (limitParam) params[limitParam] = pageSize;
++    if (pg.type === 'page') params[pageParam] = startPage + i;
++    if (pg.type === 'offset') params[pageParam] = i * pageSize;
++    if (pg.type === 'cursor' && cursor) params[pageParam] = cursor;
++
++    const { data } = await fetchJson(config, endpoint, params, label);
++    const page = extractRecordList(data, config.listPath);
++    if (page.length === 0) return { records, capped: false, upstreamTotal };
++
++    // Guard against a feed that ignores the page param and returns page 1 forever.
++    const firstId = JSON.stringify(readField(page[0], config.idField) ?? page[0]);
++    if (seenFirstIds.has(firstId)) return { records, capped: false, upstreamTotal };
++    seenFirstIds.add(firstId);
++
++    records.push(...page);
++
++    const total = pg.totalPath ? toNumber(readField(data, pg.totalPath)) : NaN;
++    if (Number.isFinite(total)) upstreamTotal = total;
++    const totalPages = pg.totalPagesPath ? toNumber(readField(data, pg.totalPagesPath)) : NaN;
++    const hasMore = pg.hasMorePath ? readField(data, pg.hasMorePath) : undefined;
++
++    if (Number.isFinite(total) && records.length >= total) return { records, capped: false, upstreamTotal };
++    if (Number.isFinite(totalPages) && i + 1 >= totalPages) return { records, capped: false, upstreamTotal };
++    if (hasMore === false || hasMore === 'false') return { records, capped: false, upstreamTotal };
++    if (pg.type === 'cursor') {
++      const next = readField(data, pg.nextCursorPath || 'nextCursor');
++      if (typeof next !== 'string' && typeof next !== 'number') return { records, capped: false, upstreamTotal };
++      cursor = String(next);
++    } else if (page.length < pageSize && !Number.isFinite(total) && !Number.isFinite(totalPages) && hasMore === undefined) {
++      // A short page with no other signal means we just read the last one.
++      return { records, capped: false, upstreamTotal };
++    }
++  }
++  return { records, capped: true, upstreamTotal };
++}
++
++// ── Normalisation ────────────────────────────────────────────────────────────
++
+ /**
+  * Only converts when BOTH a field and its unit are configured — a field
+  * name alone tells you nothing about what unit the raw number is in, and
+@@ -88,12 +307,11 @@ function applyPriceUnit(raw: number, config: JsonApiProviderConfig): number {
+ 
+ /**
+  * Resolves price + compareAtPrice + onSale from whichever of priceField /
+- * regularPriceField / salePriceField are configured. Mirrors the WooCommerce
+- * adapter's on_sale logic: if a sale price is genuinely lower than a
+- * regular price, that's the discount signal; a bare priceField with no
+- * regular/sale distinction just becomes price with no sale data (which is
+- * the honest state for a backend that has no sale-pricing concept at all,
+- * like skyt-boutique).
++ * regularPriceField / salePriceField / compareAtPriceField are configured.
++ * Mirrors the WooCommerce adapter's on_sale logic: if a sale price is
++ * genuinely lower than a regular price, that's the discount signal; a bare
++ * priceField with no regular/sale distinction just becomes price with no
++ * sale data (the honest state for a backend with no sale-pricing concept).
+  */
+ function readPricing(
+   raw: RawRecord,
+@@ -103,66 +321,92 @@ function readPricing(
+ 
+   const regularRaw = config.regularPriceField ? readNumber(raw, config.regularPriceField, NaN) : NaN;
+   const saleRaw = config.salePriceField ? readNumber(raw, config.salePriceField, NaN) : NaN;
++  const compareRaw = config.compareAtPriceField ? readNumber(raw, config.compareAtPriceField, NaN) : NaN;
+   const regular = Number.isFinite(regularRaw) ? applyPriceUnit(regularRaw, config) : undefined;
+-  const sale = Number.isFinite(saleRaw) ? applyPriceUnit(saleRaw, config) : undefined;
++  const sale = Number.isFinite(saleRaw) && saleRaw > 0 ? applyPriceUnit(saleRaw, config) : undefined;
++  const compareAt = Number.isFinite(compareRaw) ? applyPriceUnit(compareRaw, config) : undefined;
+ 
+   if (regular != null && sale != null && sale < regular) {
+     return { price: sale, compareAtPrice: regular, onSale: true };
+   }
+-  if (regular != null && regular > base) {
++  const effective = base > 0 ? base : sale ?? regular ?? 0;
++  const was = compareAt ?? regular;
++  if (was != null && was > effective && effective > 0) {
+     // priceField itself is already the effective (possibly discounted) price
+-    return { price: base, compareAtPrice: regular, onSale: true };
++    return { price: effective, compareAtPrice: was, onSale: true };
+   }
+-  return { price: base };
++  return { price: effective };
+ }
+ 
+ /**
+- * Interprets stockField per stockFieldType. Falls back to
+- * config.defaultInStock (or true) whenever stockField is unset or its
+- * value can't be confidently read — never guesses "out of stock" from
+- * ambiguous data, since a false negative (hiding a sellable product)
+- * is worse than a false positive here.
++ * Interprets a raw availability value. 'auto' (used for variants, where
++ * there's no separate type setting) accepts booleans, quantities and
++ * status text alike.
+  */
+-function readInStock(raw: RawRecord, config: JsonApiProviderConfig): boolean {
+-  if (!config.stockField) return config.defaultInStock ?? true;
+-  const value = readField(raw, config.stockField);
+-  const type = config.stockFieldType ?? 'boolean';
++function interpretStock(
++  value: unknown,
++  type: 'boolean' | 'quantity' | 'status' | 'auto',
++  config: JsonApiProviderConfig,
++  fallback: boolean
++): boolean {
++  if (value === undefined || value === null || value === '') return fallback;
+ 
+   if (type === 'quantity') {
+-    const n = typeof value === 'number' ? value : parseFloat(String(value));
+-    return Number.isFinite(n) ? n > 0 : config.defaultInStock ?? true;
++    const n = toNumber(value);
++    return Number.isFinite(n) ? n > 0 : fallback;
+   }
+ 
++  const outValues = (config.outOfStockValues ?? DEFAULT_OUT_OF_STOCK_VALUES).map((v) => v.toLowerCase());
++
+   if (type === 'status') {
+-    if (value == null) return config.defaultInStock ?? true;
+     const s = String(value).trim().toLowerCase();
+-    if (!s) return config.defaultInStock ?? true;
+-    const outValues = (config.outOfStockValues ?? DEFAULT_OUT_OF_STOCK_VALUES).map((v) => v.toLowerCase());
+-    return !outValues.includes(s);
++    return s ? !outValues.includes(s) : fallback;
+   }
+ 
+-  // 'boolean' (default)
+   if (typeof value === 'boolean') return value;
+-  if (typeof value === 'number') return value !== 0;
+-  if (typeof value === 'string') return !['false', '0', ''].includes(value.trim().toLowerCase());
+-  return config.defaultInStock ?? true;
++  if (typeof value === 'number') return value > 0;
++  if (typeof value === 'string') {
++    const s = value.trim().toLowerCase();
++    if (!s) return fallback;
++    if (type === 'auto') {
++      const n = Number(s);
++      if (Number.isFinite(n)) return n > 0;
++      return !outValues.includes(s);
++    }
++    return !['false', '0', 'no'].includes(s);
++  }
++  return fallback;
+ }
+ 
+ /**
+- * Structured option axes (Size/Color/etc with independent values), for
+- * backends rich enough to model real variant selection. Prefers
+- * config.optionsField's raw [{name, values}] shape if present; otherwise
+- * synthesizes a best-effort axis list from the flat sizes/colors already
+- * extracted (same idea as extractSizes/extractColors in types.ts, just
+- * inverted — building options FROM flat fields rather than the reverse).
++ * Falls back to config.defaultInStock (or true) whenever stockField is
++ * unset or its value can't be confidently read — never guesses "out of
++ * stock" from ambiguous data, since a false negative (hiding a sellable
++ * product) is worse than a false positive here.
++ */
++function readInStock(raw: RawRecord, config: JsonApiProviderConfig): boolean {
++  const fallback = config.defaultInStock ?? true;
++  if (!config.stockField) return fallback;
++  return interpretStock(readField(raw, config.stockField), config.stockFieldType ?? 'boolean', config, fallback);
++}
++
++/**
++ * Structured option axes (Size/Color/etc with independent values). Prefers
++ * config.optionsField's raw [{name, values}] shape if present — values may
++ * be strings or {value|name|label} objects; otherwise synthesizes an axis
++ * list from the flat sizes/colors already extracted.
+  */
+ function readOptions(raw: RawRecord, config: JsonApiProviderConfig, sizes?: string[], colors?: string[]): StoreProductOption[] | undefined {
+   if (config.optionsField) {
+     const rawOptions = readRawArray(raw, config.optionsField);
+     if (rawOptions?.length) {
+       const parsed = rawOptions
+-        .filter((o) => typeof o.name === 'string' && Array.isArray(o.values))
+-        .map((o) => ({ name: o.name as string, values: (o.values as unknown[]).filter((v) => typeof v === 'string') as string[] }));
++        .map((o) => {
++          const name = readString(o, 'name|label|title');
++          const values = readStringArray(o, 'values|options|items') ?? [];
++          return { name, values };
++        })
++        .filter((o) => o.name && o.values.length);
+       if (parsed.length) return parsed;
+     }
+   }
+@@ -172,13 +416,17 @@ function readOptions(raw: RawRecord, config: JsonApiProviderConfig, sizes?: stri
+   return synthesized.length ? synthesized : undefined;
+ }
+ 
++function resolveUrl(config: JsonApiProviderConfig, value: string): string {
++  if (!value) return value;
++  if (/^https?:\/\//i.test(value)) return value;
++  if (value.startsWith('//')) return `https:${value}`;
++  return `${config.baseUrl.replace(/\/+$/, '')}/${value.replace(/^\/+/, '')}`;
++}
++
+ /**
+- * Real per-variant data (own id/price/stock/option-values), for backends
+- * that model products as parent+variants rather than one flat row per
+- * listing. config.variantsField points at the raw array on the parent
+- * product; the variant*Field configs map each entry's own fields. Falls
+- * back to the parent's own price when a variant has no price field of its
+- * own (some backends only vary stock/options per variant, not price).
++ * Real per-variant data (own id/price/stock/option-values/image). Falls
++ * back to the parent's price when a variant has no price of its own, and
++ * to the joined option values for a title.
+  */
+ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice: number): StoreProductVariant[] | undefined {
+   if (!config.variantsField) return undefined;
+@@ -187,13 +435,21 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
+ 
+   const variants = rawVariants.map((rv, idx) => {
+     const id = (config.variantIdField && readString(rv, config.variantIdField)) || String(idx);
+-    const title = (config.variantTitleField && readString(rv, config.variantTitleField)) || id;
+-    const price = config.variantPriceField ? applyPriceUnit(readNumber(rv, config.variantPriceField, parentPrice), config) : parentPrice;
+-    const compareAtRaw = config.variantCompareAtPriceField ? readNumber(rv, config.variantCompareAtPriceField, NaN) : NaN;
+-    const compareAtPrice = Number.isFinite(compareAtRaw) ? applyPriceUnit(compareAtRaw, config) : undefined;
+-    const available = config.variantAvailableField ? Boolean(readField(rv, config.variantAvailableField)) : true;
+     const options = (config.variantOptionsField && readStringArray(rv, config.variantOptionsField)) || [];
+-    return { id, title, price, compareAtPrice, available, options };
++    const title = (config.variantTitleField && readString(rv, config.variantTitleField)) || options.join(' / ') || id;
++    const ownPrice = config.variantPriceField ? readNumber(rv, config.variantPriceField, NaN) : NaN;
++    const price = Number.isFinite(ownPrice) ? applyPriceUnit(ownPrice, config) : parentPrice;
++    const compareAtRaw = config.variantCompareAtPriceField ? readNumber(rv, config.variantCompareAtPriceField, NaN) : NaN;
++    const compareAtPrice = Number.isFinite(compareAtRaw) && applyPriceUnit(compareAtRaw, config) > price
++      ? applyPriceUnit(compareAtRaw, config)
++      : undefined;
++    const available = config.variantAvailableField
++      ? interpretStock(readField(rv, config.variantAvailableField), 'auto', config, true)
++      : true;
++    const imageRaw = config.variantImageField ? readString(rv, config.variantImageField) : '';
++    const variant: StoreProductVariant = { id, title, price, compareAtPrice, available, options };
++    if (imageRaw) variant.image = resolveUrl(config, imageRaw);
++    return variant;
+   });
+ 
+   return variants.length ? variants : undefined;
+@@ -206,16 +462,17 @@ export function normaliseJsonApiProduct(
+   config: JsonApiProviderConfig
+ ): StoreProduct {
+   const id = readString(raw, config.idField) || readString(raw, 'id');
++  const handle = (config.handleField && readString(raw, config.handleField)) || id;
+ 
+   // Images: prefer a real array field; fall back to wrapping a single
+   // image string. Most small custom backends only ever give one, but
+   // richer ones (a real product gallery) will have imagesField instead.
+   const imagesFromArray = readStringArray(raw, config.imagesField);
+   const singleImage = readString(raw, config.imageField);
+-  const images = imagesFromArray?.length ? imagesFromArray : singleImage ? [singleImage] : [];
++  const images = (imagesFromArray?.length ? imagesFromArray : singleImage ? [singleImage] : []).map((u) => resolveUrl(config, u));
+   const image = images[0] ?? '';
+ 
+-  const { price, compareAtPrice, onSale } = readPricing(raw, config);
++  const pricing = readPricing(raw, config);
+ 
+   // Trim/collapse: these free-text fields are hand-entered by shop owners
+   // and inconsistent (trailing spaces, mixed casing) far more often than
+@@ -236,16 +493,38 @@ export function normaliseJsonApiProduct(
+   const ratingRaw = config.averageRatingField ? readNumber(raw, config.averageRatingField, NaN) : NaN;
+   const reviewCountRaw = config.reviewCountField ? readNumber(raw, config.reviewCountField, NaN) : NaN;
+ 
+-  const url = config.productUrlPath
+-    ? `${config.baseUrl}${config.productUrlPath.replace('{handle}', encodeURIComponent(id))}`
++  const rawUrl = config.urlField ? readString(raw, config.urlField) : '';
++  const url = rawUrl
++    ? resolveUrl(config, rawUrl)
++    : config.productUrlPath
++    ? `${config.baseUrl.replace(/\/+$/, '')}${config.productUrlPath.replace('{handle}', encodeURIComponent(handle)).replace('{id}', encodeURIComponent(id))}`
+     : undefined;
+ 
+   const genderRaw = config.genderField ? readString(raw, config.genderField).toLowerCase().trim() : '';
+   const gender = genderRaw === 'men' || genderRaw === 'women' || genderRaw === 'unisex' ? genderRaw : undefined;
+ 
++  const variants = readVariants(raw, config, pricing.price);
++
++  // A parent with no usable price of its own (common on variant-first
++  // feeds) shows its cheapest variant — what a shopper actually pays from.
++  let { price, compareAtPrice, onSale } = pricing;
++  if (price <= 0 && variants?.length) {
++    const cheapest = variants.reduce((min, v) => (v.price > 0 && v.price < min.price ? v : min), variants[0]);
++    price = cheapest.price;
++    compareAtPrice = cheapest.compareAtPrice;
++    onSale = cheapest.compareAtPrice != null ? true : undefined;
++  }
++
++  // No product-level stock signal but real variant data: in stock if any variant is.
++  const inStock = !config.stockField && variants?.length && config.variantAvailableField
++    ? variants.some((v) => v.available)
++    : readInStock(raw, config);
++
++  const currency = (config.currencyField && readString(raw, config.currencyField).trim().toUpperCase()) || config.currency || 'INR';
++
+   return {
+     id,
+-    handle: id, // no separate slug field on this kind of backend — id doubles as handle
++    handle,
+     storeSlug: platform,
+     name: readString(raw, config.nameField).trim(),
+     image,
+@@ -254,10 +533,10 @@ export function normaliseJsonApiProduct(
+     stockCount: config.stockFieldType === 'quantity' && config.stockField
+       ? readNumber(raw, config.stockField, 0)
+       : 0,
+-    currency: config.currency ?? 'INR',
++    currency,
+     compareAtPrice,
+     onSale,
+-    inStock: readInStock(raw, config),
++    inStock,
+     category: category || 'General',
+     condition: (config.conditionField && readString(raw, config.conditionField)) || 'New',
+     description: stripHtml(readString(raw, config.descriptionField)),
+@@ -267,7 +546,7 @@ export function normaliseJsonApiProduct(
+     productType: config.productTypeField ? readString(raw, config.productTypeField) || undefined : undefined,
+     tags: tags.length ? tags : undefined,
+     options: readOptions(raw, config, sizes, colors),
+-    variants: readVariants(raw, config, price),
++    variants,
+     sizes,
+     colors,
+     gender,
+@@ -279,14 +558,40 @@ export function normaliseJsonApiProduct(
+   };
+ }
+ 
++// ── Categories endpoint (shared by listing + categories) ─────────────────────
++
++interface EndpointCategory {
++  id: string;
++  name: string;
++  count?: number;
++  image?: string;
++}
++
++async function fetchEndpointCategories(config: JsonApiProviderConfig): Promise<EndpointCategory[]> {
++  if (!config.categoriesEndpoint) return [];
++  const { data } = await fetchJson(config, config.categoriesEndpoint, undefined, 'Categories endpoint');
++  return extractRecordList(data, config.categoriesPath)
++    .map((raw) => {
++      const name = readString(raw, config.categoryNameField || 'name|title|label').replace(/\s+/g, ' ').trim();
++      const id = readString(raw, config.categoryIdField || 'id|slug|handle') || name;
++      const countRaw = config.categoryCountField ? readNumber(raw, config.categoryCountField, NaN) : NaN;
++      const image = config.categoryImageField ? readString(raw, config.categoryImageField) : '';
++      return {
++        id,
++        name,
++        count: Number.isFinite(countRaw) ? countRaw : undefined,
++        image: image ? resolveUrl(config, image) : undefined,
++      };
++    })
++    .filter((c) => c.name);
++}
++
++// ── Public API ───────────────────────────────────────────────────────────────
++
+ /**
+- * For stores whose "platform" is really just a small custom backend
+- * fronting a Next.js (or similar) site — discovered via the frontend's
+- * own network requests rather than any documented API.
+- *
+  * Uses server-side search/category endpoints when the config declares
+- * them; falls back to fetching the full list and filtering client-side
+- * (same approach as the mock provider) when it doesn't.
++ * them; falls back to fetching the full list (every page, when paginated)
++ * and filtering client-side when it doesn't.
+  */
+ export async function fetchJsonApiProducts(
+   platform: string,
+@@ -294,39 +599,37 @@ export async function fetchJsonApiProducts(
+   storeName: string,
+   params: ProviderFetchParams
+ ): Promise<ProviderFetchResult> {
+-  const fetchHeaders = { ...HEADERS, ...config.headers };
+-  const fetchOpts = { headers: fetchHeaders, next: { revalidate: CACHE_SECONDS } };
+-
+   let rawList: RawRecord[];
++  let capped = false;
+ 
+   if (params.search && config.searchEndpoint) {
+     // A genuinely separate search route.
+-    const url = `${config.baseUrl}${config.searchEndpoint.replace('{q}', encodeURIComponent(params.search))}`;
+-    const res = await fetch(url, fetchOpts);
+-    if (!res.ok) throw new Error(`JSON API search for ${platform} returned ${res.status}`);
+-    const data = (await res.json()) as unknown;
+-    rawList = Array.isArray(data) ? (data as RawRecord[]) : [];
++    const endpoint = config.searchEndpoint.replace('{q}', encodeURIComponent(params.search));
++    ({ records: rawList, capped } = await fetchAllRaw(platform, config, {}, endpoint));
+   } else {
+     // Either no server-side search at all, or search is just a query
+-    // param on listEndpoint itself (the common case for small backends).
+-    const listUrl = new URL(`${config.baseUrl}${config.listEndpoint}`);
+-    if (params.search && config.searchQueryParam) {
+-      listUrl.searchParams.set(config.searchQueryParam, params.search);
+-    }
++    // param on listEndpoint itself (the common case).
++    const extra: Record<string, string | undefined> = {};
++    if (params.search && config.searchQueryParam) extra[config.searchQueryParam] = params.search;
+     if (params.category && config.categoryQueryParam) {
+-      listUrl.searchParams.set(config.categoryQueryParam, params.category);
++      let value = params.category;
++      if (config.categoryQueryValue === 'id' && config.categoriesEndpoint) {
++        const cats = await fetchEndpointCategories(config).catch(() => []);
++        value = cats.find((c) => c.name.toLowerCase() === params.category.toLowerCase())?.id ?? value;
++      }
++      extra[config.categoryQueryParam] = value;
+     }
+-    const res = await fetch(listUrl.toString(), fetchOpts);
+-    if (!res.ok) throw new Error(`JSON API feed for ${platform} returned ${res.status}`);
+-    const data = (await res.json()) as unknown;
+-    rawList = Array.isArray(data) ? (data as RawRecord[]) : [];
++    ({ records: rawList, capped } = await fetchAllRaw(platform, config, extra));
+   }
+ 
+   let products = rawList.map((raw) => normaliseJsonApiProduct(raw, platform, storeName, config));
+ 
+   if (params.category && !config.categoryQueryParam) {
+-    const q = params.category.toLowerCase();
+-    products = products.filter((p) => p.category.toLowerCase().includes(q));
++    // Exact match first — a substring match would put "Women" under "Men".
++    // Substring is only the fallback, for messy free-text category values.
++    const q = params.category.toLowerCase().trim();
++    const exact = products.filter((p) => p.category.toLowerCase().trim() === q);
++    products = exact.length ? exact : products.filter((p) => p.category.toLowerCase().includes(q));
+   }
+ 
+   if (params.search && !config.searchEndpoint && !config.searchQueryParam) {
+@@ -345,14 +648,13 @@ export async function fetchJsonApiProducts(
+   const totalPages = Math.max(1, Math.ceil(total / params.perPage));
+   const sliced = products.slice((params.page - 1) * params.perPage, params.page * params.perPage);
+ 
+-  return { products: sliced, total, totalPages };
++  return { products: sliced, total, totalPages, totalIsExact: !capped };
+ }
+ 
+ /**
+  * Single-product lookup. Tries config.detailEndpoint if set; otherwise
+- * (or on any failure from that endpoint) falls back to fetching the full
+- * list and filtering by id — safe here since these backends tend to be
+- * small, unpaginated catalogs rather than large paginated ones.
++ * (or on any failure from that endpoint) falls back to the full list and
++ * matches by id or handle.
+  */
+ export async function fetchJsonApiProduct(
+   platform: string,
+@@ -361,82 +663,112 @@ export async function fetchJsonApiProduct(
+   handle: string
+ ): Promise<StoreProduct | null> {
+   if (config.detailEndpoint) {
+-    const url = `${config.baseUrl}${config.detailEndpoint.replace('{id}', encodeURIComponent(handle))}`;
+-    const res = await fetch(url, { headers: { ...HEADERS, ...config.headers }, next: { revalidate: CACHE_SECONDS } });
+-    if (res.status === 404) return null;
+-    if (res.ok) {
+-      const raw = (await res.json()) as RawRecord;
+-      if (raw && typeof raw === 'object') {
+-        return normaliseJsonApiProduct(raw, platform, storeName, config);
++    const endpoint = config.detailEndpoint
++      .replace('{id}', encodeURIComponent(handle))
++      .replace('{handle}', encodeURIComponent(handle));
++    try {
++      const { status, data } = await fetchJson(config, endpoint, undefined, `JSON API detail for ${platform}`);
++      if (status === 404) return null;
++      const raw = config.detailPath ? readField(data, config.detailPath) : data;
++      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
++        return normaliseJsonApiProduct(raw as RawRecord, platform, storeName, config);
+       }
++    } catch (err) {
++      // Auth failures are real config problems — surface them. Anything
++      // else (500, unexpected shape) falls through to the list lookup
++      // rather than erroring on what's often a flaky host.
++      if (err instanceof Error && /auth|API key/i.test(err.message)) throw err;
+     }
+-    // Any other failure (500, unexpected shape) — fall through to list lookup
+-    // rather than surfacing an error for what's usually a flaky free-tier host.
+   }
+ 
+-  const res = await fetch(`${config.baseUrl}${config.listEndpoint}`, {
+-    headers: { ...HEADERS, ...config.headers },
+-    next: { revalidate: CACHE_SECONDS },
+-  });
+-  if (!res.ok) throw new Error(`JSON API feed for ${platform} returned ${res.status}`);
+-
+-  const data = (await res.json()) as unknown;
+-  const rawList: RawRecord[] = Array.isArray(data) ? (data as RawRecord[]) : [];
+-  const match = rawList.find((raw) => readString(raw, config.idField) === handle);
++  const { records } = await fetchAllRaw(platform, config);
++  const match = records.find(
++    (raw) =>
++      readString(raw, config.idField) === handle ||
++      (config.handleField ? readString(raw, config.handleField) === handle : false)
++  );
+   return match ? normaliseJsonApiProduct(match, platform, storeName, config) : null;
+ }
+ 
+-// ── Real category values (derived from live product data) ───────────────────
++// ── Category values ──────────────────────────────────────────────────────────
+ 
+ export interface JsonApiCategorySummary {
+   value: string;
+   count: number;
++  /** Category id/slug from categoriesEndpoint, when one is configured. */
++  id?: string;
++  image?: string;
+ }
+ 
+ /**
+- * Unlike WooCommerce/Shopify, small custom backends have no generic
+- * "categories" taxonomy endpoint to call — categoryField is just
+- * whatever free-text field the merchant's own data happens to use (see
+- * skyt-boutique's `type` field, documented in store-config.ts as messy
+- * fabric/type text, not a real taxonomy). The only honest source of truth
+- * here is the store's OWN product data: fetch the full list (these
+- * backends are small/unpaginated, same assumption fetchJsonApiProduct's
+- * list-fallback already makes) and report the distinct categoryField
+- * values that actually occur, with how many products carry each one.
++ * Prefers a real categoriesEndpoint when configured. Otherwise — like
++ * before — derives categories from the store's OWN product data: fetch
++ * the full list and report the distinct categoryField values with counts.
++ * With an endpoint but no count field, counts are filled from product
++ * data when categoryField is mapped.
+  *
+- * Use this instead of hand-typing a `categories` array in
+- * data/stores/data.ts — it can never list a category the store doesn't
+- * actually have, and it can never miss one that's actually there.
+- *
+- * Returns [] if config.categoryField is unset (nothing to derive) or the
+- * fetch fails, rather than throwing.
++ * Returns [] if there's nothing to derive or the fetch fails, rather
++ * than throwing.
+  */
+ export async function fetchJsonApiCategories(
+   config: JsonApiProviderConfig
+ ): Promise<JsonApiCategorySummary[]> {
+-  if (!config.categoryField) return [];
+-
+   try {
+-    const res = await fetch(`${config.baseUrl}${config.listEndpoint}`, {
+-      headers: { ...HEADERS, ...config.headers },
+-      next: { revalidate: CACHE_SECONDS },
+-    });
+-    if (!res.ok) return [];
+-
+-    const data = (await res.json()) as unknown;
+-    const rawList: RawRecord[] = Array.isArray(data) ? (data as RawRecord[]) : [];
+-
+-    const counts = new Map<string, number>();
+-    for (const raw of rawList) {
+-      const value = readString(raw, config.categoryField).replace(/\s+/g, ' ').trim();
+-      if (!value) continue;
+-      counts.set(value, (counts.get(value) ?? 0) + 1);
++    if (config.categoriesEndpoint) {
++      const cats = await fetchEndpointCategories(config);
++      let counted: Map<string, number> | undefined;
++      if (cats.some((c) => c.count === undefined) && config.categoryField) {
++        counted = await countCategoryValues(config);
++      }
++      return cats
++        .map((c) => ({
++          value: c.name,
++          id: c.id,
++          image: c.image,
++          count: c.count ?? counted?.get(c.name) ?? 0,
++        }))
++        .sort((a, b) => b.count - a.count);
+     }
+ 
++    if (!config.categoryField) return [];
++    const counts = await countCategoryValues(config);
+     return Array.from(counts.entries())
+       .map(([value, count]) => ({ value, count }))
+       .sort((a, b) => b.count - a.count); // most common first — likely the more useful nav order
+   } catch {
+     return [];
+   }
+-}
+\ No newline at end of file
++}
++
++async function countCategoryValues(config: JsonApiProviderConfig): Promise<Map<string, number>> {
++  const { records } = await fetchAllRaw('categories', config);
++  const counts = new Map<string, number>();
++  for (const raw of records) {
++    const value = readString(raw, config.categoryField).replace(/\s+/g, ' ').trim();
++    if (!value) continue;
++    counts.set(value, (counts.get(value) ?? 0) + 1);
++  }
++  return counts;
++}
++
++/**
++ * Admin-only diagnostic: fetches the first page of the raw list exactly
++ * as the adapter would, returning the unmodified first record and where
++ * the list was found. Backs the "Show raw first record" helper in the
++ * seller form, so field paths can be written against real data.
++ */
++export async function fetchJsonApiRawSample(
++  config: JsonApiProviderConfig
++): Promise<{ first: RawRecord | null; count: number; topLevelKeys: string[] }> {
++  const pg = config.pagination;
++  const params: Record<string, string | number | undefined> = {};
++  if (pg) {
++    const limitParam = resolveLimitParam(pg.limitParam);
++    if (limitParam) params[limitParam] = Math.min(pg.pageSize ?? DEFAULT_PAGE_SIZE, 5);
++    if (pg.type === 'page') params[pg.pageParam || 'page'] = pg.startPage ?? 1;
++  }
++  const { data } = await fetchJson(config, config.listEndpoint, params, 'JSON API feed');
++  const list = extractRecordList(data, config.listPath);
++  const topLevelKeys = data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data as RawRecord) : [];
++  return { first: list[0] ?? null, count: list.length, topLevelKeys };
++}

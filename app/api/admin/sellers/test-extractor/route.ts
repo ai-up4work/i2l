@@ -35,7 +35,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth';
-import { fetchJsonApiProduct, fetchJsonApiProducts, fetchJsonApiCategories } from '@/lib/store-providers/jsonapi';
+import {
+  fetchJsonApiProduct,
+  fetchJsonApiProducts,
+  fetchJsonApiCategories,
+  fetchJsonApiRawSample,
+} from '@/lib/store-providers/jsonapi';
+import { cleanJsonApiFields, jsonApiMissingRequired, type JsonApiFields } from '@/lib/jsonapi-config';
 import {
   fetchShopifyProduct,
   fetchShopifyProducts,
@@ -164,16 +170,8 @@ interface VariantScanResult {
   examplesWithoutVariants?: { name: string; url?: string; image?: string }[];
 }
 
-interface JsonFieldsBody {
-  listEndpoint: string;
-  idField: string;
-  nameField: string;
-  priceField: string;
-  imageField: string;
-  categoryField?: string;
-  sizesField?: string;
-  colorField?: string;
-}
+/** Every jsonapi option the seller form can set — see lib/store-config.ts. */
+type JsonFieldsBody = Partial<JsonApiFields>;
 
 interface RequestBody {
   providerType: 'shopify' | 'woocommerce' | 'jsonapi' | 'html-scrape' | 'mock';
@@ -197,7 +195,7 @@ interface RequestBody {
    * the whole catalog (up to a cap) tallying variant vs non-variant
    * products, for when the sample-based checklist isn't conclusive
    * enough. */
-  mode?: 'list' | 'single' | 'variant-scan';
+  mode?: 'list' | 'single' | 'variant-scan' | 'raw-sample';
   /** Required when mode is 'single'. A full product URL copied from the
    * seller's site, or a bare handle/slug/id — see extractHandle below for
    * how each provider type's URL shape is parsed. */
@@ -335,6 +333,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'A store base URL is required to run a test.' }, { status: 400 });
   }
 
+  // jsonapi: one config builder for every mode, carrying the FULL mapping
+  // (auth, pagination, nested paths, variants, categories endpoint…), so
+  // the test exercises exactly what the saved seller will run.
+  const buildJsonApiConfig = (): JsonApiProviderConfig => ({
+    ...(cleanJsonApiFields(jsonFields ?? {}) as JsonApiFields),
+    type: 'jsonapi',
+    baseUrl,
+    // jsonapi backends have no generic endpoint to read currency from, so
+    // this relies on whatever the admin typed in (or a per-product
+    // currencyField, which the adapter prefers when mapped).
+    currency: typedCurrency || 'USD',
+    listEndpoint: jsonFields?.listEndpoint?.trim() || '/products/',
+  } as JsonApiProviderConfig);
+  const jsonMissing = providerType === 'jsonapi' ? jsonApiMissingRequired(jsonFields ?? {}) : [];
+
+  // ── mode: 'raw-sample' — first raw record, for writing field paths ─────
+  if (body.mode === 'raw-sample') {
+    if (providerType !== 'jsonapi') return fail('Raw samples are only available for JSON feeds.');
+    try {
+      const sample = await fetchJsonApiRawSample(buildJsonApiConfig());
+      return NextResponse.json({ ok: true, ...sample });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : 'The request failed.');
+    }
+  }
+
   // html-scrape has no fixed URL convention to guess a handle from the
   // way shopify/woocommerce do (see extractHandle below, which only
   // knows those two) — it round-trips a pasted URL through the same
@@ -434,25 +458,13 @@ export async function POST(req: NextRequest) {
       }
 
       // providerType === 'jsonapi'
-      if (!jsonFields || !jsonFields.idField || !jsonFields.nameField || !jsonFields.priceField || !jsonFields.imageField) {
+      if (jsonMissing.length) {
         return NextResponse.json<TestExtractorProductResult>({
           ok: false,
-          error: 'Id, name, price, and image fields must all be mapped before a single product can be tested.',
+          error: `Map these before a single product can be tested: ${jsonMissing.join(', ')}.`,
         });
       }
-      const config: JsonApiProviderConfig = {
-        type: 'jsonapi',
-        baseUrl,
-        currency: typedCurrency || 'USD',
-        listEndpoint: jsonFields.listEndpoint || '/products/',
-        idField: jsonFields.idField,
-        nameField: jsonFields.nameField,
-        priceField: jsonFields.priceField,
-        imageField: jsonFields.imageField,
-        categoryField: jsonFields.categoryField || undefined,
-        sizesField: jsonFields.sizesField || undefined,
-        colorField: jsonFields.colorField || undefined,
-      };
+      const config = buildJsonApiConfig();
       const product = await fetchJsonApiProduct('__test__', config, 'Test store', handle);
       if (!product) {
         return NextResponse.json<TestExtractorProductResult>({
@@ -596,26 +608,11 @@ export async function POST(req: NextRequest) {
     }
 
     // providerType === 'jsonapi'
-    if (!jsonFields || !jsonFields.idField || !jsonFields.nameField || !jsonFields.priceField || !jsonFields.imageField) {
-      return fail('Id, name, price, and image fields must all be mapped before this feed can be tested.');
+    if (jsonMissing.length) {
+      return fail(`Map these before this feed can be tested: ${jsonMissing.join(', ')}.`);
     }
 
-    const config: JsonApiProviderConfig = {
-      type: 'jsonapi',
-      baseUrl,
-      // jsonapi backends are ad-hoc (see store-config.ts) — there's no
-      // generic endpoint to read currency from, so this always relies on
-      // whatever the admin typed in.
-      currency: typedCurrency || 'USD',
-      listEndpoint: jsonFields.listEndpoint || '/products/',
-      idField: jsonFields.idField,
-      nameField: jsonFields.nameField,
-      priceField: jsonFields.priceField,
-      imageField: jsonFields.imageField,
-      categoryField: jsonFields.categoryField || undefined,
-      sizesField: jsonFields.sizesField || undefined,
-      colorField: jsonFields.colorField || undefined,
-    };
+    const config = buildJsonApiConfig();
 
     const result = await fetchJsonApiProducts('__test__', config, 'Test store', DEFAULT_PARAMS);
 
@@ -628,8 +625,8 @@ export async function POST(req: NextRequest) {
     // so that's an acceptable cost for a one-off admin test.
     let categories: TestExtractorCategory[] | undefined;
     let categoriesNote: string | undefined;
-    if (!jsonFields.categoryField) {
-      categoriesNote = 'No category field mapped \u2014 nothing to check.';
+    if (!config.categoryField && !config.categoriesEndpoint) {
+      categoriesNote = 'No category field or categories endpoint mapped \u2014 nothing to check.';
     } else {
       try {
         const summaries = await fetchJsonApiCategories(config);
@@ -650,15 +647,10 @@ export async function POST(req: NextRequest) {
       ok: true,
       meta: {
         totalProducts: result.total,
-        // fetchJsonApiProducts has no upstream pagination to be uncertain
-        // about — listEndpoint returns the FULL catalog in one response,
-        // which is then sliced client-side into pages. `total` here is
-        // therefore always an exact count, never a lower bound, even
-        // though the underlying ProviderFetchResult doesn't set
-        // totalIsExact itself (it comes back undefined/falsy, which would
-        // otherwise make this check wrongly report "lower bound, could
-        // not confirm the exact total").
-        totalIsExact: true,
+        // fetchJsonApiProducts reads the whole catalogue (every upstream
+        // page, when paginated) before slicing, so `total` is exact unless
+        // the maxPages safety cap stopped it early.
+        totalIsExact: result.totalIsExact !== false,
         totalPages: result.totalPages,
       },
       categories,

@@ -48,6 +48,8 @@ import {
 } from '@/components/admin/seller/shared'
 import { ProductCard, ProductCardGrid, type SampleProduct } from '@/components/admin/seller/ProductCard'
 import StoreBrandingEditor from '@/components/admin/seller/StoreBrandingEditor'
+import { JsonApiSettings } from '@/components/admin/seller/JsonApiSettings'
+import { cleanJsonApiFields, jsonApiFieldsFromConfig, jsonApiMissingRequired } from '@/lib/jsonapi-config'
 import { hasCustomExtractor } from '@/lib/store-providers/sellers'
 import { StoreOriginPicker } from '@/components/admin/StoreOriginPicker'
 import { StoreCategoryPicker } from '@/components/admin/StoreCategoryPicker'
@@ -530,19 +532,11 @@ export default function SellerFormClient({
   }
 
   const [jsonFields, setJsonFields] = useState<JsonFieldsState>(
-    cfg?.type === 'jsonapi'
-      ? {
-          listEndpoint: cfg.listEndpoint,
-          idField: cfg.idField,
-          nameField: cfg.nameField,
-          priceField: cfg.priceField,
-          imageField: cfg.imageField,
-          categoryField: cfg.categoryField ?? '',
-          sizesField: cfg.sizesField ?? '',
-          colorField: cfg.colorField ?? '',
-        }
-      : DEFAULT_JSON_FIELDS
+    cfg?.type === 'jsonapi' ? jsonApiFieldsFromConfig(cfg) : DEFAULT_JSON_FIELDS
   )
+  // What actually gets tested/saved — empty strings dropped, numbers coerced.
+  const cleanedJsonFields = useMemo(() => cleanJsonApiFields(jsonFields), [jsonFields])
+  const jsonMissing = jsonApiMissingRequired(jsonFields)
 
   const [htmlSelectors, setHtmlSelectors] = useState<HtmlSelectorsState>(
     cfg?.type === 'html-scrape' ? cfg.selectors : DEFAULT_HTML_SELECTORS
@@ -585,9 +579,6 @@ export default function SellerFormClient({
     htmlCategoryMap,
   })
   const resultsStale = lastTestedSignature !== null && lastTestedSignature !== currentSignature
-
-  const setJsonField = (field: keyof JsonFieldsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setJsonFields((prev) => ({ ...prev, [field]: e.target.value }))
 
   const setHtmlSelector = (field: keyof HtmlSelectorsState) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setHtmlSelectors((prev) => ({ ...prev, [field]: e.target.value }))
@@ -656,7 +647,7 @@ export default function SellerFormClient({
       }
     }
     if (providerType === 'jsonapi') {
-      return { type: 'jsonapi', baseUrl, currency: currency || undefined, ...jsonFields }
+      return { ...cleanedJsonFields, type: 'jsonapi', baseUrl, currency: currency || undefined }
     }
     return {
       type: 'html-scrape',
@@ -858,7 +849,7 @@ export default function SellerFormClient({
           providerType,
           baseUrl,
           currency,
-          jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
+          jsonFields: providerType === 'jsonapi' ? cleanedJsonFields : undefined,
           listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
           htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
           detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
@@ -888,7 +879,7 @@ export default function SellerFormClient({
     (providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape') &&
     !!baseUrl &&
     (providerType !== 'jsonapi' ||
-      (jsonFields.idField && jsonFields.nameField && jsonFields.priceField && jsonFields.imageField)) &&
+      jsonMissing.length === 0) &&
     (providerType !== 'html-scrape' ||
       (!!listingUrl && !!htmlSelectors.productCard && !!htmlSelectors.title && !!htmlSelectors.image && !!htmlSelectors.link))
 
@@ -916,7 +907,7 @@ export default function SellerFormClient({
             baseUrl,
             currency,
             categoryImages: true,
-            jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
+            jsonFields: providerType === 'jsonapi' ? cleanedJsonFields : undefined,
             listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
             htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
             detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
@@ -952,7 +943,7 @@ export default function SellerFormClient({
           providerType,
           baseUrl,
           currency,
-          jsonFields: providerType === 'jsonapi' ? jsonFields : undefined,
+          jsonFields: providerType === 'jsonapi' ? cleanedJsonFields : undefined,
           listingUrl: providerType === 'html-scrape' ? listingUrl : undefined,
           htmlSelectors: providerType === 'html-scrape' ? htmlSelectors : undefined,
           detail: providerType === 'html-scrape' && useDetailItems ? detailSelectors : undefined,
@@ -1060,7 +1051,7 @@ export default function SellerFormClient({
     providerType === 'mock'
       ? true
       : providerType === 'jsonapi'
-      ? !!baseUrl && !!jsonFields.listEndpoint && !!jsonFields.idField && !!jsonFields.nameField && !!jsonFields.priceField && !!jsonFields.imageField
+      ? !!baseUrl && jsonMissing.length === 0
       : !!baseUrl
 
   const stepValid = [profileValid && logoValid, methodValid, true, canSubmit]
@@ -1641,21 +1632,13 @@ export default function SellerFormClient({
       )}
 
       {providerType === 'jsonapi' && (
-        <div className={`flex flex-col gap-3 p-4 ${groupClass}`}>
-          <p className="text-xs font-semibold text-ink/50">
-            JSON field mapping — confirm each against a real response before {isNew ? 'testing' : 'saving'}.
-          </p>
-          <SelectorField label="List endpoint" value={jsonFields.listEndpoint} onChange={setJsonField('listEndpoint')} placeholder="/products/" />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <SelectorField label="Id field" value={jsonFields.idField} onChange={setJsonField('idField')} placeholder="id" />
-            <SelectorField label="Name field" value={jsonFields.nameField} onChange={setJsonField('nameField')} placeholder="name" />
-            <SelectorField label="Price field" value={jsonFields.priceField} onChange={setJsonField('priceField')} placeholder="price" />
-            <SelectorField label="Image field" value={jsonFields.imageField} onChange={setJsonField('imageField')} placeholder="image" />
-            <SelectorField label="Category field (optional)" value={jsonFields.categoryField ?? ''} onChange={setJsonField('categoryField')} placeholder="type" />
-            <SelectorField label="Sizes field (optional)" value={jsonFields.sizesField ?? ''} onChange={setJsonField('sizesField')} placeholder="sizes" />
-            <SelectorField label="Color field (optional)" value={jsonFields.colorField ?? ''} onChange={setJsonField('colorField')} placeholder="color" />
-          </div>
-        </div>
+        <JsonApiSettings
+          value={jsonFields}
+          onChange={setJsonFields}
+          baseUrl={baseUrl}
+          currency={currency}
+          isNew={isNew}
+        />
       )}
 
       {providerType === 'html-scrape' && (

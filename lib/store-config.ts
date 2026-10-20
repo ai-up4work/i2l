@@ -57,7 +57,13 @@ export interface WooCommerceProviderConfig extends BaseProviderConfig {
  * the frontend — e.g. a FastAPI/Express service the site's own frontend
  * calls client-side. Not Next.js-specific despite how you'd usually
  * discover it (via the frontend's Network tab): the adapter only cares
- * that `listEndpoint` returns a flat JSON array of raw product objects.
+ * that `listEndpoint` returns an array of raw product objects — either
+ * bare, or wrapped (see listPath).
+ *
+ * Also covers proper partner/product-feed APIs (API-key auth, pagination,
+ * wrapped responses, nested fields, a separate categories endpoint) —
+ * see the "Advanced" options at the bottom of this interface and the
+ * 'oz-scent' entry in STORE_PROVIDERS for a worked example.
  */
 export interface JsonApiProviderConfig extends BaseProviderConfig {
   type: 'jsonapi';
@@ -228,6 +234,127 @@ export interface JsonApiProviderConfig extends BaseProviderConfig {
   priceUnit?: 'major' | 'minor';
   /** This backend has no in-stock signal, so default availability when the field is absent. */
   defaultInStock?: boolean;
+
+  // ── Advanced: richer partner feeds ─────────────────────────────────────
+  // Everything below is optional and additive. A config that sets none of
+  // it behaves exactly like the original flat-array adapter.
+  //
+  // FIELD PATH SYNTAX (applies to every *Field / *Path option above and
+  // below): a dot path into the raw object, with numeric segments for
+  // array indexes and `|` for fallbacks tried left to right —
+  //   'price'                    → raw.price
+  //   'price.amount'             → raw.price.amount
+  //   'images.0.src'             → raw.images[0].src
+  //   'sale_price|price'         → raw.sale_price, else raw.price
+
+  /**
+   * Where the product array lives in the list response. Omit for a bare
+   * top-level array. For a wrapped response like `{ "products": [...] }`
+   * set 'products' (or 'data.items', etc). When unset and the response is
+   * an object rather than an array, the adapter looks for a common
+   * wrapper key (products/items/data/results/records) automatically.
+   */
+  listPath?: string;
+  /** Same as listPath, for the single-product detailEndpoint response (e.g. 'product' or 'data'). Omit if the detail endpoint returns the bare product object. */
+  detailPath?: string;
+
+  /**
+   * API-key / token authentication. Prefer `valueEnv` — the secret then
+   * lives only in the server environment, never in the database or admin
+   * UI. For safety, `valueEnv` must name a variable starting with
+   * STORE_SECRET_ (e.g. STORE_SECRET_OZ_SCENT); any other name is ignored,
+   * so an admin-edited config can never read and forward unrelated server
+   * secrets (Supabase keys etc) to a third-party host. `value` (a literal
+   * key stored in the config itself) works too, but is visible to anyone
+   * who can open the seller in the admin panel.
+   */
+  auth?: JsonApiAuthConfig;
+  /** Extra fixed query params sent on every request (list, detail, search, categories), e.g. { "lang": "en" }. */
+  queryParams?: Record<string, string>;
+
+  /**
+   * Upstream pagination. Omit for a feed that returns the whole catalogue
+   * in one response. When set, the adapter walks every page (up to
+   * maxPages) and then sorts/filters/slices the combined list exactly as
+   * it does for a single-shot feed.
+   */
+  pagination?: JsonApiPaginationConfig;
+
+  /** Raw field for a URL-safe slug, if distinct from the id. Becomes StoreProduct.handle; single-product lookups match either id or handle. */
+  handleField?: string;
+  /** Raw field holding the product's own page URL on the seller's site (absolute, or relative to baseUrl). Takes priority over productUrlPath. */
+  urlField?: string;
+  /** Raw per-product currency code (e.g. 'currency'). Falls back to config.currency when absent. */
+  currencyField?: string;
+  /** Raw field holding a "was"/compare-at price directly (rather than deriving one from regular vs sale). */
+  compareAtPriceField?: string;
+
+  /** Per-variant image URL field (e.g. 'image'), relative to each variant object. */
+  variantImageField?: string;
+
+  /**
+   * A real categories endpoint (e.g. '/api/partner/categories'), used in
+   * place of deriving categories from product data. Its response is read
+   * with categoriesPath + the category*Field options below.
+   */
+  categoriesEndpoint?: string;
+  /** Where the category array lives in that response, e.g. 'categories'. Auto-detected like listPath when unset. */
+  categoriesPath?: string;
+  /** Category display name — should match what categoryField yields on products. Default 'name'. */
+  categoryNameField?: string;
+  /** Category id/slug. Default 'id'. */
+  categoryIdField?: string;
+  /** Product count per category, if the endpoint reports one (e.g. 'productCount'). Counted from product data when unset. */
+  categoryCountField?: string;
+  /** Category image URL, if the endpoint has one. */
+  categoryImageField?: string;
+  /**
+   * What to send as categoryQueryParam's value: the category's display
+   * name (default) or its id from categoriesEndpoint.
+   */
+  categoryQueryValue?: 'name' | 'id';
+}
+
+export interface JsonApiAuthConfig {
+  /**
+   * - 'header' — sends `name: value` (default name 'x-api-key')
+   * - 'query'  — appends `?name=value` (default name 'api_key')
+   * - 'bearer' — sends `Authorization: Bearer value`
+   * - 'basic'  — sends `Authorization: Basic base64(value)`; value is 'user:password'
+   */
+  type: 'header' | 'query' | 'bearer' | 'basic';
+  name?: string;
+  /** Name of a server env var holding the secret. Must start with STORE_SECRET_. Preferred over `value`. */
+  valueEnv?: string;
+  /** Literal secret, stored in the config. Used only when valueEnv is unset or empty. */
+  value?: string;
+}
+
+export interface JsonApiPaginationConfig {
+  /**
+   * - 'page'   — ?page=N&limit=M (page numbers)
+   * - 'offset' — ?offset=N&limit=M (item offsets)
+   * - 'cursor' — ?cursor=<token from previous response>
+   */
+  type: 'page' | 'offset' | 'cursor';
+  /** Default 'page' (type page), 'offset' (type offset) or 'cursor' (type cursor). */
+  pageParam?: string;
+  /** Page-size param name. Default 'limit'. Set to 'none' if the feed takes no page-size param. */
+  limitParam?: string;
+  /** Items requested per page. Default 100. Use the feed's documented max to minimise requests. */
+  pageSize?: number;
+  /** First page number for type 'page'. Default 1. */
+  startPage?: number;
+  /** Safety cap on pages fetched per catalogue load. Default 20. */
+  maxPages?: number;
+  /** Response path to the total item count (e.g. 'total' or 'meta.total'). Lets the adapter stop exactly on the last page. */
+  totalPath?: string;
+  /** Response path to the total page count (e.g. 'totalPages'). */
+  totalPagesPath?: string;
+  /** Response path to a boolean "more pages exist" flag (e.g. 'hasMore'). */
+  hasMorePath?: string;
+  /** Response path to the next cursor token (type cursor). Paging stops when it is missing/empty. */
+  nextCursorPath?: string;
 }
 
 export type StoreProviderConfig =
@@ -401,7 +528,47 @@ export const STORE_PROVIDERS: Record<string, StoreProviderConfig> = {
 
       defaultInStock: true,        // no real inStock field on this backend — see note above about "sold out" being unreliable free text in `name`
     },
-    
+
+  // Partner product feed (documented API, not reverse-engineered). Shows
+  // the "advanced" jsonapi options: API-key auth, a wrapped response,
+  // page/limit pagination and a real categories endpoint. The key itself
+  // lives in the server env as STORE_SECRET_OZ_SCENT — never here.
+  'oz-scent': {
+    type: 'jsonapi',
+    baseUrl: 'https://ozscent.store',
+    currency: 'LKR',
+    auth: { type: 'header', name: 'x-api-key', valueEnv: 'STORE_SECRET_OZ_SCENT' },
+
+    listEndpoint: '/api/partner/products',
+    listPath: 'products',
+    pagination: { type: 'page', pageParam: 'page', limitParam: 'limit', pageSize: 200, totalPath: 'total' },
+
+    categoriesEndpoint: '/api/partner/categories',
+    categoriesPath: 'categories',
+    categoryNameField: 'name',   // matches the product `category` values, per OZ's notes
+    categoryIdField: 'id',
+    categoryCountField: 'productCount',
+
+    idField: 'id',
+    nameField: 'name',
+    priceField: 'price',
+    currencyField: 'currency',
+    imageField: 'image',
+    imagesField: 'images',
+    urlField: 'url',             // absolute https product page
+    descriptionField: 'description',
+    categoryField: 'category',
+    stockField: 'inStock',       // boolean
+    sizesField: 'sizes',
+    optionsField: 'options',     // [{ name: 'Size', values: [...] }]
+    variantsField: 'variants',
+    variantIdField: 'id',
+    variantOptionsField: 'options',
+    variantPriceField: 'price',
+    variantAvailableField: 'inStock',
+    variantImageField: 'image',
+  },
+
   // Live feed. Ported from app/api/bedapper/route.ts, which hit
   // bedapper.lk's public wc/store/v1 endpoint directly (no credentials).
   // Platform slug is 'be-dapper' (hyphenated) to match affiliatedStores,
@@ -590,6 +757,23 @@ const JSONAPI_FIELD_MAP_SPEC: readonly [
   ['weightField', 'weightKg', 'Requires weightUnit to also be set — a field name alone doesn\'t establish the unit, so both must be present or neither takes effect.'],
   ['weightUnit', 'weightKg', 'Paired with weightField — see above.'],
   ['productUrlPath', 'url', 'Points to a page on the SELLER\'S OWN site, not this app\'s /stores/[platform]/product/[handle] route. Omit if the store has no per-product page at all.'],
+  ['urlField', 'url', 'Raw product-page URL; takes priority over productUrlPath. Relative values are resolved against baseUrl.'],
+  ['handleField', 'handle', 'URL-safe slug, when distinct from the id.'],
+  ['currencyField', 'currency', 'Per-product currency; falls back to the config currency.'],
+  ['compareAtPriceField', 'compareAtPrice, onSale', 'Explicit "was" price; onSale is set when it is higher than price.'],
+  ['regularPriceField', 'compareAtPrice, onSale', 'Paired with salePriceField / priceField to derive a discount.'],
+  ['salePriceField', 'price, onSale', 'Used as price when lower than regularPriceField.'],
+  ['stockField', 'inStock, stockCount', 'Interpreted per stockFieldType.'],
+  ['optionsField', 'options', 'Raw [{name, values}] array.'],
+  ['variantsField', 'variants', 'Raw per-variant array; mapped with the variant*Field options.'],
+  ['variantIdField', 'variants[].id', ''],
+  ['variantTitleField', 'variants[].title', 'Falls back to the joined option values.'],
+  ['variantPriceField', 'variants[].price', 'Falls back to the parent price.'],
+  ['variantAvailableField', 'variants[].available', 'Boolean, quantity or status text are all understood.'],
+  ['variantOptionsField', 'variants[].options', ''],
+  ['variantImageField', 'variants[].image', ''],
+  ['listPath', '(list response)', 'Where the product array sits in the list response.'],
+  ['categoriesEndpoint', '(categories)', 'Real categories endpoint, used instead of deriving categories from products.'],
 ];
 
 /**
@@ -736,4 +920,4 @@ export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
     /** Optional — falls back to the listing card's own title when unset. */
     description?: string;
   };
-}
+}
