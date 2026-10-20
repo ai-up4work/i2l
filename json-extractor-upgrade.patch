@@ -145,6 +145,52 @@ index 4d16a51..afa1266 100644
        }))
        return NextResponse.json({ collections })
      }
+diff --git a/app/api/admin/sellers/[platform]/live-count/route.ts b/app/api/admin/sellers/[platform]/live-count/route.ts
+index 30fbffc..fb092d7 100644
+--- a/app/api/admin/sellers/[platform]/live-count/route.ts
++++ b/app/api/admin/sellers/[platform]/live-count/route.ts
+@@ -11,7 +11,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth';
+ import { getSellerAndConfigForAdmin } from '@/lib/store-config-db';
+-import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
++import { fetchJsonApiTotal } from '@/lib/store-providers/jsonapi';
+ import { fetchMockProducts } from '@/lib/store-providers/mock';
+ import { fetchShopifyProducts } from '@/lib/store-providers/shopify';
+ import { fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
+@@ -49,6 +49,23 @@ export async function GET(
+ 
+     const config = seller.config;
+ 
++    // JSON feeds can usually answer "how many?" with one tiny request (a
++    // count endpoint, or the feed's own total on a 1-item page) instead of
++    // downloading the whole catalogue just to count it.
++    if (config.type === 'jsonapi' && platform !== 'anishka-creation') {
++      const t = await fetchJsonApiTotal(platform, config);
++      return NextResponse.json(
++        {
++          total: t.total,
++          totalPages: Math.max(1, Math.ceil(t.total / fetchParams.perPage)),
++          totalIsExact: t.exact,
++          countSource: t.source,
++          fetchedAt: new Date().toISOString(),
++        },
++        { headers: { 'Cache-Control': 'no-store' } }
++      );
++    }
++
+     // Hardcoded one-off extractor, checked before the generic provider
+     // dispatch below — see lib/store-providers/sellers/anishka-creation.ts's
+     // header comment. Without this, this seller's own provider_config
+@@ -63,8 +80,6 @@ export async function GET(
+         ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
+         : config.type === 'woocommerce'
+         ? await fetchWooCommerceProducts(platform, config, fetchParams)
+-        : config.type === 'jsonapi'
+-        ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
+         : config.type === 'html-scrape'
+         ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
+         : config.type === 'catalogue'
 diff --git a/app/api/admin/sellers/test-extractor/route.ts b/app/api/admin/sellers/test-extractor/route.ts
 index ec5431c..e8d7fc0 100644
 --- a/app/api/admin/sellers/test-extractor/route.ts
@@ -315,12 +361,43 @@ index ec5431c..e8d7fc0 100644
          totalPages: result.totalPages,
        },
        categories,
+diff --git a/app/api/stores/[platform]/route.ts b/app/api/stores/[platform]/route.ts
+index 43dbb90..fd60ee2 100644
+--- a/app/api/stores/[platform]/route.ts
++++ b/app/api/stores/[platform]/route.ts
+@@ -4,7 +4,7 @@ import { getSellerAndConfig, getSellerAndConfigForAdmin, sellerPricingInfo } fro
+ import { withStorePricing } from '@/lib/store-origin';
+ import { applyCategoryTiles } from '@/lib/category-tiles';
+ import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview';
+-import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
++import { fetchJsonApiProducts, fetchJsonApiCategories, categorySlug } from '@/lib/store-providers/jsonapi';
+ import { fetchMockProducts } from '@/lib/store-providers/mock';
+ import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
+ // WooCommerce list requests go through the CATALOG-CACHED function: it
+@@ -105,8 +105,16 @@ export async function GET(
+         collections = live
+           .filter((c) => c.count > 0)
+           .map((c) => ({ handle: c.slug, title: c.name, image: c.image }));
++      } else if (config.type === 'jsonapi' && config.categoriesEndpoint) {
++        // The feed has a real categories endpoint — use it (names, counts,
++        // images). Handles are slugs of the name, the same format the
++        // product filter in fetchJsonApiProducts matches against.
++        const live = await fetchJsonApiCategories(config);
++        collections = live
++          .filter((c) => c.count > 0)
++          .map((c) => ({ handle: categorySlug(c.value), title: c.value, image: c.image ?? null }));
+       } else if (config.type === 'jsonapi') {
+-        // No dedicated category endpoint on this provider — derive the
++        // No dedicated category endpoint on this feed — derive the
+         // distinct set from a single large page of real products instead
+         // of trusting a hand-typed list. Best-effort: a store with more
+         // distinct categories than fit on one page may miss some: raise
 diff --git a/components/admin/seller/JsonApiSettings.tsx b/components/admin/seller/JsonApiSettings.tsx
 new file mode 100644
-index 0000000..89a0d53
+index 0000000..f6d8e42
 --- /dev/null
 +++ b/components/admin/seller/JsonApiSettings.tsx
-@@ -0,0 +1,805 @@
+@@ -0,0 +1,807 @@
 +// components/admin/seller/JsonApiSettings.tsx
 +//
 +// The "Method" settings for a jsonapi seller. Every option the adapter
@@ -379,6 +456,8 @@ index 0000000..89a0d53
 +    fields: [
 +      { key: 'listEndpoint', label: 'List endpoint', placeholder: '/api/products', required: true, kind: 'text', hint: 'Path on the base URL, or a full https URL.' },
 +      { key: 'listPath', label: 'Products path in response', placeholder: 'products', scope: 'response', hint: 'Blank = bare array, or auto-detect products/items/data/results.' },
++      { key: 'countEndpoint', label: 'Product count endpoint (optional)', placeholder: '/api/products/count', kind: 'text', hint: 'For the live product count. Blank = use the pagination total, else count everything.' },
++      { key: 'countPath', label: 'Count path in response', placeholder: 'total', kind: 'text', hint: "Blank = 'total' or 'count'." },
 +      { key: 'detailEndpoint', label: 'Detail endpoint (optional)', placeholder: '/api/products/{id}', kind: 'text', hint: '{id} or {handle} is substituted. Blank = look up in the list.' },
 +      { key: 'detailPath', label: 'Product path in detail response', placeholder: 'product', kind: 'text' },
 +      { key: 'searchQueryParam', label: 'Search query param', placeholder: 'search', kind: 'text', hint: 'Server-side search on the list endpoint. Blank = search locally.' },
@@ -1316,7 +1395,7 @@ index 0000000..9ad406a
 +  return out
 +}
 diff --git a/lib/store-config.ts b/lib/store-config.ts
-index 61a247d..bc0c876 100644
+index 61a247d..6a981d4 100644
 --- a/lib/store-config.ts
 +++ b/lib/store-config.ts
 @@ -57,7 +57,13 @@ export interface WooCommerceProviderConfig extends BaseProviderConfig {
@@ -1334,7 +1413,7 @@ index 61a247d..bc0c876 100644
   */
  export interface JsonApiProviderConfig extends BaseProviderConfig {
    type: 'jsonapi';
-@@ -228,6 +234,127 @@ export interface JsonApiProviderConfig extends BaseProviderConfig {
+@@ -228,6 +234,137 @@ export interface JsonApiProviderConfig extends BaseProviderConfig {
    priceUnit?: 'major' | 'minor';
    /** This backend has no in-stock signal, so default availability when the field is absent. */
    defaultInStock?: boolean;
@@ -1350,6 +1429,16 @@ index 61a247d..bc0c876 100644
 +  //   'price.amount'             → raw.price.amount
 +  //   'images.0.src'             → raw.images[0].src
 +  //   'sale_price|price'         → raw.sale_price, else raw.price
++
++  /**
++   * Optional dedicated "how many products" endpoint (e.g. '/api/products/count'),
++   * read with countPath. Used by the admin live product count. When unset,
++   * the count comes from pagination.totalPath with a 1-item request, and
++   * only as a last resort from fetching the whole catalogue.
++   */
++  countEndpoint?: string;
++  /** Path to the number in the countEndpoint response. Default 'total|count'. */
++  countPath?: string;
 +
 +  /**
 +   * Where the product array lives in the list response. Omit for a bare
@@ -1462,7 +1551,7 @@ index 61a247d..bc0c876 100644
  }
  
  export type StoreProviderConfig =
-@@ -401,7 +528,47 @@ export const STORE_PROVIDERS: Record<string, StoreProviderConfig> = {
+@@ -401,7 +538,47 @@ export const STORE_PROVIDERS: Record<string, StoreProviderConfig> = {
  
        defaultInStock: true,        // no real inStock field on this backend — see note above about "sold out" being unreliable free text in `name`
      },
@@ -1511,7 +1600,7 @@ index 61a247d..bc0c876 100644
    // Live feed. Ported from app/api/bedapper/route.ts, which hit
    // bedapper.lk's public wc/store/v1 endpoint directly (no credentials).
    // Platform slug is 'be-dapper' (hyphenated) to match affiliatedStores,
-@@ -590,6 +757,23 @@ const JSONAPI_FIELD_MAP_SPEC: readonly [
+@@ -590,6 +767,23 @@ const JSONAPI_FIELD_MAP_SPEC: readonly [
    ['weightField', 'weightKg', 'Requires weightUnit to also be set — a field name alone doesn\'t establish the unit, so both must be present or neither takes effect.'],
    ['weightUnit', 'weightKg', 'Paired with weightField — see above.'],
    ['productUrlPath', 'url', 'Points to a page on the SELLER\'S OWN site, not this app\'s /stores/[platform]/product/[handle] route. Omit if the store has no per-product page at all.'],
@@ -1535,7 +1624,7 @@ index 61a247d..bc0c876 100644
  ];
  
  /**
-@@ -736,4 +920,4 @@ export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
+@@ -736,4 +930,4 @@ export interface HtmlScrapeProviderConfig extends BaseProviderConfig {
      /** Optional — falls back to the listing card's own title when unset. */
      description?: string;
    };
@@ -1544,7 +1633,7 @@ index 61a247d..bc0c876 100644
 +}
 \ No newline at end of file
 diff --git a/lib/store-providers/jsonapi.ts b/lib/store-providers/jsonapi.ts
-index 169aa67..250a22b 100644
+index 169aa67..4ef742a 100644
 --- a/lib/store-providers/jsonapi.ts
 +++ b/lib/store-providers/jsonapi.ts
 @@ -11,8 +11,8 @@ const HEADERS = {
@@ -1574,7 +1663,7 @@ index 169aa67..250a22b 100644
  const WEIGHT_TO_KG: Record<'kg' | 'g' | 'lb' | 'oz', number> = {
    kg: 1,
    g: 0.001,
-@@ -27,47 +36,257 @@ const WEIGHT_TO_KG: Record<'kg' | 'g' | 'lb' | 'oz', number> = {
+@@ -27,47 +36,262 @@ const WEIGHT_TO_KG: Record<'kg' | 'g' | 'lb' | 'oz', number> = {
    oz: 0.0283495,
  };
  
@@ -1643,14 +1732,14 @@ index 169aa67..250a22b 100644
    }
 -  return fallback;
 +  return NaN;
-+}
-+
-+function readNumber(raw: unknown, field: string | undefined, fallback = 0): number {
-+  const n = toNumber(readField(raw, field));
-+  return Number.isFinite(n) ? n : fallback;
  }
  
 -function readStringArray(raw: RawRecord, field: string | undefined): string[] | undefined {
++function readNumber(raw: unknown, field: string | undefined, fallback = 0): number {
++  const n = toNumber(readField(raw, field));
++  return Number.isFinite(n) ? n : fallback;
++}
++
 +/**
 + * Arrays of strings, or arrays of objects where each has an obvious
 + * string (src/url/name/value/title) — e.g. images: [{ src: '...' }].
@@ -1679,8 +1768,8 @@ index 169aa67..250a22b 100644
    const v = readField(raw, field);
 -  return Array.isArray(v) ? (v as RawRecord[]) : undefined;
 +  return Array.isArray(v) ? (v.filter((x) => x && typeof x === 'object') as RawRecord[]) : undefined;
- }
- 
++}
++
 +/**
 + * Finds the record array inside a response. Explicit path first; then a
 + * bare array; then the common wrapper keys (one level, and one level
@@ -1706,6 +1795,11 @@ index 169aa67..250a22b 100644
 +  // Last resort: the only array-of-objects value at the top level.
 +  const arrays = Object.values(obj).filter((v) => Array.isArray(v) && v.length > 0 && typeof v[0] === 'object');
 +  return arrays.length === 1 ? (arrays[0] as RawRecord[]) : [];
++}
++
++/** The storefront's category handle format: lowercase, whitespace → '-'. */
++export function categorySlug(value: string): string {
++  return value.toLowerCase().trim().replace(/\s+/g, '-');
 +}
 +
 +// ── Requests ─────────────────────────────────────────────────────────────────
@@ -1846,14 +1940,14 @@ index 169aa67..250a22b 100644
 +    }
 +  }
 +  return { records, capped: true, upstreamTotal };
-+}
-+
+ }
+ 
 +// ── Normalisation ────────────────────────────────────────────────────────────
 +
  /**
   * Only converts when BOTH a field and its unit are configured — a field
   * name alone tells you nothing about what unit the raw number is in, and
-@@ -88,12 +307,11 @@ function applyPriceUnit(raw: number, config: JsonApiProviderConfig): number {
+@@ -88,12 +312,11 @@ function applyPriceUnit(raw: number, config: JsonApiProviderConfig): number {
  
  /**
   * Resolves price + compareAtPrice + onSale from whichever of priceField /
@@ -1871,7 +1965,7 @@ index 169aa67..250a22b 100644
   */
  function readPricing(
    raw: RawRecord,
-@@ -103,66 +321,92 @@ function readPricing(
+@@ -103,66 +326,92 @@ function readPricing(
  
    const regularRaw = config.regularPriceField ? readNumber(raw, config.regularPriceField, NaN) : NaN;
    const saleRaw = config.salePriceField ? readNumber(raw, config.salePriceField, NaN) : NaN;
@@ -1953,15 +2047,9 @@ index 169aa67..250a22b 100644
 +    return !['false', '0', 'no'].includes(s);
 +  }
 +  return fallback;
- }
- 
- /**
-- * Structured option axes (Size/Color/etc with independent values), for
-- * backends rich enough to model real variant selection. Prefers
-- * config.optionsField's raw [{name, values}] shape if present; otherwise
-- * synthesizes a best-effort axis list from the flat sizes/colors already
-- * extracted (same idea as extractSizes/extractColors in types.ts, just
-- * inverted — building options FROM flat fields rather than the reverse).
++}
++
++/**
 + * Falls back to config.defaultInStock (or true) whenever stockField is
 + * unset or its value can't be confidently read — never guesses "out of
 + * stock" from ambiguous data, since a false negative (hiding a sellable
@@ -1971,9 +2059,15 @@ index 169aa67..250a22b 100644
 +  const fallback = config.defaultInStock ?? true;
 +  if (!config.stockField) return fallback;
 +  return interpretStock(readField(raw, config.stockField), config.stockFieldType ?? 'boolean', config, fallback);
-+}
-+
-+/**
+ }
+ 
+ /**
+- * Structured option axes (Size/Color/etc with independent values), for
+- * backends rich enough to model real variant selection. Prefers
+- * config.optionsField's raw [{name, values}] shape if present; otherwise
+- * synthesizes a best-effort axis list from the flat sizes/colors already
+- * extracted (same idea as extractSizes/extractColors in types.ts, just
+- * inverted — building options FROM flat fields rather than the reverse).
 + * Structured option axes (Size/Color/etc with independent values). Prefers
 + * config.optionsField's raw [{name, values}] shape if present — values may
 + * be strings or {value|name|label} objects; otherwise synthesizes an axis
@@ -1995,7 +2089,7 @@ index 169aa67..250a22b 100644
        if (parsed.length) return parsed;
      }
    }
-@@ -172,13 +416,17 @@ function readOptions(raw: RawRecord, config: JsonApiProviderConfig, sizes?: stri
+@@ -172,13 +421,17 @@ function readOptions(raw: RawRecord, config: JsonApiProviderConfig, sizes?: stri
    return synthesized.length ? synthesized : undefined;
  }
  
@@ -2019,7 +2113,7 @@ index 169aa67..250a22b 100644
   */
  function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice: number): StoreProductVariant[] | undefined {
    if (!config.variantsField) return undefined;
-@@ -187,13 +435,21 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
+@@ -187,13 +440,21 @@ function readVariants(raw: RawRecord, config: JsonApiProviderConfig, parentPrice
  
    const variants = rawVariants.map((rv, idx) => {
      const id = (config.variantIdField && readString(rv, config.variantIdField)) || String(idx);
@@ -2047,7 +2141,7 @@ index 169aa67..250a22b 100644
    });
  
    return variants.length ? variants : undefined;
-@@ -206,16 +462,17 @@ export function normaliseJsonApiProduct(
+@@ -206,16 +467,17 @@ export function normaliseJsonApiProduct(
    config: JsonApiProviderConfig
  ): StoreProduct {
    const id = readString(raw, config.idField) || readString(raw, 'id');
@@ -2067,7 +2161,7 @@ index 169aa67..250a22b 100644
  
    // Trim/collapse: these free-text fields are hand-entered by shop owners
    // and inconsistent (trailing spaces, mixed casing) far more often than
-@@ -236,16 +493,38 @@ export function normaliseJsonApiProduct(
+@@ -236,16 +498,38 @@ export function normaliseJsonApiProduct(
    const ratingRaw = config.averageRatingField ? readNumber(raw, config.averageRatingField, NaN) : NaN;
    const reviewCountRaw = config.reviewCountField ? readNumber(raw, config.reviewCountField, NaN) : NaN;
  
@@ -2109,7 +2203,7 @@ index 169aa67..250a22b 100644
      storeSlug: platform,
      name: readString(raw, config.nameField).trim(),
      image,
-@@ -254,10 +533,10 @@ export function normaliseJsonApiProduct(
+@@ -254,10 +538,10 @@ export function normaliseJsonApiProduct(
      stockCount: config.stockFieldType === 'quantity' && config.stockField
        ? readNumber(raw, config.stockField, 0)
        : 0,
@@ -2122,7 +2216,7 @@ index 169aa67..250a22b 100644
      category: category || 'General',
      condition: (config.conditionField && readString(raw, config.conditionField)) || 'New',
      description: stripHtml(readString(raw, config.descriptionField)),
-@@ -267,7 +546,7 @@ export function normaliseJsonApiProduct(
+@@ -267,7 +551,7 @@ export function normaliseJsonApiProduct(
      productType: config.productTypeField ? readString(raw, config.productTypeField) || undefined : undefined,
      tags: tags.length ? tags : undefined,
      options: readOptions(raw, config, sizes, colors),
@@ -2131,7 +2225,7 @@ index 169aa67..250a22b 100644
      sizes,
      colors,
      gender,
-@@ -279,14 +558,40 @@ export function normaliseJsonApiProduct(
+@@ -279,14 +563,40 @@ export function normaliseJsonApiProduct(
    };
  }
  
@@ -2178,7 +2272,7 @@ index 169aa67..250a22b 100644
   */
  export async function fetchJsonApiProducts(
    platform: string,
-@@ -294,39 +599,37 @@ export async function fetchJsonApiProducts(
+@@ -294,39 +604,42 @@ export async function fetchJsonApiProducts(
    storeName: string,
    params: ProviderFetchParams
  ): Promise<ProviderFetchResult> {
@@ -2212,7 +2306,8 @@ index 169aa67..250a22b 100644
 +      let value = params.category;
 +      if (config.categoryQueryValue === 'id' && config.categoriesEndpoint) {
 +        const cats = await fetchEndpointCategories(config).catch(() => []);
-+        value = cats.find((c) => c.name.toLowerCase() === params.category.toLowerCase())?.id ?? value;
++        const wanted = categorySlug(params.category);
++        value = cats.find((c) => categorySlug(c.name) === wanted || c.id === params.category)?.id ?? value;
 +      }
 +      extra[config.categoryQueryParam] = value;
      }
@@ -2228,15 +2323,19 @@ index 169aa67..250a22b 100644
    if (params.category && !config.categoryQueryParam) {
 -    const q = params.category.toLowerCase();
 -    products = products.filter((p) => p.category.toLowerCase().includes(q));
-+    // Exact match first — a substring match would put "Women" under "Men".
-+    // Substring is only the fallback, for messy free-text category values.
-+    const q = params.category.toLowerCase().trim();
-+    const exact = products.filter((p) => p.category.toLowerCase().trim() === q);
-+    products = exact.length ? exact : products.filter((p) => p.category.toLowerCase().includes(q));
++    // The storefront sends a slug ('body-mist'); admin tools may send the
++    // display name ('Body Mist'). Compare slugs exactly first — a substring
++    // match would put "Women" under "Men". Substring is only the fallback,
++    // for messy free-text category values.
++    const q = categorySlug(params.category);
++    const exact = products.filter((p) => categorySlug(p.category) === q);
++    products = exact.length
++      ? exact
++      : products.filter((p) => p.category.toLowerCase().includes(params.category.toLowerCase().trim()));
    }
  
    if (params.search && !config.searchEndpoint && !config.searchQueryParam) {
-@@ -345,14 +648,13 @@ export async function fetchJsonApiProducts(
+@@ -345,14 +658,13 @@ export async function fetchJsonApiProducts(
    const totalPages = Math.max(1, Math.ceil(total / params.perPage));
    const sliced = products.slice((params.page - 1) * params.perPage, params.page * params.perPage);
  
@@ -2254,7 +2353,7 @@ index 169aa67..250a22b 100644
   */
  export async function fetchJsonApiProduct(
    platform: string,
-@@ -361,82 +663,112 @@ export async function fetchJsonApiProduct(
+@@ -361,82 +673,166 @@ export async function fetchJsonApiProduct(
    handle: string
  ): Promise<StoreProduct | null> {
    if (config.detailEndpoint) {
@@ -2324,16 +2423,16 @@ index 169aa67..250a22b 100644
 - * backends are small/unpaginated, same assumption fetchJsonApiProduct's
 - * list-fallback already makes) and report the distinct categoryField
 - * values that actually occur, with how many products carry each one.
+- *
+- * Use this instead of hand-typing a `categories` array in
+- * data/stores/data.ts — it can never list a category the store doesn't
+- * actually have, and it can never miss one that's actually there.
 + * Prefers a real categoriesEndpoint when configured. Otherwise — like
 + * before — derives categories from the store's OWN product data: fetch
 + * the full list and report the distinct categoryField values with counts.
 + * With an endpoint but no count field, counts are filled from product
 + * data when categoryField is mapped.
   *
-- * Use this instead of hand-typing a `categories` array in
-- * data/stores/data.ts — it can never list a category the store doesn't
-- * actually have, and it can never miss one that's actually there.
-- *
 - * Returns [] if config.categoryField is unset (nothing to derive) or the
 - * fetch fails, rather than throwing.
 + * Returns [] if there's nothing to derive or the fetch fails, rather
@@ -2396,6 +2495,60 @@ index 169aa67..250a22b 100644
 +    counts.set(value, (counts.get(value) ?? 0) + 1);
 +  }
 +  return counts;
++}
++
++// ── Total product count ──────────────────────────────────────────────────────
++
++export interface JsonApiTotal {
++  total: number;
++  /** False when the number is a lower bound (maxPages cap hit on a full scan). */
++  exact: boolean;
++  /** Which strategy produced the number — shown in admin tooling. */
++  source: 'count-endpoint' | 'feed-total' | 'full-scan';
++}
++
++/**
++ * The catalogue size in as few requests as the feed allows:
++ *   1. countEndpoint (+ countPath), when configured — one request.
++ *   2. pagination.totalPath — one request for page 1 with a page size of
++ *      1, reading the feed's own total (e.g. OZ Scent's `total`).
++ *   3. Otherwise, fetch every page and count the records.
++ * Strategies 1–2 fall through to the next on any failure or a
++ * non-numeric value, so a misconfigured path degrades to a slower but
++ * still-correct count instead of an error. Auth failures are rethrown.
++ */
++export async function fetchJsonApiTotal(platform: string, config: JsonApiProviderConfig): Promise<JsonApiTotal> {
++  const label = `JSON API count for ${platform}`;
++  const isAuthError = (err: unknown) => err instanceof Error && /auth|API key|STORE_SECRET_/i.test(err.message);
++
++  if (config.countEndpoint) {
++    try {
++      const { data } = await fetchJson(config, config.countEndpoint, undefined, label);
++      const n = typeof data === 'number' ? data : toNumber(readField(data, config.countPath || 'total|count'));
++      if (Number.isFinite(n) && n >= 0) return { total: n, exact: true, source: 'count-endpoint' };
++    } catch (err) {
++      if (isAuthError(err)) throw err;
++    }
++  }
++
++  const pg = config.pagination;
++  if (pg?.totalPath && pg.type !== 'cursor') {
++    try {
++      const params: Record<string, string | number | undefined> = {};
++      const limitParam = resolveLimitParam(pg.limitParam);
++      if (limitParam) params[limitParam] = 1;
++      const pageParam = pg.pageParam || (pg.type === 'offset' ? 'offset' : 'page');
++      params[pageParam] = pg.type === 'offset' ? 0 : pg.startPage ?? 1;
++      const { data } = await fetchJson(config, config.listEndpoint, params, label);
++      const n = toNumber(readField(data, pg.totalPath));
++      if (Number.isFinite(n) && n >= 0) return { total: n, exact: true, source: 'feed-total' };
++    } catch (err) {
++      if (isAuthError(err)) throw err;
++    }
++  }
++
++  const { records, capped } = await fetchAllRaw(platform, config);
++  return { total: records.length, exact: !capped, source: 'full-scan' };
 +}
 +
 +/**

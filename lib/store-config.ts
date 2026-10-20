@@ -248,6 +248,16 @@ export interface JsonApiProviderConfig extends BaseProviderConfig {
   //   'sale_price|price'         → raw.sale_price, else raw.price
 
   /**
+   * Optional dedicated "how many products" endpoint (e.g. '/api/products/count'),
+   * read with countPath. Used by the admin live product count. When unset,
+   * the count comes from pagination.totalPath with a 1-item request, and
+   * only as a last resort from fetching the whole catalogue.
+   */
+  countEndpoint?: string;
+  /** Path to the number in the countEndpoint response. Default 'total|count'. */
+  countPath?: string;
+
+  /**
    * Where the product array lives in the list response. Omit for a bare
    * top-level array. For a wrapped response like `{ "products": [...] }`
    * set 'products' (or 'data.items', etc). When unset and the response is

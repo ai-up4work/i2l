@@ -145,6 +145,11 @@ export function extractRecordList(data: unknown, path: string | undefined): RawR
   return arrays.length === 1 ? (arrays[0] as RawRecord[]) : [];
 }
 
+/** The storefront's category handle format: lowercase, whitespace → '-'. */
+export function categorySlug(value: string): string {
+  return value.toLowerCase().trim().replace(/\s+/g, '-');
+}
+
 // ── Requests ─────────────────────────────────────────────────────────────────
 
 function resolveSecret(config: JsonApiProviderConfig): string | undefined {
@@ -615,7 +620,8 @@ export async function fetchJsonApiProducts(
       let value = params.category;
       if (config.categoryQueryValue === 'id' && config.categoriesEndpoint) {
         const cats = await fetchEndpointCategories(config).catch(() => []);
-        value = cats.find((c) => c.name.toLowerCase() === params.category.toLowerCase())?.id ?? value;
+        const wanted = categorySlug(params.category);
+        value = cats.find((c) => categorySlug(c.name) === wanted || c.id === params.category)?.id ?? value;
       }
       extra[config.categoryQueryParam] = value;
     }
@@ -625,11 +631,15 @@ export async function fetchJsonApiProducts(
   let products = rawList.map((raw) => normaliseJsonApiProduct(raw, platform, storeName, config));
 
   if (params.category && !config.categoryQueryParam) {
-    // Exact match first — a substring match would put "Women" under "Men".
-    // Substring is only the fallback, for messy free-text category values.
-    const q = params.category.toLowerCase().trim();
-    const exact = products.filter((p) => p.category.toLowerCase().trim() === q);
-    products = exact.length ? exact : products.filter((p) => p.category.toLowerCase().includes(q));
+    // The storefront sends a slug ('body-mist'); admin tools may send the
+    // display name ('Body Mist'). Compare slugs exactly first — a substring
+    // match would put "Women" under "Men". Substring is only the fallback,
+    // for messy free-text category values.
+    const q = categorySlug(params.category);
+    const exact = products.filter((p) => categorySlug(p.category) === q);
+    products = exact.length
+      ? exact
+      : products.filter((p) => p.category.toLowerCase().includes(params.category.toLowerCase().trim()));
   }
 
   if (params.search && !config.searchEndpoint && !config.searchQueryParam) {
@@ -749,6 +759,60 @@ async function countCategoryValues(config: JsonApiProviderConfig): Promise<Map<s
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return counts;
+}
+
+// ── Total product count ──────────────────────────────────────────────────────
+
+export interface JsonApiTotal {
+  total: number;
+  /** False when the number is a lower bound (maxPages cap hit on a full scan). */
+  exact: boolean;
+  /** Which strategy produced the number — shown in admin tooling. */
+  source: 'count-endpoint' | 'feed-total' | 'full-scan';
+}
+
+/**
+ * The catalogue size in as few requests as the feed allows:
+ *   1. countEndpoint (+ countPath), when configured — one request.
+ *   2. pagination.totalPath — one request for page 1 with a page size of
+ *      1, reading the feed's own total (e.g. OZ Scent's `total`).
+ *   3. Otherwise, fetch every page and count the records.
+ * Strategies 1–2 fall through to the next on any failure or a
+ * non-numeric value, so a misconfigured path degrades to a slower but
+ * still-correct count instead of an error. Auth failures are rethrown.
+ */
+export async function fetchJsonApiTotal(platform: string, config: JsonApiProviderConfig): Promise<JsonApiTotal> {
+  const label = `JSON API count for ${platform}`;
+  const isAuthError = (err: unknown) => err instanceof Error && /auth|API key|STORE_SECRET_/i.test(err.message);
+
+  if (config.countEndpoint) {
+    try {
+      const { data } = await fetchJson(config, config.countEndpoint, undefined, label);
+      const n = typeof data === 'number' ? data : toNumber(readField(data, config.countPath || 'total|count'));
+      if (Number.isFinite(n) && n >= 0) return { total: n, exact: true, source: 'count-endpoint' };
+    } catch (err) {
+      if (isAuthError(err)) throw err;
+    }
+  }
+
+  const pg = config.pagination;
+  if (pg?.totalPath && pg.type !== 'cursor') {
+    try {
+      const params: Record<string, string | number | undefined> = {};
+      const limitParam = resolveLimitParam(pg.limitParam);
+      if (limitParam) params[limitParam] = 1;
+      const pageParam = pg.pageParam || (pg.type === 'offset' ? 'offset' : 'page');
+      params[pageParam] = pg.type === 'offset' ? 0 : pg.startPage ?? 1;
+      const { data } = await fetchJson(config, config.listEndpoint, params, label);
+      const n = toNumber(readField(data, pg.totalPath));
+      if (Number.isFinite(n) && n >= 0) return { total: n, exact: true, source: 'feed-total' };
+    } catch (err) {
+      if (isAuthError(err)) throw err;
+    }
+  }
+
+  const { records, capped } = await fetchAllRaw(platform, config);
+  return { total: records.length, exact: !capped, source: 'full-scan' };
 }
 
 /**

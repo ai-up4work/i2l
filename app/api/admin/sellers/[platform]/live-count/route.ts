@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStaffRole, SOURCING_ROLES } from '@/lib/supabase/admin-auth';
 import { getSellerAndConfigForAdmin } from '@/lib/store-config-db';
-import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
+import { fetchJsonApiTotal } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyProducts } from '@/lib/store-providers/shopify';
 import { fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
@@ -49,6 +49,23 @@ export async function GET(
 
     const config = seller.config;
 
+    // JSON feeds can usually answer "how many?" with one tiny request (a
+    // count endpoint, or the feed's own total on a 1-item page) instead of
+    // downloading the whole catalogue just to count it.
+    if (config.type === 'jsonapi' && platform !== 'anishka-creation') {
+      const t = await fetchJsonApiTotal(platform, config);
+      return NextResponse.json(
+        {
+          total: t.total,
+          totalPages: Math.max(1, Math.ceil(t.total / fetchParams.perPage)),
+          totalIsExact: t.exact,
+          countSource: t.source,
+          fetchedAt: new Date().toISOString(),
+        },
+        { headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     // Hardcoded one-off extractor, checked before the generic provider
     // dispatch below — see lib/store-providers/sellers/anishka-creation.ts's
     // header comment. Without this, this seller's own provider_config
@@ -63,8 +80,6 @@ export async function GET(
         ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
         : config.type === 'woocommerce'
         ? await fetchWooCommerceProducts(platform, config, fetchParams)
-        : config.type === 'jsonapi'
-        ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
         : config.type === 'html-scrape'
         ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
         : config.type === 'catalogue'

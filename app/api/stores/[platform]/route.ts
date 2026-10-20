@@ -4,7 +4,7 @@ import { getSellerAndConfig, getSellerAndConfigForAdmin, sellerPricingInfo } fro
 import { withStorePricing } from '@/lib/store-origin';
 import { applyCategoryTiles } from '@/lib/category-tiles';
 import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview';
-import { fetchJsonApiProducts } from '@/lib/store-providers/jsonapi';
+import { fetchJsonApiProducts, fetchJsonApiCategories, categorySlug } from '@/lib/store-providers/jsonapi';
 import { fetchMockProducts } from '@/lib/store-providers/mock';
 import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
 // WooCommerce list requests go through the CATALOG-CACHED function: it
@@ -105,8 +105,16 @@ export async function GET(
         collections = live
           .filter((c) => c.count > 0)
           .map((c) => ({ handle: c.slug, title: c.name, image: c.image }));
+      } else if (config.type === 'jsonapi' && config.categoriesEndpoint) {
+        // The feed has a real categories endpoint — use it (names, counts,
+        // images). Handles are slugs of the name, the same format the
+        // product filter in fetchJsonApiProducts matches against.
+        const live = await fetchJsonApiCategories(config);
+        collections = live
+          .filter((c) => c.count > 0)
+          .map((c) => ({ handle: categorySlug(c.value), title: c.value, image: c.image ?? null }));
       } else if (config.type === 'jsonapi') {
-        // No dedicated category endpoint on this provider — derive the
+        // No dedicated category endpoint on this feed — derive the
         // distinct set from a single large page of real products instead
         // of trusting a hand-typed list. Best-effort: a store with more
         // distinct categories than fit on one page may miss some: raise

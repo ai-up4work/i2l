@@ -56,6 +56,8 @@ const SECTIONS: SectionDef[] = [
     fields: [
       { key: 'listEndpoint', label: 'List endpoint', placeholder: '/api/products', required: true, kind: 'text', hint: 'Path on the base URL, or a full https URL.' },
       { key: 'listPath', label: 'Products path in response', placeholder: 'products', scope: 'response', hint: 'Blank = bare array, or auto-detect products/items/data/results.' },
+      { key: 'countEndpoint', label: 'Product count endpoint (optional)', placeholder: '/api/products/count', kind: 'text', hint: 'For the live product count. Blank = use the pagination total, else count everything.' },
+      { key: 'countPath', label: 'Count path in response', placeholder: 'total', kind: 'text', hint: "Blank = 'total' or 'count'." },
       { key: 'detailEndpoint', label: 'Detail endpoint (optional)', placeholder: '/api/products/{id}', kind: 'text', hint: '{id} or {handle} is substituted. Blank = look up in the list.' },
       { key: 'detailPath', label: 'Product path in detail response', placeholder: 'product', kind: 'text' },
       { key: 'searchQueryParam', label: 'Search query param', placeholder: 'search', kind: 'text', hint: 'Server-side search on the list endpoint. Blank = search locally.' },
