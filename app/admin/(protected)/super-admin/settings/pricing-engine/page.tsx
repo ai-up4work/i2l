@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ToggleSwitch } from '@/components/admin/Toggleswitch'
-import { Calculator, History, Plus, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Calculator, ChevronDown, History, Plus, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react'
 import {
   BackLink,
   btnLink,
@@ -207,6 +207,10 @@ export default function PricingEnginePage() {
 
   const [preview, setPreview] = useState({ price: 2500, currency: 'INR', weight: 0.5 })
 
+  // Customs calculator is collapsed by default — it's rarely edited and
+  // isn't used for storefront prices.
+  const [customsOpen, setCustomsOpen] = useState(false)
+
   function load() {
     fetch('/api/admin/pricing-settings')
       .then(async (res) => {
@@ -280,6 +284,14 @@ export default function PricingEnginePage() {
   const sf = draft.storefront
   const sfSaved = saved.storefront
   const disabled = !canEdit
+
+  // Unsaved edits inside the collapsed Customs section — shown on its
+  // toggle so a hidden change can't be missed before saving.
+  const customsDraftFlat = flatten(draft.customs)
+  const customsSavedFlat = flatten(saved.customs)
+  const customsChanges = Array.from(new Set([...Object.keys(customsDraftFlat), ...Object.keys(customsSavedFlat)])).filter(
+    (k) => customsDraftFlat[k] !== customsSavedFlat[k],
+  ).length
 
   return (
     <PageShell>
@@ -434,85 +446,106 @@ export default function PricingEnginePage() {
           </Section>
 
           <Section title="Customs calculator" description="Used by the quote calculator’s full customs mode (duty, PAL, cess, surcharge, SSCL and VAT by HS code). Not used for storefront prices.">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <NumberField label="Freight" suffix="LKR / kg" value={draft.customs.freightRatePerKgLKR} saved={saved.customs.freightRatePerKgLKR} onChange={(v) => update((s) => (s.customs.freightRatePerKgLKR = v))} disabled={disabled} />
-              <NumberField label="Default weight" suffix="kg" value={draft.customs.defaultWeightKg} saved={saved.customs.defaultWeightKg} onChange={(v) => update((s) => (s.customs.defaultWeightKg = v))} hint="When none is entered" disabled={disabled} />
-            </div>
+            <button
+              type="button"
+              onClick={() => setCustomsOpen((o) => !o)}
+              aria-expanded={customsOpen}
+              className="flex w-full items-center justify-between rounded-xl border border-ink/10 bg-parchment/60 px-4 py-3 text-left text-sm font-semibold text-ink transition-colors hover:bg-parchment"
+            >
+              <span className="flex items-center gap-2">
+                {customsOpen ? 'Hide' : 'Show'} customs settings
+                {!customsOpen && customsChanges > 0 && (
+                  <span className="rounded-full bg-gold/20 px-2 py-0.5 text-[11px] font-semibold text-gold-deep">
+                    {customsChanges} unsaved change{customsChanges === 1 ? '' : 's'}
+                  </span>
+                )}
+              </span>
+              <ChevronDown size={16} className={`text-ink/40 transition-transform ${customsOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-            <div className="mt-5 overflow-x-auto rounded-xl border border-ink/10">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead className="bg-parchment/70 text-xs font-medium text-ink/50">
-                  <tr>
-                    <th className="px-3 py-2.5">HS code</th>
-                    <th className="px-3 py-2.5">Label</th>
-                    {RATE_FIELDS.map((f) => (
-                      <th key={f.key} className="px-2 py-2.5">
-                        {f.label} %
-                      </th>
-                    ))}
-                    <th className="w-8" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(draft.customs.hsCodes).map(([code, r]) => {
-                    const savedRow: HsCodeRates | undefined = saved.customs.hsCodes[code]
-                    return (
-                      <tr key={code} className="border-t border-ink/[0.06]">
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs font-semibold text-ink">{code === 'DEFAULT' ? 'Default' : code}</td>
-                        <td className="px-3 py-2">
-                          <input
-                            aria-label={`${code} label`}
-                            value={r.label}
-                            disabled={disabled}
-                            onChange={(e) => update((s) => (s.customs.hsCodes[code].label = e.target.value))}
-                            className="w-full min-w-[120px] rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-teal/60"
-                          />
-                        </td>
+            {customsOpen && (
+              <div className="mt-4">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <NumberField label="Freight" suffix="LKR / kg" value={draft.customs.freightRatePerKgLKR} saved={saved.customs.freightRatePerKgLKR} onChange={(v) => update((s) => (s.customs.freightRatePerKgLKR = v))} disabled={disabled} />
+                  <NumberField label="Default weight" suffix="kg" value={draft.customs.defaultWeightKg} saved={saved.customs.defaultWeightKg} onChange={(v) => update((s) => (s.customs.defaultWeightKg = v))} hint="When none is entered" disabled={disabled} />
+                </div>
+
+                <div className="mt-5 overflow-x-auto rounded-xl border border-ink/10">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="bg-parchment/70 text-xs font-medium text-ink/50">
+                      <tr>
+                        <th className="px-3 py-2.5">HS code</th>
+                        <th className="px-3 py-2.5">Label</th>
                         {RATE_FIELDS.map((f) => (
-                          <td key={f.key} className="w-[86px] px-2 py-2">
-                            <SmallNumber
-                              ariaLabel={`${code} ${f.label}`}
-                              value={r[f.key]}
-                              saved={savedRow?.[f.key]}
-                              disabled={disabled}
-                              onChange={(v) => update((s) => (s.customs.hsCodes[code][f.key] = v))}
-                            />
-                          </td>
+                          <th key={f.key} className="px-2 py-2.5">
+                            {f.label} %
+                          </th>
                         ))}
-                        <td className="px-2">
-                          {code !== 'DEFAULT' && canEdit && (
-                            <button
-                              type="button"
-                              aria-label={`Remove ${code}`}
-                              onClick={() => update((s) => delete s.customs.hsCodes[code])}
-                              className="rounded-full p-1 text-ink/35 hover:bg-red-50 hover:text-red-600"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </td>
+                        <th className="w-8" />
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {canEdit && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <input value={newHs.code} maxLength={20} onChange={(e) => setNewHs((h) => ({ ...h, code: e.target.value.trim() }))} placeholder="HS code, e.g. 6204.42" className={`${input} !w-auto`} style={{ width: 176 }} />
-                <input value={newHs.label} maxLength={80} onChange={(e) => setNewHs((h) => ({ ...h, label: e.target.value }))} placeholder="Label, e.g. Cotton dresses" className={`${input} !w-auto`} style={{ width: 240 }} />
-                <button
-                  type="button"
-                  disabled={!newHs.code || newHs.code in draft.customs.hsCodes}
-                  onClick={() => {
-                    // Starts from the default rates; adjust in the table.
-                    update((s) => (s.customs.hsCodes[newHs.code] = { ...s.customs.hsCodes.DEFAULT, label: newHs.label.trim() }))
-                    setNewHs({ code: '', label: '' })
-                  }}
-                  className={btnSmall}
-                >
-                  <Plus size={12} /> Add HS code
-                </button>
+                    </thead>
+                    <tbody>
+                      {Object.entries(draft.customs.hsCodes).map(([code, r]) => {
+                        const savedRow: HsCodeRates | undefined = saved.customs.hsCodes[code]
+                        return (
+                          <tr key={code} className="border-t border-ink/[0.06]">
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs font-semibold text-ink">{code === 'DEFAULT' ? 'Default' : code}</td>
+                            <td className="px-3 py-2">
+                              <input
+                                aria-label={`${code} label`}
+                                value={r.label}
+                                disabled={disabled}
+                                onChange={(e) => update((s) => (s.customs.hsCodes[code].label = e.target.value))}
+                                className="w-full min-w-[120px] rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-teal/60"
+                              />
+                            </td>
+                            {RATE_FIELDS.map((f) => (
+                              <td key={f.key} className="w-[86px] px-2 py-2">
+                                <SmallNumber
+                                  ariaLabel={`${code} ${f.label}`}
+                                  value={r[f.key]}
+                                  saved={savedRow?.[f.key]}
+                                  disabled={disabled}
+                                  onChange={(v) => update((s) => (s.customs.hsCodes[code][f.key] = v))}
+                                />
+                              </td>
+                            ))}
+                            <td className="px-2">
+                              {code !== 'DEFAULT' && canEdit && (
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${code}`}
+                                  onClick={() => update((s) => delete s.customs.hsCodes[code])}
+                                  className="rounded-full p-1 text-ink/35 hover:bg-red-50 hover:text-red-600"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {canEdit && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <input value={newHs.code} maxLength={20} onChange={(e) => setNewHs((h) => ({ ...h, code: e.target.value.trim() }))} placeholder="HS code, e.g. 6204.42" className={`${input} !w-auto`} style={{ width: 176 }} />
+                    <input value={newHs.label} maxLength={80} onChange={(e) => setNewHs((h) => ({ ...h, label: e.target.value }))} placeholder="Label, e.g. Cotton dresses" className={`${input} !w-auto`} style={{ width: 240 }} />
+                    <button
+                      type="button"
+                      disabled={!newHs.code || newHs.code in draft.customs.hsCodes}
+                      onClick={() => {
+                        // Starts from the default rates; adjust in the table.
+                        update((s) => (s.customs.hsCodes[newHs.code] = { ...s.customs.hsCodes.DEFAULT, label: newHs.label.trim() }))
+                        setNewHs({ code: '', label: '' })
+                      }}
+                      className={btnSmall}
+                    >
+                      <Plus size={12} /> Add HS code
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </Section>

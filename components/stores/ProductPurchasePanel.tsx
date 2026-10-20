@@ -465,10 +465,7 @@ export default function ProductPurchasePanel({
                     </span>
                   )}
                 </div>
-                <p className="mt-1.5 text-xs text-ink/55">
-                  At checkout: {serviceCharge} service charge
-                  {p.deliveryFeeLKR > 0 && <> + {p.formattedDeliveryFee} delivery</>}.
-                </p>
+              
                 <ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink/70 sm:grid-cols-2">
                   <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
                     <Zap size={14} className="flex-none text-teal-deep" />
