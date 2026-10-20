@@ -36,6 +36,7 @@ import {
 import { OUTER_H, INNER_H, LEFT_NOTCH, NOTCH_GAP } from "@/components/shared/headerMetrics"
 import Image from "next/image"
 import ShopperPrice from '@/components/shared/ShopperPrice'
+import { savedItemHref } from '@/lib/cart-snapshot'
 
 
 interface NavItem { name: string; desc: string; href: string }
@@ -637,10 +638,13 @@ export default function Header({
         viewAllHref="/account/wishlist"
         viewAllLabel={`View wishlist (${wishlistCount})`}
       >
-        {wishlistPreview.map((entry) => (
+        {wishlistPreview.map((entry) => {
+          const link = savedItemHref(entry, "/account/wishlist")
+          return (
           <a
             key={entry.id}
-            href={entry.url || "/account/wishlist"}
+            href={link.href}
+            {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             onClick={() => setWishlistPanelOpen(false)}
             className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-ink/[0.03] p-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
           >
@@ -654,7 +658,8 @@ export default function Header({
               )}
             </div>
           </a>
-        ))}
+          )
+        })}
       </SlideOverPanel>
 
       <SlideOverPanel
@@ -706,10 +711,15 @@ export default function Header({
           </div>
         }
       >
-        {cartPreview.map((line) => (
+        {cartPreview.map((line) => {
+          // Affiliated-store items open OUR product page, never the
+          // seller's own (see savedItemHref). Only pasted links go out.
+          const link = savedItemHref(line.product, "/account/cart")
+          return (
           <a
             key={line.product.id}
-            href={line.product.url || "/account/cart"}
+            href={link.href}
+            {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             onClick={() => setCartPanelOpen(false)}
             className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-ink/[0.03] p-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
           >
@@ -733,7 +743,8 @@ export default function Header({
               </div>
             </div>
           </a>
-        ))}
+          )
+        })}
       </SlideOverPanel>
     </>
   )

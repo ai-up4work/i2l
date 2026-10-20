@@ -63,4 +63,14 @@ export const canPreviewStore = cache(async (platform: string): Promise<PreviewVi
   }
 })
 
+/**
+ * Is the signed-in user active store staff (Super Admin, Manager, Sales)?
+ * Gates internal-only views such as the full price breakdown on product
+ * pages. Cached per request. Never throws.
+ */
+export const isStoreStaff = cache(async (): Promise<boolean> => {
+  const viewer = await getViewer()
+  return Boolean(viewer?.isStaff)
+})
+
 export const PREVIEW_CACHE_HEADERS = { 'Cache-Control': 'private, no-store' }

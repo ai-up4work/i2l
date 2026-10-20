@@ -83,6 +83,32 @@ export function storeHandleFor(item: SavedItem): string | null {
 }
 
 /**
+ * Where a saved item (bag line, wishlist entry, board item) should link.
+ *
+ * - From one of our affiliated stores → OUR product page, never the
+ *   seller's own site. The seller's page shows their raw price; a shopper
+ *   comparing it with ours (which includes freight, duty and margin) sees
+ *   a "price surge" and complains.
+ * - A link the customer pasted themselves (`source: 'link'`) → the
+ *   original page, opened in a new tab: they found it there and already
+ *   know its price.
+ */
+export function savedItemHref(
+  item: SavedItem & { source?: 'catalogue' | 'link' },
+  fallback: string,
+): { href: string; external: boolean } {
+  if (item.source !== 'link') {
+    const handle = storeHandleFor(item)
+    if (handle && item.site) {
+      return { href: `/stores/${item.site}/product/${encodeURIComponent(handle)}`, external: false }
+    }
+    // A store item we can't map back to a product page: stay on our site.
+    if (item.source === 'catalogue') return { href: fallback, external: false }
+  }
+  return item.url ? { href: item.url, external: true } : { href: fallback, external: false }
+}
+
+/**
  * A saved item as a bag line WITHOUT a size / colour choice. Store items
  * are added as store lines (so checkout prices them from the store and the
  * bag asks for any missing choice); anything else stays a plain link.

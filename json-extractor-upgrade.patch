@@ -1,3 +1,1038 @@
+diff --git a/app/(public)/stores/[platform]/product/[productId]/page.tsx b/app/(public)/stores/[platform]/product/[productId]/page.tsx
+index 7bef893..e46ca38 100644
+--- a/app/(public)/stores/[platform]/product/[productId]/page.tsx
++++ b/app/(public)/stores/[platform]/product/[productId]/page.tsx
+@@ -21,6 +21,12 @@ import { DashboardProvider } from '@/contexts/DashboardContext'
+ import ViewTracker from './ViewTracker'
+ import JsonLd, { breadcrumbSchema, productSchema } from '@/components/seo/JsonLd'
+ import { clampDescription, pageMetadata } from '@/lib/seo'
++import { redirect } from 'next/navigation'
++import { isStoreStaff } from '@/lib/store-preview'
++import { customerQuoteHref, fullQuoteHref, variantFromQuery } from '@/lib/quote-links'
++
++type PageSearchParams = Promise<Record<string, string | string[] | undefined>>
++
+ 
+ // No generateStaticParams: live-feed stores (Shopify/WooCommerce) can add
+ // or remove products at any time, so every product handle can't be known
+@@ -199,10 +205,14 @@ const getProduct = cache((platform: string, handle: string, includeHidden: boole
+ 
+ export async function generateMetadata({
+   params,
++  searchParams,
+ }: {
+   params: Promise<{ platform: string; productId: string }>
++  searchParams: PageSearchParams
+ }): Promise<Metadata> {
+   const { platform, productId: rawProductId } = await params
++  // ?price-breakdown only redirects to the quote calculator — never indexed.
++  if ('price-breakdown' in (await searchParams)) return { robots: { index: false, follow: false } }
+   const productId = normalizeHandle(rawProductId)
+ 
+   const access = await getStoreAccess(platform)
+@@ -233,8 +243,10 @@ export async function generateMetadata({
+ 
+ export default async function ProductDetailPage({
+   params,
++  searchParams,
+ }: {
+   params: Promise<{ platform: string; productId: string }>
++  searchParams: PageSearchParams
+ }) {
+   const { platform, productId: rawProductId } = await params
+   // Decode once, up front — see the EMOJI / NON-ASCII HANDLES note above.
+@@ -266,6 +278,22 @@ export default async function ProductDetailPage({
+ 
+   if (!product) notFound()
+ 
++  // ── ?price-breakdown — opens the quote calculator for this exact
++  // variant (?variant=<id>, or ?size= / ?color=). Staff get the full
++  // calculator; shoppers get its customer mode, which never shows the
++  // seller's own price. Marketplace (link-based) products get the full
++  // calculator for everyone: those shoppers already know the source price.
++  // See lib/quote-links.ts.
++  const query = await searchParams
++  if ('price-breakdown' in query) {
++    const variant = variantFromQuery(product, query)
++    const staff = await isStoreStaff()
++    if (staff || store.storeType === 'marketplace') {
++      redirect(fullQuoteHref(staff ? '/admin/quote' : '/demo/quote', product, variant, await ensurePricingSettings()))
++    }
++    redirect(customerQuoteHref(store.platform, product.handle || productId, variant))
++  }
++
+   // Marketplaces (eBay, Amazon, etc.) go through the request/proxy-buy
+   // flow; local sellers with a live or mock catalog get the same
+   // add-to-bag → WhatsApp flow as the store catalog page.
+diff --git a/app/admin/(protected)/(common)/quote/page.tsx b/app/admin/(protected)/(common)/quote/page.tsx
+index b68892f..d4b17b8 100644
+--- a/app/admin/(protected)/(common)/quote/page.tsx
++++ b/app/admin/(protected)/(common)/quote/page.tsx
+@@ -1,956 +1,10 @@
+-// app/admin/(protected)/(common)/quote/page.tsx  (also served at /demo/quote)
+-"use client"
+-
+-import { Suspense, useEffect, useId, useMemo, useState } from "react"
+-import { usePathname, useSearchParams } from "next/navigation"
+-import Link from "next/link"
+-import { Calculator, ChevronDown, SlidersHorizontal } from "lucide-react"
+-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts"
+-
+-import {
+-  calculateQuote,
+-  calculateSimpleQuote,
+-  ratesForHsCode,
+-  type QuoteBreakdown,
+-  type SimpleQuoteBreakdown,
+-  type QuoteRates,
+-  type DeliveryType,
+-} from "@/lib/quote"
+-import { rateToLKR } from "@/lib/currency-config"
+-import { getPricingSettings, hsCodeOptions } from "@/lib/pricing-settings"
+-
+-// Quote calculator: enter what a customer wants to buy and see the landed-cost
+-// breakdown Wishdrop would quote them, step by step. Same page recipe as the
+-// admin list pages (shell, header with a live stat strip, segmented toolbar,
+-// bordered surfaces), with the tool itself below.
++// app/admin/(protected)/(common)/quote/page.tsx
+ //
+-// It can be pre-filled from a product page's "see price breakdown" link
+-// (?mode=simple&delivery=economy&value=...&currency=...&weight=...&pcs=...
+-// &hsCode=...). Anything missing or invalid falls back to this tool's own
+-// defaults, so a direct visit behaves exactly as before.
+-//
+-// Every starting rate comes from the LIVE pricing settings (Admin → Pricing
+-// engine, lib/pricing-settings.ts) — the same numbers the storefront uses.
+-// "Adjust rates & fees" changes them for this calculation only; to change
+-// them for the whole site, use the Pricing engine page.
+-
+-const PRICING_ENGINE_HREF = "/admin/super-admin/settings/pricing-engine"
+-
+-// Always-shown currency pills for the Value field. If a product page hands off
+-// a currency outside this list (e.g. USD), it's appended at runtime so the
+-// incoming value stays visible and selectable instead of silently coerced.
+-const DEFAULT_CURRENCY_OPTIONS = ["LKR", "INR"] as const
+-type CurrencyOption = string
+-
+-type Mode = "customs" | "simple"
+-
+-type Source = "india" | "local"
+-
+-// The Simple / Customs switch is hidden for now. Flip this to bring it back;
+-// ?mode=customs still opens the cascade either way.
+-const SHOW_MODE_TOGGLE = false
+-
+-// Slice colours for the breakdown dial (SVG fills can't use Tailwind tokens):
+-// indigo, teal and gold families, one shade per slice.
+-const BREAKDOWN_COLORS = ["#1B2A4A", "#3D5A80", "#0F8A7C", "#14B8A6", "#5EEAD4", "#C9A227", "#E3C567", "#D97757"]
+-
+-// Plain-language formula shown on hover or focus, for each mode's figures.
+-const CUSTOMS_FORMULAS: Record<string, string> = {
+-  cif: "CIF = Product price + Freight",
+-  freight: "Freight = Weight (kg) × rate/kg, or the manual override if set",
+-  customsDuty: "Customs Duty = CIF × Duty%",
+-  pal: "PAL = (CIF + Customs Duty) × PAL%",
+-  cess: "Cess = CIF × Cess%",
+-  surchargeOnDuty: "Surcharge on Duty = Customs Duty × Surcharge%",
+-  sscl: "SSCL = (CIF + Duty + PAL + Cess + Surcharge) × SSCL%",
+-  dutyPalCessSurchargeSscl: "Sum of Duty + PAL + Cess + Surcharge + SSCL",
+-  vat: "VAT = (CIF + Duty+PAL+Cess+Surcharge+SSCL) × VAT%",
+-  totalTax: "Total Tax = (Duty+PAL+Cess+Surcharge+SSCL) + VAT",
+-  priceToLandedCost: "= Product price ÷ Total Landed Cost × 100",
+-  productPrice: "= Value entered × exchange rate (1 if already LKR)",
+-}
+-
+-const SIMPLE_FORMULAS: Record<string, string> = {
+-  productCost: "= Value entered × exchange rate (1 if already LKR)",
+-  profitAmount: "= Product cost × Profit%",
+-  costWithProfit: "= Product cost + Profit amount",
+-  freightCharges: "= (Weight ÷ weight block kg) × freight rate per block",
+-  customsClearance: "= (Weight ÷ weight block kg) × customs clearance rate per block",
+-  postalCharges: "= Weight (kg) × postal charge rate per kg",
+-  subtotal: "= Cost with profit + Freight Charges + Customs Clearance (Express), or + Postal Charges (Economy)",
+-  totalWithDelivery: "= Subtotal + delivery fee (Express only, Economy has no flat delivery fee)",
+-  totalCost: "= Total with delivery + extra margin",
+-}
+-
+-const FIELD =
+-  "w-full rounded-lg border border-ink/10 bg-card px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink/35 focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+-const LABEL = "text-xs font-medium text-ink/50"
+-const LINK_BUTTON = "text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
+-
+-function formatLKR(value: number) {
+-  return `Rs ${value.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+-}
+-
+-// ---- Query-param parsing helpers ----
+-
+-function parseMode(value: string | null): Mode {
+-  return value === "customs" ? "customs" : "simple"
+-}
+-
+-function parseDeliveryType(value: string | null): DeliveryType {
+-  return value === "economy" ? "economy" : "express"
+-}
+-
+-function parsePositiveNumber(value: string | null, fallback: number): number {
+-  if (value == null) return fallback
+-  const n = Number(value)
+-  return Number.isFinite(n) && n > 0 ? n : fallback
+-}
+-
+-function parseOptionalWeight(value: string | null): number | "" {
+-  if (!value) return ""
+-  const n = Number(value)
+-  return Number.isFinite(n) && n > 0 ? n : ""
+-}
+-
+-interface ResultRowData {
+-  label: string
+-  value: string
+-  formula?: string
+-  emphasis?: boolean
+-}
+-
+-function QuoteDemoPage() {
+-  const searchParams = useSearchParams()
+-  const pathname = usePathname()
+-
+-  // The live rates this calculator starts from (and resets to).
+-  const live = getPricingSettings()
+-  const HS_CODE_OPTIONS = hsCodeOptions(live)
+-
+-  const [mode, setMode] = useState<Mode>(() => parseMode(searchParams.get("mode")))
+-  const [deliveryType, setDeliveryType] = useState<DeliveryType>(() => parseDeliveryType(searchParams.get("delivery")))
+-  // Where the product comes from. A local Sri Lankan shop is never imported:
+-  // no freight, customs clearance or service charge — just the shop's price
+-  // + margin, delivery, and the handling fee (lib/store-origin.ts).
+-  // ?origin=LK comes from a local product's price-breakdown link;
+-  // ?margin=included means the price already has Wishdrop's margin in it
+-  // (social stores).
+-  const [source, setSource] = useState<Source>(() => (searchParams.get("origin") === "LK" ? "local" : "india"))
+-  const [marginIncluded, setMarginIncluded] = useState(() => searchParams.get("margin") === "included")
+-
+-  const [pcsPerUnit, setPcsPerUnit] = useState(() => parsePositiveNumber(searchParams.get("pcs"), 1))
+-  const [valueAmount, setValueAmount] = useState(() => parsePositiveNumber(searchParams.get("value"), 1000))
+-  const [valueCurrency, setValueCurrency] = useState<CurrencyOption>(
+-    () => searchParams.get("currency")?.toUpperCase() || "LKR",
+-  )
+-  const [weightKg, setWeightKg] = useState<number | "">(() => parseOptionalWeight(searchParams.get("weight")))
+-  const [hsCode, setHsCode] = useState(() => searchParams.get("hsCode") ?? "")
+-  const [manualFreight, setManualFreight] = useState<number | "">("")
+-
+-  // Whether anything arrived via the query string, for the "pre-filled" note.
+-  const cameFromProductPage = searchParams.toString().length > 0
+-
+-  const currencyOptions = useMemo(() => {
+-    const opts: string[] = [...DEFAULT_CURRENCY_OPTIONS]
+-    if (!opts.includes(valueCurrency)) opts.push(valueCurrency)
+-    return opts
+-  }, [valueCurrency])
+-
+-  // ---- Live config: editable rates and fees, toggled from the panel below ----
+-  const [showConfig, setShowConfig] = useState(false)
+-
+-  // Customs cascade config
+-  const [freightRateOverride, setFreightRateOverride] = useState(live.customs.freightRatePerKgLKR)
+-  const [defaultWeightOverride, setDefaultWeightOverride] = useState(live.customs.defaultWeightKg)
+-  const [dutyPercentOverride, setDutyPercentOverride] = useState(() => ratesForHsCode(hsCode, live).dutyPercent)
+-  const [palPercentOverride, setPalPercentOverride] = useState(() => ratesForHsCode(hsCode, live).palPercent)
+-  const [cessPercentOverride, setCessPercentOverride] = useState(() => ratesForHsCode(hsCode, live).cessPercent)
+-  const [surchargePercentOverride, setSurchargePercentOverride] = useState(() => ratesForHsCode(hsCode, live).surchargePercent)
+-  const [ssclPercentOverride, setSsclPercentOverride] = useState(() => ratesForHsCode(hsCode, live).sscLPercent)
+-  const [vatPercentOverride, setVatPercentOverride] = useState(() => ratesForHsCode(hsCode, live).vatPercent)
+-
+-  // Simple markup config, shared between Express and Economy
+-  const [profitPercentOverride, setProfitPercentOverride] = useState(live.storefront.profitPercent)
+-  const [weightBlockOverride, setWeightBlockOverride] = useState(live.storefront.weightBlockKg)
+-  const [extraMarginOverride, setExtraMarginOverride] = useState(live.storefront.extraMarginLKR)
+-
+-  // Simple markup config, Express only.
+-  // NOTE: these two are PER-KG values (the UI says "Freight / kg" and they are
+-  // seeded from the per-kg constants), but calculateSimpleQuote() expects
+-  // PER-BLOCK rates and does not convert from per-kg itself. They are scaled by
+-  // weightBlockOverride at the call site below.
+-  const [freightBlockRateOverride, setFreightBlockRateOverride] = useState(live.storefront.freightRatePerKgLKR)
+-  const [customsBlockRateOverride, setCustomsBlockRateOverride] = useState(live.storefront.customsClearanceRatePerKgLKR)
+-  const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(live.storefront.deliveryFeeLKR)
+-
+-  // Simple markup config, Economy only
+-  const [postalRateOverride, setPostalRateOverride] = useState(live.storefront.economyPostalRatePerKgLKR)
+-
+-  // Local shop config
+-  const [localMarginOverride, setLocalMarginOverride] = useState(live.local.marginPercent)
+-  const [localDeliveryOverride, setLocalDeliveryOverride] = useState(live.local.deliveryFeeLKR)
+-  const [handlingOverride, setHandlingOverride] = useState(live.local.pickupFeeLKR)
++// Staff quote calculator. The calculator itself lives in
++// components/quote/QuoteCalculator.tsx so the public /demo/quote page can
++// render the same calculator in its customer mode.
++import QuoteCalculator from '@/components/quote/QuoteCalculator'
+ 
+-  // When the selected HS code changes, re-sync the duty-rate fields to that
+-  // code's real rates, so "Adjust rates & fees" always starts from the right baseline.
+-  useEffect(() => {
+-    const base: QuoteRates = ratesForHsCode(hsCode, getPricingSettings())
+-    setDutyPercentOverride(base.dutyPercent)
+-    setPalPercentOverride(base.palPercent)
+-    setCessPercentOverride(base.cessPercent)
+-    setSurchargePercentOverride(base.surchargePercent)
+-    setSsclPercentOverride(base.sscLPercent)
+-    setVatPercentOverride(base.vatPercent)
+-  }, [hsCode])
+-
+-  function resetCustomsConfig() {
+-    setFreightRateOverride(live.customs.freightRatePerKgLKR)
+-    setDefaultWeightOverride(live.customs.defaultWeightKg)
+-    const base: QuoteRates = ratesForHsCode(hsCode, live)
+-    setDutyPercentOverride(base.dutyPercent)
+-    setPalPercentOverride(base.palPercent)
+-    setCessPercentOverride(base.cessPercent)
+-    setSurchargePercentOverride(base.surchargePercent)
+-    setSsclPercentOverride(base.sscLPercent)
+-    setVatPercentOverride(base.vatPercent)
+-  }
+-
+-  function resetSimpleConfig() {
+-    setProfitPercentOverride(live.storefront.profitPercent)
+-    setFreightBlockRateOverride(live.storefront.freightRatePerKgLKR)
+-    setCustomsBlockRateOverride(live.storefront.customsClearanceRatePerKgLKR)
+-    setWeightBlockOverride(live.storefront.weightBlockKg)
+-    setDeliveryFeeOverride(live.storefront.deliveryFeeLKR)
+-    setExtraMarginOverride(live.storefront.extraMarginLKR)
+-    setPostalRateOverride(live.storefront.economyPostalRatePerKgLKR)
+-  }
+-
+-  // Does anything in the panel differ from the live rates?
+-  const simpleAdjusted =
+-    profitPercentOverride !== live.storefront.profitPercent ||
+-    freightBlockRateOverride !== live.storefront.freightRatePerKgLKR ||
+-    customsBlockRateOverride !== live.storefront.customsClearanceRatePerKgLKR ||
+-    weightBlockOverride !== live.storefront.weightBlockKg ||
+-    deliveryFeeOverride !== live.storefront.deliveryFeeLKR ||
+-    extraMarginOverride !== live.storefront.extraMarginLKR ||
+-    postalRateOverride !== live.storefront.economyPostalRatePerKgLKR
+-
+-  const customsQuote: QuoteBreakdown = useMemo(() => {
+-    return calculateQuote({
+-      pcsPerUnit: pcsPerUnit || 1,
+-      valueINR: valueAmount || 0,
+-      currencyCode: valueCurrency,
+-      weightKg: weightKg === "" ? undefined : Number(weightKg),
+-      hsCode,
+-      freightLKR: manualFreight === "" ? undefined : Number(manualFreight),
+-      freightRatePerKgLKR: freightRateOverride,
+-      defaultWeightKgOverride: defaultWeightOverride,
+-      rateOverrides: {
+-        dutyPercent: dutyPercentOverride,
+-        palPercent: palPercentOverride,
+-        cessPercent: cessPercentOverride,
+-        surchargePercent: surchargePercentOverride,
+-        sscLPercent: ssclPercentOverride,
+-        vatPercent: vatPercentOverride,
+-      },
+-    })
+-  }, [
+-    pcsPerUnit,
+-    valueAmount,
+-    valueCurrency,
+-    weightKg,
+-    hsCode,
+-    manualFreight,
+-    freightRateOverride,
+-    defaultWeightOverride,
+-    dutyPercentOverride,
+-    palPercentOverride,
+-    cessPercentOverride,
+-    surchargePercentOverride,
+-    ssclPercentOverride,
+-    vatPercentOverride,
+-  ])
+-
+-  const simpleQuote: SimpleQuoteBreakdown = useMemo(() => {
+-    return calculateSimpleQuote({
+-      pcsPerUnit: pcsPerUnit || 1,
+-      valueINR: valueAmount || 0,
+-      currencyCode: valueCurrency,
+-      weightKg: weightKg === "" ? undefined : Number(weightKg),
+-      deliveryType,
+-      profitPercentOverride,
+-      // Per-kg in this UI, per-block in calculateSimpleQuote (express only).
+-      freightRatePerBlockLKROverride: freightBlockRateOverride * weightBlockOverride,
+-      customsClearanceRatePerBlockLKROverride: customsBlockRateOverride * weightBlockOverride,
+-      weightBlockKgOverride: weightBlockOverride,
+-      deliveryFeeLKROverride: deliveryFeeOverride,
+-      postalRatePerKgLKROverride: postalRateOverride,
+-      extraMarginLKROverride: extraMarginOverride,
+-    })
+-  }, [
+-    pcsPerUnit,
+-    valueAmount,
+-    valueCurrency,
+-    weightKg,
+-    deliveryType,
+-    profitPercentOverride,
+-    freightBlockRateOverride,
+-    customsBlockRateOverride,
+-    weightBlockOverride,
+-    deliveryFeeOverride,
+-    postalRateOverride,
+-    extraMarginOverride,
+-  ])
+-
+-  // Local shop: same rule as the storefront (lib/pricing.ts local pricing).
+-  const localQuote = useMemo(() => {
+-    const pcs = pcsPerUnit || 1
+-    const productCostLKR = Math.round((valueAmount || 0) * rateToLKR(valueCurrency) * 100) / 100
+-    const marginPercent = marginIncluded ? 0 : localMarginOverride
+-    const marginAmount = Math.round(productCostLKR * (marginPercent / 100) * 100) / 100
+-    const priceLKR = productCostLKR + marginAmount
+-    const perUnit = priceLKR + localDeliveryOverride
+-    return {
+-      productCostLKR,
+-      marginPercent,
+-      marginAmount,
+-      priceLKR,
+-      deliveryFee: localDeliveryOverride,
+-      perUnit,
+-      handling: handlingOverride,
+-      orderTotal: perUnit * pcs + handlingOverride,
+-    }
+-  }, [pcsPerUnit, valueAmount, valueCurrency, marginIncluded, localMarginOverride, localDeliveryOverride, handlingOverride])
+-
+-  const isLocal = source === "local"
+-  const productPriceLKR = isLocal ? localQuote.productCostLKR : mode === "simple" ? simpleQuote.productCostLKR : customsQuote.productPriceLKR
+-  const totalPerUnit = isLocal ? localQuote.perUnit : mode === "simple" ? simpleQuote.totalCost : customsQuote.totalLandedCost
+-  const orderTotal = isLocal ? localQuote.orderTotal : mode === "simple" ? simpleQuote.orderTotalCost : customsQuote.orderTotalLandedCost
+-
+-  const rows: ResultRowData[] = isLocal
+-    ? [
+-        { label: "Shop price (LKR)", value: formatLKR(localQuote.productCostLKR), formula: "= Value entered × exchange rate (1 if already LKR)" },
+-        {
+-          label: marginIncluded ? "Margin (already in the price)" : `Margin (${localQuote.marginPercent}%)`,
+-          value: formatLKR(localQuote.marginAmount),
+-          formula: marginIncluded ? "Social store prices already include the margin" : "= Shop price × local margin %",
+-        },
+-        { label: "Price", value: formatLKR(localQuote.priceLKR), formula: "= Shop price + margin" },
+-        { label: "Delivery", value: formatLKR(localQuote.deliveryFee), formula: "Local delivery fee, per item" },
+-        { label: "Per unit (price + delivery)", value: formatLKR(localQuote.perUnit) },
+-        { label: "Handling (once per order)", value: formatLKR(localQuote.handling), formula: "Shop → warehouse pickup, once per local shop per order" },
+-        { label: "Order total", value: formatLKR(localQuote.orderTotal), formula: "= Per unit × PCS + handling", emphasis: true },
+-      ]
+-    : mode === "simple"
+-      ? [
+-          { label: "Product cost (LKR)", value: formatLKR(simpleQuote.productCostLKR), formula: SIMPLE_FORMULAS.productCost },
+-          {
+-            label: `Profit (${simpleQuote.profitPercent}%)`,
+-            value: formatLKR(simpleQuote.profitAmount),
+-            formula: SIMPLE_FORMULAS.profitAmount,
+-          },
+-          { label: "Cost with profit", value: formatLKR(simpleQuote.costWithProfit), formula: SIMPLE_FORMULAS.costWithProfit },
+-          ...(deliveryType === "express"
+-            ? [
+-                { label: "Freight Charges", value: formatLKR(simpleQuote.freightCharges), formula: SIMPLE_FORMULAS.freightCharges },
+-                {
+-                  label: "Customs Clearance",
+-                  value: formatLKR(simpleQuote.customsClearance),
+-                  formula: SIMPLE_FORMULAS.customsClearance,
+-                },
+-              ]
+-            : [{ label: "Postal Charges", value: formatLKR(simpleQuote.postalCharges), formula: SIMPLE_FORMULAS.postalCharges }]),
+-          { label: "Subtotal", value: formatLKR(simpleQuote.subtotal), formula: SIMPLE_FORMULAS.subtotal },
+-          ...(deliveryType === "express"
+-            ? [
+-                {
+-                  label: "Total + Delivery",
+-                  value: formatLKR(simpleQuote.totalWithDelivery),
+-                  formula: SIMPLE_FORMULAS.totalWithDelivery,
+-                },
+-              ]
+-            : []),
+-          {
+-            label: "Total Cost (+ Extra Margin)",
+-            value: formatLKR(simpleQuote.totalCost),
+-            formula: SIMPLE_FORMULAS.totalCost,
+-            emphasis: true,
+-          },
+-        ]
+-      : [
+-          { label: "Product price (LKR)", value: formatLKR(customsQuote.productPriceLKR), formula: CUSTOMS_FORMULAS.productPrice },
+-          { label: "CIF (per unit)", value: formatLKR(customsQuote.cif), formula: CUSTOMS_FORMULAS.cif },
+-          { label: "Freight (per unit)", value: formatLKR(customsQuote.freight), formula: CUSTOMS_FORMULAS.freight },
+-          {
+-            label: "Customs Duty",
+-            value: `${formatLKR(customsQuote.customsDuty)} (${customsQuote.dutyPercent}%)`,
+-            formula: CUSTOMS_FORMULAS.customsDuty,
+-          },
+-          { label: "PAL", value: `${formatLKR(customsQuote.pal)} (${customsQuote.palPercent}%)`, formula: CUSTOMS_FORMULAS.pal },
+-          { label: "Cess", value: `${formatLKR(customsQuote.cess)} (${customsQuote.cessPercent}%)`, formula: CUSTOMS_FORMULAS.cess },
+-          {
+-            label: "Surcharge on Duty",
+-            value: `${formatLKR(customsQuote.surchargeOnDuty)} (${customsQuote.surchargePercent}%)`,
+-            formula: CUSTOMS_FORMULAS.surchargeOnDuty,
+-          },
+-          { label: "SSCL", value: `${formatLKR(customsQuote.sscl)} (${customsQuote.sscLPercent}%)`, formula: CUSTOMS_FORMULAS.sscl },
+-          {
+-            label: "Duty+PAL+Cess+Surcharge+SSCL",
+-            value: formatLKR(customsQuote.dutyPalCessSurchargeSscl),
+-            formula: CUSTOMS_FORMULAS.dutyPalCessSurchargeSscl,
+-          },
+-          { label: "VAT", value: `${formatLKR(customsQuote.vat)} (${customsQuote.vatPercent}%)`, formula: CUSTOMS_FORMULAS.vat },
+-          { label: "Total Tax", value: formatLKR(customsQuote.totalTax), formula: CUSTOMS_FORMULAS.totalTax, emphasis: true },
+-          {
+-            label: "Price / Landed Cost",
+-            value: `${customsQuote.priceToLandedCostPercent}%`,
+-            formula: CUSTOMS_FORMULAS.priceToLandedCost,
+-          },
+-        ]
+-
+-  return (
+-    <main className="h-full overflow-y-auto bg-parchment font-body text-ink">
+-      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
+-        {/* ── Header ── */}
+-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+-          <div className="flex items-start gap-4">
+-            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
+-              <Calculator size={22} strokeWidth={1.75} />
+-            </div>
+-            <div>
+-              <h1 className="font-display text-3xl font-semibold leading-tight">Quote calculator</h1>
+-              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
+-                Enter what a customer wants to buy and see the landed cost breakdown Wishdrop would quote them, step by
+-                step. Starts from the live rates in the{" "}
+-                <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+-                  Pricing engine
+-                </Link>
+-                .
+-              </p>
+-            </div>
+-          </div>
+-
+-          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
+-            <div className="px-5 py-3">
+-              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">
+-                Order total ({pcsPerUnit} unit{pcsPerUnit === 1 ? "" : "s"})
+-              </dt>
+-              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(orderTotal)}</dd>
+-            </div>
+-            <div className="px-5 py-3">
+-              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Per unit</dt>
+-              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(totalPerUnit)}</dd>
+-            </div>
+-            <div className="px-5 py-3">
+-              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Product price</dt>
+-              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(productPriceLKR)}</dd>
+-            </div>
+-          </dl>
+-        </div>
+-
+-        {/* ── Toolbar ── */}
+-        {(SHOW_MODE_TOGGLE || mode === "simple" || cameFromProductPage || isLocal) && (
+-          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+-            <div className="flex flex-wrap items-center gap-3">
+-              {SHOW_MODE_TOGGLE && (
+-                <Segmented<Mode>
+-                  label="Pricing mode"
+-                  value={mode}
+-                  onChange={setMode}
+-                  options={[
+-                    { key: "simple", label: "Simple markup" },
+-                    { key: "customs", label: "Customs cascade" },
+-                  ]}
+-                />
+-              )}
+-              <Segmented<Source>
+-                label="Where the product comes from"
+-                value={source}
+-                onChange={setSource}
+-                options={[
+-                  { key: "india", label: "Indian store" },
+-                  { key: "local", label: "Local shop" },
+-                ]}
+-              />
+-              {mode === "simple" && !isLocal && (
+-                <Segmented<DeliveryType>
+-                  label="Delivery type"
+-                  value={deliveryType}
+-                  onChange={setDeliveryType}
+-                  options={[
+-                    { key: "express", label: "Express delivery" },
+-                    { key: "economy", label: "Economy delivery" },
+-                  ]}
+-                />
+-              )}
+-            </div>
+-
+-            {cameFromProductPage && (
+-              <p className="text-xs text-ink/45">
+-                Pre-filled from a product page
+-                <Link href={pathname} className={`ml-2 ${LINK_BUTTON}`}>
+-                  Clear
+-                </Link>
+-              </p>
+-            )}
+-          </div>
+-        )}
+-
+-        {/* ── Inputs + dial ── */}
+-        <div className="mt-6 grid items-stretch gap-6 lg:grid-cols-[380px_1fr]">
+-          <div className="space-y-5 rounded-2xl border border-ink/10 bg-card p-6">
+-            <Field label="PCS / Unit" htmlFor="quote-pcs">
+-              <input
+-                id="quote-pcs"
+-                type="number"
+-                min={1}
+-                value={pcsPerUnit}
+-                onChange={(e) => setPcsPerUnit(Number(e.target.value))}
+-                className={FIELD}
+-              />
+-            </Field>
+-
+-            <Field label="Value" htmlFor="quote-value">
+-              <div className="flex overflow-hidden rounded-lg border border-ink/10 bg-card transition-colors focus-within:border-teal/50 focus-within:ring-2 focus-within:ring-teal/15">
+-                <input
+-                  id="quote-value"
+-                  type="number"
+-                  min={0}
+-                  value={valueAmount}
+-                  onChange={(e) => setValueAmount(Number(e.target.value))}
+-                  className="w-full bg-transparent px-3 py-2 text-sm text-ink outline-none"
+-                />
+-                <div role="group" aria-label="Currency" className="flex shrink-0 items-center gap-0.5 border-l border-ink/10 bg-parchment/40 p-1">
+-                  {currencyOptions.map((c) => (
+-                    <button
+-                      key={c}
+-                      type="button"
+-                      aria-pressed={valueCurrency === c}
+-                      onClick={() => setValueCurrency(c)}
+-                      className={`rounded-md px-2 py-1 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+-                        valueCurrency === c ? "bg-teal-deep text-parchment" : "text-ink/50 hover:text-ink/80"
+-                      }`}
+-                    >
+-                      {c}
+-                    </button>
+-                  ))}
+-                </div>
+-              </div>
+-              {valueCurrency !== "LKR" && (
+-                <p className="mt-1.5 text-xs font-semibold tabular-nums text-teal-deep">{formatLKR(productPriceLKR)}</p>
+-              )}
+-            </Field>
+-
+-            {isLocal ? (
+-              <label className="flex items-start gap-2.5 rounded-xl border border-ink/10 bg-parchment/40 px-3 py-2.5 text-sm text-ink/75">
+-                <input
+-                  type="checkbox"
+-                  checked={marginIncluded}
+-                  onChange={(e) => setMarginIncluded(e.target.checked)}
+-                  className="mt-0.5 h-4 w-4 accent-teal-deep"
+-                />
+-                <span>
+-                  Margin already in the price
+-                  <span className="block text-xs text-ink/45">Tick for social store products — their listed price includes the margin.</span>
+-                </span>
+-              </label>
+-            ) : (
+-            <Field
+-              label="Weight (kg)"
+-              htmlFor="quote-weight"
+-              hint={`Leave blank to default to ${mode === "simple" ? weightBlockOverride : defaultWeightOverride} kg`}
+-            >
+-              <input
+-                id="quote-weight"
+-                type="number"
+-                min={0}
+-                step={0.1}
+-                placeholder={String(mode === "simple" ? weightBlockOverride : defaultWeightOverride)}
+-                value={weightKg}
+-                onChange={(e) => setWeightKg(e.target.value === "" ? "" : Number(e.target.value))}
+-                className={FIELD}
+-              />
+-            </Field>
+-            )}
+-
+-            {mode === "customs" && (
+-              <>
+-                <Field
+-                  label="HS Code"
+-                  htmlFor="quote-hs"
+-                  hint={hsCode === "" ? "No code selected, using default rates" : undefined}
+-                >
+-                  <select id="quote-hs" value={hsCode} onChange={(e) => setHsCode(e.target.value)} className={FIELD}>
+-                    <option value="">Select HS code…</option>
+-                    {HS_CODE_OPTIONS.map((o) => (
+-                      <option key={o.code} value={o.code}>
+-                        {o.label}
+-                      </option>
+-                    ))}
+-                  </select>
+-                </Field>
+-
+-                <Field
+-                  label="Freight override (LKR)"
+-                  htmlFor="quote-freight"
+-                  hint={`Optional. Otherwise calculated from weight × Rs ${freightRateOverride}/kg`}
+-                >
+-                  <input
+-                    id="quote-freight"
+-                    type="number"
+-                    min={0}
+-                    placeholder="Auto"
+-                    value={manualFreight}
+-                    onChange={(e) => setManualFreight(e.target.value === "" ? "" : Number(e.target.value))}
+-                    className={FIELD}
+-                  />
+-                </Field>
+-              </>
+-            )}
+-
+-            {/* ---- Adjust rates & fees ---- */}
+-            <div>
+-              <button
+-                type="button"
+-                aria-expanded={showConfig}
+-                onClick={() => setShowConfig((v) => !v)}
+-                className="flex w-full items-center justify-between rounded-xl border border-ink/10 bg-parchment/40 px-3 py-2.5 text-sm font-medium text-ink/75 outline-none transition-colors hover:bg-ink/[0.03] focus-visible:ring-2 focus-visible:ring-teal/40"
+-              >
+-                <span className="inline-flex items-center gap-2">
+-                  <SlidersHorizontal size={14} aria-hidden />
+-                  Adjust rates &amp; fees
+-                  {mode === "simple" && simpleAdjusted && (
+-                    <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold-deep">Adjusted</span>
+-                  )}
+-                </span>
+-                <ChevronDown size={14} className={`text-ink/40 transition-transform ${showConfig ? "rotate-180" : ""}`} aria-hidden />
+-              </button>
+-
+-              {showConfig && (
+-                <div className="mt-3 space-y-3 rounded-xl border border-ink/10 bg-parchment/40 p-4">
+-                  {isLocal ? (
+-                    <>
+-                      <div className="grid grid-cols-2 gap-3">
+-                        <ConfigField label="Local margin" value={localMarginOverride} onChange={setLocalMarginOverride} suffix="%" />
+-                        <ConfigField label="Delivery fee" value={localDeliveryOverride} onChange={setLocalDeliveryOverride} suffix="LKR" />
+-                        <ConfigField label="Handling / order" value={handlingOverride} onChange={setHandlingOverride} suffix="LKR" />
+-                      </div>
+-                      <div className="flex flex-wrap items-center justify-between gap-2">
+-                        <button
+-                          type="button"
+-                          onClick={() => {
+-                            setLocalMarginOverride(live.local.marginPercent)
+-                            setLocalDeliveryOverride(live.local.deliveryFeeLKR)
+-                            setHandlingOverride(live.local.pickupFeeLKR)
+-                          }}
+-                          className={LINK_BUTTON}
+-                        >
+-                          Reset to live rates
+-                        </button>
+-                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+-                          Change live rates
+-                        </Link>
+-                      </div>
+-                    </>
+-                  ) : mode === "simple" ? (
+-                    <>
+-                      <div className="grid grid-cols-2 gap-3">
+-                        <ConfigField label="Profit" value={profitPercentOverride} onChange={setProfitPercentOverride} suffix="%" />
+-                        <ConfigField label="Weight block" value={weightBlockOverride} onChange={setWeightBlockOverride} suffix="kg" />
+-                        {deliveryType === "express" ? (
+-                          <>
+-                            <ConfigField label="Freight / kg" value={freightBlockRateOverride} onChange={setFreightBlockRateOverride} suffix="LKR" />
+-                            <ConfigField
+-                              label="Customs clearance / kg"
+-                              value={customsBlockRateOverride}
+-                              onChange={setCustomsBlockRateOverride}
+-                              suffix="LKR"
+-                            />
+-                            <ConfigField label="Delivery fee" value={deliveryFeeOverride} onChange={setDeliveryFeeOverride} suffix="LKR" />
+-                          </>
+-                        ) : (
+-                          <ConfigField label="Postal charge / kg" value={postalRateOverride} onChange={setPostalRateOverride} suffix="LKR" />
+-                        )}
+-                        <ConfigField label="Extra margin" value={extraMarginOverride} onChange={setExtraMarginOverride} suffix="LKR" />
+-                      </div>
+-                      <div className="flex flex-wrap items-center justify-between gap-2">
+-                        <button type="button" onClick={resetSimpleConfig} className={LINK_BUTTON}>
+-                          Reset to live rates
+-                        </button>
+-                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+-                          Change live rates
+-                        </Link>
+-                      </div>
+-                    </>
+-                  ) : (
+-                    <>
+-                      <div className="grid grid-cols-2 gap-3">
+-                        <ConfigField label="Freight rate" value={freightRateOverride} onChange={setFreightRateOverride} suffix="LKR/kg" />
+-                        <ConfigField label="Default weight" value={defaultWeightOverride} onChange={setDefaultWeightOverride} suffix="kg" />
+-                        <ConfigField label="Duty" value={dutyPercentOverride} onChange={setDutyPercentOverride} suffix="%" />
+-                        <ConfigField label="PAL" value={palPercentOverride} onChange={setPalPercentOverride} suffix="%" />
+-                        <ConfigField label="Cess" value={cessPercentOverride} onChange={setCessPercentOverride} suffix="%" />
+-                        <ConfigField label="Surcharge (on duty)" value={surchargePercentOverride} onChange={setSurchargePercentOverride} suffix="%" />
+-                        <ConfigField label="SSCL" value={ssclPercentOverride} onChange={setSsclPercentOverride} suffix="%" />
+-                        <ConfigField label="VAT" value={vatPercentOverride} onChange={setVatPercentOverride} suffix="%" />
+-                      </div>
+-                      <p className="text-xs leading-relaxed text-ink/45">
+-                        Duty rates reset to the selected HS code&rsquo;s schedule whenever you change the HS code above.
+-                      </p>
+-                      <div className="flex flex-wrap items-center justify-between gap-2">
+-                        <button type="button" onClick={resetCustomsConfig} className={LINK_BUTTON}>
+-                          Reset to live rates
+-                        </button>
+-                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
+-                          Change live rates
+-                        </Link>
+-                      </div>
+-                    </>
+-                  )}
+-                </div>
+-              )}
+-            </div>
+-
+-            <p className="text-xs leading-relaxed text-ink/50">
+-              {valueCurrency === "LKR"
+-                ? "Value entered directly in LKR, no conversion applied."
+-                : `Exchange rate: 1 ${valueCurrency} = ${rateToLKR(valueCurrency)} LKR, the live rate from the Pricing engine (same as the rest of the site).`}
+-            </p>
+-          </div>
+-
+-          {isLocal ? (
+-            <BreakdownDialShell
+-              data={[
+-                { name: "Shop price", value: localQuote.productCostLKR * (pcsPerUnit || 1) },
+-                { name: "Margin", value: localQuote.marginAmount * (pcsPerUnit || 1) },
+-                { name: "Delivery", value: localQuote.deliveryFee * (pcsPerUnit || 1) },
+-                { name: "Handling", value: localQuote.handling },
+-              ].filter((d) => d.value > 0)}
+-              centerValue={localQuote.orderTotal}
+-              centerLabel="Order total"
+-            />
+-          ) : mode === "simple" ? (
+-            <SimpleDial quote={simpleQuote} />
+-          ) : (
+-            <CustomsDial quote={customsQuote} />
+-          )}
+-        </div>
+-
+-        {/* ── Result cards: full width, independent of the narrower input column ── */}
+-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+-          {rows.map((r) => (
+-            <ResultRow key={r.label} {...r} />
+-          ))}
+-        </div>
+-      </div>
+-    </main>
+-  )
+-}
+-
+-function Segmented<T extends string>({
+-  label,
+-  value,
+-  options,
+-  onChange,
+-}: {
+-  label: string
+-  value: T
+-  options: { key: T; label: string }[]
+-  onChange: (v: T) => void
+-}) {
+-  return (
+-    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
+-      {options.map((o) => (
+-        <button
+-          key={o.key}
+-          type="button"
+-          role="radio"
+-          aria-checked={value === o.key}
+-          onClick={() => onChange(o.key)}
+-          className={`rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+-            value === o.key ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
+-          }`}
+-        >
+-          {o.label}
+-        </button>
+-      ))}
+-    </div>
+-  )
+-}
+-
+-function SimpleDial({ quote }: { quote: SimpleQuoteBreakdown }) {
+-  const data = [
+-    { name: "Product cost", value: quote.productCostLKR },
+-    { name: "Profit", value: quote.profitAmount },
+-    { name: "Freight Charges", value: quote.freightCharges },
+-    { name: "Customs Clearance", value: quote.customsClearance },
+-    { name: "Postal Charges", value: quote.postalCharges },
+-    { name: "Delivery", value: quote.deliveryFee },
+-    { name: "Extra Margin", value: quote.extraMargin },
+-  ].filter((d) => d.value > 0)
+-
+-  return <BreakdownDialShell data={data} centerValue={quote.totalCost} centerLabel="Total cost" />
+-}
+-
+-function CustomsDial({ quote }: { quote: QuoteBreakdown }) {
+-  const data = [
+-    { name: "Product price", value: quote.productPriceLKR },
+-    { name: "Freight", value: quote.freight },
+-    { name: "Customs Duty", value: quote.customsDuty },
+-    { name: "PAL", value: quote.pal },
+-    { name: "Cess", value: quote.cess },
+-    { name: "Surcharge", value: quote.surchargeOnDuty },
+-    { name: "SSCL", value: quote.sscl },
+-    { name: "VAT", value: quote.vat },
+-  ].filter((d) => d.value > 0)
+-
+-  return <BreakdownDialShell data={data} centerValue={quote.totalLandedCost} centerLabel="Total landed cost" />
++export default function AdminQuotePage() {
++  return <QuoteCalculator />
+ }
+-
+-function BreakdownDialShell({
+-  data,
+-  centerValue,
+-  centerLabel,
+-}: {
+-  data: { name: string; value: number }[]
+-  centerValue: number
+-  centerLabel: string
+-}) {
+-  return (
+-    <div className="flex h-full flex-col rounded-2xl border border-ink/10 bg-card p-6">
+-      <p className="text-xs font-medium text-ink/50">Cost breakdown</p>
+-      <div className="relative mt-2 min-h-[240px] w-full flex-1">
+-        <ResponsiveContainer width="100%" height="100%">
+-          <PieChart>
+-            <Pie
+-              data={data}
+-              dataKey="value"
+-              nameKey="name"
+-              innerRadius="62%"
+-              outerRadius="90%"
+-              paddingAngle={2}
+-              startAngle={90}
+-              endAngle={-270}
+-              stroke="none"
+-            >
+-              {data.map((_, i) => (
+-                <Cell key={i} fill={BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length]} />
+-              ))}
+-            </Pie>
+-            <RechartsTooltip
+-              formatter={(value, name) => [formatLKR(typeof value === "number" ? value : Number(value ?? 0)), String(name ?? "")]}
+-              contentStyle={{ borderRadius: 12, border: "1px solid rgba(32,36,43,0.1)", fontSize: 12 }}
+-            />
+-          </PieChart>
+-        </ResponsiveContainer>
+-        {/* Centre readout, overlaid on the donut hole */}
+-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+-          <p className="text-xs text-ink/50">{centerLabel}</p>
+-          <p className="mt-0.5 max-w-[140px] text-center font-display text-xl leading-tight tabular-nums text-ink">
+-            {formatLKR(centerValue)}
+-          </p>
+-        </div>
+-      </div>
+-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+-        {data.map((d, i) => (
+-          <div key={d.name} className="flex items-center gap-1.5 text-xs text-ink/70">
+-            <span
+-              className="h-2 w-2 shrink-0 rounded-full"
+-              style={{ backgroundColor: BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length] }}
+-              aria-hidden
+-            />
+-            {d.name}
+-          </div>
+-        ))}
+-      </div>
+-    </div>
+-  )
+-}
+-
+-function Field({
+-  label,
+-  htmlFor,
+-  hint,
+-  children,
+-}: {
+-  label: string
+-  htmlFor: string
+-  hint?: string
+-  children: React.ReactNode
+-}) {
+-  return (
+-    <div>
+-      <label htmlFor={htmlFor} className={`mb-1.5 block ${LABEL}`}>
+-        {label}
+-      </label>
+-      {children}
+-      {hint && <p className="mt-1 text-xs text-ink/45">{hint}</p>}
+-    </div>
+-  )
+-}
+-
+-function ConfigField({
+-  label,
+-  value,
+-  onChange,
+-  suffix,
+-}: {
+-  label: string
+-  value: number
+-  onChange: (v: number) => void
+-  suffix?: string
+-}) {
+-  return (
+-    <label className="block">
+-      <span className={`mb-1 block ${LABEL}`}>{label}</span>
+-      <div className="flex items-center gap-1.5">
+-        <input
+-          type="number"
+-          value={value}
+-          onChange={(e) => onChange(Number(e.target.value))}
+-          className="w-full rounded-lg border border-ink/10 bg-card px-2.5 py-1.5 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
+-        />
+-        {suffix && <span className="shrink-0 text-xs text-ink/45">{suffix}</span>}
+-      </div>
+-    </label>
+-  )
+-}
+-
+-// The formula tooltip opens on hover AND keyboard focus (the card is
+-// focusable), so it is reachable without a mouse.
+-function ResultRow({ label, value, formula, emphasis }: ResultRowData) {
+-  const tipId = useId()
+-
+-  return (
+-    <div
+-      tabIndex={formula ? 0 : undefined}
+-      aria-describedby={formula ? tipId : undefined}
+-      className={`group relative rounded-2xl border px-4 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
+-        emphasis ? "border-teal/30 bg-teal/[0.06]" : "border-ink/10 bg-card hover:border-ink/20"
+-      }`}
+-    >
+-      <p className="text-xs font-medium text-ink/45">{label}</p>
+-      <p className={`mt-0.5 font-display text-base tabular-nums ${emphasis ? "text-teal-deep" : "text-ink"}`}>{value}</p>
+-      {formula && (
+-        <div
+-          id={tipId}
+-          role="tooltip"
+-          className="pointer-events-none absolute left-0 top-full z-10 mt-1.5 w-max max-w-[240px] rounded-xl bg-ink px-3 py-2 text-xs text-parchment opacity-0 shadow-[0_12px_32px_-12px_rgba(32,36,43,0.45)] transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+-        >
+-          {formula}
+-        </div>
+-      )}
+-    </div>
+-  )
+-}
+-
+-// useSearchParams requires a Suspense boundary in the App Router. This wrapper
+-// is the real default export; QuoteDemoPage holds all the logic.
+-export default function QuoteDemoPageRoute() {
+-  return (
+-    <Suspense fallback={null}>
+-      <QuoteDemoPage />
+-    </Suspense>
+-  )
+-}
+\ No newline at end of file
 diff --git a/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx b/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx
 index 0d63c77..1f602b5 100644
 --- a/app/admin/(protected)/(sales)/sellers/[sellerId]/SellerFormClient.tsx
@@ -392,6 +1427,79 @@ index 43dbb90..fd60ee2 100644
          // distinct set from a single large page of real products instead
          // of trusting a hand-typed list. Best-effort: a store with more
          // distinct categories than fit on one page may miss some: raise
+diff --git a/app/demo/quote/page.tsx b/app/demo/quote/page.tsx
+index 6ca796c..db6377c 100644
+--- a/app/demo/quote/page.tsx
++++ b/app/demo/quote/page.tsx
+@@ -1,8 +1,62 @@
+ // app/demo/quote/page.tsx
+ //
+-// The quote calculator, kept at its old /demo/quote address because
+-// product pages link here ("see price breakdown"). It used to be a
+-// separate, older copy with its own hardcoded rates; it now renders the
+-// one calculator (app/admin/(protected)/(common)/quote/page.tsx), which
+-// starts from the live Pricing engine rates.
+-export { default } from '@/app/admin/(protected)/(common)/quote/page'
++// The public address of the quote calculator
++// (components/quote/QuoteCalculator.tsx — the same one staff use at
++// /admin/quote).
++//
++//   /demo/quote?value=…&currency=…   the calculator, pre-filled (as before)
++//   /demo/quote?product=<store>/<handle>&variant=<id>
++//                                    CUSTOMER MODE for one product: only the
++//                                    shopper-safe breakdown, computed here on
++//                                    the server (lib/quote-links.ts). Opened
++//                                    from ?price-breakdown on a product page.
++import type { Metadata } from 'next'
++import { notFound } from 'next/navigation'
++import QuoteCalculator from '@/components/quote/QuoteCalculator'
++import { fetchAffiliatedStore } from '@/lib/supabase/affiliated-stores'
++import { fetchStoreProduct } from '@/lib/store-providers/product'
++import { ensurePricingSettings } from '@/lib/pricing-settings-server'
++import { isStoreStaff } from '@/lib/store-preview'
++import { buildCustomerQuote, fullQuoteHref, variantFromQuery } from '@/lib/quote-links'
++
++type SearchParams = Promise<Record<string, string | string[] | undefined>>
++
++export async function generateMetadata({ searchParams }: { searchParams: SearchParams }): Promise<Metadata> {
++  const q = await searchParams
++  return q.product
++    ? { title: 'Price breakdown', robots: { index: false, follow: false } }
++    : { title: 'Quote calculator' }
++}
++
++export default async function PublicQuotePage({ searchParams }: { searchParams: SearchParams }) {
++  const q = await searchParams
++  const ref = Array.isArray(q.product) ? q.product[0] : q.product
++  if (!ref) return <QuoteCalculator />
++
++  const slash = ref.indexOf('/')
++  const platform = slash > 0 ? ref.slice(0, slash) : ''
++  const handle = slash > 0 ? ref.slice(slash + 1) : ''
++  if (!platform || !handle) notFound()
++
++  // Live (active) stores only — the same visibility as the product page.
++  const store = await fetchAffiliatedStore(platform)
++  if (!store) notFound()
++  const product = await fetchStoreProduct(platform, handle, { includeHidden: false }).catch(() => null)
++  if (!product) notFound()
++
++  const variant = variantFromQuery(product, q)
++  const settings = await ensurePricingSettings()
++  const staff = await isStoreStaff()
++
++  return (
++    <QuoteCalculator
++      customer={buildCustomerQuote(
++        product,
++        variant,
++        { name: store.name, platform: store.platform },
++        settings,
++        staff ? fullQuoteHref('/admin/quote', product, variant, settings) : null,
++      )}
++    />
++  )
++}
 diff --git a/components/admin/seller/JsonApiSettings.tsx b/components/admin/seller/JsonApiSettings.tsx
 new file mode 100644
 index 0000000..f6d8e42
@@ -1273,6 +2381,1293 @@ index 1e72d2f..0e6eda1 100644
          : {
              status: 'pass',
              detail: `Checked ${withVariants.length} product(s) with variants \u2014 pricing present on every option.`,
+diff --git a/components/quote/QuoteCalculator.tsx b/components/quote/QuoteCalculator.tsx
+new file mode 100644
+index 0000000..82f76c4
+--- /dev/null
++++ b/components/quote/QuoteCalculator.tsx
+@@ -0,0 +1,1124 @@
++// components/quote/QuoteCalculator.tsx
++// Rendered by /admin/quote (staff) and /demo/quote (public).
++"use client"
++
++import { Suspense, useEffect, useId, useMemo, useState } from "react"
++import { usePathname, useSearchParams } from "next/navigation"
++import Link from "next/link"
++import { Calculator, ChevronDown, SlidersHorizontal } from "lucide-react"
++import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts"
++
++import {
++  calculateQuote,
++  calculateSimpleQuote,
++  ratesForHsCode,
++  type QuoteBreakdown,
++  type SimpleQuoteBreakdown,
++  type QuoteRates,
++  type DeliveryType,
++} from "@/lib/quote"
++import { rateToLKR } from "@/lib/currency-config"
++import { getPricingSettings, hsCodeOptions } from "@/lib/pricing-settings"
++
++// Quote calculator: enter what a customer wants to buy and see the landed-cost
++// breakdown Wishdrop would quote them, step by step. Same page recipe as the
++// admin list pages (shell, header with a live stat strip, segmented toolbar,
++// bordered surfaces), with the tool itself below.
++//
++// It can be pre-filled from a product page's "see price breakdown" link
++// (?mode=simple&delivery=economy&value=...&currency=...&weight=...&pcs=...
++// &hsCode=...). Anything missing or invalid falls back to this tool's own
++// defaults, so a direct visit behaves exactly as before.
++//
++// Every starting rate comes from the LIVE pricing settings (Admin → Pricing
++// engine, lib/pricing-settings.ts) — the same numbers the storefront uses.
++// "Adjust rates & fees" changes them for this calculation only; to change
++// them for the whole site, use the Pricing engine page.
++
++const PRICING_ENGINE_HREF = "/admin/super-admin/settings/pricing-engine"
++
++// Always-shown currency pills for the Value field. If a product page hands off
++// a currency outside this list (e.g. USD), it's appended at runtime so the
++// incoming value stays visible and selectable instead of silently coerced.
++const DEFAULT_CURRENCY_OPTIONS = ["LKR", "INR"] as const
++type CurrencyOption = string
++
++type Mode = "customs" | "simple"
++
++type Source = "india" | "local"
++
++// The Simple / Customs switch is hidden for now. Flip this to bring it back;
++// ?mode=customs still opens the cascade either way.
++const SHOW_MODE_TOGGLE = false
++
++// Slice colours for the breakdown dial (SVG fills can't use Tailwind tokens):
++// indigo, teal and gold families, one shade per slice.
++const BREAKDOWN_COLORS = ["#1B2A4A", "#3D5A80", "#0F8A7C", "#14B8A6", "#5EEAD4", "#C9A227", "#E3C567", "#D97757"]
++
++// Plain-language formula shown on hover or focus, for each mode's figures.
++const CUSTOMS_FORMULAS: Record<string, string> = {
++  cif: "CIF = Product price + Freight",
++  freight: "Freight = Weight (kg) × rate/kg, or the manual override if set",
++  customsDuty: "Customs Duty = CIF × Duty%",
++  pal: "PAL = (CIF + Customs Duty) × PAL%",
++  cess: "Cess = CIF × Cess%",
++  surchargeOnDuty: "Surcharge on Duty = Customs Duty × Surcharge%",
++  sscl: "SSCL = (CIF + Duty + PAL + Cess + Surcharge) × SSCL%",
++  dutyPalCessSurchargeSscl: "Sum of Duty + PAL + Cess + Surcharge + SSCL",
++  vat: "VAT = (CIF + Duty+PAL+Cess+Surcharge+SSCL) × VAT%",
++  totalTax: "Total Tax = (Duty+PAL+Cess+Surcharge+SSCL) + VAT",
++  priceToLandedCost: "= Product price ÷ Total Landed Cost × 100",
++  productPrice: "= Value entered × exchange rate (1 if already LKR)",
++}
++
++const SIMPLE_FORMULAS: Record<string, string> = {
++  productCost: "= Value entered × exchange rate (1 if already LKR)",
++  profitAmount: "= Product cost × Profit%",
++  costWithProfit: "= Product cost + Profit amount",
++  freightCharges: "= (Weight ÷ weight block kg) × freight rate per block",
++  customsClearance: "= (Weight ÷ weight block kg) × customs clearance rate per block",
++  postalCharges: "= Weight (kg) × postal charge rate per kg",
++  subtotal: "= Cost with profit + Freight Charges + Customs Clearance (Express), or + Postal Charges (Economy)",
++  totalWithDelivery: "= Subtotal + delivery fee (Express only, Economy has no flat delivery fee)",
++  totalCost: "= Total with delivery + extra margin",
++}
++
++const FIELD =
++  "w-full rounded-lg border border-ink/10 bg-card px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink/35 focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
++const LABEL = "text-xs font-medium text-ink/50"
++const LINK_BUTTON = "text-xs font-semibold text-teal-deep underline decoration-dotted underline-offset-4 hover:text-teal"
++
++function formatLKR(value: number) {
++  return `Rs ${value.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
++}
++
++// ---- Query-param parsing helpers ----
++
++function parseMode(value: string | null): Mode {
++  return value === "customs" ? "customs" : "simple"
++}
++
++function parseDeliveryType(value: string | null): DeliveryType {
++  return value === "economy" ? "economy" : "express"
++}
++
++function parsePositiveNumber(value: string | null, fallback: number): number {
++  if (value == null) return fallback
++  const n = Number(value)
++  return Number.isFinite(n) && n > 0 ? n : fallback
++}
++
++function parseOptionalWeight(value: string | null): number | "" {
++  if (!value) return ""
++  const n = Number(value)
++  return Number.isFinite(n) && n > 0 ? n : ""
++}
++
++interface ResultRowData {
++  label: string
++  value: string
++  formula?: string
++  emphasis?: boolean
++}
++
++function QuoteDemoPage() {
++  const searchParams = useSearchParams()
++  const pathname = usePathname()
++
++  // The live rates this calculator starts from (and resets to).
++  const live = getPricingSettings()
++  const HS_CODE_OPTIONS = hsCodeOptions(live)
++
++  const [mode, setMode] = useState<Mode>(() => parseMode(searchParams.get("mode")))
++  const [deliveryType, setDeliveryType] = useState<DeliveryType>(() => parseDeliveryType(searchParams.get("delivery")))
++  // Where the product comes from. A local Sri Lankan shop is never imported:
++  // no freight, customs clearance or service charge — just the shop's price
++  // + margin, delivery, and the handling fee (lib/store-origin.ts).
++  // ?origin=LK comes from a local product's price-breakdown link;
++  // ?margin=included means the price already has Wishdrop's margin in it
++  // (social stores).
++  const [source, setSource] = useState<Source>(() => (searchParams.get("origin") === "LK" ? "local" : "india"))
++  const [marginIncluded, setMarginIncluded] = useState(() => searchParams.get("margin") === "included")
++
++  const [pcsPerUnit, setPcsPerUnit] = useState(() => parsePositiveNumber(searchParams.get("pcs"), 1))
++  const [valueAmount, setValueAmount] = useState(() => parsePositiveNumber(searchParams.get("value"), 1000))
++  const [valueCurrency, setValueCurrency] = useState<CurrencyOption>(
++    () => searchParams.get("currency")?.toUpperCase() || "LKR",
++  )
++  const [weightKg, setWeightKg] = useState<number | "">(() => parseOptionalWeight(searchParams.get("weight")))
++  const [hsCode, setHsCode] = useState(() => searchParams.get("hsCode") ?? "")
++  const [manualFreight, setManualFreight] = useState<number | "">("")
++
++  // Whether anything arrived via the query string, for the "pre-filled" note.
++  const cameFromProductPage = searchParams.toString().length > 0
++
++  const currencyOptions = useMemo(() => {
++    const opts: string[] = [...DEFAULT_CURRENCY_OPTIONS]
++    if (!opts.includes(valueCurrency)) opts.push(valueCurrency)
++    return opts
++  }, [valueCurrency])
++
++  // ---- Live config: editable rates and fees, toggled from the panel below ----
++  const [showConfig, setShowConfig] = useState(false)
++
++  // Customs cascade config
++  const [freightRateOverride, setFreightRateOverride] = useState(live.customs.freightRatePerKgLKR)
++  const [defaultWeightOverride, setDefaultWeightOverride] = useState(live.customs.defaultWeightKg)
++  const [dutyPercentOverride, setDutyPercentOverride] = useState(() => ratesForHsCode(hsCode, live).dutyPercent)
++  const [palPercentOverride, setPalPercentOverride] = useState(() => ratesForHsCode(hsCode, live).palPercent)
++  const [cessPercentOverride, setCessPercentOverride] = useState(() => ratesForHsCode(hsCode, live).cessPercent)
++  const [surchargePercentOverride, setSurchargePercentOverride] = useState(() => ratesForHsCode(hsCode, live).surchargePercent)
++  const [ssclPercentOverride, setSsclPercentOverride] = useState(() => ratesForHsCode(hsCode, live).sscLPercent)
++  const [vatPercentOverride, setVatPercentOverride] = useState(() => ratesForHsCode(hsCode, live).vatPercent)
++
++  // Simple markup config, shared between Express and Economy
++  const [profitPercentOverride, setProfitPercentOverride] = useState(live.storefront.profitPercent)
++  const [weightBlockOverride, setWeightBlockOverride] = useState(live.storefront.weightBlockKg)
++  const [extraMarginOverride, setExtraMarginOverride] = useState(live.storefront.extraMarginLKR)
++
++  // Simple markup config, Express only.
++  // NOTE: these two are PER-KG values (the UI says "Freight / kg" and they are
++  // seeded from the per-kg constants), but calculateSimpleQuote() expects
++  // PER-BLOCK rates and does not convert from per-kg itself. They are scaled by
++  // weightBlockOverride at the call site below.
++  const [freightBlockRateOverride, setFreightBlockRateOverride] = useState(live.storefront.freightRatePerKgLKR)
++  const [customsBlockRateOverride, setCustomsBlockRateOverride] = useState(live.storefront.customsClearanceRatePerKgLKR)
++  const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(live.storefront.deliveryFeeLKR)
++
++  // Simple markup config, Economy only
++  const [postalRateOverride, setPostalRateOverride] = useState(live.storefront.economyPostalRatePerKgLKR)
++
++  // Local shop config
++  const [localMarginOverride, setLocalMarginOverride] = useState(live.local.marginPercent)
++  const [localDeliveryOverride, setLocalDeliveryOverride] = useState(live.local.deliveryFeeLKR)
++  const [handlingOverride, setHandlingOverride] = useState(live.local.pickupFeeLKR)
++
++  // When the selected HS code changes, re-sync the duty-rate fields to that
++  // code's real rates, so "Adjust rates & fees" always starts from the right baseline.
++  useEffect(() => {
++    const base: QuoteRates = ratesForHsCode(hsCode, getPricingSettings())
++    setDutyPercentOverride(base.dutyPercent)
++    setPalPercentOverride(base.palPercent)
++    setCessPercentOverride(base.cessPercent)
++    setSurchargePercentOverride(base.surchargePercent)
++    setSsclPercentOverride(base.sscLPercent)
++    setVatPercentOverride(base.vatPercent)
++  }, [hsCode])
++
++  function resetCustomsConfig() {
++    setFreightRateOverride(live.customs.freightRatePerKgLKR)
++    setDefaultWeightOverride(live.customs.defaultWeightKg)
++    const base: QuoteRates = ratesForHsCode(hsCode, live)
++    setDutyPercentOverride(base.dutyPercent)
++    setPalPercentOverride(base.palPercent)
++    setCessPercentOverride(base.cessPercent)
++    setSurchargePercentOverride(base.surchargePercent)
++    setSsclPercentOverride(base.sscLPercent)
++    setVatPercentOverride(base.vatPercent)
++  }
++
++  function resetSimpleConfig() {
++    setProfitPercentOverride(live.storefront.profitPercent)
++    setFreightBlockRateOverride(live.storefront.freightRatePerKgLKR)
++    setCustomsBlockRateOverride(live.storefront.customsClearanceRatePerKgLKR)
++    setWeightBlockOverride(live.storefront.weightBlockKg)
++    setDeliveryFeeOverride(live.storefront.deliveryFeeLKR)
++    setExtraMarginOverride(live.storefront.extraMarginLKR)
++    setPostalRateOverride(live.storefront.economyPostalRatePerKgLKR)
++  }
++
++  // Does anything in the panel differ from the live rates?
++  const simpleAdjusted =
++    profitPercentOverride !== live.storefront.profitPercent ||
++    freightBlockRateOverride !== live.storefront.freightRatePerKgLKR ||
++    customsBlockRateOverride !== live.storefront.customsClearanceRatePerKgLKR ||
++    weightBlockOverride !== live.storefront.weightBlockKg ||
++    deliveryFeeOverride !== live.storefront.deliveryFeeLKR ||
++    extraMarginOverride !== live.storefront.extraMarginLKR ||
++    postalRateOverride !== live.storefront.economyPostalRatePerKgLKR
++
++  const customsQuote: QuoteBreakdown = useMemo(() => {
++    return calculateQuote({
++      pcsPerUnit: pcsPerUnit || 1,
++      valueINR: valueAmount || 0,
++      currencyCode: valueCurrency,
++      weightKg: weightKg === "" ? undefined : Number(weightKg),
++      hsCode,
++      freightLKR: manualFreight === "" ? undefined : Number(manualFreight),
++      freightRatePerKgLKR: freightRateOverride,
++      defaultWeightKgOverride: defaultWeightOverride,
++      rateOverrides: {
++        dutyPercent: dutyPercentOverride,
++        palPercent: palPercentOverride,
++        cessPercent: cessPercentOverride,
++        surchargePercent: surchargePercentOverride,
++        sscLPercent: ssclPercentOverride,
++        vatPercent: vatPercentOverride,
++      },
++    })
++  }, [
++    pcsPerUnit,
++    valueAmount,
++    valueCurrency,
++    weightKg,
++    hsCode,
++    manualFreight,
++    freightRateOverride,
++    defaultWeightOverride,
++    dutyPercentOverride,
++    palPercentOverride,
++    cessPercentOverride,
++    surchargePercentOverride,
++    ssclPercentOverride,
++    vatPercentOverride,
++  ])
++
++  const simpleQuote: SimpleQuoteBreakdown = useMemo(() => {
++    return calculateSimpleQuote({
++      pcsPerUnit: pcsPerUnit || 1,
++      valueINR: valueAmount || 0,
++      currencyCode: valueCurrency,
++      weightKg: weightKg === "" ? undefined : Number(weightKg),
++      deliveryType,
++      profitPercentOverride,
++      // Per-kg in this UI, per-block in calculateSimpleQuote (express only).
++      freightRatePerBlockLKROverride: freightBlockRateOverride * weightBlockOverride,
++      customsClearanceRatePerBlockLKROverride: customsBlockRateOverride * weightBlockOverride,
++      weightBlockKgOverride: weightBlockOverride,
++      deliveryFeeLKROverride: deliveryFeeOverride,
++      postalRatePerKgLKROverride: postalRateOverride,
++      extraMarginLKROverride: extraMarginOverride,
++    })
++  }, [
++    pcsPerUnit,
++    valueAmount,
++    valueCurrency,
++    weightKg,
++    deliveryType,
++    profitPercentOverride,
++    freightBlockRateOverride,
++    customsBlockRateOverride,
++    weightBlockOverride,
++    deliveryFeeOverride,
++    postalRateOverride,
++    extraMarginOverride,
++  ])
++
++  // Local shop: same rule as the storefront (lib/pricing.ts local pricing).
++  const localQuote = useMemo(() => {
++    const pcs = pcsPerUnit || 1
++    const productCostLKR = Math.round((valueAmount || 0) * rateToLKR(valueCurrency) * 100) / 100
++    const marginPercent = marginIncluded ? 0 : localMarginOverride
++    const marginAmount = Math.round(productCostLKR * (marginPercent / 100) * 100) / 100
++    const priceLKR = productCostLKR + marginAmount
++    const perUnit = priceLKR + localDeliveryOverride
++    return {
++      productCostLKR,
++      marginPercent,
++      marginAmount,
++      priceLKR,
++      deliveryFee: localDeliveryOverride,
++      perUnit,
++      handling: handlingOverride,
++      orderTotal: perUnit * pcs + handlingOverride,
++    }
++  }, [pcsPerUnit, valueAmount, valueCurrency, marginIncluded, localMarginOverride, localDeliveryOverride, handlingOverride])
++
++  const isLocal = source === "local"
++  const productPriceLKR = isLocal ? localQuote.productCostLKR : mode === "simple" ? simpleQuote.productCostLKR : customsQuote.productPriceLKR
++  const totalPerUnit = isLocal ? localQuote.perUnit : mode === "simple" ? simpleQuote.totalCost : customsQuote.totalLandedCost
++  const orderTotal = isLocal ? localQuote.orderTotal : mode === "simple" ? simpleQuote.orderTotalCost : customsQuote.orderTotalLandedCost
++
++  const rows: ResultRowData[] = isLocal
++    ? [
++        { label: "Shop price (LKR)", value: formatLKR(localQuote.productCostLKR), formula: "= Value entered × exchange rate (1 if already LKR)" },
++        {
++          label: marginIncluded ? "Margin (already in the price)" : `Margin (${localQuote.marginPercent}%)`,
++          value: formatLKR(localQuote.marginAmount),
++          formula: marginIncluded ? "Social store prices already include the margin" : "= Shop price × local margin %",
++        },
++        { label: "Price", value: formatLKR(localQuote.priceLKR), formula: "= Shop price + margin" },
++        { label: "Delivery", value: formatLKR(localQuote.deliveryFee), formula: "Local delivery fee, per item" },
++        { label: "Per unit (price + delivery)", value: formatLKR(localQuote.perUnit) },
++        { label: "Handling (once per order)", value: formatLKR(localQuote.handling), formula: "Shop → warehouse pickup, once per local shop per order" },
++        { label: "Order total", value: formatLKR(localQuote.orderTotal), formula: "= Per unit × PCS + handling", emphasis: true },
++      ]
++    : mode === "simple"
++      ? [
++          { label: "Product cost (LKR)", value: formatLKR(simpleQuote.productCostLKR), formula: SIMPLE_FORMULAS.productCost },
++          {
++            label: `Profit (${simpleQuote.profitPercent}%)`,
++            value: formatLKR(simpleQuote.profitAmount),
++            formula: SIMPLE_FORMULAS.profitAmount,
++          },
++          { label: "Cost with profit", value: formatLKR(simpleQuote.costWithProfit), formula: SIMPLE_FORMULAS.costWithProfit },
++          ...(deliveryType === "express"
++            ? [
++                { label: "Freight Charges", value: formatLKR(simpleQuote.freightCharges), formula: SIMPLE_FORMULAS.freightCharges },
++                {
++                  label: "Customs Clearance",
++                  value: formatLKR(simpleQuote.customsClearance),
++                  formula: SIMPLE_FORMULAS.customsClearance,
++                },
++              ]
++            : [{ label: "Postal Charges", value: formatLKR(simpleQuote.postalCharges), formula: SIMPLE_FORMULAS.postalCharges }]),
++          { label: "Subtotal", value: formatLKR(simpleQuote.subtotal), formula: SIMPLE_FORMULAS.subtotal },
++          ...(deliveryType === "express"
++            ? [
++                {
++                  label: "Total + Delivery",
++                  value: formatLKR(simpleQuote.totalWithDelivery),
++                  formula: SIMPLE_FORMULAS.totalWithDelivery,
++                },
++              ]
++            : []),
++          {
++            label: "Total Cost (+ Extra Margin)",
++            value: formatLKR(simpleQuote.totalCost),
++            formula: SIMPLE_FORMULAS.totalCost,
++            emphasis: true,
++          },
++        ]
++      : [
++          { label: "Product price (LKR)", value: formatLKR(customsQuote.productPriceLKR), formula: CUSTOMS_FORMULAS.productPrice },
++          { label: "CIF (per unit)", value: formatLKR(customsQuote.cif), formula: CUSTOMS_FORMULAS.cif },
++          { label: "Freight (per unit)", value: formatLKR(customsQuote.freight), formula: CUSTOMS_FORMULAS.freight },
++          {
++            label: "Customs Duty",
++            value: `${formatLKR(customsQuote.customsDuty)} (${customsQuote.dutyPercent}%)`,
++            formula: CUSTOMS_FORMULAS.customsDuty,
++          },
++          { label: "PAL", value: `${formatLKR(customsQuote.pal)} (${customsQuote.palPercent}%)`, formula: CUSTOMS_FORMULAS.pal },
++          { label: "Cess", value: `${formatLKR(customsQuote.cess)} (${customsQuote.cessPercent}%)`, formula: CUSTOMS_FORMULAS.cess },
++          {
++            label: "Surcharge on Duty",
++            value: `${formatLKR(customsQuote.surchargeOnDuty)} (${customsQuote.surchargePercent}%)`,
++            formula: CUSTOMS_FORMULAS.surchargeOnDuty,
++          },
++          { label: "SSCL", value: `${formatLKR(customsQuote.sscl)} (${customsQuote.sscLPercent}%)`, formula: CUSTOMS_FORMULAS.sscl },
++          {
++            label: "Duty+PAL+Cess+Surcharge+SSCL",
++            value: formatLKR(customsQuote.dutyPalCessSurchargeSscl),
++            formula: CUSTOMS_FORMULAS.dutyPalCessSurchargeSscl,
++          },
++          { label: "VAT", value: `${formatLKR(customsQuote.vat)} (${customsQuote.vatPercent}%)`, formula: CUSTOMS_FORMULAS.vat },
++          { label: "Total Tax", value: formatLKR(customsQuote.totalTax), formula: CUSTOMS_FORMULAS.totalTax, emphasis: true },
++          {
++            label: "Price / Landed Cost",
++            value: `${customsQuote.priceToLandedCostPercent}%`,
++            formula: CUSTOMS_FORMULAS.priceToLandedCost,
++          },
++        ]
++
++  return (
++    <main className="h-full overflow-y-auto bg-parchment font-body text-ink">
++      <div className="mx-auto max-w-[1560px] px-6 pb-20 pt-10 lg:px-10">
++        {/* ── Header ── */}
++        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
++          <div className="flex items-start gap-4">
++            <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
++              <Calculator size={22} strokeWidth={1.75} />
++            </div>
++            <div>
++              <h1 className="font-display text-3xl font-semibold leading-tight">Quote calculator</h1>
++              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
++                Enter what a customer wants to buy and see the landed cost breakdown Wishdrop would quote them, step by
++                step. Starts from the live rates in the{" "}
++                <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
++                  Pricing engine
++                </Link>
++                .
++              </p>
++            </div>
++          </div>
++
++          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
++            <div className="px-5 py-3">
++              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">
++                Order total ({pcsPerUnit} unit{pcsPerUnit === 1 ? "" : "s"})
++              </dt>
++              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(orderTotal)}</dd>
++            </div>
++            <div className="px-5 py-3">
++              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Per unit</dt>
++              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(totalPerUnit)}</dd>
++            </div>
++            <div className="px-5 py-3">
++              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Product price</dt>
++              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(productPriceLKR)}</dd>
++            </div>
++          </dl>
++        </div>
++
++        {/* ── Toolbar ── */}
++        {(SHOW_MODE_TOGGLE || mode === "simple" || cameFromProductPage || isLocal) && (
++          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
++            <div className="flex flex-wrap items-center gap-3">
++              {SHOW_MODE_TOGGLE && (
++                <Segmented<Mode>
++                  label="Pricing mode"
++                  value={mode}
++                  onChange={setMode}
++                  options={[
++                    { key: "simple", label: "Simple markup" },
++                    { key: "customs", label: "Customs cascade" },
++                  ]}
++                />
++              )}
++              <Segmented<Source>
++                label="Where the product comes from"
++                value={source}
++                onChange={setSource}
++                options={[
++                  { key: "india", label: "Indian store" },
++                  { key: "local", label: "Local shop" },
++                ]}
++              />
++              {mode === "simple" && !isLocal && (
++                <Segmented<DeliveryType>
++                  label="Delivery type"
++                  value={deliveryType}
++                  onChange={setDeliveryType}
++                  options={[
++                    { key: "express", label: "Express delivery" },
++                    { key: "economy", label: "Economy delivery" },
++                  ]}
++                />
++              )}
++            </div>
++
++            {cameFromProductPage && (
++              <p className="text-xs text-ink/45">
++                {searchParams.get("label") ? `Pre-filled from ${searchParams.get("label")}` : "Pre-filled from a product page"}
++                <Link href={pathname} className={`ml-2 ${LINK_BUTTON}`}>
++                  Clear
++                </Link>
++              </p>
++            )}
++          </div>
++        )}
++
++        {/* ── Inputs + dial ── */}
++        <div className="mt-6 grid items-stretch gap-6 lg:grid-cols-[380px_1fr]">
++          <div className="space-y-5 rounded-2xl border border-ink/10 bg-card p-6">
++            <Field label="PCS / Unit" htmlFor="quote-pcs">
++              <input
++                id="quote-pcs"
++                type="number"
++                min={1}
++                value={pcsPerUnit}
++                onChange={(e) => setPcsPerUnit(Number(e.target.value))}
++                className={FIELD}
++              />
++            </Field>
++
++            <Field label="Value" htmlFor="quote-value">
++              <div className="flex overflow-hidden rounded-lg border border-ink/10 bg-card transition-colors focus-within:border-teal/50 focus-within:ring-2 focus-within:ring-teal/15">
++                <input
++                  id="quote-value"
++                  type="number"
++                  min={0}
++                  value={valueAmount}
++                  onChange={(e) => setValueAmount(Number(e.target.value))}
++                  className="w-full bg-transparent px-3 py-2 text-sm text-ink outline-none"
++                />
++                <div role="group" aria-label="Currency" className="flex shrink-0 items-center gap-0.5 border-l border-ink/10 bg-parchment/40 p-1">
++                  {currencyOptions.map((c) => (
++                    <button
++                      key={c}
++                      type="button"
++                      aria-pressed={valueCurrency === c}
++                      onClick={() => setValueCurrency(c)}
++                      className={`rounded-md px-2 py-1 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
++                        valueCurrency === c ? "bg-teal-deep text-parchment" : "text-ink/50 hover:text-ink/80"
++                      }`}
++                    >
++                      {c}
++                    </button>
++                  ))}
++                </div>
++              </div>
++              {valueCurrency !== "LKR" && (
++                <p className="mt-1.5 text-xs font-semibold tabular-nums text-teal-deep">{formatLKR(productPriceLKR)}</p>
++              )}
++            </Field>
++
++            {isLocal ? (
++              <label className="flex items-start gap-2.5 rounded-xl border border-ink/10 bg-parchment/40 px-3 py-2.5 text-sm text-ink/75">
++                <input
++                  type="checkbox"
++                  checked={marginIncluded}
++                  onChange={(e) => setMarginIncluded(e.target.checked)}
++                  className="mt-0.5 h-4 w-4 accent-teal-deep"
++                />
++                <span>
++                  Margin already in the price
++                  <span className="block text-xs text-ink/45">Tick for social store products — their listed price includes the margin.</span>
++                </span>
++              </label>
++            ) : (
++            <Field
++              label="Weight (kg)"
++              htmlFor="quote-weight"
++              hint={`Leave blank to default to ${mode === "simple" ? weightBlockOverride : defaultWeightOverride} kg`}
++            >
++              <input
++                id="quote-weight"
++                type="number"
++                min={0}
++                step={0.1}
++                placeholder={String(mode === "simple" ? weightBlockOverride : defaultWeightOverride)}
++                value={weightKg}
++                onChange={(e) => setWeightKg(e.target.value === "" ? "" : Number(e.target.value))}
++                className={FIELD}
++              />
++            </Field>
++            )}
++
++            {mode === "customs" && (
++              <>
++                <Field
++                  label="HS Code"
++                  htmlFor="quote-hs"
++                  hint={hsCode === "" ? "No code selected, using default rates" : undefined}
++                >
++                  <select id="quote-hs" value={hsCode} onChange={(e) => setHsCode(e.target.value)} className={FIELD}>
++                    <option value="">Select HS code…</option>
++                    {HS_CODE_OPTIONS.map((o) => (
++                      <option key={o.code} value={o.code}>
++                        {o.label}
++                      </option>
++                    ))}
++                  </select>
++                </Field>
++
++                <Field
++                  label="Freight override (LKR)"
++                  htmlFor="quote-freight"
++                  hint={`Optional. Otherwise calculated from weight × Rs ${freightRateOverride}/kg`}
++                >
++                  <input
++                    id="quote-freight"
++                    type="number"
++                    min={0}
++                    placeholder="Auto"
++                    value={manualFreight}
++                    onChange={(e) => setManualFreight(e.target.value === "" ? "" : Number(e.target.value))}
++                    className={FIELD}
++                  />
++                </Field>
++              </>
++            )}
++
++            {/* ---- Adjust rates & fees ---- */}
++            <div>
++              <button
++                type="button"
++                aria-expanded={showConfig}
++                onClick={() => setShowConfig((v) => !v)}
++                className="flex w-full items-center justify-between rounded-xl border border-ink/10 bg-parchment/40 px-3 py-2.5 text-sm font-medium text-ink/75 outline-none transition-colors hover:bg-ink/[0.03] focus-visible:ring-2 focus-visible:ring-teal/40"
++              >
++                <span className="inline-flex items-center gap-2">
++                  <SlidersHorizontal size={14} aria-hidden />
++                  Adjust rates &amp; fees
++                  {mode === "simple" && simpleAdjusted && (
++                    <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold-deep">Adjusted</span>
++                  )}
++                </span>
++                <ChevronDown size={14} className={`text-ink/40 transition-transform ${showConfig ? "rotate-180" : ""}`} aria-hidden />
++              </button>
++
++              {showConfig && (
++                <div className="mt-3 space-y-3 rounded-xl border border-ink/10 bg-parchment/40 p-4">
++                  {isLocal ? (
++                    <>
++                      <div className="grid grid-cols-2 gap-3">
++                        <ConfigField label="Local margin" value={localMarginOverride} onChange={setLocalMarginOverride} suffix="%" />
++                        <ConfigField label="Delivery fee" value={localDeliveryOverride} onChange={setLocalDeliveryOverride} suffix="LKR" />
++                        <ConfigField label="Handling / order" value={handlingOverride} onChange={setHandlingOverride} suffix="LKR" />
++                      </div>
++                      <div className="flex flex-wrap items-center justify-between gap-2">
++                        <button
++                          type="button"
++                          onClick={() => {
++                            setLocalMarginOverride(live.local.marginPercent)
++                            setLocalDeliveryOverride(live.local.deliveryFeeLKR)
++                            setHandlingOverride(live.local.pickupFeeLKR)
++                          }}
++                          className={LINK_BUTTON}
++                        >
++                          Reset to live rates
++                        </button>
++                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
++                          Change live rates
++                        </Link>
++                      </div>
++                    </>
++                  ) : mode === "simple" ? (
++                    <>
++                      <div className="grid grid-cols-2 gap-3">
++                        <ConfigField label="Profit" value={profitPercentOverride} onChange={setProfitPercentOverride} suffix="%" />
++                        <ConfigField label="Weight block" value={weightBlockOverride} onChange={setWeightBlockOverride} suffix="kg" />
++                        {deliveryType === "express" ? (
++                          <>
++                            <ConfigField label="Freight / kg" value={freightBlockRateOverride} onChange={setFreightBlockRateOverride} suffix="LKR" />
++                            <ConfigField
++                              label="Customs clearance / kg"
++                              value={customsBlockRateOverride}
++                              onChange={setCustomsBlockRateOverride}
++                              suffix="LKR"
++                            />
++                            <ConfigField label="Delivery fee" value={deliveryFeeOverride} onChange={setDeliveryFeeOverride} suffix="LKR" />
++                          </>
++                        ) : (
++                          <ConfigField label="Postal charge / kg" value={postalRateOverride} onChange={setPostalRateOverride} suffix="LKR" />
++                        )}
++                        <ConfigField label="Extra margin" value={extraMarginOverride} onChange={setExtraMarginOverride} suffix="LKR" />
++                      </div>
++                      <div className="flex flex-wrap items-center justify-between gap-2">
++                        <button type="button" onClick={resetSimpleConfig} className={LINK_BUTTON}>
++                          Reset to live rates
++                        </button>
++                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
++                          Change live rates
++                        </Link>
++                      </div>
++                    </>
++                  ) : (
++                    <>
++                      <div className="grid grid-cols-2 gap-3">
++                        <ConfigField label="Freight rate" value={freightRateOverride} onChange={setFreightRateOverride} suffix="LKR/kg" />
++                        <ConfigField label="Default weight" value={defaultWeightOverride} onChange={setDefaultWeightOverride} suffix="kg" />
++                        <ConfigField label="Duty" value={dutyPercentOverride} onChange={setDutyPercentOverride} suffix="%" />
++                        <ConfigField label="PAL" value={palPercentOverride} onChange={setPalPercentOverride} suffix="%" />
++                        <ConfigField label="Cess" value={cessPercentOverride} onChange={setCessPercentOverride} suffix="%" />
++                        <ConfigField label="Surcharge (on duty)" value={surchargePercentOverride} onChange={setSurchargePercentOverride} suffix="%" />
++                        <ConfigField label="SSCL" value={ssclPercentOverride} onChange={setSsclPercentOverride} suffix="%" />
++                        <ConfigField label="VAT" value={vatPercentOverride} onChange={setVatPercentOverride} suffix="%" />
++                      </div>
++                      <p className="text-xs leading-relaxed text-ink/45">
++                        Duty rates reset to the selected HS code&rsquo;s schedule whenever you change the HS code above.
++                      </p>
++                      <div className="flex flex-wrap items-center justify-between gap-2">
++                        <button type="button" onClick={resetCustomsConfig} className={LINK_BUTTON}>
++                          Reset to live rates
++                        </button>
++                        <Link href={PRICING_ENGINE_HREF} className={LINK_BUTTON}>
++                          Change live rates
++                        </Link>
++                      </div>
++                    </>
++                  )}
++                </div>
++              )}
++            </div>
++
++            <p className="text-xs leading-relaxed text-ink/50">
++              {valueCurrency === "LKR"
++                ? "Value entered directly in LKR, no conversion applied."
++                : `Exchange rate: 1 ${valueCurrency} = ${rateToLKR(valueCurrency)} LKR, the live rate from the Pricing engine (same as the rest of the site).`}
++            </p>
++          </div>
++
++          {isLocal ? (
++            <BreakdownDialShell
++              data={[
++                { name: "Shop price", value: localQuote.productCostLKR * (pcsPerUnit || 1) },
++                { name: "Margin", value: localQuote.marginAmount * (pcsPerUnit || 1) },
++                { name: "Delivery", value: localQuote.deliveryFee * (pcsPerUnit || 1) },
++                { name: "Handling", value: localQuote.handling },
++              ].filter((d) => d.value > 0)}
++              centerValue={localQuote.orderTotal}
++              centerLabel="Order total"
++            />
++          ) : mode === "simple" ? (
++            <SimpleDial quote={simpleQuote} />
++          ) : (
++            <CustomsDial quote={customsQuote} />
++          )}
++        </div>
++
++        {/* ── Result cards: full width, independent of the narrower input column ── */}
++        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
++          {rows.map((r) => (
++            <ResultRow key={r.label} {...r} />
++          ))}
++        </div>
++      </div>
++    </main>
++  )
++}
++
++function Segmented<T extends string>({
++  label,
++  value,
++  options,
++  onChange,
++}: {
++  label: string
++  value: T
++  options: { key: T; label: string }[]
++  onChange: (v: T) => void
++}) {
++  return (
++    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1 rounded-full border border-ink/10 bg-card p-1">
++      {options.map((o) => (
++        <button
++          key={o.key}
++          type="button"
++          role="radio"
++          aria-checked={value === o.key}
++          onClick={() => onChange(o.key)}
++          className={`rounded-full px-3.5 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
++            value === o.key ? "bg-teal-deep text-parchment" : "text-ink/55 hover:text-ink/80"
++          }`}
++        >
++          {o.label}
++        </button>
++      ))}
++    </div>
++  )
++}
++
++function SimpleDial({ quote }: { quote: SimpleQuoteBreakdown }) {
++  const data = [
++    { name: "Product cost", value: quote.productCostLKR },
++    { name: "Profit", value: quote.profitAmount },
++    { name: "Freight Charges", value: quote.freightCharges },
++    { name: "Customs Clearance", value: quote.customsClearance },
++    { name: "Postal Charges", value: quote.postalCharges },
++    { name: "Delivery", value: quote.deliveryFee },
++    { name: "Extra Margin", value: quote.extraMargin },
++  ].filter((d) => d.value > 0)
++
++  return <BreakdownDialShell data={data} centerValue={quote.totalCost} centerLabel="Total cost" />
++}
++
++function CustomsDial({ quote }: { quote: QuoteBreakdown }) {
++  const data = [
++    { name: "Product price", value: quote.productPriceLKR },
++    { name: "Freight", value: quote.freight },
++    { name: "Customs Duty", value: quote.customsDuty },
++    { name: "PAL", value: quote.pal },
++    { name: "Cess", value: quote.cess },
++    { name: "Surcharge", value: quote.surchargeOnDuty },
++    { name: "SSCL", value: quote.sscl },
++    { name: "VAT", value: quote.vat },
++  ].filter((d) => d.value > 0)
++
++  return <BreakdownDialShell data={data} centerValue={quote.totalLandedCost} centerLabel="Total landed cost" />
++}
++
++function BreakdownDialShell({
++  data,
++  centerValue,
++  centerLabel,
++}: {
++  data: { name: string; value: number }[]
++  centerValue: number
++  centerLabel: string
++}) {
++  return (
++    <div className="flex h-full flex-col rounded-2xl border border-ink/10 bg-card p-6">
++      <p className="text-xs font-medium text-ink/50">Cost breakdown</p>
++      <div className="relative mt-2 min-h-[240px] w-full flex-1">
++        <ResponsiveContainer width="100%" height="100%">
++          <PieChart>
++            <Pie
++              data={data}
++              dataKey="value"
++              nameKey="name"
++              innerRadius="62%"
++              outerRadius="90%"
++              paddingAngle={2}
++              startAngle={90}
++              endAngle={-270}
++              stroke="none"
++            >
++              {data.map((_, i) => (
++                <Cell key={i} fill={BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length]} />
++              ))}
++            </Pie>
++            <RechartsTooltip
++              formatter={(value, name) => [formatLKR(typeof value === "number" ? value : Number(value ?? 0)), String(name ?? "")]}
++              contentStyle={{ borderRadius: 12, border: "1px solid rgba(32,36,43,0.1)", fontSize: 12 }}
++            />
++          </PieChart>
++        </ResponsiveContainer>
++        {/* Centre readout, overlaid on the donut hole */}
++        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
++          <p className="text-xs text-ink/50">{centerLabel}</p>
++          <p className="mt-0.5 max-w-[140px] text-center font-display text-xl leading-tight tabular-nums text-ink">
++            {formatLKR(centerValue)}
++          </p>
++        </div>
++      </div>
++      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
++        {data.map((d, i) => (
++          <div key={d.name} className="flex items-center gap-1.5 text-xs text-ink/70">
++            <span
++              className="h-2 w-2 shrink-0 rounded-full"
++              style={{ backgroundColor: BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length] }}
++              aria-hidden
++            />
++            {d.name}
++          </div>
++        ))}
++      </div>
++    </div>
++  )
++}
++
++function Field({
++  label,
++  htmlFor,
++  hint,
++  children,
++}: {
++  label: string
++  htmlFor: string
++  hint?: string
++  children: React.ReactNode
++}) {
++  return (
++    <div>
++      <label htmlFor={htmlFor} className={`mb-1.5 block ${LABEL}`}>
++        {label}
++      </label>
++      {children}
++      {hint && <p className="mt-1 text-xs text-ink/45">{hint}</p>}
++    </div>
++  )
++}
++
++function ConfigField({
++  label,
++  value,
++  onChange,
++  suffix,
++}: {
++  label: string
++  value: number
++  onChange: (v: number) => void
++  suffix?: string
++}) {
++  return (
++    <label className="block">
++      <span className={`mb-1 block ${LABEL}`}>{label}</span>
++      <div className="flex items-center gap-1.5">
++        <input
++          type="number"
++          value={value}
++          onChange={(e) => onChange(Number(e.target.value))}
++          className="w-full rounded-lg border border-ink/10 bg-card px-2.5 py-1.5 text-sm text-ink outline-none transition-colors focus:border-teal/50 focus:ring-2 focus:ring-teal/15"
++        />
++        {suffix && <span className="shrink-0 text-xs text-ink/45">{suffix}</span>}
++      </div>
++    </label>
++  )
++}
++
++// The formula tooltip opens on hover AND keyboard focus (the card is
++// focusable), so it is reachable without a mouse.
++function ResultRow({ label, value, formula, emphasis }: ResultRowData) {
++  const tipId = useId()
++
++  return (
++    <div
++      tabIndex={formula ? 0 : undefined}
++      aria-describedby={formula ? tipId : undefined}
++      className={`group relative rounded-2xl border px-4 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-teal/40 ${
++        emphasis ? "border-teal/30 bg-teal/[0.06]" : "border-ink/10 bg-card hover:border-ink/20"
++      }`}
++    >
++      <p className="text-xs font-medium text-ink/45">{label}</p>
++      <p className={`mt-0.5 font-display text-base tabular-nums ${emphasis ? "text-teal-deep" : "text-ink"}`}>{value}</p>
++      {formula && (
++        <div
++          id={tipId}
++          role="tooltip"
++          className="pointer-events-none absolute left-0 top-full z-10 mt-1.5 w-max max-w-[240px] rounded-xl bg-ink px-3 py-2 text-xs text-parchment opacity-0 shadow-[0_12px_32px_-12px_rgba(32,36,43,0.45)] transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
++        >
++          {formula}
++        </div>
++      )}
++    </div>
++  )
++}
++
++// ============================================================
++// CUSTOMER MODE
++// ============================================================
++//
++// /demo/quote?product=<store>/<handle>&variant=<id> — a product's price
++// breakdown for SHOPPERS, opened from ?price-breakdown on a product page.
++// Same page, same parts (Segmented, ResultRow, dial), but only the
++// shopper-safe numbers: Price, Service charge, Delivery, Total. No Value
++// input, no rates panel, no profit / exchange-rate / freight rows.
++//
++// Every number here was computed on the server (app/demo/quote/page.tsx,
++// lib/quote-links.ts) — the seller's own price is never sent to the
++// browser in this mode, so it can't be read from the URL or the page.
++
++export interface CustomerQuoteOption {
++  id: "express" | "economy" | "single"
++  label: string
++  /** Shown but not choosable (e.g. Economy while it's switched off). */
++  unavailable?: boolean
++  price: number
++  compareAt: number | null
++  discountPercent: number | null
++  serviceCharge: number
++  delivery: number
++  total: number
++}
++
++export interface CustomerQuote {
++  productName: string
++  variantLabel?: string | null
++  image?: string | null
++  storeName: string
++  /** Back to the product page (keeps the variant). */
++  productPath: string
++  options: CustomerQuoteOption[]
++  /** Local shops: once-per-shop pickup charge added at checkout. */
++  pickupFeeLKR?: number | null
++  /** Set only for signed-in staff: the same product in the full calculator. */
++  fullCalculatorHref?: string | null
++}
++
++function CustomerQuoteView({ quote }: { quote: CustomerQuote }) {
++  const choosable = quote.options.filter((o) => !o.unavailable)
++  const [selected, setSelected] = useState(choosable[0]?.id ?? quote.options[0]?.id)
++  const option = quote.options.find((o) => o.id === selected) ?? quote.options[0]
++  const unavailable = quote.options.filter((o) => o.unavailable)
++
++  const rows: ResultRowData[] = [
++    { label: "Price", value: formatLKR(option.price), formula: "The item, brought to Sri Lanka" },
++    ...(option.compareAt != null && option.discountPercent
++      ? [{ label: `Was (${option.discountPercent}% off)`, value: formatLKR(option.compareAt) }]
++      : []),
++    ...(option.serviceCharge > 0 ? [{ label: "Service charge", value: formatLKR(option.serviceCharge) }] : []),
++    { label: "Delivery", value: option.delivery > 0 ? formatLKR(option.delivery) : "Included" },
++    { label: "Total per item", value: formatLKR(option.total), emphasis: true },
++  ]
++
++  return (
++    <main className="h-full overflow-y-auto bg-parchment font-body text-ink">
++      <div className="mx-auto max-w-[1100px] px-6 pb-20 pt-10 lg:px-10">
++        {/* ── Header ── */}
++        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
++          <div className="flex items-start gap-4">
++            {quote.image ? (
++              // eslint-disable-next-line @next/next/no-img-element
++              <img src={quote.image} alt="" className="h-14 w-14 flex-none rounded-xl border border-ink/10 bg-card object-cover" />
++            ) : (
++              <div className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-teal-deep text-parchment">
++                <Calculator size={22} strokeWidth={1.75} />
++              </div>
++            )}
++            <div>
++              <h1 className="font-display text-3xl font-semibold leading-tight">Price breakdown</h1>
++              <p className="mt-1 max-w-md text-sm leading-relaxed text-ink/60">
++                {quote.productName}
++                {quote.variantLabel ? ` · ${quote.variantLabel}` : ""} · {quote.storeName}
++              </p>
++            </div>
++          </div>
++
++          <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
++            <div className="px-5 py-3">
++              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Total per item</dt>
++              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(option.total)}</dd>
++            </div>
++            <div className="px-5 py-3">
++              <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Price</dt>
++              <dd className="mt-0.5 whitespace-nowrap font-display text-xl tabular-nums text-ink">{formatLKR(option.price)}</dd>
++            </div>
++          </dl>
++        </div>
++
++        {/* ── Toolbar ── */}
++        <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
++          <div className="flex flex-wrap items-center gap-3">
++            {choosable.length > 1 && (
++              <Segmented<CustomerQuoteOption["id"]>
++                label="Delivery type"
++                value={option.id}
++                onChange={setSelected}
++                options={choosable.map((o) => ({ key: o.id, label: o.label }))}
++              />
++            )}
++            {choosable.length === 1 && quote.options.length > 1 && (
++              <span className="rounded-full border border-ink/10 bg-card px-3.5 py-1.5 text-xs font-semibold text-ink/70">{option.label}</span>
++            )}
++            {unavailable.map((o) => (
++              <span key={o.id} className="text-xs text-ink/45">
++                {o.label}: coming soon
++              </span>
++            ))}
++          </div>
++          <p className="text-xs text-ink/45">
++            <Link href={quote.productPath} className={LINK_BUTTON}>
++              Back to product
++            </Link>
++            {quote.fullCalculatorHref && (
++              <Link href={quote.fullCalculatorHref} className={`ml-3 ${LINK_BUTTON}`}>
++                Full breakdown (staff)
++              </Link>
++            )}
++          </p>
++        </div>
++
++        {/* ── Summary + dial ── */}
++        <div className="mt-6 grid items-stretch gap-6 lg:grid-cols-[380px_1fr]">
++          <div className="space-y-4 rounded-2xl border border-ink/10 bg-card p-6">
++            <p className="text-xs font-medium text-ink/50">What you pay for one item</p>
++            <p className="font-display text-3xl tabular-nums text-teal-deep">{formatLKR(option.total)}</p>
++            <p className="text-sm leading-relaxed text-ink/60">
++              The price includes buying the item and bringing it to Sri Lanka. The service charge covers checking and
++              handling your order.
++            </p>
++            {quote.pickupFeeLKR ? (
++              <p className="text-xs leading-relaxed text-ink/50">
++                A one-time pickup charge of {formatLKR(quote.pickupFeeLKR)} per shop is added at checkout.
++              </p>
++            ) : null}
++            <p className="text-xs leading-relaxed text-ink/45">
++              Prices in Sri Lankan Rupees at today&rsquo;s rates. The final amount is confirmed at checkout.
++            </p>
++          </div>
++
++          <BreakdownDialShell
++            data={[
++              { name: "Price", value: option.price },
++              { name: "Service charge", value: option.serviceCharge },
++              { name: "Delivery", value: option.delivery },
++            ].filter((d) => d.value > 0)}
++            centerValue={option.total}
++            centerLabel="Total per item"
++          />
++        </div>
++
++        {/* ── Result cards ── */}
++        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
++          {rows.map((r) => (
++            <ResultRow key={r.label} {...r} />
++          ))}
++        </div>
++      </div>
++    </main>
++  )
++}
++
++// useSearchParams requires a Suspense boundary in the App Router. This wrapper
++// is the real default export; QuoteDemoPage holds all the logic. With
++// `customer`, it renders the shopper-safe customer mode instead.
++export default function QuoteCalculator({ customer }: { customer?: CustomerQuote | null } = {}) {
++  if (customer) return <CustomerQuoteView quote={customer} />
++  return (
++    <Suspense fallback={null}>
++      <QuoteDemoPage />
++    </Suspense>
++  )
++}
+\ No newline at end of file
+diff --git a/components/shared/Header.tsx b/components/shared/Header.tsx
+index 0f87292..174b91d 100644
+--- a/components/shared/Header.tsx
++++ b/components/shared/Header.tsx
+@@ -36,6 +36,7 @@ import {
+ import { OUTER_H, INNER_H, LEFT_NOTCH, NOTCH_GAP } from "@/components/shared/headerMetrics"
+ import Image from "next/image"
+ import ShopperPrice from '@/components/shared/ShopperPrice'
++import { savedItemHref } from '@/lib/cart-snapshot'
+ 
+ 
+ interface NavItem { name: string; desc: string; href: string }
+@@ -637,10 +638,13 @@ export default function Header({
+         viewAllHref="/account/wishlist"
+         viewAllLabel={`View wishlist (${wishlistCount})`}
+       >
+-        {wishlistPreview.map((entry) => (
++        {wishlistPreview.map((entry) => {
++          const link = savedItemHref(entry, "/account/wishlist")
++          return (
+           <a
+             key={entry.id}
+-            href={entry.url || "/account/wishlist"}
++            href={link.href}
++            {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+             onClick={() => setWishlistPanelOpen(false)}
+             className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-ink/[0.03] p-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
+           >
+@@ -654,7 +658,8 @@ export default function Header({
+               )}
+             </div>
+           </a>
+-        ))}
++          )
++        })}
+       </SlideOverPanel>
+ 
+       <SlideOverPanel
+@@ -706,10 +711,15 @@ export default function Header({
+           </div>
+         }
+       >
+-        {cartPreview.map((line) => (
++        {cartPreview.map((line) => {
++          // Affiliated-store items open OUR product page, never the
++          // seller's own (see savedItemHref). Only pasted links go out.
++          const link = savedItemHref(line.product, "/account/cart")
++          return (
+           <a
+             key={line.product.id}
+-            href={line.product.url || "/account/cart"}
++            href={link.href}
++            {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+             onClick={() => setCartPanelOpen(false)}
+             className={`flex items-center gap-3 rounded-xl border border-ink/10 bg-ink/[0.03] p-3 transition-colors duration-150 hover:bg-gold/10 ${focusRing}`}
+           >
+@@ -733,7 +743,8 @@ export default function Header({
+               </div>
+             </div>
+           </a>
+-        ))}
++          )
++        })}
+       </SlideOverPanel>
+     </>
+   )
+diff --git a/components/stores/ProductPurchasePanel.tsx b/components/stores/ProductPurchasePanel.tsx
+index bb24d36..7bdf6bb 100644
+--- a/components/stores/ProductPurchasePanel.tsx
++++ b/components/stores/ProductPurchasePanel.tsx
+@@ -405,34 +405,20 @@ export default function ProductPurchasePanel({
+         ) : (
+         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
+           <span className="inline-flex items-center gap-2">
+-            {dualPricing.fixedPrice ? (
+-              <span className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card">
+-                <img src={storeLogo} alt="" className="h-full w-full object-cover" />
+-              </span>
+-            ) : (
+-              <Link
+-                href={`/demo/quote?${new URLSearchParams({
+-                  mode: 'simple',
+-                  // Economy locked — the breakdown link should reflect the
+-                  // only delivery method actually bookable right now. See
+-                  // economyLocked's own doc comment above.
+-                  delivery: economyLocked ? 'express' : 'economy',
+-                  pcs: '1',
+-                  value: String(effectivePrice),
+-                  currency: product.currency,
+-                  ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
+-                  // So the calculator prices local shops the local way.
+-                  ...(product.origin === 'LK' ? { origin: 'LK' } : {}),
+-                  ...(product.marginIncluded ? { margin: 'included' } : {}),
+-                }).toString()}`}
+-                target="_blank"
+-                rel="noopener noreferrer"
+-                title="See price breakdown"
+-                className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
+-              >
+-                <img src={storeLogo} alt="" className="h-full w-full object-cover" />
+-              </Link>
+-            )}
++            {/* ?price-breakdown → the quote calculator for this exact
++                variant: the full calculator for staff, its customer mode
++                (no seller price) for shoppers. See lib/quote-links.ts. */}
++            <Link
++              href={`/stores/${platform}/product/${encodeURIComponent(product.handle || product.id)}?${
++                variantMatch?.id ? `variant=${encodeURIComponent(variantMatch.id)}&` : ''
++              }price-breakdown`}
++              target="_blank"
++              rel="noopener noreferrer"
++              title="See price breakdown"
++              className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
++            >
++              <img src={storeLogo} alt="" className="h-full w-full object-cover" />
++            </Link>
+             {storeName} · {product.condition}
+           </span>
+           {product.averageRating != null && (
+diff --git a/lib/cart-snapshot.ts b/lib/cart-snapshot.ts
+index 77b1f8a..8dd65c5 100644
+--- a/lib/cart-snapshot.ts
++++ b/lib/cart-snapshot.ts
+@@ -82,6 +82,32 @@ export function storeHandleFor(item: SavedItem): string | null {
+   return m ? decodeURIComponent(m[1]) : null
+ }
+ 
++/**
++ * Where a saved item (bag line, wishlist entry, board item) should link.
++ *
++ * - From one of our affiliated stores → OUR product page, never the
++ *   seller's own site. The seller's page shows their raw price; a shopper
++ *   comparing it with ours (which includes freight, duty and margin) sees
++ *   a "price surge" and complains.
++ * - A link the customer pasted themselves (`source: 'link'`) → the
++ *   original page, opened in a new tab: they found it there and already
++ *   know its price.
++ */
++export function savedItemHref(
++  item: SavedItem & { source?: 'catalogue' | 'link' },
++  fallback: string,
++): { href: string; external: boolean } {
++  if (item.source !== 'link') {
++    const handle = storeHandleFor(item)
++    if (handle && item.site) {
++      return { href: `/stores/${item.site}/product/${encodeURIComponent(handle)}`, external: false }
++    }
++    // A store item we can't map back to a product page: stay on our site.
++    if (item.source === 'catalogue') return { href: fallback, external: false }
++  }
++  return item.url ? { href: item.url, external: true } : { href: fallback, external: false }
++}
++
+ /**
+  * A saved item as a bag line WITHOUT a size / colour choice. Store items
+  * are added as store lines (so checkout prices them from the store and the
 diff --git a/lib/jsonapi-config.ts b/lib/jsonapi-config.ts
 new file mode 100644
 index 0000000..9ad406a
@@ -1411,6 +3806,149 @@ index 0000000..9ad406a
 +  }
 +  walk(raw, '', 0)
 +  return out
++}
+diff --git a/lib/quote-links.ts b/lib/quote-links.ts
+new file mode 100644
+index 0000000..2bd0c1e
+--- /dev/null
++++ b/lib/quote-links.ts
+@@ -0,0 +1,137 @@
++// lib/quote-links.ts
++//
++// ?price-breakdown on a product page sends people to the quote calculator
++// (components/quote/QuoteCalculator.tsx), for the exact variant chosen:
++//
++//   staff         → /admin/quote, pre-filled with the seller's price,
++//                   currency, weight and store type: the full calculator.
++//   shoppers      → /demo/quote?product=<store>/<handle>&variant=<id>: the
++//                   calculator's customer mode. Only a product reference
++//                   travels in the URL; the shopper-safe numbers are
++//                   computed on the server by buildCustomerQuote below, so
++//                   the seller's own price never reaches the browser.
++//   marketplace   → the full calculator for everyone: those are link-based
++//   (link-based)    products, the shopper already knows the source price.
++
++import 'server-only'
++import type { StoreProduct, StoreProductVariant } from '@/lib/store.types'
++import type { PricingSettings } from '@/lib/pricing-settings'
++import type { CustomerQuote, CustomerQuoteOption } from '@/components/quote/QuoteCalculator'
++import { getDualDeliveryPricing, isFixedPriceItem, isLocalItem, type DeliveryPriceOption } from '@/lib/pricing'
++import { variantFor } from '@/lib/product-selection'
++import { isEconomyLocked } from '@/lib/feature-flags'
++
++type Query = Record<string, string | string[] | undefined>
++
++function first(q: Query, key: string): string | undefined {
++  const v = q[key]
++  return Array.isArray(v) ? v[0] : v
++}
++
++/** The variant a breakdown link asks for: ?variant=<id>, else ?size= / ?color=. */
++export function variantFromQuery(product: StoreProduct, q: Query): StoreProductVariant | null {
++  const id = first(q, 'variant')
++  if (id) {
++    const byId = product.variants?.find((v) => v.id === id)
++    if (byId) return byId
++  }
++  const size = first(q, 'size')
++  const color = first(q, 'color')
++  return variantFor(product, { ...(size ? { Size: size } : {}), ...(color ? { Color: color } : {}) })
++}
++
++/** The product as priced for one variant: its own price / was-price win. */
++function pricedFor(product: StoreProduct, variant: StoreProductVariant | null): StoreProduct {
++  if (!variant || !(variant.price > 0)) return product
++  const compareAt = variant.compareAtPrice != null && variant.compareAtPrice > variant.price ? variant.compareAtPrice : undefined
++  return { ...product, price: variant.price, compareAtPrice: compareAt, onSale: compareAt != null }
++}
++
++function variantLabel(variant: StoreProductVariant | null): string | null {
++  if (!variant) return null
++  return variant.options.filter(Boolean).join(' / ') || variant.title || null
++}
++
++export function productPagePath(platform: string, handle: string, variant: StoreProductVariant | null): string {
++  const base = `/stores/${platform}/product/${encodeURIComponent(handle)}`
++  return variant ? `${base}?variant=${encodeURIComponent(variant.id)}` : base
++}
++
++/** Full calculator, pre-filled. Uses the params the calculator already reads. */
++export function fullQuoteHref(
++  base: '/admin/quote' | '/demo/quote',
++  product: StoreProduct,
++  variant: StoreProductVariant | null,
++  settings: PricingSettings,
++): string {
++  const p = pricedFor(product, variant)
++  const params = new URLSearchParams({
++    mode: 'simple',
++    delivery: isEconomyLocked(settings) ? 'express' : 'economy',
++    pcs: '1',
++    value: String(p.price),
++    currency: (p.currency || 'INR').toUpperCase(),
++  })
++  if (p.weightKg != null) params.set('weight', String(p.weightKg))
++  if (p.origin === 'LK') params.set('origin', 'LK')
++  if (p.marginIncluded) params.set('margin', 'included')
++  const label = [product.name, variantLabel(variant)].filter(Boolean).join(' · ')
++  if (label) params.set('label', label)
++  return `${base}?${params.toString()}`
++}
++
++/** The calculator's customer mode for one product + variant. */
++export function customerQuoteHref(platform: string, handle: string, variant: StoreProductVariant | null): string {
++  const params = new URLSearchParams({ product: `${platform}/${handle}` })
++  if (variant) params.set('variant', variant.id)
++  return `/demo/quote?${params.toString()}`
++}
++
++function toOption(id: CustomerQuoteOption['id'], label: string, o: DeliveryPriceOption, unavailable?: boolean): CustomerQuoteOption {
++  return {
++    id,
++    label,
++    unavailable,
++    price: o.priceLKR,
++    compareAt: o.compareAtPriceLKR,
++    discountPercent: o.discountPercent,
++    serviceCharge: o.serviceChargeLKR,
++    delivery: o.deliveryFeeLKR,
++    total: o.actualTotalLKR,
++  }
++}
++
++/**
++ * Shopper-safe numbers for the calculator's customer mode. Straight from
++ * getDualDeliveryPricing — the same numbers the product page and cart
++ * show — and nothing else: no source price, rate, profit or freight.
++ */
++export function buildCustomerQuote(
++  product: StoreProduct,
++  variant: StoreProductVariant | null,
++  store: { name: string; platform: string },
++  settings: PricingSettings,
++  fullCalculatorHref: string | null,
++): CustomerQuote {
++  const priced = pricedFor(product, variant)
++  const dual = getDualDeliveryPricing(priced, settings)
++  const single = isFixedPriceItem(priced) || isLocalItem(priced)
++
++  const options: CustomerQuoteOption[] = single
++    ? [toOption('single', 'Delivery to your door', dual.express)]
++    : [
++        toOption('express', 'Express delivery', dual.express),
++        toOption('economy', 'Economy delivery', dual.economy, isEconomyLocked(settings)),
++      ]
++
++  return {
++    productName: product.name,
++    variantLabel: variantLabel(variant),
++    image: variant?.fullImage ?? variant?.image ?? product.images?.[0] ?? product.image ?? null,
++    storeName: store.name,
++    productPath: productPagePath(store.platform, product.handle || product.id, variant),
++    options,
++    pickupFeeLKR: isLocalItem(priced) ? settings.local.pickupFeeLKR : null,
++    fullCalculatorHref,
++  }
 +}
 diff --git a/lib/store-config.ts b/lib/store-config.ts
 index 61a247d..6a981d4 100644
@@ -1650,6 +4188,25 @@ index 61a247d..6a981d4 100644
 \ No newline at end of file
 +}
 \ No newline at end of file
+diff --git a/lib/store-preview.ts b/lib/store-preview.ts
+index a1475bd..d14e014 100644
+--- a/lib/store-preview.ts
++++ b/lib/store-preview.ts
+@@ -63,4 +63,14 @@ export const canPreviewStore = cache(async (platform: string): Promise<PreviewVi
+   }
+ })
+ 
++/**
++ * Is the signed-in user active store staff (Super Admin, Manager, Sales)?
++ * Gates internal-only views such as the full price breakdown on product
++ * pages. Cached per request. Never throws.
++ */
++export const isStoreStaff = cache(async (): Promise<boolean> => {
++  const viewer = await getViewer()
++  return Boolean(viewer?.isStaff)
++})
++
+ export const PREVIEW_CACHE_HEADERS = { 'Cache-Control': 'private, no-store' }
 diff --git a/lib/store-providers/jsonapi.ts b/lib/store-providers/jsonapi.ts
 index 169aa67..d93ded6 100644
 --- a/lib/store-providers/jsonapi.ts

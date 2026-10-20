@@ -21,6 +21,12 @@ import { DashboardProvider } from '@/contexts/DashboardContext'
 import ViewTracker from './ViewTracker'
 import JsonLd, { breadcrumbSchema, productSchema } from '@/components/seo/JsonLd'
 import { clampDescription, pageMetadata } from '@/lib/seo'
+import { redirect } from 'next/navigation'
+import { isStoreStaff } from '@/lib/store-preview'
+import { customerQuoteHref, fullQuoteHref, variantFromQuery } from '@/lib/quote-links'
+
+type PageSearchParams = Promise<Record<string, string | string[] | undefined>>
+
 
 // No generateStaticParams: live-feed stores (Shopify/WooCommerce) can add
 // or remove products at any time, so every product handle can't be known
@@ -199,10 +205,14 @@ const getProduct = cache((platform: string, handle: string, includeHidden: boole
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ platform: string; productId: string }>
+  searchParams: PageSearchParams
 }): Promise<Metadata> {
   const { platform, productId: rawProductId } = await params
+  // ?price-breakdown only redirects to the quote calculator — never indexed.
+  if ('price-breakdown' in (await searchParams)) return { robots: { index: false, follow: false } }
   const productId = normalizeHandle(rawProductId)
 
   const access = await getStoreAccess(platform)
@@ -233,8 +243,10 @@ export async function generateMetadata({
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ platform: string; productId: string }>
+  searchParams: PageSearchParams
 }) {
   const { platform, productId: rawProductId } = await params
   // Decode once, up front — see the EMOJI / NON-ASCII HANDLES note above.
@@ -265,6 +277,22 @@ export default async function ProductDetailPage({
   }
 
   if (!product) notFound()
+
+  // ── ?price-breakdown — opens the quote calculator for this exact
+  // variant (?variant=<id>, or ?size= / ?color=). Staff get the full
+  // calculator; shoppers get its customer mode, which never shows the
+  // seller's own price. Marketplace (link-based) products get the full
+  // calculator for everyone: those shoppers already know the source price.
+  // See lib/quote-links.ts.
+  const query = await searchParams
+  if ('price-breakdown' in query) {
+    const variant = variantFromQuery(product, query)
+    const staff = await isStoreStaff()
+    if (staff || store.storeType === 'marketplace') {
+      redirect(fullQuoteHref(staff ? '/admin/quote' : '/demo/quote', product, variant, await ensurePricingSettings()))
+    }
+    redirect(customerQuoteHref(store.platform, product.handle || productId, variant))
+  }
 
   // Marketplaces (eBay, Amazon, etc.) go through the request/proxy-buy
   // flow; local sellers with a live or mock catalog get the same

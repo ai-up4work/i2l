@@ -405,34 +405,20 @@ export default function ProductPurchasePanel({
         ) : (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
           <span className="inline-flex items-center gap-2">
-            {dualPricing.fixedPrice ? (
-              <span className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card">
-                <img src={storeLogo} alt="" className="h-full w-full object-cover" />
-              </span>
-            ) : (
-              <Link
-                href={`/demo/quote?${new URLSearchParams({
-                  mode: 'simple',
-                  // Economy locked — the breakdown link should reflect the
-                  // only delivery method actually bookable right now. See
-                  // economyLocked's own doc comment above.
-                  delivery: economyLocked ? 'express' : 'economy',
-                  pcs: '1',
-                  value: String(effectivePrice),
-                  currency: product.currency,
-                  ...(product.weightKg != null ? { weight: String(product.weightKg) } : {}),
-                  // So the calculator prices local shops the local way.
-                  ...(product.origin === 'LK' ? { origin: 'LK' } : {}),
-                  ...(product.marginIncluded ? { margin: 'included' } : {}),
-                }).toString()}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="See price breakdown"
-                className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
-              >
-                <img src={storeLogo} alt="" className="h-full w-full object-cover" />
-              </Link>
-            )}
+            {/* ?price-breakdown → the quote calculator for this exact
+                variant: the full calculator for staff, its customer mode
+                (no seller price) for shoppers. See lib/quote-links.ts. */}
+            <Link
+              href={`/stores/${platform}/product/${encodeURIComponent(product.handle || product.id)}?${
+                variantMatch?.id ? `variant=${encodeURIComponent(variantMatch.id)}&` : ''
+              }price-breakdown`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="See price breakdown"
+              className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full border border-ink/10 bg-card transition-opacity hover:opacity-75"
+            >
+              <img src={storeLogo} alt="" className="h-full w-full object-cover" />
+            </Link>
             {storeName} · {product.condition}
           </span>
           {product.averageRating != null && (
@@ -514,7 +500,18 @@ export default function ProductPurchasePanel({
                 </span>
               )}
             </div>
-            
+            {dualPricing.localStore ? (
+              // Local shop (lib/store-origin.ts), feed / extractor store.
+              // Same words as every other product — the handling fee is
+              // the service charge — so nothing says the shop is local.
+              <p className="mt-1 text-xs text-ink/55">
+                At checkout: {formatLKR(localPickupFeeLKR())} service charge + {dualPricing.express.formattedDeliveryFee} delivery.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-ink/55">
+                + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
+              </p>
+            )}
           </div>
         ) : (
           <>
