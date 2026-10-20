@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ArrowRight, Check, Link as LinkIcon } from 'lucide-react'
+import { ArrowRight, Calculator, Check, Link as LinkIcon } from 'lucide-react'
 import { useAffiliatedStores } from '@/hooks/useAffiliatedStores'
 import PriceEstimatorDialog from '@/components/shared/PriceEstimatorDialog'
 import { OUTER_H } from '@/components/shared/headerMetrics'
@@ -222,9 +222,34 @@ export default function Hero() {
             ))}
           </ul>
 
-          {/* No link yet? A rough price from the rupee price + weight. */}
-          <div {...rise(340)} className={`${rise(340).className} mt-4 pl-1`}>
-            <PriceEstimatorDialog />
+          {/* No link yet? A rough price from the rupee price + weight.
+              A real second option (card), not a footnote link — new
+              visitors often know an item's rupee price before they have
+              its link. Kept quieter than the link box above. */}
+          <div {...rise(340)} className={`${rise(340).className} mt-5`}>
+            <PriceEstimatorDialog
+              triggerClassName="group flex w-full items-center gap-3.5 rounded-2xl border border-gold/35 bg-gold/[0.07] px-4 py-3 text-left transition-colors duration-200 hover:border-gold/60 hover:bg-gold/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+              trigger={
+                <>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gold/20 text-gold-deep">
+                    <Calculator size={19} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-body text-sm font-semibold text-indigo">
+                      No link yet? Estimate from the rupee price
+                    </span>
+                    <span className="block font-body text-xs text-ink/55">
+                      Type the price and weight to see a rough total in LKR.
+                    </span>
+                  </span>
+                  <ArrowRight
+                    size={16}
+                    aria-hidden="true"
+                    className="shrink-0 text-gold-deep transition-transform duration-200 group-hover:translate-x-1"
+                  />
+                </>
+              }
+            />
           </div>
 
           {/* Secondary path: browse partner stores. Leads with real logos as
@@ -266,7 +291,7 @@ export default function Hero() {
                   onClick={() => router.push('/stores')}
                   className="group mt-0.5 inline-flex items-center gap-1.5 font-body text-sm font-semibold text-teal-deep"
                 >
-                  Browse {localStores.length} affiliated stores
+                  Browse {localStores.length} local stores
                   <ArrowRight
                     size={14}
                     aria-hidden="true"

@@ -10,7 +10,14 @@ import Link from 'next/link'
 import { Calculator, X } from 'lucide-react'
 import PriceEstimator from '@/components/shared/PriceEstimator'
 
-export default function PriceEstimatorDialog({ trigger }: { trigger?: ReactNode }) {
+export default function PriceEstimatorDialog({
+  trigger,
+  triggerClassName,
+}: {
+  trigger?: ReactNode
+  /** Replaces the default link styling of the button that opens the pop-up. */
+  triggerClassName?: string
+}) {
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -32,7 +39,10 @@ export default function PriceEstimatorDialog({ trigger }: { trigger?: ReactNode 
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 font-body text-sm font-semibold text-teal-deep underline-offset-4 hover:underline"
+        className={
+          triggerClassName ??
+          'inline-flex items-center gap-1.5 font-body text-sm font-semibold text-teal-deep underline-offset-4 hover:underline'
+        }
       >
         {trigger ?? (
           <>
