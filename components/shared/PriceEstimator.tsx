@@ -11,7 +11,7 @@
 import { useId, useMemo, useState } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import { formatLKR } from '@/lib/pricing'
-import { ESTIMATE_LIMITS, WEIGHT_PRESETS, defaultEstimateWeightKg, estimateIndianItem } from '@/lib/price-estimate'
+import { ESTIMATE_LIMITS, WEIGHT_PRESETS, defaultEstimateWeightKg, estimateIndianItem, interpretWeightInput } from '@/lib/price-estimate'
 
 export default function PriceEstimator({
   initialPriceINR,
@@ -31,7 +31,9 @@ export default function PriceEstimator({
   const [qty, setQty] = useState(1)
 
   const priceINR = Number(priceText.replace(/[^0-9.]/g, ''))
-  const weightKg = preset != null ? WEIGHT_PRESETS[preset].kg : Number(weightText) || null
+  // Typed weight is read forgivingly: "500" in the kg box means 500 g.
+  const typedWeight = interpretWeightInput(weightText)
+  const weightKg = preset != null ? WEIGHT_PRESETS[preset].kg : typedWeight.kg
   const estimate = useMemo(() => estimateIndianItem({ priceINR, weightKg, qty }), [priceINR, weightKg, qty])
 
   const label = 'mb-1.5 block font-body text-xs font-semibold text-ink/60'
@@ -121,6 +123,11 @@ export default function PriceEstimator({
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-ink/45">kg</span>
           </div>
         </div>
+        {preset == null && typedWeight.note && (
+          <p className="mt-1.5 font-body text-xs text-gold-deep" aria-live="polite">
+            {typedWeight.note}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-3">
@@ -288,6 +295,9 @@ export default function PriceEstimator({
             </span>
           </span>
         </div>
+        {preset == null && typedWeight.note && (
+          <p className="-mt-1 font-body text-[11px] text-gold-deep">{typedWeight.note}</p>
+        )}
 
         <div aria-live="polite" className="rounded-xl bg-indigo px-4 py-3 text-parchment">
           {express ? (
