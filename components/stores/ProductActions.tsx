@@ -110,17 +110,24 @@ export default function ProductActions({
   const wishlistSnapshot = useMemo(() => toWishlistSnapshot(product, platform), [product, platform])
   const wishlisted = wishlist.isInWishlist(wishlistSnapshot.id)
 
+  // Desktop (lg+): this fills the rest of the buy box (it stretches to the
+  // gallery's height), with the size/colour picker centred in the free
+  // space and quantity + buttons pinned to the bottom — level with the
+  // bottom of the photo. Phones keep the plain stacked layout.
   return (
-    <div className="mt-6">
-      <SizeAndColorPicker
-        product={product}
-        selectedSize={selectedSize}
-        selectedColor={selectedColor}
-        onSelectSize={onSelectSize}
-        onSelectColor={onSelectColor}
-      />
+    <div className="mt-6 lg:flex lg:flex-1 lg:flex-col">
+      <div className="lg:my-auto lg:py-6">
+        <SizeAndColorPicker
+          product={product}
+          selectedSize={selectedSize}
+          selectedColor={selectedColor}
+          onSelectSize={onSelectSize}
+          onSelectColor={onSelectColor}
+        />
+      </div>
 
-      <div className={`flex flex-wrap items-center gap-3 ${hasSizes || hasColors ? 'mt-4' : ''}`}>
+      <div>
+      <div className={`flex flex-wrap items-center gap-3 ${hasSizes || hasColors ? 'mt-4 lg:mt-0' : ''}`}>
         <div className="flex shrink-0 items-center overflow-hidden rounded-xl border border-ink/15">
           <button
             type="button"
@@ -188,6 +195,7 @@ export default function ProductActions({
       ) : (
         <p className="mt-1.5 text-[11px] text-ink/40">Max 10 per order</p>
       )}
+      </div>
     </div>
   )
 }

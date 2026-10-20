@@ -3579,7 +3579,7 @@ index 0f87292..174b91d 100644
      </>
    )
 diff --git a/components/stores/ProductPurchasePanel.tsx b/components/stores/ProductPurchasePanel.tsx
-index bb24d36..7bdf6bb 100644
+index bb24d36..9ad6d30 100644
 --- a/components/stores/ProductPurchasePanel.tsx
 +++ b/components/stores/ProductPurchasePanel.tsx
 @@ -405,34 +405,20 @@ export default function ProductPurchasePanel({
@@ -3631,6 +3631,142 @@ index bb24d36..7bdf6bb 100644
              {storeName} · {product.condition}
            </span>
            {product.averageRating != null && (
+@@ -453,8 +439,9 @@ export default function ProductPurchasePanel({
+           </div>
+         )}
+ 
+-        {social && (!dualPricing.fixedPrice || dualPricing.localStore) ? (
+-          // Custom seller stores: one clear price (the delivery method
++        {(social && !dualPricing.fixedPrice) || dualPricing.localStore ? (
++          // Custom seller stores AND every local Sri Lankan shop (social or
++          // feed / extractor, e.g. a JSON partner feed): one clear price (the delivery method
+           // that can actually be booked), then what gets added at
+           // checkout, so the total is never a surprise.
+           //
+@@ -514,18 +501,10 @@ export default function ProductPurchasePanel({
+                 </span>
+               )}
+             </div>
+-            {dualPricing.localStore ? (
+-              // Local shop (lib/store-origin.ts), feed / extractor store.
+-              // Same words as every other product — the handling fee is
+-              // the service charge — so nothing says the shop is local.
+-              <p className="mt-1 text-xs text-ink/55">
+-                At checkout: {formatLKR(localPickupFeeLKR())} service charge + {dualPricing.express.formattedDeliveryFee} delivery.
+-              </p>
+-            ) : (
+-              <p className="mt-1 text-xs text-ink/55">
+-                + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
+-              </p>
+-            )}
++            {/* Local shops never reach this card — they use the layout above. */}
++            <p className="mt-1 text-xs text-ink/55">
++              + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
++            </p>
+           </div>
+         ) : (
+           <>
+diff --git a/components/stores/SizeAndColorPicker.tsx b/components/stores/SizeAndColorPicker.tsx
+index 1580147..5e18844 100644
+--- a/components/stores/SizeAndColorPicker.tsx
++++ b/components/stores/SizeAndColorPicker.tsx
+@@ -4,22 +4,6 @@ import { optionAvailability, colorImageMap } from '@/lib/product-options'
+ import { getSwatchColor } from '@/lib/color-swatches'
+ import type { StoreProduct } from '@/lib/store.types'
+ 
+-// Deterministic placeholder tint — same value always renders the same
+-// tint so a size/color with no real image doesn't look random across
+-// re-renders or refetches.
+-const SWATCH_TINTS = [
+-  'linear-gradient(135deg, #d8cdbf 0%, #b8a892 100%)',
+-  'linear-gradient(135deg, #cfd9d4 0%, #a7bdb3 100%)',
+-  'linear-gradient(135deg, #ddd0e0 0%, #b9a3c0 100%)',
+-  'linear-gradient(135deg, #d9d2c3 0%, #b3a687 100%)',
+-  'linear-gradient(135deg, #cdd6e0 0%, #a3b6cc 100%)',
+-]
+-function tintFor(label: string) {
+-  let hash = 0
+-  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0
+-  return SWATCH_TINTS[hash % SWATCH_TINTS.length]
+-}
+-
+ /** Store colour names that are stock codes ("ACB2480", "SKU-1234")
+  *  mean nothing to shoppers — those are shown as "Design 1, 2, …". */
+ export function isCodeLike(name: string): boolean {
+@@ -103,10 +87,10 @@ function ColorSwatch({
+ }
+ 
+ /**
+- * Size option rendered as a small tinted tile (label's initials, keyed
+- * off the same deterministic palette as color swatches) instead of a
+- * plain text pill — sizes never carry a real image, so this is always
+- * the placeholder path, just styled like a swatch rather than a chip.
++ * Size option as a plain, readable choice ("5ml", "M", "UK 8"). Sizes
++ * never carry an image, and a tinted tile with the label's first two
++ * characters said nothing (and made "10ml" and "100ml" both read "10"),
++ * so the label itself is the button.
+  */
+ function SizeChip({
+   label,
+@@ -127,42 +111,19 @@ function SizeChip({
+       type="button"
+       onClick={clickable ? onClick : undefined}
+       disabled={!interactive || !available}
+-      title={available ? undefined : 'Currently unavailable'}
++      title={available ? undefined : 'Sold out'}
+       aria-pressed={selected}
+-      className={`flex w-[72px] flex-col items-center gap-1 rounded-lg border p-1.5 text-center transition-all ${
++      className={`relative min-w-[64px] rounded-xl border px-4 py-2.5 text-sm font-semibold tabular-nums transition-all ${
+         selected
+-          ? 'border-teal-deep bg-teal/5 shadow-[0_1px_2px_rgba(15,15,15,0.04),0_4px_10px_-6px_rgba(20,120,110,0.35)]'
++          ? 'border-teal-deep bg-teal/[0.07] text-teal-deep shadow-[0_0_0_1px_var(--color-teal-deep)]'
+           : !available
+-            ? 'cursor-not-allowed border-ink/8 bg-card/40 opacity-45 grayscale'
++            ? 'cursor-not-allowed border-dashed border-ink/15 bg-transparent text-ink/30 line-through decoration-ink/25'
+             : clickable
+-              ? 'border-ink/10 bg-white hover:-translate-y-0.5 hover:border-teal/40 hover:shadow-[0_4px_12px_-8px_rgba(15,15,15,0.18)]'
+-              : 'cursor-default border-ink/10 bg-white'
++              ? 'border-ink/15 bg-white text-ink/80 hover:-translate-y-0.5 hover:border-teal/50 hover:text-ink hover:shadow-[0_4px_12px_-8px_rgba(15,15,15,0.18)]'
++              : 'cursor-default border-ink/15 bg-white text-ink/80'
+       }`}
+     >
+-      <span
+-        className={`relative grid h-12 w-12 place-items-center overflow-hidden rounded-md ring-1 ${
+-          selected ? 'ring-2 ring-teal-deep ring-offset-1 ring-offset-white' : 'ring-ink/10'
+-        }`}
+-        style={{ backgroundImage: tintFor(label) }}
+-      >
+-        <span className="text-[9px] font-bold uppercase tracking-tight text-white/85 drop-shadow-sm">
+-          {label.trim().slice(0, 2)}
+-        </span>
+-        {selected && (
+-          <span className="absolute bottom-[-1px] right-[-1px] grid h-3.5 w-3.5 place-items-center rounded-full bg-teal-deep text-white shadow-sm">
+-            <svg width="8" height="8" viewBox="0 0 20 20" fill="none">
+-              <path d="M4 10.5L8 14.5L16 6" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+-            </svg>
+-          </span>
+-        )}
+-      </span>
+-      <span
+-        className={`line-clamp-1 text-[10px] font-semibold ${
+-          !available ? 'text-ink/35 line-through decoration-ink/25' : selected ? 'text-teal-deep' : 'text-ink/75'
+-        }`}
+-      >
+-        {label}
+-      </span>
++      {label}
+     </button>
+   )
+ }
+@@ -212,7 +173,7 @@ export default function SizeAndColorPicker({
+               <span className="ml-1.5 text-ink/40">choose one</span>
+             ) : null}
+           </p>
+-          <div className="flex flex-wrap gap-1.5">
++          <div className="flex flex-wrap gap-2">
+             {product.sizes!.map((s) => (
+               <SizeChip
+                 key={s}
 diff --git a/lib/cart-snapshot.ts b/lib/cart-snapshot.ts
 index 77b1f8a..8dd65c5 100644
 --- a/lib/cart-snapshot.ts

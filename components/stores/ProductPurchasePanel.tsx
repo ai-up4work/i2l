@@ -439,8 +439,9 @@ export default function ProductPurchasePanel({
           </div>
         )}
 
-        {social && (!dualPricing.fixedPrice || dualPricing.localStore) ? (
-          // Custom seller stores: one clear price (the delivery method
+        {(social && !dualPricing.fixedPrice) || dualPricing.localStore ? (
+          // Custom seller stores AND every local Sri Lankan shop (social or
+          // feed / extractor, e.g. a JSON partner feed): one clear price (the delivery method
           // that can actually be booked), then what gets added at
           // checkout, so the total is never a surprise.
           //
@@ -465,7 +466,10 @@ export default function ProductPurchasePanel({
                     </span>
                   )}
                 </div>
-              
+                <p className="mt-1.5 text-xs text-ink/55">
+                  At checkout: {serviceCharge} service charge
+                  {p.deliveryFeeLKR > 0 && <> + {p.formattedDeliveryFee} delivery</>}.
+                </p>
                 <ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink/70 sm:grid-cols-2">
                   <li className="flex items-center gap-2 rounded-xl bg-teal/[0.07] px-3 py-2.5">
                     <Zap size={14} className="flex-none text-teal-deep" />
@@ -497,7 +501,10 @@ export default function ProductPurchasePanel({
                 </span>
               )}
             </div>
-           
+            {/* Local shops never reach this card — they use the layout above. */}
+            <p className="mt-1 text-xs text-ink/55">
+              + {dualPricing.express.formattedDeliveryFee} delivery · no tax or import charges
+            </p>
           </div>
         ) : (
           <>
@@ -631,7 +638,7 @@ export default function ProductPurchasePanel({
             reference only here and can't actually be selected toward a
             purchase. */}
         {isMarketplace && (
-          <div className="mt-5">
+          <div className="mt-5 lg:my-auto lg:py-6">
             {!product.inStock && (
               <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/50">
                 <span className="h-1.5 w-1.5 rounded-full bg-ink/35" />
@@ -651,7 +658,7 @@ export default function ProductPurchasePanel({
             CHECKOUT
           </ProductRequestButton>
         ) : (
-          <div id="buy-actions">
+          <div id="buy-actions" className="lg:flex lg:flex-1 lg:flex-col">
           <ProductActions
             product={product}
             platform={platform}
