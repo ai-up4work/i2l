@@ -504,7 +504,7 @@ export default function ProductPurchasePanel({
             )
           })()
         ) : dualPricing.fixedPrice ? (
-          // Fixed-price store (Wishdrop Mall): the price is set in LKR and
+          // Fixed-price store (Wishdrop Mall): the price is set in LKR and ds
           // already covers everything, so there's no delivery-method
           // comparison — just the price and the flat delivery fee.
           <div className="mt-3 rounded-3xl border border-ink/15 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(15,42,42,0.04),0_12px_28px_-16px_rgba(15,42,42,0.35)]">
