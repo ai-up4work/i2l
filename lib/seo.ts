@@ -163,6 +163,9 @@ export interface PageMetadataInput {
   /** Optional page-specific social image (absolute URL or /public path). */
   image?: string
   imageAlt?: string
+  /** Set when `image` is a generated 1200×630 card (e.g. /api/og/product),
+   *  so the size is declared like the default image's. */
+  imageIsCard?: boolean
   /** Set false for pages that must stay out of search results. */
   index?: boolean
   type?: 'website' | 'article'
@@ -185,6 +188,7 @@ export function pageMetadata({
   path,
   image,
   imageAlt,
+  imageIsCard = false,
   index = true,
   type = 'website',
 }: PageMetadataInput): Metadata {
@@ -216,7 +220,7 @@ export function pageMetadata({
       title: fullTitle,
       description: desc,
       images: [
-        image
+        image && !imageIsCard
           ? { url: ogImage, alt }
           : { url: ogImage, alt, ...OG_IMAGE_SIZE },
       ],

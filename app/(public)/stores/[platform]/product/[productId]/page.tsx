@@ -180,6 +180,12 @@ function normalizeHandle(raw: string): string {
 // The product's own path, with the handle percent-encoded exactly once —
 // used for the canonical URL, JSON-LD and breadcrumbs so they're always
 // valid URLs even when the handle contains emoji.
+/** "khamrah-qahwa-100ml" → "Khamrah Qahwa 100ml" — a stand-in name. */
+function titleFromHandle(handle: string): string {
+  const words = handle.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Product'
+}
+
 function handlePath(platform: string, handle: string): string {
   return `/stores/${platform}/product/${encodeURIComponent(handle)}`
 }
@@ -219,26 +225,33 @@ export async function generateMetadata({
   if (!access) return { title: 'Product not found', robots: { index: false, follow: true } }
   const { store, preview } = access
 
-  try {
-    const product = await getProduct(platform, productId, preview)
-    if (!product) return { title: 'Product not found', robots: { index: false, follow: true } }
+  // Link previews (WhatsApp, Facebook, …) give up after a few seconds, so
+  // don't wait on a slow store forever: past the limit, describe the
+  // product from its link instead of sending no preview at all. The page
+  // itself still loads the product (getProduct is cached per request).
+  const product = await Promise.race([
+    getProduct(platform, productId, preview).catch(() => undefined),
+    new Promise<undefined>((r) => setTimeout(() => r(undefined), 4000)),
+  ])
+  if (product === null) return { title: 'Product not found', robots: { index: false, follow: true } }
 
-    const description = product.description
-      ? clampDescription(product.description)
-      : `Buy ${product.name} from ${store.name} on Wishdrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
+  const name = product?.name ?? titleFromHandle(productId)
+  const description = product?.description
+    ? clampDescription(product.description)
+    : `Buy ${name} from ${store.name} on Wishdrop — quoted, purchased, quality-checked, and delivered to your door in Sri Lanka.`
 
-    return pageMetadata({
-      title: `${product.name} — ${store.name}`,
-      description,
-      // Canonical uses the route's own handle segment (decoded, then
-      // re-encoded once) so emoji handles produce a valid URL.
-      path: handlePath(store.platform, productId),
-      image: product.image || undefined,
-      imageAlt: product.name,
-    })
-  } catch {
-    return {}
-  }
+  return pageMetadata({
+    title: `${name} — ${store.name}`,
+    description,
+    // Canonical uses the route's own handle segment (decoded, then
+    // re-encoded once) so emoji handles produce a valid URL.
+    path: handlePath(store.platform, productId),
+    // A 1200×630 card made for link previews (app/api/og/product): the
+    // seller's own photo is often too big or the wrong shape for them.
+    image: `/api/og/product?store=${encodeURIComponent(store.platform)}&p=${encodeURIComponent(productId)}`,
+    imageIsCard: true,
+    imageAlt: name,
+  })
 }
 
 export default async function ProductDetailPage({
