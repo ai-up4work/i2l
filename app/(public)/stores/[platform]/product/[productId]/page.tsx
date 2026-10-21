@@ -392,7 +392,7 @@ export default async function ProductDetailPage({
                 <ChevronRight size={11} className="shrink-0" />
                 <span className="max-w-[160px] truncate font-medium text-ink">{product.name}</span>
               </div>
-              <ShareButton title={product.name} />
+              <ShareButton title={product.name} text={`${product.name} · ${store.name} on Wishdrop`} look="pill" label="Share" />
             </div>
           </div>
 

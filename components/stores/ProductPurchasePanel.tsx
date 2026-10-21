@@ -79,6 +79,7 @@ import ProductGallery from '@/components/stores/ProductGallery'
 import ProductRequestButton from '@/components/stores/ProductRequestButton'
 import SizeAndColorPicker from '@/components/stores/SizeAndColorPicker'
 import FollowButton from '@/components/stores/social/FollowButton'
+import ShareButton from '@/components/stores/ShareButton'
 import { imageThumb } from '@/lib/media'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -450,9 +451,19 @@ export default function ProductPurchasePanel({
         </div>
         )}
 
-        <h1 className={`${social ? 'mt-4' : 'mt-2'} font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl`}>
-          {product.name}
-        </h1>
+        <div className={`${social ? 'mt-4' : 'mt-2'} flex items-start gap-3`}>
+          <h1 className="min-w-0 flex-1 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">{product.name}</h1>
+          {/* Phones and the installed app have no address bar to copy from;
+              on larger screens the share sits in the top bar. */}
+          <ShareButton
+            title={product.name}
+            text={`${product.name} · ${storeName} on Wishdrop`}
+            url={`/stores/${platform}/product/${encodeURIComponent(product.handle || product.id)}${variantMatch?.id ? `?variant=${encodeURIComponent(variantMatch.id)}` : ''}`}
+            look="round"
+            label="Share this product"
+            className="mt-0.5 flex-none sm:hidden"
+          />
+        </div>
         {social && product.averageRating != null && (
           <div className="mt-1.5">
             <RatingStars rating={product.averageRating} count={product.reviewCount} />

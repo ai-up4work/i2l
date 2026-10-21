@@ -17,7 +17,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowUpDown, ChevronRight, Search, SearchX, Share2, ShieldCheck, Sparkles, Truck, MessageCircle, X } from 'lucide-react'
+import { ArrowUpDown, ChevronRight, Search, SearchX, ShieldCheck, Sparkles, Truck, MessageCircle, X } from 'lucide-react'
 import { FaFacebookF, FaInstagram } from 'react-icons/fa'
 import type { AffiliatedStore } from '@/data/stores/data'
 import type { StoreApiResponse, StoreProduct } from '@/lib/store.types'
@@ -25,6 +25,7 @@ import { imageThumb } from '@/lib/media'
 import SocialProductCard, { SocialProductCardSkeleton } from './SocialProductCard'
 import ReelsRow from './ReelsRow'
 import FollowButton from './FollowButton'
+import ShareButton from '@/components/stores/ShareButton'
 import { useHeaderOffset } from './useHeaderOffset'
 
 type SortKey = 'newest' | 'price-asc' | 'price-desc' | 'sale'
@@ -171,11 +172,6 @@ function Inner({ store }: { store: AffiliatedStore }) {
     setSearchInput('')
   }
 
-  function share() {
-    if (navigator.share) navigator.share({ title: store.name, url: window.location.href }).catch(() => {})
-    else navigator.clipboard?.writeText(window.location.href).catch(() => {})
-  }
-
   const about = store.description?.trim()
   const chips: Category[] = [{ handle: '', title: 'All' }, ...categories]
   const filtered = Boolean(category || search || collection)
@@ -265,14 +261,7 @@ function Inner({ store }: { store: AffiliatedStore }) {
                 <FaFacebookF size={14} />
               </a>
             )}
-            <button
-              type="button"
-              onClick={share}
-              aria-label="Share this store"
-              className="grid h-9 w-9 place-items-center rounded-full border border-ink/15 bg-card text-ink/70 hover:text-ink"
-            >
-              <Share2 size={14} />
-            </button>
+            <ShareButton title={store.name} text={`${store.name} on Wishdrop`} url={`/stores/${store.platform}`} look="round" label="Share this store" />
           </div>
         </div>
 

@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { Package, Palette, ReceiptText } from 'lucide-react'
 import StoreCover from '@/components/stores/StoreCover'
 import FollowButton from '@/components/stores/social/FollowButton'
+import ShareButton from '@/components/stores/ShareButton'
 import { useAuth } from '@/contexts/AuthContext'
 import { imageThumb } from '@/lib/media'
 import { formatRs, ORDER_STATUSES, type StorefrontData } from '@/lib/store-modules/casecraft/settings'
@@ -72,8 +73,9 @@ export default function CaseCraftStorefront({ store, data }: { store: Storefront
               <p className="mt-0.5 font-body text-xs text-ink/55">{store.tagline || 'Custom-printed phone cases'}</p>
             </div>
           </div>
-          <div className="flex-none pb-1">
+          <div className="flex flex-none items-center gap-2 pb-1">
             <FollowButton slug={store.platform} />
+            <ShareButton title={store.name} text={`${store.name} on Wishdrop — design your own phone case`} url={`/stores/${store.platform}`} look="round" label="Share this store" />
           </div>
         </div>
 

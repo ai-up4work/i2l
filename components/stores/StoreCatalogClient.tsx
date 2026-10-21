@@ -19,6 +19,7 @@ import AddToBagButton from '@/components/stores/AddToBagButton';
 import { hasChoices } from '@/lib/product-selection';
 import StoreCover from '@/components/stores/StoreCover';
 import FollowButton from '@/components/stores/social/FollowButton';
+import ShareButton from '@/components/stores/ShareButton';
 import { useWishlist, type WishlistProduct } from '@/contexts/Wishlistcontext';
 
 // Once `cover` is on the shared AffiliatedStore type you can drop this
@@ -1016,6 +1017,7 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
           {/* Follow + category picker live with the identity row on every viewport. */}
           <div className="flex shrink-0 items-center gap-2 pb-1">
             <FollowButton slug={platform} />
+            <ShareButton title={store.name} text={`${store.name} on Wishdrop`} url={`/stores/${platform}`} look="round" label="Share this store" />
             <div className="relative">
             <CategoryMenu
               categoryFilters={categoryFilters}
