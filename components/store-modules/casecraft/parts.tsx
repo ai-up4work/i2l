@@ -2,7 +2,7 @@
 // Building blocks shared by the Case Craft builder and ready-made pages.
 'use client'
 
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Check, ChevronDown, Minus, Move, Plus, Search, Smartphone } from 'lucide-react'
 import { BRANDS, type BrandId, type CaseModel, type SizeClass, type TemplateId } from '@/lib/store-modules/casecraft/catalog'
 import { formatRs } from '@/lib/store-modules/casecraft/settings'
@@ -137,11 +137,9 @@ export function PhonePicker({
 // ---- Case preview -----------------------------------------------------------------
 
 /**
- * A clean drawn case on top of the photo: camera module for the phone's
- * brand, a soft edge and a little gloss — instead of the factory print
- * template (spec text, trim lines, safe-area guides), which is only shown
- * when `guides` is on. Approximate on purpose: the template stays the
- * source of truth for the exact camera cut-out.
+ * Fallback for the clean look when a model's clean layers (cut from its real
+ * template) can't load: a camera module drawn for the brand, plus a little
+ * gloss. Approximate — the real layers are used whenever they're there.
  */
 function CaseMockup({ brand, size }: { brand: BrandId; size?: SizeClass }) {
   const lens = (cx: number, cy: number, r = 6.2) => (
@@ -187,6 +185,8 @@ export function CasePreview({
   placement,
   template,
   overlaySrc,
+  maskSrc,
+  cameraSrc,
   brand,
   size,
   guides = true,
@@ -197,11 +197,16 @@ export function CasePreview({
   photoUrl: string | null
   placement: Placement
   template: TemplateId
+  /** The factory print template (cut-outs, safe area, spec text). */
   overlaySrc: string | null
-  /** With a brand, the clean drawn case is shown unless `guides` is on. */
+  /** Clean layers cut from that template (catalog.ts cleanTemplateSrc):
+   *  the photo is clipped to the case shape and the camera laid on top. */
+  maskSrc?: string | null
+  cameraSrc?: string | null
+  /** Fallback when the clean layers can't load: a drawn camera for the brand. */
   brand?: BrandId
   size?: SizeClass
-  /** Show the factory print template (exact cut-outs, safe area). */
+  /** Show the factory print template instead of the clean look. */
   guides?: boolean
   onPlacementChange?: (p: Placement) => void
   empty?: ReactNode
@@ -213,9 +218,40 @@ export function CasePreview({
   const a = printArea(template)
   const canDrag = Boolean(photoUrl && onPlacementChange)
 
+  // The clean look only switches on once its mask has actually loaded — a
+  // CSS mask pointing at a missing file would hide the whole case.
+  const [maskLoaded, setMaskLoaded] = useState<string | null>(null)
+  useEffect(() => {
+    if (!maskSrc) return
+    let alive = true
+    const img = new window.Image()
+    img.onload = () => alive && setMaskLoaded(maskSrc)
+    img.onerror = () => alive && setMaskLoaded(null)
+    img.src = maskSrc
+    return () => {
+      alive = false
+    }
+  }, [maskSrc])
+  const clean = !guides && Boolean(maskSrc) && maskLoaded === maskSrc
+
+  const maskStyle: CSSProperties | undefined = clean
+    ? {
+        maskImage: `url("${maskSrc}")`,
+        WebkitMaskImage: `url("${maskSrc}")`,
+        maskSize: 'contain',
+        WebkitMaskSize: 'contain',
+        maskPosition: 'center',
+        WebkitMaskPosition: 'center',
+        maskRepeat: 'no-repeat',
+        WebkitMaskRepeat: 'no-repeat',
+      }
+    : undefined
+
   return (
     <div
-      className={`relative aspect-[9/16] w-full select-none overflow-hidden rounded-[28px] bg-white shadow-[0_24px_48px_-20px_rgba(8,39,79,0.45)] ring-1 ring-ink/10 ${canDrag ? 'cursor-grab touch-none active:cursor-grabbing' : ''} ${className}`}
+      className={`relative aspect-[9/16] w-full select-none ${
+        clean ? '' : 'overflow-hidden rounded-[28px] bg-white shadow-[0_24px_48px_-20px_rgba(8,39,79,0.45)] ring-1 ring-ink/10'
+      } ${canDrag ? 'cursor-grab touch-none active:cursor-grabbing' : ''} ${className}`}
       onPointerDown={(e) => {
         if (!canDrag) return
         e.currentTarget.setPointerCapture(e.pointerId)
@@ -231,35 +267,48 @@ export function CasePreview({
       onPointerUp={() => (drag.current = null)}
       onPointerCancel={() => (drag.current = null)}
     >
-      <div
-        ref={areaRef}
-        className={`absolute overflow-hidden ${
-          !photoUrl ? 'bg-parchment' : placement.bg === 'black' ? 'bg-black' : placement.bg === 'white' ? 'bg-white' : 'bg-ink/10'
-        }`}
-        style={{ left: `${a.left * 100}%`, top: `${a.top * 100}%`, width: `${a.width * 100}%`, height: `${a.height * 100}%` }}
-      >
-        {/* Background where the photo doesn't reach (zoomed out / dragged
-            off an edge) — matches what's printed (compose.ts). */}
-        {photoUrl && (placement.bg ?? 'blur') === 'blur' && (
+      {/* The case: shadow on the outer layer, the shape (mask) inside it. */}
+      <div className="absolute inset-0" style={clean ? { filter: 'drop-shadow(0 16px 18px rgba(8,39,79,0.32))' } : undefined}>
+        <div className="absolute inset-0" style={maskStyle}>
+          {clean && <div className="absolute inset-0 bg-white" />}
+          <div
+            ref={areaRef}
+            className={`absolute overflow-hidden ${
+              !photoUrl ? (clean ? 'bg-[#efeae1]' : 'bg-parchment') : placement.bg === 'black' ? 'bg-black' : placement.bg === 'white' ? 'bg-white' : 'bg-ink/10'
+            }`}
+            style={{ left: `${a.left * 100}%`, top: `${a.top * 100}%`, width: `${a.width * 100}%`, height: `${a.height * 100}%` }}
+          >
+            {/* Background where the photo doesn't reach (zoomed out / dragged
+                off an edge) — matches what's printed (compose.ts). */}
+            {photoUrl && (placement.bg ?? 'blur') === 'blur' && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoUrl} alt="" aria-hidden draggable={false} className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-xl" />
+            )}
+            {photoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photoUrl}
+                alt="Your photo"
+                draggable={false}
+                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                style={{
+                  transform: `translate(${placement.x * 100}%, ${placement.y * 100}%) scale(${placement.zoom})`,
+                  transformOrigin: 'center center',
+                }}
+              />
+            )}
+          </div>
+          {/* A little gloss, so it reads as a case rather than a flat picture. */}
+          {clean && <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-white/0 to-white/10" />}
+        </div>
+        {clean && cameraSrc && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photoUrl} alt="" aria-hidden draggable={false} className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-xl" />
-        )}
-        {photoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photoUrl}
-            alt="Your photo"
-            draggable={false}
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-            style={{
-              transform: `translate(${placement.x * 100}%, ${placement.y * 100}%) scale(${placement.zoom})`,
-              transformOrigin: 'center center',
-            }}
-          />
+          <img src={cameraSrc} alt="" aria-hidden draggable={false} className="pointer-events-none absolute inset-0 h-full w-full object-contain" />
         )}
       </div>
-      {brand && !guides && <CaseMockup brand={brand} size={size} />}
-      {(guides || !brand) && overlaySrc && overlayFailed !== overlaySrc && (
+
+      {!clean && !guides && brand && <CaseMockup brand={brand} size={size} />}
+      {(guides || (!clean && !brand)) && overlaySrc && overlayFailed !== overlaySrc && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={overlaySrc}

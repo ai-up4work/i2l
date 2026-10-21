@@ -14,6 +14,7 @@ import {
   getCaseType,
   getModel,
   getTemplate,
+  cleanTemplateSrc,
   templateSrc,
   TEMPLATES,
   type CaseModel,
@@ -101,6 +102,7 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
   const unitPrice = model && prices ? prices[model.size] : null
   const fromPrice = prices ? Math.min(...Object.values(prices)) : null
   const overlay = model ? templateSrc(model) : null
+  const clean = model ? cleanTemplateSrc(model) : null
 
   function chooseType(id: CaseTypeId) {
     if (id !== caseTypeId) setModelLabel(null)
@@ -173,6 +175,8 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
         placement={placement}
         template={template}
         overlaySrc={overlay}
+        maskSrc={clean?.mask}
+        cameraSrc={clean?.camera}
         brand={model?.brand}
         size={model?.size}
         guides={showGuides}

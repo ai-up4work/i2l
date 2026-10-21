@@ -207,6 +207,18 @@ export function templateSrc(model: Pick<CaseModel, 'file'>): string {
   return `/phoneCases/${encodeURIComponent(model.file)}`
 }
 
+/**
+ * The clean preview layers cut from a model's template (public/phoneCases/
+ * clean/, made by scripts/casecraft-clean-templates.py):
+ *   mask    white where the case back is — the photo is clipped to it
+ *   camera  the camera cut-out filled dark, to lay on top
+ * Same canvas size as the template, so they line up with it exactly.
+ */
+export function cleanTemplateSrc(model: Pick<CaseModel, 'file'>): { mask: string; camera: string } {
+  const base = `/phoneCases/clean/${encodeURIComponent(model.file.replace(/\.png$/i, ''))}`
+  return { mask: `${base}.mask.png`, camera: `${base}.camera.png` }
+}
+
 /** Key used to switch one model of one case type off. */
 export function modelKey(caseTypeId: CaseTypeId, label: string): string {
   return `${caseTypeId}|${label}`

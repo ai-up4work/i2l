@@ -1,0 +1,89 @@
+-- Case Craft: add 43 ready-made designs from public/phoneCases/Printed.
+--
+-- Run in Supabase → SQL Editor. Safe to run more than once: a design whose
+-- image is already in the store is skipped.
+--
+-- Before running:
+--   1. Set the price below (Rs, the SELLER price before Wishdrop's margin —
+--      same as a price typed in the seller portal). One price for all 43;
+--      change single designs afterwards in the seller portal.
+--   2. The images must be at public/phoneCases/Printed/case-001.png … on the
+--      live site. Folder names are case-sensitive on the server: the zip's
+--      folder is "Printed" — rename it to "printed", or change the path below.
+--
+-- All designs: Tough Case series, every phone model on sale (models = empty),
+-- marked New, active, in the order of their file numbers.
+-- case-019 is left out: it's the same design as case-015 (Forget-Me-Not).
+
+with params as (
+  select 1500: :numeric as price            -- ← set the price here
+),
+store as (
+  select id as seller_id from public.sellers where platform_slug = 'case-craft'
+),
+designs (sort, name, subtitle, image_url) as (
+  values
+    ( 1, 'Card Pocket Wallet – Black'      , 'Leather-look back with a card pocket that flips out as a stand', '/phoneCases/Printed/case-001.png'),
+    ( 2, 'Card Pocket Wallet – Brown'      , 'Leather-look back with a card pocket that flips out as a stand', '/phoneCases/Printed/case-002.png'),
+    ( 3, 'Card Pocket Wallet – Navy'       , 'Leather-look back with a card pocket that flips out as a stand', '/phoneCases/Printed/case-003.png'),
+    ( 4, 'Follow Your Dreams'              , 'Matte black with a little plane and a wrist strap', '/phoneCases/Printed/case-004.png'),
+    ( 5, 'Cloud Flight'                    , 'Soft grey clouds with a tiny plane', '/phoneCases/Printed/case-005.png'),
+    ( 6, 'Bold Stag – Black'               , 'Embossed stag on black leather-look', '/phoneCases/Printed/case-006.png'),
+    ( 7, 'Moonlit Flight'                  , 'A little plane circling a silver moon', '/phoneCases/Printed/case-007.png'),
+    ( 8, 'Bold Stag – Stone'               , 'Embossed stag on stone-grey fabric, with a lanyard', '/phoneCases/Printed/case-008.png'),
+    ( 9, 'Pink Blossom'                    , 'Ditsy pink flowers on blush pink', '/phoneCases/Printed/case-009.png'),
+    (10, 'Pink Lily'                       , 'One big pink lily on cream', '/phoneCases/Printed/case-010.png'),
+    (11, 'Where Next?'                     , 'Travel stamps and a paper plane on cream', '/phoneCases/Printed/case-011.png'),
+    (12, 'White Orchid'                    , 'Soft white orchids on cream', '/phoneCases/Printed/case-012.png'),
+    (13, 'Wildflower Vine'                 , 'Clear case with tiny pink wildflowers', '/phoneCases/Printed/case-013.png'),
+    (14, 'Blush Lilies'                    , 'Pink lilies on butter cream', '/phoneCases/Printed/case-014.png'),
+    (15, 'Forget-Me-Not'                   , 'Tiny blue flowers on cream', '/phoneCases/Printed/case-015.png'),
+    (16, 'Rosebud Vine'                    , 'Little pink rosebuds trailing on cream', '/phoneCases/Printed/case-016.png'),
+    (17, 'Opal Petals'                     , 'Pearly pink and blue petals with gold lines', '/phoneCases/Printed/case-017.png'),
+    (18, 'Lilac Peony'                     , 'An iridescent purple peony', '/phoneCases/Printed/case-018.png'),
+    (19, 'Silver Peony'                    , 'White peonies on a pearl shimmer', '/phoneCases/Printed/case-020.png'),
+    (20, 'Golden Wing'                     , 'A gold butterfly wing on silver shimmer', '/phoneCases/Printed/case-021.png'),
+    (21, 'Lotus Pond'                      , 'Pink lotus on a teal shimmer', '/phoneCases/Printed/case-022.png'),
+    (22, 'Lavender Butterfly'              , 'A lilac butterfly on silver swirls', '/phoneCases/Printed/case-023.png'),
+    (23, 'Silver Butterfly'                , 'A frosted butterfly on silver swirls', '/phoneCases/Printed/case-024.png'),
+    (24, 'Pink Butterfly'                  , 'A pink butterfly wing on silver swirls', '/phoneCases/Printed/case-025.png'),
+    (25, 'Heart Pocket – Pink'             , 'Pink with heart doodles and a card pocket', '/phoneCases/Printed/case-026.png'),
+    (26, 'Eat Train Work Repeat'           , 'Daily-routine icons on matte black', '/phoneCases/Printed/case-027.png'),
+    (27, 'Opal Peony'                      , 'Pearly peonies with gold lines', '/phoneCases/Printed/case-028.png'),
+    (28, 'Mirror Wing'                     , 'Mirror finish with a golden butterfly wing', '/phoneCases/Printed/case-029.png'),
+    (29, 'Daydream Girl – Pink Pocket'     , 'A daydreaming girl on pink, with a card pocket', '/phoneCases/Printed/case-030.png'),
+    (30, 'Pressed Wildflowers'             , 'Dried-flower print on black, with a tassel charm', '/phoneCases/Printed/case-031.png'),
+    (31, 'Little Wanderer – Pink'          , 'A little girl in a big sweater, on pink', '/phoneCases/Printed/case-032.png'),
+    (32, 'Daydream Girl – Black'           , 'A daydreaming girl on black', '/phoneCases/Printed/case-033.png'),
+    (33, '3D Blossoms – Cream'             , 'Raised flowers on cream', '/phoneCases/Printed/case-034.png'),
+    (34, '3D Blossoms – Lilac'             , 'Raised flowers on lilac', '/phoneCases/Printed/case-035.png'),
+    (35, 'Little Wanderer – Black'         , 'A little girl in a big sweater, on black', '/phoneCases/Printed/case-036.png'),
+    (36, 'Tulip Pocket – Pink'             , 'White tulips on pink, with a card pocket', '/phoneCases/Printed/case-037.png'),
+    (37, 'Card Pocket – Mocha'             , 'Plain mocha with a card pocket', '/phoneCases/Printed/case-038.png'),
+    (38, 'Blush Tulips'                    , 'Pink tulips on a clear case', '/phoneCases/Printed/case-039.png'),
+    (39, 'Baby Café – Mocha'               , '3D bear, coffee and milk charms on mocha', '/phoneCases/Printed/case-040.png'),
+    (40, 'Baby Café – Cream'               , '3D bear and bow charms on cream', '/phoneCases/Printed/case-041.png'),
+    (41, 'Coffee & Cookies'                , 'Coffee and cookie charms on speckled white', '/phoneCases/Printed/case-042.png'),
+    (42, 'Baby Café – Black'               , '3D charms on black, with a lanyard', '/phoneCases/Printed/case-043.png'),
+    (43, 'Baby Café – Latte'               , '3D charms on latte brown, with a lanyard', '/phoneCases/Printed/case-044.png')
+),
+inserted as (
+  insert into public.casecraft_designs
+    (seller_id, name, subtitle, image_url, case_type, models, price_lkr, is_new, is_bestseller, active, sort)
+  select s.seller_id, d.name, d.subtitle, d.image_url, 'tough-cases', '{}', p.price,
+true,
+false,
+true, d.sort
+  from designs d
+  cross join store s
+  cross join params p
+  where not exists (
+    select 1 from public.casecraft_designs x
+    where x.seller_id = s.seller_id and x.image_url = d.image_url
+  )
+  returning name
+)
+select
+  (select count(*) from store)    as case_craft_store_found,   -- must be 1
+  (select count(*) from inserted) as designs_added;            -- 43 the first time,
+0 after
