@@ -292,7 +292,7 @@ export default function Hero() {
                   onClick={() => router.push('/stores')}
                   className="group mt-0.5 inline-flex items-center gap-1.5 font-body text-sm font-semibold text-teal-deep"
                 >
-                  Browse {localStores.length} local stores
+                  Browse {localStores.length} affiliated stores
                   <ArrowRight
                     size={14}
                     aria-hidden="true"

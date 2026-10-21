@@ -7,6 +7,8 @@ import { FaWhatsapp } from 'react-icons/fa'
 import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
+import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
+import { groupIntoAlbums } from '@/lib/chat-albums'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
 
 function formatTime(ts: number) {
@@ -278,8 +280,22 @@ export default function ChatPanel({
                   {group.label}
                 </span>
               </div>
-              {group.ids.map((id) => {
-                const m = byId[id]
+              {groupIntoAlbums(
+                group.ids.map((id) => byId[id]),
+                (x) => ({
+                  sender: x.sender,
+                  hasMedia: Boolean(x.attachment),
+                  at: x.createdAt,
+                  tag: x.orderId ?? x.requestId ?? '',
+                  isReply: Boolean(x.replyTo),
+                }),
+              ).map((members) => {
+                // One bubble per run: a single message, or a WhatsApp-style
+                // album of photos sent together (lib/chat-albums.ts).
+                const m = members[0]
+                const last = members[members.length - 1]
+                const isAlbum = members.length > 1
+                const caption = members.map((x) => x.text).filter(Boolean).join('\n')
                 const isCustomer = m.sender === 'customer'
                 // Same problem the admin inbox already solves per-message
                 // (see /admin/chat): with more than one order in flight, a
@@ -302,7 +318,7 @@ export default function ChatPanel({
                 const replyButton = (
                   <button
                     type="button"
-                    onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text: m.text })}
+                    onClick={() => setReplyingTo({ id: last.id, sender: m.sender, text: caption || (isAlbum ? '📷 Photos' : '') })}
                     aria-label="Reply"
                     className={`hidden flex-none self-center rounded-full p-1 text-ink/35 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:hover)]:flex ${
                       isCustomer ? 'ml-1' : 'mr-1'
@@ -361,7 +377,12 @@ export default function ChatPanel({
                             {m.replyTo.text}
                           </div>
                         )}
-                        {m.attachment && (
+                        {isAlbum ? (
+                          <AttachmentAlbum
+                            className="mb-1.5"
+                            items={members.flatMap((x) => (x.attachment ? [x.attachment] : []))}
+                          />
+                        ) : m.attachment && (
                           <div className="mb-1.5 min-w-0 max-w-full">
                             <AttachmentMedia
                               url={m.attachment.url}
@@ -377,9 +398,9 @@ export default function ChatPanel({
                           max-w-[80%] and bleeding off the left edge under
                           the message list's overflow-x-hidden.
                         */}
-                        {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
+                        {caption && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{caption}</p>}
                         <p className={`mt-1 text-right text-[10px] ${isCustomer ? 'text-parchment/70' : 'text-ink/40'}`}>
-                          {formatTime(m.createdAt)}
+                          {formatTime(last.createdAt)}
                         </p>
                       </div>
                     </div>

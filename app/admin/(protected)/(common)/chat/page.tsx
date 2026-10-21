@@ -24,6 +24,8 @@ import {
 import { deriveHandle } from '@/contexts/ChatContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 import RetagMessageDialog, { type RetagResult } from '@/components/admin/chat/RetagMessageDialog'
+import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
+import { groupIntoAlbums } from '@/lib/chat-albums'
 import WhatsAppHandoffDialog, { type HandoffSent } from '@/components/admin/chat/WhatsAppHandoffDialog'
 import { defaultTargets, type Context, type LinkTarget } from '@/lib/chat/whatsapp-handoff'
 import { formatPhone } from '@/lib/whatsapp/verification'
@@ -394,6 +396,12 @@ function AdminChatPageInner() {
   // customer's wrong or missing order/request tag here, so the message
   // shows up in that order's/request's own chat panel.
   const [retagTarget, setRetagTarget] = useState<ChatMessageRow | null>(null)
+  // The rest of the album when a photo album is re-tagged (tagged together).
+  const [retagAlsoIds, setRetagAlsoIds] = useState<string[]>([])
+  const openRetag = (members: ChatMessageRow[]) => {
+    setRetagTarget(members[0])
+    setRetagAlsoIds(members.slice(1).map((x) => x.id))
+  }
 
   // ── WhatsApp hand-off (wa.me deep links, no Meta API) ──
   // The customer's VERIFIED WhatsApp number + last reminder, per open
@@ -421,11 +429,16 @@ function AdminChatPageInner() {
     }
   }, [selectedId])
 
-  const toggleSelected = useCallback((id: string) => {
+  // Picks / unpicks messages for the WhatsApp hand-off. A photo album is
+  // picked as one (all of its messages together).
+  const toggleSelectedMany = useCallback((ids: string[]) => {
     setSelectedMsgIds((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      const allOn = ids.every((id) => next.has(id))
+      for (const id of ids) {
+        if (allOn) next.delete(id)
+        else next.add(id)
+      }
       return next
     })
   }, [])
@@ -687,28 +700,19 @@ function AdminChatPageInner() {
         setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
       } else {
         // Same rules as the customer side (contexts/ChatContext.tsx):
-        // upload everything first; one photo keeps the text as its
-        // caption, several photos are followed by the text on its own.
+        // upload everything first, then one message per photo back to back
+        // (shown as one album), with the text on the last one as the
+        // album's caption.
         const urls = await Promise.all(pendingFiles.map((f) => uploadChatAttachment(supabase, selectedId, f)))
-        const captionOnPhoto = urls.length === 1
-        for (const url of urls) {
+        for (let i = 0; i < urls.length; i++) {
           const row = await sendChatMessage(supabase, {
             threadId: selectedId,
             sender: 'ops',
             senderName: staffName,
-            text: captionOnPhoto ? firstText : '',
-            attachmentUrl: url,
+            text: i === urls.length - 1 ? firstText : '',
+            attachmentUrl: urls[i],
           })
           // Same race, same fix — see the single-message branch above.
-          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
-        }
-        if (!captionOnPhoto && firstText) {
-          const row = await sendChatMessage(supabase, {
-            threadId: selectedId,
-            sender: 'ops',
-            senderName: staffName,
-            text: firstText,
-          })
           setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]))
         }
       }
@@ -845,9 +849,27 @@ function AdminChatPageInner() {
                       <div className="my-3 flex justify-center">
                         <span className="rounded-lg bg-card px-3 py-1 text-xs text-ink/50 shadow">{group.label}</span>
                       </div>
-                      {group.messages.map((m) => {
+                      {groupIntoAlbums(group.messages, (x) => ({
+                        sender: x.sender,
+                        hasMedia: Boolean(x.attachment_url),
+                        at: new Date(x.created_at).getTime(),
+                        tag: x.order_id ?? x.request_id ?? '',
+                        isReply: Boolean(parseReplyBody(x.text ?? '').quoted),
+                      })).map((members) => {
+                      // One bubble per run: a single message, or a WhatsApp-style
+                      // album of photos sent together (lib/chat-albums.ts).
+                      // Album actions (WhatsApp, select, re-tag) cover every photo.
+                      const m = members[0]
+                      const last = members[members.length - 1]
+                      const isAlbum = members.length > 1
+                      const memberIds = members.map((x) => x.id)
                       const isOps = m.sender === 'ops'
-                      const { quoted, text } = parseReplyBody(m.text ?? '')
+                      const { quoted } = parseReplyBody(m.text ?? '')
+                      const text = members
+                        .map((x) => parseReplyBody(x.text ?? '').text)
+                        .filter(Boolean)
+                        .join('\n')
+                      const albumSelected = memberIds.every((id) => selectedMsgIds.has(id))
                       const attachmentKind = m.attachment_url ? inferAttachmentKind(m.attachment_url) : null
                       const orderTag = m.order_id ? orderDisplayById.get(m.order_id) : null
                       const requestTag = m.request_id ? requestDisplayById.get(m.request_id) : null
@@ -856,8 +878,8 @@ function AdminChatPageInner() {
                           {isOps && selectMode && (
                             <input
                               type="checkbox"
-                              checked={selectedMsgIds.has(m.id)}
-                              onChange={() => toggleSelected(m.id)}
+                              checked={albumSelected}
+                              onChange={() => toggleSelectedMany(memberIds)}
                               aria-label="Select this message to send to WhatsApp"
                               className="mr-auto size-4 flex-none accent-teal-deep"
                             />
@@ -867,7 +889,7 @@ function AdminChatPageInner() {
                               {waInfo?.customer.verifiedPhone && (
                                 <button
                                   type="button"
-                                  onClick={() => setHandoff({ kind: 'messages', ids: [m.id] })}
+                                  onClick={() => setHandoff({ kind: 'messages', ids: memberIds })}
                                   aria-label="Send this message to WhatsApp"
                                   title="Send to WhatsApp"
                                   className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 hover:text-[#0F7A3D] focus-visible:opacity-100 group-hover:opacity-100"
@@ -877,7 +899,7 @@ function AdminChatPageInner() {
                               )}
                               <button
                                 type="button"
-                                onClick={() => setRetagTarget(m)}
+                                onClick={() => openRetag(members)}
                                 aria-label="Tag this message to an order or request"
                                 title="Tag to an order or request"
                                 className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100"
@@ -886,7 +908,7 @@ function AdminChatPageInner() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
+                                onClick={() => setReplyingTo({ id: last.id, sender: m.sender, text: text || (isAlbum ? '📷 Photos' : '') })}
                                 aria-label="Reply"
                                 className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
                               >
@@ -926,11 +948,11 @@ function AdminChatPageInner() {
                             )}
                           </span>
                           <div
-                            onClick={isOps && selectMode ? () => toggleSelected(m.id) : undefined}
+                            onClick={isOps && selectMode ? () => toggleSelectedMany(memberIds) : undefined}
                             className={`w-full rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
                               isOps ? 'bg-teal-deep text-white' : 'bg-card text-ink'
                             } ${isOps && selectMode ? 'cursor-pointer' : ''} ${
-                              isOps && selectMode && selectedMsgIds.has(m.id) ? 'ring-2 ring-gold ring-offset-1' : ''
+                              isOps && selectMode && albumSelected ? 'ring-2 ring-gold ring-offset-1' : ''
                             }`}
                           >
                             {quoted && (
@@ -939,7 +961,15 @@ function AdminChatPageInner() {
                               </div>
                             )}
 
-                            {attachmentKind && m.attachment_url && (
+                            {isAlbum ? (
+                              <AttachmentAlbum
+                                className="mb-1"
+                                items={members.flatMap((x) =>
+                                  x.attachment_url ? [{ url: x.attachment_url, kind: inferAttachmentKind(x.attachment_url) }] : [],
+                                )}
+                                onDelete={(i) => handleDeleteAttachment(members.filter((x) => x.attachment_url)[i].id)}
+                              />
+                            ) : attachmentKind && m.attachment_url && (
                               <div className="group/attachment relative mb-1">
                                 <AttachmentMedia
                                   url={m.attachment_url}
@@ -963,8 +993,8 @@ function AdminChatPageInner() {
                                   and other long strings wrap inside the bubble. */}
                               {text && <p className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>}
                               <span className={`ml-auto flex flex-none items-center gap-0.5 pb-[1px] text-[11px] ${isOps ? 'text-white/75' : 'text-ink/50'}`}>
-                                {formatTime(m.created_at)}
-                                {isOps && m.sent_via_whatsapp && (
+                                {formatTime(last.created_at)}
+                                {isOps && members.some((x) => x.sent_via_whatsapp) && (
                                   <span
                                     title={`Opened in WhatsApp${m.whatsapp_sent_by_name ? ` by ${m.whatsapp_sent_by_name}` : ''}${
                                       m.whatsapp_sent_at ? ` · ${new Date(m.whatsapp_sent_at).toLocaleString()}` : ''
@@ -984,7 +1014,7 @@ function AdminChatPageInner() {
                             <>
                               <button
                                 type="button"
-                                onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text })}
+                                onClick={() => setReplyingTo({ id: last.id, sender: m.sender, text: text || (isAlbum ? '📷 Photos' : '') })}
                                 aria-label="Reply"
                                 className="flex-none rounded-full p-1.5 text-ink/50 opacity-0 transition-opacity hover:bg-ink/5 group-hover:opacity-100"
                               >
@@ -992,7 +1022,7 @@ function AdminChatPageInner() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setRetagTarget(m)}
+                                onClick={() => openRetag(members)}
                                 aria-label="Tag this message to an order or request"
                                 title="Tag to an order or request"
                                 className={`flex-none rounded-full p-1.5 transition-opacity hover:bg-ink/5 focus-visible:opacity-100 group-hover:opacity-100 ${
@@ -1410,6 +1440,7 @@ function AdminChatPageInner() {
       {retagTarget && (
         <RetagMessageDialog
           message={retagTarget}
+          alsoMessageIds={retagAlsoIds}
           senderLabel={
             retagTarget.sender === 'ops'
               ? retagTarget.sender_name || 'Staff'

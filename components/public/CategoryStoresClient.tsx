@@ -154,7 +154,10 @@ export default function CategoryStoresClient({
   return (
     <div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {STORE_CATEGORIES.map((c) => (
+        {/* Only categories with at least one store — plus the selected one,
+            so a direct link to an empty category (?category=…) still shows
+            what's selected rather than nothing. */}
+        {STORE_CATEGORIES.filter((c) => (counts.get(c.slug) ?? 0) > 0 || c.slug === category?.slug).map((c) => (
           <CategoryTile
             key={c.slug}
             category={c}

@@ -396,31 +396,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // Upload every file first, so a failed upload sends nothing at
           // all (no half-sent set of photos) and the shopper can retry.
           const urls = await Promise.all(files.map((f) => uploadChatAttachment(supabaseRef.current, threadId, f)))
-          // One photo + text: the text is that photo's caption. Several
-          // photos + text: the photos go first, then the text as its own
-          // message after them — "can I get these?" is about all of them,
-          // not just the first (WhatsApp-style).
-          const captionOnPhoto = urls.length === 1
-          for (const url of urls) {
+          // One message per photo (one attachment per row), sent back to
+          // back so they show as one album (lib/chat-albums.ts). The text
+          // rides on the LAST photo — the album's caption, under the grid,
+          // about all of the photos (WhatsApp-style).
+          for (let i = 0; i < urls.length; i++) {
             const row = await sendChatMessage(supabaseRef.current, {
               threadId,
               sender: 'customer',
               senderName,
-              text: captionOnPhoto ? firstText : '',
-              attachmentUrl: url,
+              text: i === urls.length - 1 ? firstText : '',
+              attachmentUrl: urls[i],
               ...(orderId ? { orderId } : {}),
             })
             // Same race, same fix — see the single-message branch above.
-            setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
-          }
-          if (!captionOnPhoto && firstText) {
-            const row = await sendChatMessage(supabaseRef.current, {
-              threadId,
-              sender: 'customer',
-              senderName,
-              text: firstText,
-              ...(orderId ? { orderId } : {}),
-            })
             setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, rowToMessage(row)]))
           }
         }

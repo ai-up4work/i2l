@@ -53,11 +53,15 @@ function sameChoice(a: Choice, b: Choice) {
 
 export default function RetagMessageDialog({
   message,
+  alsoMessageIds = [],
   senderLabel,
   onClose,
   onSaved,
 }: {
   message: ChatMessageRow
+  /** The rest of a photo album (lib/chat-albums.ts): tagged the same way,
+   *  so the album stays together. */
+  alsoMessageIds?: string[]
   senderLabel: string
   onClose: () => void
   onSaved: (result: RetagResult) => void
@@ -124,6 +128,17 @@ export default function RetagMessageDialog({
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Could not save the tag.')
       if (!data.unchanged) onSaved(data as RetagResult)
+      // Rest of the album: same tag, one request each (same endpoint).
+      for (const id of alsoMessageIds) {
+        const r = await fetch(`/api/admin/chat/messages/${id}/tag`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(choice),
+        })
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(d.error || 'Could not tag every photo in the album.')
+        if (!d.unchanged) onSaved(d as RetagResult)
+      }
       onClose()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Could not save the tag.')

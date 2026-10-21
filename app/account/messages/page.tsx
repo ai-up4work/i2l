@@ -7,6 +7,8 @@ import { FaWhatsapp } from 'react-icons/fa'
 import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
+import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
+import { groupIntoAlbums } from '@/lib/chat-albums'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
 import PushOptIn from '@/components/pwa/PushOptIn'
 
@@ -244,7 +246,19 @@ export default function AccountMessagesPage() {
                       {group.label}
                     </span>
                   </div>
-                  {group.messages.map((m) => {
+                  {groupIntoAlbums(group.messages, (x) => ({
+                    sender: x.sender,
+                    hasMedia: Boolean(x.attachment),
+                    at: x.createdAt,
+                    tag: x.orderId ?? x.requestId ?? '',
+                    isReply: Boolean(x.replyTo),
+                  })).map((members) => {
+                    // One bubble per run: a single message, or a WhatsApp-style
+                    // album of photos sent together (lib/chat-albums.ts).
+                    const m = members[0]
+                    const last = members[members.length - 1]
+                    const isAlbum = members.length > 1
+                    const caption = members.map((x) => x.text).filter(Boolean).join('\n')
                     const isMine = m.sender === 'customer'
                     // Same per-message context problem/fix as ChatPanel.tsx —
                     // see its own comment for why this matters here too.
@@ -255,7 +269,7 @@ export default function AccountMessagesPage() {
                         {isMine && (
                           <button
                             type="button"
-                            onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text: m.text })}
+                            onClick={() => setReplyingTo({ id: last.id, sender: m.sender, text: caption || (isAlbum ? '📷 Photos' : '') })}
                             aria-label="Reply"
                             className="flex-none rounded-full p-1.5 text-ink/30 opacity-0 transition-opacity hover:bg-ink/[0.05] hover:text-ink/60 group-hover:opacity-100"
                           >
@@ -293,7 +307,12 @@ export default function AccountMessagesPage() {
                             </div>
                           )}
 
-                          {m.attachment && (
+                          {isAlbum ? (
+                            <AttachmentAlbum
+                              className="mb-1.5"
+                              items={members.flatMap((x) => (x.attachment ? [x.attachment] : []))}
+                            />
+                          ) : m.attachment && (
                             <div className="mb-1.5">
                               <AttachmentMedia
                                 url={m.attachment.url}
@@ -303,11 +322,11 @@ export default function AccountMessagesPage() {
                             </div>
                           )}
 
-                          {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
+                          {caption && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{caption}</p>}
 
                           <div className="mt-1 flex items-center justify-end gap-1">
                             <span className={`text-[10px] ${isMine ? 'text-parchment/70' : 'text-ink/40'}`}>
-                              {formatTime(m.createdAt)}
+                              {formatTime(last.createdAt)}
                             </span>
                             {isMine && <CheckCheck size={13} className="text-parchment/70" />}
                           </div>
@@ -317,7 +336,7 @@ export default function AccountMessagesPage() {
                         {!isMine && (
                           <button
                             type="button"
-                            onClick={() => setReplyingTo({ id: m.id, sender: m.sender, text: m.text })}
+                            onClick={() => setReplyingTo({ id: last.id, sender: m.sender, text: caption || (isAlbum ? '📷 Photos' : '') })}
                             aria-label="Reply"
                             className="flex-none rounded-full p-1.5 text-ink/30 opacity-0 transition-opacity hover:bg-ink/[0.05] hover:text-ink/60 group-hover:opacity-100"
                           >

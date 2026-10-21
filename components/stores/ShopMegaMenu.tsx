@@ -224,9 +224,12 @@ export function ShopMegaMenuPanel({
   const [mounted, setMounted] = useState(false)
   const isDesktop = useIsDesktopNav()
   const { stores, loading } = useAffiliatedStores()
-  // Categories with no store yet are greyed out ("Coming soon"). Until the
-  // stores have loaded, everything shows as normal.
-  const liveCategories = useMemo(() => categoriesWithStores(stores), [stores])
+  // Only categories that have a store — no greyed-out "Coming soon"
+  // entries. Until the stores have loaded, every category is listed.
+  const shownCategories = useMemo(() => {
+    const live = categoriesWithStores(stores)
+    return loading ? menuCategories : menuCategories.filter((c) => live.has(c.slug))
+  }, [stores, loading])
   const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
   // FIX: split out full local-store list from the capped preview grid,
   // so the "Browse all N" link below can count only real local sellers
@@ -272,42 +275,24 @@ export function ShopMegaMenuPanel({
               Shop by category
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {menuCategories.map((category) => {
-                const empty = !loading && !liveCategories.has(category.slug)
-                const inner = (
-                  <>
-                    <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-ink/5">
-                      <CategoryImage
-                        category={category}
-                        className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-105"
-                        iconClassName="h-4 w-4"
-                      />
-                    </span>
-                    <span className="min-w-0 leading-tight font-body">
-                      <span className="block text-[13px] font-medium text-ink">{category.name}</span>
-                      {empty && <span className="block text-[11px] text-ink/45">Coming soon</span>}
-                    </span>
-                  </>
-                )
-                return empty ? (
-                  <span
-                    key={category.slug}
-                    aria-disabled="true"
-                    title="No stores in this category yet"
-                    className="flex min-w-0 cursor-not-allowed items-center gap-2.5 rounded-xl p-1.5 pr-2 opacity-50 grayscale ring-1 ring-ink/[0.06]"
-                  >
-                    {inner}
+              {shownCategories.map((category) => (
+                <a
+                  key={category.slug}
+                  href={`/categories?category=${category.slug}`}
+                  className="group flex min-w-0 items-center gap-2.5 rounded-xl p-1.5 pr-2 ring-1 ring-ink/[0.06] transition-colors duration-150 hover:bg-teal/10 hover:ring-teal/25"
+                >
+                  <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-ink/5">
+                    <CategoryImage
+                      category={category}
+                      className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-105"
+                      iconClassName="h-4 w-4"
+                    />
                   </span>
-                ) : (
-                  <a
-                    key={category.slug}
-                    href={`/categories?category=${category.slug}`}
-                    className="group flex min-w-0 items-center gap-2.5 rounded-xl p-1.5 pr-2 ring-1 ring-ink/[0.06] transition-colors duration-150 hover:bg-teal/10 hover:ring-teal/25"
-                  >
-                    {inner}
-                  </a>
-                )
-              })}
+                  <span className="min-w-0 leading-tight font-body">
+                    <span className="block text-[13px] font-medium text-ink">{category.name}</span>
+                  </span>
+                </a>
+              ))}
             </div>
             <a
               href="/categories"
@@ -410,8 +395,11 @@ function SheetHeading({ children, action }: { children: React.ReactNode; action?
  */
 export function ShopMegaMenuMobile({ onAddRequest }: { onAddRequest?: () => void } = {}) {
   const { stores, loading } = useAffiliatedStores()
-  // Categories with no store yet are greyed out ("Coming soon").
-  const liveCategories = useMemo(() => categoriesWithStores(stores), [stores])
+  // Only categories that have a store — no greyed-out "Coming soon" tiles.
+  const shownCategories = useMemo(() => {
+    const live = categoriesWithStores(stores)
+    return loading ? menuCategories : menuCategories.filter((c) => live.has(c.slug))
+  }, [stores, loading])
   const { followedAt } = useFollowedStores()
   const [q, setQ] = useState("")
   const marketplaceStores = useMemo(() => stores.filter((s) => s.storeType === "marketplace"), [stores])
@@ -515,35 +503,18 @@ export function ShopMegaMenuMobile({ onAddRequest }: { onAddRequest?: () => void
             Shop by category
           </SheetHeading>
           <div className="grid grid-cols-3 gap-2 px-5">
-            {menuCategories.map((category) => {
-              const empty = !loading && !liveCategories.has(category.slug)
-              const inner = (
-                <>
-                  <span className="relative aspect-square w-full overflow-hidden rounded-xl bg-ink/5">
-                    <CategoryImage category={category} className="absolute inset-0 h-full w-full" iconClassName="h-5 w-5" />
-                  </span>
-                  <span className="line-clamp-2 w-full px-0.5 font-body text-[11px] font-medium leading-tight text-ink/80">{category.name}</span>
-                  {empty && <span className="-mt-1 font-body text-[10px] text-ink/45">Coming soon</span>}
-                </>
-              )
-              return empty ? (
-                <span
-                  key={category.slug}
-                  aria-disabled="true"
-                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-card p-1.5 pb-2.5 text-center opacity-50 grayscale ring-1 ring-ink/8"
-                >
-                  {inner}
+            {shownCategories.map((category) => (
+              <a
+                key={category.slug}
+                href={`/categories?category=${category.slug}`}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-card p-1.5 pb-2.5 text-center ring-1 ring-ink/8 transition-colors active:bg-teal/10"
+              >
+                <span className="relative aspect-square w-full overflow-hidden rounded-xl bg-ink/5">
+                  <CategoryImage category={category} className="absolute inset-0 h-full w-full" iconClassName="h-5 w-5" />
                 </span>
-              ) : (
-                <a
-                  key={category.slug}
-                  href={`/categories?category=${category.slug}`}
-                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-card p-1.5 pb-2.5 text-center ring-1 ring-ink/8 transition-colors active:bg-teal/10"
-                >
-                  {inner}
-                </a>
-              )
-            })}
+                <span className="line-clamp-2 w-full px-0.5 font-body text-[11px] font-medium leading-tight text-ink/80">{category.name}</span>
+              </a>
+            ))}
           </div>
 
           {/* Affiliated stores */}

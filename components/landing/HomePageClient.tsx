@@ -314,10 +314,20 @@ const topDeals: Deal[] = [
 // The featured categories, same as the Shop menu in the header
 // (lib/store-categories.ts). The full list is on /categories.
 function ShopByCategory() {
-  // Categories with no store yet are greyed out ("Coming soon"). Until the
-  // stores have loaded, everything shows as normal.
+  // Only categories that actually have a store — no greyed-out "Coming
+  // soon" tiles. Until the stores have loaded we show plain placeholder
+  // tiles, so categories don't appear and then vanish in front of the
+  // shopper.
   const { stores, loading } = useAffiliatedStores()
   const liveCategories = categoriesWithStores(stores)
+  const available = FEATURED_STORE_CATEGORIES.filter((category) => liveCategories.has(category.slug))
+  if (!loading && available.length === 0) return null
+
+  // Same tile size as the old fixed 9-column grid (3 per row on phones),
+  // but in a centred, wrapping row so fewer categories don't leave a gap
+  // on the right.
+  const tileWidth = 'w-[calc((100%-2rem)/3)] lg:w-[calc((100%-10rem)/9)]'
+
   return (
     <section className="mx-auto max-w-9xl px-12 py-4 lg:px-20 bg-card">
       <Reveal className="mt-20">
@@ -327,40 +337,28 @@ function ShopByCategory() {
         <h2 className="mt-2 font-display font-semibold text-3xl text-indigo sm:text-4xl">Find what you love</h2>
       </Reveal>
 
-      <div className="mt-8 grid grid-cols-3 gap-4 lg:grid-cols-9 lg:gap-5">
-        {FEATURED_STORE_CATEGORIES.map((category, index) => {
-          const empty = !loading && !liveCategories.has(category.slug)
-          const tile = (
-            <>
-              <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-2xl bg-ink/5 transition-colors duration-300 group-hover:bg-gold/10">
-                <CategoryImage
-                  category={category}
-                  className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-105"
-                  iconClassName="h-7 w-7"
-                />
-              </span>
-              <span className="font-body text-xs font-medium text-indigo sm:text-sm">{category.name}</span>
-              {empty && <span className="-mt-2 font-body text-[11px] text-ink/45">Coming soon</span>}
-            </>
-          )
-          return (
-            <Reveal key={category.slug} delay={index * 60}>
-              {empty ? (
-                <span
-                  aria-disabled="true"
-                  title="No stores in this category yet"
-                  className="flex cursor-not-allowed flex-col items-center gap-2.5 text-center opacity-50 grayscale"
-                >
-                  {tile}
-                </span>
-              ) : (
+      <div className="mt-8 flex flex-wrap justify-center gap-4 lg:gap-5">
+        {loading
+          ? FEATURED_STORE_CATEGORIES.map((category) => (
+              <div key={category.slug} className={`${tileWidth} flex flex-col items-center gap-2.5`} aria-hidden="true">
+                <span className="aspect-square w-full animate-pulse rounded-2xl bg-ink/5" />
+                <span className="h-3 w-2/3 animate-pulse rounded bg-ink/5" />
+              </div>
+            ))
+          : available.map((category, index) => (
+              <Reveal key={category.slug} delay={index * 60} className={tileWidth}>
                 <a href={categoryHref(category)} className="group flex flex-col items-center gap-2.5 text-center">
-                  {tile}
+                  <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-2xl bg-ink/5 transition-colors duration-300 group-hover:bg-gold/10">
+                    <CategoryImage
+                      category={category}
+                      className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-105"
+                      iconClassName="h-7 w-7"
+                    />
+                  </span>
+                  <span className="font-body text-xs font-medium text-indigo sm:text-sm">{category.name}</span>
                 </a>
-              )}
-            </Reveal>
-          )
-        })}
+              </Reveal>
+            ))}
       </div>
 
       <div className="mt-10 mb-8 flex justify-center">
