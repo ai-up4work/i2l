@@ -136,11 +136,60 @@ export function PhonePicker({
 
 // ---- Case preview -----------------------------------------------------------------
 
+/**
+ * A clean drawn case on top of the photo: camera module for the phone's
+ * brand, a soft edge and a little gloss — instead of the factory print
+ * template (spec text, trim lines, safe-area guides), which is only shown
+ * when `guides` is on. Approximate on purpose: the template stays the
+ * source of truth for the exact camera cut-out.
+ */
+function CaseMockup({ brand, size }: { brand: BrandId; size?: SizeClass }) {
+  const lens = (cx: number, cy: number, r = 6.2) => (
+    <g key={`${cx}-${cy}`}>
+      <circle cx={cx} cy={cy} r={r} fill="#2a2a2e" stroke="#4a4a50" strokeWidth={0.9} />
+      <circle cx={cx} cy={cy} r={r * 0.55} fill="#0d0d10" />
+      <circle cx={cx - r * 0.22} cy={cy - r * 0.25} r={r * 0.16} fill="#ffffff" opacity={0.35} />
+    </g>
+  )
+  const threeLens = size === 'pro' || size === 'promax'
+  return (
+    <svg viewBox="0 0 90 160" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 z-10 h-full w-full" aria-hidden>
+      <defs>
+        <linearGradient id="cc-gloss" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ffffff" stopOpacity="0.22" />
+          <stop offset="0.38" stopColor="#ffffff" stopOpacity="0" />
+          <stop offset="1" stopColor="#ffffff" stopOpacity="0.06" />
+        </linearGradient>
+      </defs>
+      {brand === 'iphone' && (
+        <g>
+          <rect x={4.5} y={4.5} width={34} height={34} rx={8} fill="#1d1d20" fillOpacity={0.94} stroke="#ffffff" strokeOpacity={0.18} strokeWidth={0.6} />
+          {threeLens ? [lens(13.5, 13.5), lens(13.5, 29.5), lens(28.5, 21.5)] : [lens(14, 14), lens(28.5, 28.5)]}
+          <circle cx={30} cy={11} r={1.8} fill="#f5e9c8" opacity={0.85} />
+        </g>
+      )}
+      {brand === 'samsung' && <g>{[lens(13, 13, 5.6), lens(13, 27, 5.6), lens(13, 41, 5.6)]}</g>}
+      {brand === 'google' && (
+        <g>
+          <rect x={0} y={20} width={90} height={15} rx={7.5} fill="#1d1d20" fillOpacity={0.94} />
+          {lens(18, 27.5, 5.2)}
+          {lens(31, 27.5, 5.2)}
+          <circle cx={44} cy={27.5} r={1.8} fill="#f5e9c8" opacity={0.85} />
+        </g>
+      )}
+      <rect x={0} y={0} width={90} height={160} fill="url(#cc-gloss)" />
+    </svg>
+  )
+}
+
 export function CasePreview({
   photoUrl,
   placement,
   template,
   overlaySrc,
+  brand,
+  size,
+  guides = true,
   onPlacementChange,
   empty,
   className = '',
@@ -149,6 +198,11 @@ export function CasePreview({
   placement: Placement
   template: TemplateId
   overlaySrc: string | null
+  /** With a brand, the clean drawn case is shown unless `guides` is on. */
+  brand?: BrandId
+  size?: SizeClass
+  /** Show the factory print template (exact cut-outs, safe area). */
+  guides?: boolean
   onPlacementChange?: (p: Placement) => void
   empty?: ReactNode
   className?: string
@@ -161,7 +215,7 @@ export function CasePreview({
 
   return (
     <div
-      className={`relative aspect-[9/16] w-full select-none overflow-hidden rounded-[28px] bg-white shadow-xl ring-1 ring-ink/10 ${canDrag ? 'cursor-grab touch-none active:cursor-grabbing' : ''} ${className}`}
+      className={`relative aspect-[9/16] w-full select-none overflow-hidden rounded-[28px] bg-white shadow-[0_24px_48px_-20px_rgba(8,39,79,0.45)] ring-1 ring-ink/10 ${canDrag ? 'cursor-grab touch-none active:cursor-grabbing' : ''} ${className}`}
       onPointerDown={(e) => {
         if (!canDrag) return
         e.currentTarget.setPointerCapture(e.pointerId)
@@ -179,9 +233,17 @@ export function CasePreview({
     >
       <div
         ref={areaRef}
-        className="absolute overflow-hidden bg-parchment"
+        className={`absolute overflow-hidden ${
+          !photoUrl ? 'bg-parchment' : placement.bg === 'black' ? 'bg-black' : placement.bg === 'white' ? 'bg-white' : 'bg-ink/10'
+        }`}
         style={{ left: `${a.left * 100}%`, top: `${a.top * 100}%`, width: `${a.width * 100}%`, height: `${a.height * 100}%` }}
       >
+        {/* Background where the photo doesn't reach (zoomed out / dragged
+            off an edge) — matches what's printed (compose.ts). */}
+        {photoUrl && (placement.bg ?? 'blur') === 'blur' && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photoUrl} alt="" aria-hidden draggable={false} className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-xl" />
+        )}
         {photoUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -196,7 +258,8 @@ export function CasePreview({
           />
         )}
       </div>
-      {overlaySrc && overlayFailed !== overlaySrc && (
+      {brand && !guides && <CaseMockup brand={brand} size={size} />}
+      {(guides || !brand) && overlaySrc && overlayFailed !== overlaySrc && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={overlaySrc}
@@ -208,7 +271,7 @@ export function CasePreview({
       )}
       {!photoUrl && empty && <div className="absolute inset-0 z-20 grid place-items-center p-6 text-center">{empty}</div>}
       {canDrag && (
-        <span className="pointer-events-none absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 font-body text-[10px] text-white">
+        <span className="pointer-events-none absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 font-body text-[10px] text-white backdrop-blur-sm">
           <Move size={10} aria-hidden /> Drag to move
         </span>
       )}

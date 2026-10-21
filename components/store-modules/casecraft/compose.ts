@@ -15,14 +15,29 @@ import { createClient } from '@/lib/supabase/client'
 import type { TemplateId } from '@/lib/store-modules/casecraft/catalog'
 
 export type Placement = {
-  /** 1 = photo just covers the print area. */
+  /** 1 = photo just covers the print area; below 1 leaves edges uncovered. */
   zoom: number
   /** Offset of the photo centre, as a fraction of the print area. */
   x: number
   y: number
+  /** What fills any part of the print area the photo doesn't reach
+   *  (zoomed out, or dragged off an edge). Blurred photo by default. */
+  bg?: PlacementBackground
 }
 
-export const DEFAULT_PLACEMENT: Placement = { zoom: 1, x: 0, y: 0 }
+export type PlacementBackground = 'blur' | 'white' | 'black'
+
+export const PLACEMENT_BACKGROUNDS: { id: PlacementBackground; label: string }[] = [
+  { id: 'blur', label: 'Blurred photo' },
+  { id: 'white', label: 'White' },
+  { id: 'black', label: 'Black' },
+]
+
+/** Smallest zoom: the photo at half the size that just covers the case. */
+export const MIN_ZOOM = 0.5
+export const MAX_ZOOM = 3
+
+export const DEFAULT_PLACEMENT: Placement = { zoom: 1, x: 0, y: 0, bg: 'blur' }
 
 /** The print area inside the case, as fractions of the full 9:16 canvas. */
 export function printArea(template: TemplateId): { left: number; top: number; width: number; height: number } {
@@ -72,6 +87,32 @@ async function render(opts: {
   ctx.beginPath()
   ctx.rect(rx, ry, rw, rh)
   ctx.clip()
+
+  // Background for any part of the print area the photo doesn't reach.
+  const bg = opts.placement.bg ?? 'blur'
+  if (bg === 'blur') {
+    // Blur by drawing the photo tiny, then stretching it back up — works in
+    // every browser (canvas `filter` isn't supported everywhere).
+    const tiny = document.createElement('canvas')
+    tiny.width = 14
+    tiny.height = Math.max(1, Math.round((14 * rh) / rw))
+    const tctx = tiny.getContext('2d')!
+    const cover = Math.max(tiny.width / photo.naturalWidth, tiny.height / photo.naturalHeight)
+    tctx.drawImage(
+      photo,
+      (tiny.width - photo.naturalWidth * cover) / 2,
+      (tiny.height - photo.naturalHeight * cover) / 2,
+      photo.naturalWidth * cover,
+      photo.naturalHeight * cover,
+    )
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(tiny, rx, ry, rw, rh)
+  } else {
+    ctx.fillStyle = bg === 'black' ? '#000000' : '#ffffff'
+    ctx.fillRect(rx, ry, rw, rh)
+  }
+
   ctx.translate(rx + rw / 2 + opts.placement.x * rw, ry + rh / 2 + opts.placement.y * rh)
   ctx.scale(scale, scale)
   ctx.imageSmoothingQuality = 'high'

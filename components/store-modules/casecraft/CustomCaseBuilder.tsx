@@ -7,7 +7,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ImagePlus, LogIn, RotateCcw, ShieldCheck, ZoomIn } from 'lucide-react'
+import { ImagePlus, LogIn, Minus, Plus, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   CASE_TYPES,
@@ -22,7 +22,16 @@ import {
 } from '@/lib/store-modules/casecraft/catalog'
 import { formatRs, type DeliveryDetails, type PaymentMethod, type StorefrontData } from '@/lib/store-modules/casecraft/settings'
 import CaseCheckout, { type PlacedOrder } from './CaseCheckout'
-import { DEFAULT_PLACEMENT, prepareOriginal, renderPrintFiles, uploadOrderFile, type Placement } from './compose'
+import {
+  DEFAULT_PLACEMENT,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  PLACEMENT_BACKGROUNDS,
+  prepareOriginal,
+  renderPrintFiles,
+  uploadOrderFile,
+  type Placement,
+} from './compose'
 import { btnPrimary, CasePreview, PhonePicker, StepCard } from './parts'
 
 type Step = 1 | 2 | 3 | 4 | 5
@@ -39,6 +48,8 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
   const [file, setFile] = useState<File | null>(null)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [placement, setPlacement] = useState<Placement>(DEFAULT_PLACEMENT)
+  // Clean case look by default; the factory print template on demand.
+  const [showGuides, setShowGuides] = useState(false)
   const [quantity, setQuantity] = useState(1)
   const [busyLabel, setBusyLabel] = useState<string | null>(null)
   const [restored, setRestored] = useState(false)
@@ -151,39 +162,102 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
     return <p className="rounded-2xl bg-card p-8 text-center font-body text-sm text-ink/60 ring-1 ring-ink/10">Custom cases aren&rsquo;t available right now. Have a look at the ready-made designs.</p>
   }
 
+  const zoomBy = (d: number) =>
+    setPlacement((p) => ({ ...p, zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((p.zoom + d) * 100) / 100)) }))
+  const iconBtn = 'grid h-8 w-8 flex-none place-items-center rounded-full text-ink/60 transition-colors hover:bg-ink/5 hover:text-ink disabled:opacity-30'
+
   const preview = (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex flex-col items-center gap-4">
       <CasePreview
         photoUrl={photoUrl}
         placement={placement}
         template={template}
         overlaySrc={overlay}
+        brand={model?.brand}
+        size={model?.size}
+        guides={showGuides}
         onPlacementChange={step === 4 ? setPlacement : undefined}
-        className="max-w-[200px] sm:max-w-[240px]"
+        className="max-w-[220px] sm:max-w-[250px]"
         empty={
           <span className="font-body text-xs text-ink/45">
             {!caseType ? 'Pick a case to start' : !model ? 'Pick your phone' : 'Your photo goes here'}
           </span>
         }
       />
+
       {photoUrl && step === 4 && (
-        <div className="flex w-full max-w-[260px] items-center gap-2">
-          <ZoomIn size={14} className="flex-none text-ink/45" aria-hidden />
-          <input
-            type="range"
-            min={1}
-            max={3}
-            step={0.01}
-            value={placement.zoom}
-            onChange={(e) => setPlacement({ ...placement, zoom: Number(e.target.value) })}
-            aria-label="Zoom"
-            className="w-full accent-[var(--color-teal)]"
-          />
-          <button type="button" onClick={() => setPlacement(DEFAULT_PLACEMENT)} aria-label="Reset position" className="grid h-8 w-8 flex-none place-items-center rounded-full text-ink/55 hover:bg-ink/5">
-            <RotateCcw size={14} />
-          </button>
+        <div className="w-full max-w-[280px] space-y-3 rounded-2xl bg-card p-3 ring-1 ring-ink/10">
+          {/* Zoom: − / slider / +, with the size and a reset */}
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => zoomBy(-0.1)} disabled={placement.zoom <= MIN_ZOOM} aria-label="Zoom out" className={iconBtn}>
+              <Minus size={15} />
+            </button>
+            <input
+              type="range"
+              min={MIN_ZOOM}
+              max={MAX_ZOOM}
+              step={0.01}
+              value={placement.zoom}
+              onChange={(e) => setPlacement({ ...placement, zoom: Number(e.target.value) })}
+              aria-label="Zoom"
+              className="w-full accent-[var(--color-teal)]"
+            />
+            <button type="button" onClick={() => zoomBy(0.1)} disabled={placement.zoom >= MAX_ZOOM} aria-label="Zoom in" className={iconBtn}>
+              <Plus size={15} />
+            </button>
+            <span className="w-11 flex-none text-right font-body text-xs font-semibold tabular-nums text-ink/60">{Math.round(placement.zoom * 100)}%</span>
+            <button
+              type="button"
+              onClick={() => setPlacement({ ...DEFAULT_PLACEMENT, bg: placement.bg })}
+              aria-label="Reset size and position"
+              title="Reset size and position"
+              className={iconBtn}
+            >
+              <RotateCcw size={14} />
+            </button>
+          </div>
+
+          {/* What fills the edges when the photo doesn't reach them */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-body text-xs font-medium text-ink/55">Background</span>
+            <div className="flex gap-1.5" role="radiogroup" aria-label="Background behind the photo">
+              {PLACEMENT_BACKGROUNDS.map((b) => {
+                const on = (placement.bg ?? 'blur') === b.id
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    aria-label={b.label}
+                    title={b.label}
+                    onClick={() => setPlacement({ ...placement, bg: b.id })}
+                    className={`relative h-7 w-7 overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-shadow ${
+                      on ? 'ring-2 ring-teal' : 'ring-1 ring-ink/15 hover:ring-ink/30'
+                    } ${b.id === 'black' ? 'bg-black' : 'bg-white'}`}
+                  >
+                    {b.id === 'blur' && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photoUrl} alt="" className="h-full w-full scale-150 object-cover blur-[3px]" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Factory template: exact camera cut-out and safe area */}
+          <label className="flex cursor-pointer items-center justify-between gap-2">
+            <span className="font-body text-xs font-medium text-ink/55">Show print guides</span>
+            <span className="relative inline-flex">
+              <input type="checkbox" checked={showGuides} onChange={(e) => setShowGuides(e.target.checked)} className="peer sr-only" />
+              <span className="h-5 w-9 rounded-full bg-ink/15 transition-colors peer-checked:bg-teal peer-focus-visible:ring-2 peer-focus-visible:ring-teal/40" />
+              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+            </span>
+          </label>
         </div>
       )}
+
       {model && unitPrice != null && (
         <p className="text-center font-body text-sm text-ink/60">
           {caseType?.label} for {model.label} · <span className="font-semibold text-ink">{formatRs(unitPrice)}</span>
@@ -293,7 +367,10 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
               </button>
               {photoUrl && (
                 <>
-                  <p className="font-body text-xs text-ink/55">Drag the photo on the case to move it, and use the slider to zoom.</p>
+                  <p className="font-body text-xs text-ink/55">
+                    Drag the photo on the case to move it, and zoom in or out under the preview. If it doesn&rsquo;t fill the case, pick
+                    what goes behind it.
+                  </p>
                   <button type="button" onClick={() => setStep(5)} className={btnPrimary}>
                     Looks good, continue
                   </button>
