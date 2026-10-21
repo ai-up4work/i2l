@@ -54,7 +54,9 @@ function waitingFor(iso: string): string {
   return `${d} day${d === 1 ? '' : 's'} ago`
 }
 
-const lkr = (v: number) => `Rs. ${Math.round(v).toLocaleString('en-LK')}`
+// Cents only when there are any (Rs. 9,337 / Rs. 9,336.62) — money amounts
+// here must never be shown rounded to a figure the server would reject.
+const lkr = (v: number) => `Rs. ${v.toLocaleString('en-LK', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 const DETAILS_KEY = 'wishdrop:admin:payment-details'
 export const REFUND_NOTICE_KEY = 'wishdrop:admin:last-refund'
 const FIELD =
@@ -568,7 +570,10 @@ function RefundPanel({
   onCancelledOrder?: (whatsappUrl: string, title: string) => void
 }) {
   const refunded = refunds.reduce((t, r) => t + r.amountLKR, 0)
-  const remaining = Math.max(0, Math.round(paidLKR - refunded))
+  // To the cent, exactly as the server checks it (lib/payments/server.ts
+  // refundOrder). Rounding to whole rupees here pre-filled e.g. 9,337 for a
+  // 9,336.62 payment, which the server then refused as too much.
+  const remaining = Math.max(0, Math.round((paidLKR - refunded) * 100) / 100)
   const orderCancelled = refunds.some((r) => r.cancelledOrder)
   const [open, setOpen] = useState<null | 'cancel' | 'partial'>(null)
   const [amount, setAmount] = useState('')
@@ -666,6 +671,7 @@ function RefundPanel({
               inputMode="decimal"
               min={1}
               max={remaining}
+              step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className={`${FIELD} mt-1`}

@@ -325,7 +325,9 @@ export const REFUND_METHOD_LABEL: Record<RefundMethod, string> = {
   other: 'Other',
 }
 
-const lkrText = (v: number) => `Rs. ${Math.round(v).toLocaleString('en-LK')}`
+// Cents only when there are any — an error saying "at most Rs. 9,337" for a
+// 9,336.62 limit reads as a contradiction next to a Rs. 9,337 amount.
+const lkrText = (v: number) => `Rs. ${v.toLocaleString('en-LK', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 
 type RefundScope = {
   userId: string
@@ -423,8 +425,11 @@ export async function refundOrder(orderId: string, staff: { id: string; name?: s
   const admin = createServiceRoleClient()
 
   const remaining = Math.max(0, Math.round((scope.paidLKR - scope.refundedLKR) * 100) / 100)
-  const amount = Math.round(Number(input.amountLKR) * 100) / 100
+  let amount = Math.round(Number(input.amountLKR) * 100) / 100
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Enter the amount to refund.', status: 400 }
+  // Someone typing the rounded figure (9,337 for 9,336.62) means "all of
+  // it" — refund exactly what's left rather than rejecting it.
+  if (amount > remaining && amount - remaining < 1) amount = remaining
   if (amount > remaining + 0.01) {
     return { ok: false, error: `You can refund at most ${lkrText(remaining)} (already refunded ${lkrText(scope.refundedLKR)}).`, status: 400 }
   }
