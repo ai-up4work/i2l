@@ -5,18 +5,31 @@
 // "Real look": the shopper's design on an actual photo of the case, with its
 // real camera, edges and lighting. Layers come from
 // scripts/casecraft-real-mockups.py (public/phoneCases/real/):
-//   <model>.jpg        photo of the blank white case (base)
-//   <model>.mask.png   the printable back (camera and rim left out)
-//   <model>.shade.png  the back's lighting, multiplied over the design
-//   index.json         each photo's case outline box
+//   photos/<phone>.jpg        photo of the blank white case (base)
+//   photos/<phone>.shade.png  the back's lighting, multiplied over the design
+//   masks/<template>.png      the template's printable area, fitted onto the
+//                             photo (camera cut out) — smooth, exact edges
+//   index.json                per template: its photo and the fit
 // The design (compose.ts renderDesignCanvas — exactly the print file) is
-// lined up by matching the template's case outline to the photo's.
+// drawn with the same fit, so print area and photo line up.
 
 import { useEffect, useRef, useState } from 'react'
 import type { TemplateId } from '@/lib/store-modules/casecraft/catalog'
 import { renderDesignCanvas, type Placement } from './compose'
 
-type RealEntry = { file: string; w: number; h: number; box: [number, number, number, number] }
+type RealEntry = {
+  /** Photo folder name (photos/<photo>.jpg, .shade.png). */
+  photo: string
+  w: number
+  h: number
+  /** Template size, and template px -> photo px: x' = ax*x + bx, y' = ay*y + by. */
+  tw: number
+  th: number
+  ax: number
+  bx: number
+  ay: number
+  by: number
+}
 
 const BASE = '/phoneCases/real'
 let indexPromise: Promise<Record<string, RealEntry>> | null = null
@@ -27,18 +40,21 @@ function loadIndex() {
   return indexPromise
 }
 
-/** The real-photo entry for a catalog model label, or null. */
-export function useRealPhoto(label: string | null | undefined): RealEntry | null {
-  const [entry, setEntry] = useState<RealEntry | null>(null)
+/** The real-photo fit for a template file (catalog CaseModel.file), or null. */
+export function useRealPhoto(templateFile: string | null | undefined): (RealEntry & { file: string }) | null {
+  const [entry, setEntry] = useState<(RealEntry & { file: string }) | null>(null)
   useEffect(() => {
     let alive = true
     setEntry(null)
-    if (!label) return
-    loadIndex().then((idx) => alive && setEntry(idx[label.toLowerCase()] ?? null))
+    if (!templateFile) return
+    loadIndex().then((idx) => {
+      const e = idx[templateFile]
+      if (alive) setEntry(e ? { ...e, file: templateFile } : null)
+    })
     return () => {
       alive = false
     }
-  }, [label])
+  }, [templateFile])
   return entry
 }
 
@@ -51,49 +67,14 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-/** The template's case outline, as fractions of the 9:16 print canvas. */
-const outlineCache = new Map<string, Promise<[number, number, number, number]>>()
-function templateOutline(maskSrc: string) {
-  let p = outlineCache.get(maskSrc)
-  if (!p) {
-    p = loadImage(maskSrc).then((img) => {
-      const c = document.createElement('canvas')
-      c.width = img.naturalWidth
-      c.height = img.naturalHeight
-      const ctx = c.getContext('2d', { willReadFrequently: true })!
-      ctx.drawImage(img, 0, 0)
-      const { data, width, height } = ctx.getImageData(0, 0, c.width, c.height)
-      let x0 = width, y0 = height, x1 = 0, y1 = 0
-      for (let y = 0; y < height; y++)
-        for (let x = 0; x < width; x++)
-          if (data[(y * width + x) * 4 + 3] > 128) {
-            if (x < x0) x0 = x
-            if (x > x1) x1 = x
-            if (y < y0) y0 = y
-            if (y > y1) y1 = y
-          }
-      // The mask is drawn "contain" in the 9:16 canvas (as in CasePreview).
-      const s = Math.min(9 / width, 16 / height)
-      const ox = (9 - width * s) / 2
-      const oy = (16 - height * s) / 2
-      return [(ox + x0 * s) / 9, (oy + y0 * s) / 16, (ox + (x1 + 1) * s) / 9, (oy + (y1 + 1) * s) / 16] as [number, number, number, number]
-    })
-    outlineCache.set(maskSrc, p)
-  }
-  return p
-}
-
 export function RealPhotoPreview({
   entry,
-  maskSrc,
   photoUrl,
   placement,
   template,
   className = '',
 }: {
-  entry: RealEntry
-  /** The template's clean mask (catalog.ts cleanTemplateSrc) — for lining up. */
-  maskSrc: string
+  entry: RealEntry & { file: string }
   photoUrl: string
   placement: Placement
   template: TemplateId
@@ -102,6 +83,7 @@ export function RealPhotoPreview({
   const ref = useRef<HTMLCanvasElement>(null)
   const [busy, setBusy] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [aspect, setAspect] = useState<number | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -109,35 +91,42 @@ export function RealPhotoPreview({
     // Wait for edits to settle (dragging, sliders) before redrawing.
     const t = window.setTimeout(async () => {
       try {
-        const base = `${BASE}/${encodeURIComponent(entry.file)}`
-        const [photo, mask, shade, outline, design] = await Promise.all([
-          loadImage(`${base}.jpg`),
-          loadImage(`${base}.mask.png`),
-          loadImage(`${base}.shade.png`),
-          templateOutline(maskSrc),
+        const photoBase = `${BASE}/photos/${encodeURIComponent(entry.photo)}`
+        const [photo, mask, shade, design] = await Promise.all([
+          loadImage(`${photoBase}.jpg`),
+          loadImage(`${BASE}/masks/${encodeURIComponent(entry.file)}`),
+          loadImage(`${photoBase}.shade.png`),
           renderDesignCanvas({ photoUrl, placement, template, width: 720 }),
         ])
         if (!alive || !ref.current) return
         const W = entry.w
         const H = entry.h
-        // Print canvas → photo: match the two case outlines.
-        const [tx0, ty0, tx1, ty1] = outline
-        const [px0, py0, px1, py1] = entry.box
-        const sx = (px1 - px0) / (tx1 - tx0)
-        const sy = (py1 - py0) / (ty1 - ty0)
+        // The design canvas is 9:16 with the template drawn "contain" (as in
+        // the print file). Canvas edges -> template px -> photo px.
+        const s = Math.min(9 / entry.tw, 16 / entry.th)
+        const ox = (9 - entry.tw * s) / 2
+        const oy = (16 - entry.th * s) / 2
+        const u0 = -ox / s
+        const u1 = (9 - ox) / s
+        const v0 = -oy / s
+        const v1 = (16 - oy) / s
+        const dx = entry.ax * u0 + entry.bx
+        const dy = entry.ay * v0 + entry.by
+        const dw = entry.ax * (u1 - u0)
+        const dh = entry.ay * (v1 - v0)
 
         const layer = document.createElement('canvas')
         layer.width = W
         layer.height = H
         const lc = layer.getContext('2d')!
         lc.imageSmoothingQuality = 'high'
-        lc.drawImage(design, px0 - tx0 * sx, py0 - ty0 * sy, sx, sy)
+        lc.drawImage(design, dx, dy, dw, dh)
         // Real lighting, then keep only the printable back.
         lc.globalCompositeOperation = 'multiply'
         lc.drawImage(shade, 0, 0, W, H)
         // Multiply fills see-through parts too: cut back to the design's own shape.
         lc.globalCompositeOperation = 'destination-in'
-        lc.drawImage(design, px0 - tx0 * sx, py0 - ty0 * sy, sx, sy)
+        lc.drawImage(design, dx, dy, dw, dh)
         // The mask is greyscale: turn it into alpha first.
         const m = document.createElement('canvas')
         m.width = W
@@ -151,12 +140,23 @@ export function RealPhotoPreview({
         mc.putImageData(md, 0, 0)
         lc.drawImage(m, 0, 0)
 
+        // Show just the case (the template's extent, plus a little air).
+        const pad = 0.04 * entry.ax * entry.tw
+        const cx = Math.max(0, Math.floor(entry.bx - pad))
+        const cy = Math.max(0, Math.floor(entry.by - pad))
+        const cw = Math.min(W, Math.ceil(entry.ax * entry.tw + entry.bx + pad)) - cx
+        const ch = Math.min(H, Math.ceil(entry.ay * entry.th + entry.by + pad)) - cy
+        const full = document.createElement('canvas')
+        full.width = W
+        full.height = H
+        const fc = full.getContext('2d')!
+        fc.drawImage(photo, 0, 0, W, H)
+        fc.drawImage(layer, 0, 0)
         const out = ref.current
-        out.width = W
-        out.height = H
-        const ctx = out.getContext('2d')!
-        ctx.drawImage(photo, 0, 0, W, H)
-        ctx.drawImage(layer, 0, 0)
+        out.width = cw
+        out.height = ch
+        out.getContext('2d')!.drawImage(full, cx, cy, cw, ch, 0, 0, cw, ch)
+        setAspect(cw / ch)
         setFailed(false)
       } catch {
         if (alive) setFailed(true)
@@ -168,11 +168,12 @@ export function RealPhotoPreview({
       alive = false
       window.clearTimeout(t)
     }
-  }, [entry, maskSrc, photoUrl, placement, template])
+  }, [entry, photoUrl, placement, template])
 
   return (
-    <div className={`relative w-full overflow-hidden rounded-2xl bg-white ring-1 ring-ink/10 ${className}`} style={{ aspectRatio: `${entry.w} / ${entry.h}` }}>
-      <canvas ref={ref} className="h-full w-full" aria-label="Your design on the real case" role="img" />
+    <div className={`relative w-full ${className}`} style={{ aspectRatio: aspect ? `${aspect}` : '9 / 16' }}>
+      {/* The photo's white backdrop multiplies away into the stage behind it. */}
+      <canvas ref={ref} className="h-full w-full mix-blend-multiply" aria-label="Your design on the real case" role="img" />
       {busy && <span className="absolute right-2 top-2 h-2 w-2 animate-pulse rounded-full bg-teal" aria-hidden />}
       {failed && (
         <p className="absolute inset-0 grid place-items-center p-6 text-center font-body text-xs text-ink/50">The real-photo preview isn&rsquo;t available for this phone.</p>
