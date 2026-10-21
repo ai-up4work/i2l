@@ -241,6 +241,193 @@
   "tw": 1201,
   "w": 416
  },
+ "ToughCases Google Pixel 10 Pro XL.png": {
+  "ax": 0.41519,
+  "ay": 0.39029,
+  "bx": -2.61341,
+  "by": -5.34331,
+  "h": 865,
+  "photo": "Pixel 10 Pro XL",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Google Pixel 10.png": {
+  "ax": 0.41519,
+  "ay": 0.39029,
+  "bx": -2.61341,
+  "by": -5.34331,
+  "h": 865,
+  "photo": "Pixel 10",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Google Pixel 9 Pro XL.png": {
+  "ax": 0.41519,
+  "ay": 0.3892,
+  "bx": -2.61341,
+  "by": -4.7375,
+  "h": 865,
+  "photo": "Pixel 9 Pro XL",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Google Pixel 9 Pro.png": {
+  "ax": 0.41519,
+  "ay": 0.39029,
+  "bx": -2.61341,
+  "by": -5.34331,
+  "h": 865,
+  "photo": "Pixel 9 Pro",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Google Pixel 9.png": {
+  "ax": 0.41519,
+  "ay": 0.39029,
+  "bx": -2.61341,
+  "by": -5.34331,
+  "h": 865,
+  "photo": "Pixel 9",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Google Pixel 9a.png": {
+  "ax": 0.41519,
+  "ay": 0.39029,
+  "bx": -2.61341,
+  "by": -5.34331,
+  "h": 865,
+  "photo": "Pixel 9a",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A15.png": {
+  "ax": 0.40306,
+  "ay": 0.38748,
+  "bx": 2.20427,
+  "by": -5.49358,
+  "h": 857,
+  "photo": "Galaxy A15",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A16.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy A16",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A17.png": {
+  "ax": 0.397,
+  "ay": 0.3819,
+  "bx": 5.64773,
+  "by": 5.58544,
+  "h": 866,
+  "photo": "Galaxy A17",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A25.png": {
+  "ax": 0.40306,
+  "ay": 0.38748,
+  "bx": 2.20427,
+  "by": -5.49358,
+  "h": 857,
+  "photo": "Galaxy A25",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A26.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy A26",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A35.png": {
+  "ax": 0.397,
+  "ay": 0.3819,
+  "bx": 5.64773,
+  "by": 5.58544,
+  "h": 866,
+  "photo": "Galaxy A35",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A36.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy A36",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A37.png": {
+  "ax": 0.397,
+  "ay": 0.3819,
+  "bx": 5.64773,
+  "by": 5.58544,
+  "h": 866,
+  "photo": "Galaxy A37",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A55.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy A55",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A56.png": {
+  "ax": 0.397,
+  "ay": 0.3819,
+  "bx": 5.64773,
+  "by": 5.58544,
+  "h": 866,
+  "photo": "Galaxy A56",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung A57.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy A57",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
  "ToughCases Samsung S20 FE.png": {
   "ax": 0.39007,
   "ay": 0.42173,
@@ -395,6 +582,17 @@
   "tw": 1252,
   "w": 417
  },
+ "ToughCases Samsung S24 FE.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy S24 FE",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
  "ToughCases Samsung S24 Plus.png": {
   "ax": 0.40873,
   "ay": 0.41811,
@@ -427,6 +625,72 @@
   "th": 2097,
   "tw": 1251,
   "w": 415
+ },
+ "ToughCases Samsung S25 FE.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy S25 FE",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung S25 Plus.png": {
+  "ax": 0.38145,
+  "ay": 0.38428,
+  "bx": -11.4544,
+  "by": 8.51919,
+  "h": 860,
+  "photo": "Galaxy S25 Plus",
+  "th": 2200,
+  "tw": 1242,
+  "w": 466
+ },
+ "ToughCases Samsung S25 Ultra.png": {
+  "ax": 0.40158,
+  "ay": 0.41366,
+  "bx": -28.37615,
+  "by": -19.27185,
+  "h": 882,
+  "photo": "Galaxy S25 Ultra",
+  "th": 2200,
+  "tw": 1247,
+  "w": 464
+ },
+ "ToughCases Samsung S25.png": {
+  "ax": 0.35406,
+  "ay": 0.35608,
+  "bx": -8.16024,
+  "by": 9.23241,
+  "h": 798,
+  "photo": "Galaxy S25",
+  "th": 2200,
+  "tw": 1245,
+  "w": 437
+ },
+ "ToughCases Samsung S26 Plus.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy S26 Plus",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
+ },
+ "ToughCases Samsung S26.png": {
+  "ax": 0.397,
+  "ay": 0.3846,
+  "bx": 5.64773,
+  "by": 5.09308,
+  "h": 866,
+  "photo": "Galaxy S26",
+  "th": 2200,
+  "tw": 1100,
+  "w": 446
  },
  "ToughCases iPhone 11 Pro Max.png": {
   "ax": 0.39925,
@@ -636,5 +900,115 @@
   "th": 2085,
   "tw": 1246,
   "w": 416
+ },
+ "ToughCases iPhone 16 Plus.png": {
+  "ax": 0.39303,
+  "ay": 0.38884,
+  "bx": 2.43103,
+  "by": -3.51346,
+  "h": 862,
+  "photo": "iPhone 16 Plus",
+  "th": 2200,
+  "tw": 1168,
+  "w": 450
+ },
+ "ToughCases iPhone 16 Pro Max.png": {
+  "ax": 0.38977,
+  "ay": 0.38234,
+  "bx": 6.77026,
+  "by": 8.42708,
+  "h": 865,
+  "photo": "iPhone 16 Pro Max",
+  "th": 2200,
+  "tw": 1100,
+  "w": 445
+ },
+ "ToughCases iPhone 16 Pro.png": {
+  "ax": 0.36294,
+  "ay": 0.35139,
+  "bx": 12.587,
+  "by": 10.78878,
+  "h": 805,
+  "photo": "iPhone 16 Pro",
+  "th": 2200,
+  "tw": 1100,
+  "w": 417
+ },
+ "ToughCases iPhone 16.png": {
+  "ax": 0.3512,
+  "ay": 0.34091,
+  "bx": 22.38793,
+  "by": 14.5,
+  "h": 794,
+  "photo": "iPhone 16",
+  "th": 2200,
+  "tw": 1100,
+  "w": 417
+ },
+ "ToughCases iPhone 17 Pro Max.png": {
+  "ax": 0.41527,
+  "ay": 0.40445,
+  "bx": 2.68779,
+  "by": -27.6982,
+  "h": 859,
+  "photo": "iPhone 17 Pro Max",
+  "th": 2200,
+  "tw": 1110,
+  "w": 458
+ },
+ "ToughCases iPhone 17 Pro.png": {
+  "ax": 0.38224,
+  "ay": 0.38224,
+  "bx": 8.0,
+  "by": 7.0,
+  "h": 849,
+  "photo": "iPhone 17 Pro",
+  "th": 2200,
+  "tw": 1110,
+  "w": 440
+ },
+ "ToughCases iPhone 17.png": {
+  "ax": 0.41201,
+  "ay": 0.38598,
+  "bx": -2.86972,
+  "by": 1.57729,
+  "h": 865,
+  "photo": "iPhone 17",
+  "th": 2200,
+  "tw": 1145,
+  "w": 463
+ },
+ "ToughCases iPhone 17e.png": {
+  "ax": 0.40836,
+  "ay": 0.38481,
+  "bx": -3.10183,
+  "by": 0.625,
+  "h": 862,
+  "photo": "iPhone 17e",
+  "th": 2200,
+  "tw": 1100,
+  "w": 440
+ },
+ "ToughCases iPhone 18 Pro Max.png": {
+  "ax": 0.38224,
+  "ay": 0.38224,
+  "bx": 8.0,
+  "by": 7.0,
+  "h": 849,
+  "photo": "iPhone 18 Pro Max",
+  "th": 2200,
+  "tw": 1110,
+  "w": 440
+ },
+ "ToughCases iPhone 18 Pro.png": {
+  "ax": 0.38224,
+  "ay": 0.38224,
+  "bx": 8.0,
+  "by": 7.0,
+  "h": 849,
+  "photo": "iPhone 18 Pro",
+  "th": 2200,
+  "tw": 1110,
+  "w": 440
  }
 }

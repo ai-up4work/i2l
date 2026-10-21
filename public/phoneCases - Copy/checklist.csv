@@ -1,0 +1,66 @@
+brand,series,phone,photo_folder,template_file,needs_photo,needs_template,note
+Apple,iPhone,iPhone 8,I Phone/iPhone 8,,yes,,Template already in the shop; also covers the Classic series version
+Apple,iPhone,iPhone 8 Plus,I Phone/iPhone 8 Plus,,yes,,Template already in the shop; also covers the Classic series version
+Apple,iPhone,iPhone X,I Phone/iPhone X,,yes,,Template already in the shop; also covers the Classic series version
+Apple,iPhone,iPhone XS,I Phone/iPhone XS,,yes,,Template already in the shop; also covers the Classic series version
+Apple,iPhone,iPhone XS Max,I Phone/iPhone XS Max,,yes,,Template already in the shop; also covers the Classic series version
+Apple,iPhone,iPhone XR,I Phone/iPhone XR,,yes,,Template already in the shop; also covers the Classic series version
+Apple,iPhone,iPhone 7,I Phone/iPhone 7,,yes,,Template already in the shop; covers iPhone 7 & 8 (Classic) — skip if you add the iPhone 8 photo
+Apple,iPhone,iPhone 6s,I Phone/iPhone 6s,,yes,,Template already in the shop; covers iPhone 6 & 6s (Classic)
+Apple,iPhone,iPhone 6s Plus,I Phone/iPhone 6s Plus,,yes,,Template already in the shop; covers iPhone 6 & 6s Plus (Classic)
+Apple,iPhone,iPhone 5s,I Phone/iPhone 5s,,yes,,Template already in the shop; covers iPhone 5 & 5s & 5se (Classic)
+Google,Pixel,Pixel 5,Google/Pixel 5,,yes,,Template already in the shop
+Google,Pixel,Pixel 6,Google/Pixel 6,,yes,,Template already in the shop
+Google,Pixel,Pixel 6 Pro,Google/Pixel 6 Pro,,yes,,Template already in the shop
+Google,Pixel,Pixel 7,Google/Pixel 7,,yes,,Template already in the shop
+Google,Pixel,Pixel 8,Google/Pixel 8,,yes,,Template already in the shop
+Google,Pixel,Pixel 8 Pro,Google/Pixel 8 Pro,,yes,,Template already in the shop
+Samsung,Galaxy S,Galaxy S10,Samsung/Galaxy S/Samsung Galaxy S10,,yes,,Template already in the shop
+Samsung,Galaxy S,Galaxy S10 Plus,Samsung/Galaxy S/Samsung Galaxy S10 Plus,,yes,,Template already in the shop
+Samsung,Galaxy S,Galaxy S10 Edge,Samsung/Galaxy S/Samsung Galaxy S10 Edge,,yes,,Template already in the shop
+Samsung,Galaxy S,Galaxy S6,Samsung/Galaxy S/Samsung Galaxy S6,,yes,,Template already in the shop
+Apple,iPhone,iPhone 16,,ToughCases iPhone 16.png,,yes,Photos already in case_images
+Apple,iPhone,iPhone 16 Plus,,ToughCases iPhone 16 Plus.png,,yes,Photos already in case_images
+Apple,iPhone,iPhone 16 Pro,,ToughCases iPhone 16 Pro.png,,yes,Photos already in case_images
+Samsung,Galaxy S,Galaxy S25,,ToughCases Samsung S25.png,,yes,Photos already in case_images
+Samsung,Galaxy S,Galaxy S25 Plus,,ToughCases Samsung S25 Plus.png,,yes,Photos already in case_images
+Samsung,Galaxy S,Galaxy S25 Ultra,,ToughCases Samsung S25 Ultra.png,,yes,Photos already in case_images
+Apple,iPhone,iPhone 16 Pro Max,I Phone/iPhone 16 Pro Max,ToughCases iPhone 16 Pro Max.png,yes,yes,Current blank photo is a copy of the iPhone 17 one — replace it
+Apple,iPhone,iPhone 16e,I Phone/iPhone 16e,ToughCases iPhone 16e.png,yes,yes,
+Apple,iPhone,iPhone 17,I Phone/iPhone 17,ToughCases iPhone 17.png,yes,yes,Current blank photo is a shared copy — replace it
+Apple,iPhone,iPhone 17 Pro,I Phone/iPhone 17 Pro,ToughCases iPhone 17 Pro.png,yes,yes,Current blank photo is a shared copy — replace it
+Apple,iPhone,iPhone 17 Pro Max,I Phone/iPhone 17 Pro Max,ToughCases iPhone 17 Pro Max.png,yes,yes,No blank photo yet
+Apple,iPhone,iPhone Air,I Phone/iPhone Air,ToughCases iPhone Air.png,yes,yes,"The current ""iPhone 17 Air"" folder holds an iPhone 17 photo"
+Apple,iPhone,iPhone 17e,I Phone/iPhone 17e,ToughCases iPhone 17e.png,yes,yes,
+Apple,iPhone,iPhone 18 Pro,I Phone/iPhone 18 Pro,ToughCases iPhone 18 Pro.png,yes,yes,Launched Sept 2026
+Apple,iPhone,iPhone 18 Pro Max,I Phone/iPhone 18 Pro Max,ToughCases iPhone 18 Pro Max.png,yes,yes,Launched Sept 2026
+Apple,iPhone,iPhone 18,I Phone/iPhone 18,ToughCases iPhone 18.png,yes,yes,Expected early 2027 — add when released
+Apple,iPhone,iPhone 18e,I Phone/iPhone 18e,ToughCases iPhone 18e.png,yes,yes,Expected early 2027 — add when released
+Apple,iPhone,iPhone Air 2,I Phone/iPhone Air 2,ToughCases iPhone Air 2.png,yes,yes,Expected 2027 — add when released
+Samsung,Galaxy S,Galaxy S26,Samsung/Galaxy S/Samsung Galaxy S26,ToughCases Samsung S26.png,yes,yes,
+Samsung,Galaxy S,Galaxy S26 Plus,Samsung/Galaxy S/Samsung Galaxy S26 Plus,ToughCases Samsung S26 Plus.png,yes,yes,
+Samsung,Galaxy S,Galaxy S26 Ultra,Samsung/Galaxy S/Samsung Galaxy S26 Ultra,ToughCases Samsung S26 Ultra.png,yes,yes,
+Samsung,Galaxy S,Galaxy S25 FE,Samsung/Galaxy S/Samsung Galaxy S25 FE,ToughCases Samsung S25 FE.png,yes,yes,
+Samsung,Galaxy S,Galaxy S24 FE,Samsung/Galaxy S/Samsung Galaxy S24 FE,ToughCases Samsung S24 FE.png,yes,yes,
+Samsung,Galaxy S,Galaxy S23 FE,Samsung/Galaxy S/Samsung Galaxy S23 FE,ToughCases Samsung S23 FE.png,yes,yes,
+Samsung,Galaxy A,Galaxy A57,Samsung/Galaxy A/Samsung Galaxy A57,ToughCases Samsung A57.png,yes,yes,2026 model
+Samsung,Galaxy A,Galaxy A37,Samsung/Galaxy A/Samsung Galaxy A37,ToughCases Samsung A37.png,yes,yes,2026 model
+Samsung,Galaxy A,Galaxy A27,Samsung/Galaxy A/Samsung Galaxy A27,ToughCases Samsung A27.png,yes,yes,2026 model
+Samsung,Galaxy A,Galaxy A17,Samsung/Galaxy A/Samsung Galaxy A17,ToughCases Samsung A17.png,yes,yes,2026 model
+Samsung,Galaxy A,Galaxy A07,Samsung/Galaxy A/Samsung Galaxy A07,ToughCases Samsung A07.png,yes,yes,2026 model
+Samsung,Galaxy A,Galaxy A56,Samsung/Galaxy A/Samsung Galaxy A56,ToughCases Samsung A56.png,yes,yes,
+Samsung,Galaxy A,Galaxy A36,Samsung/Galaxy A/Samsung Galaxy A36,ToughCases Samsung A36.png,yes,yes,
+Samsung,Galaxy A,Galaxy A26,Samsung/Galaxy A/Samsung Galaxy A26,ToughCases Samsung A26.png,yes,yes,
+Samsung,Galaxy A,Galaxy A16,Samsung/Galaxy A/Samsung Galaxy A16,ToughCases Samsung A16.png,yes,yes,
+Samsung,Galaxy A,Galaxy A06,Samsung/Galaxy A/Samsung Galaxy A06,ToughCases Samsung A06.png,yes,yes,
+Samsung,Galaxy A,Galaxy A55,Samsung/Galaxy A/Samsung Galaxy A55,ToughCases Samsung A55.png,yes,yes,
+Samsung,Galaxy A,Galaxy A35,Samsung/Galaxy A/Samsung Galaxy A35,ToughCases Samsung A35.png,yes,yes,
+Samsung,Galaxy A,Galaxy A25,Samsung/Galaxy A/Samsung Galaxy A25,ToughCases Samsung A25.png,yes,yes,
+Samsung,Galaxy A,Galaxy A15,Samsung/Galaxy A/Samsung Galaxy A15,ToughCases Samsung A15.png,yes,yes,
+Google,Pixel,Pixel 10,Google/Pixel 10,ToughCases Google Pixel 10.png,yes,yes,
+Google,Pixel,Pixel 10 Pro,Google/Pixel 10 Pro,ToughCases Google Pixel 10 Pro.png,yes,yes,
+Google,Pixel,Pixel 10 Pro XL,Google/Pixel 10 Pro XL,ToughCases Google Pixel 10 Pro XL.png,yes,yes,
+Google,Pixel,Pixel 9,Google/Pixel 9,ToughCases Google Pixel 9.png,yes,yes,
+Google,Pixel,Pixel 9 Pro,Google/Pixel 9 Pro,ToughCases Google Pixel 9 Pro.png,yes,yes,
+Google,Pixel,Pixel 9 Pro XL,Google/Pixel 9 Pro XL,ToughCases Google Pixel 9 Pro XL.png,yes,yes,
+Google,Pixel,Pixel 9a,Google/Pixel 9a,ToughCases Google Pixel 9a.png,yes,yes,
