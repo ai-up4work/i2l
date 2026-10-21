@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Check, ChevronDown, Minus, Move, Plus, Search, Smartphone } from 'lucide-react'
-import { BRANDS, type BrandId, type CaseModel, type SizeClass, type TemplateId } from '@/lib/store-modules/casecraft/catalog'
+import { BRANDS, SERIES_ORDER, seriesOf, type BrandId, type CaseModel, type SizeClass, type TemplateId } from '@/lib/store-modules/casecraft/catalog'
 import { formatRs } from '@/lib/store-modules/casecraft/settings'
 import { activeText, coverScale, placementBg, printArea, textFont, textFontFamily, type Placement } from './compose'
 
@@ -74,7 +74,22 @@ export function PhonePicker({
   const initial = models.find((m) => m.label === selected)?.brand ?? brands[0]?.id ?? 'iphone'
   const [brand, setBrand] = useState<BrandId>(initial)
   const [q, setQ] = useState('')
-  const shown = models.filter((m) => m.brand === brand && m.label.toLowerCase().includes(q.trim().toLowerCase()))
+  // Samsung's list is long: filter it by series (Galaxy S, Galaxy A, …).
+  const initialModel = models.find((m) => m.label === selected)
+  const [series, setSeries] = useState<string | null>(initialModel ? seriesOf(initialModel) : null)
+  const brandModels = models.filter((m) => m.brand === brand)
+  const seriesList = useMemo(() => {
+    const found = new Set(brandModels.map((m) => seriesOf(m)).filter((s): s is string => Boolean(s)))
+    return [...found].sort((a, b) => SERIES_ORDER.indexOf(a) - SERIES_ORDER.indexOf(b))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, brand])
+  const searching = q.trim().length > 0
+  const shown = brandModels.filter(
+    (m) =>
+      m.label.toLowerCase().includes(q.trim().toLowerCase()) &&
+      // A search looks across every series.
+      (searching || !series || seriesList.length < 2 || seriesOf(m) === series),
+  )
 
   if (!models.length) return <p className="font-body text-sm text-ink/55">No phone models are available for this case right now.</p>
 
@@ -89,6 +104,7 @@ export function PhonePicker({
               onClick={() => {
                 setBrand(b.id)
                 setQ('')
+                setSeries(null)
               }}
               className={`flex-1 rounded-full px-3 py-1.5 font-body text-xs font-semibold transition-colors ${
                 brand === b.id ? 'bg-card text-ink shadow-sm' : 'text-ink/55 hover:text-ink'
@@ -97,6 +113,31 @@ export function PhonePicker({
               {b.label}
             </button>
           ))}
+        </div>
+      )}
+      {seriesList.length > 1 && (
+        <div className="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5" role="radiogroup" aria-label="Series">
+          {[null, ...seriesList].map((s) => {
+            const on = (series ?? null) === s && !searching
+            const n = s ? brandModels.filter((m) => seriesOf(m) === s).length : brandModels.length
+            return (
+              <button
+                key={s ?? 'all'}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => {
+                  setSeries(s)
+                  setQ('')
+                }}
+                className={`flex-none rounded-full px-3 py-1.5 font-body text-xs font-semibold transition-colors ${
+                  on ? 'bg-indigo text-parchment' : 'bg-card text-ink/65 ring-1 ring-ink/10 hover:text-ink'
+                }`}
+              >
+                {s ? s.replace(/^Galaxy /, '') + ' series' : 'All'} <span className={on ? 'text-parchment/60' : 'text-ink/35'}>{n}</span>
+              </button>
+            )
+          })}
         </div>
       )}
       <label className="mb-3 flex items-center gap-2 rounded-xl border border-ink/10 bg-parchment/50 px-3 py-2">

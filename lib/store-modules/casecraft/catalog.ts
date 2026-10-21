@@ -53,6 +53,21 @@ export function sizeClassOf(label: string): SizeClass {
   return 'standard'
 }
 
+/**
+ * The product line a model belongs to, for filtering long lists:
+ * "Galaxy S24 Ultra" → "Galaxy S", "Galaxy A55" → "Galaxy A",
+ * "Galaxy Z Flip 6" → "Galaxy Z", "Galaxy Note 20" → "Galaxy Note".
+ * Other brands are one line each (null).
+ */
+export function seriesOf(model: Pick<CaseModel, 'label' | 'brand'>): string | null {
+  if (model.brand !== 'samsung') return null
+  const m = model.label.match(/^Galaxy\s+(Note|[A-Z])/i)
+  return m ? `Galaxy ${m[1].length > 1 ? 'Note' : m[1].toUpperCase()}` : 'Galaxy'
+}
+
+/** Series in the order shoppers look for them. */
+export const SERIES_ORDER = ['Galaxy S', 'Galaxy A', 'Galaxy Z', 'Galaxy M', 'Galaxy Note', 'Galaxy']
+
 function brandOf(label: string): BrandId {
   if (label.startsWith('Galaxy')) return 'samsung'
   if (label.startsWith('Pixel')) return 'google'
