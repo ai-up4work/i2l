@@ -28,12 +28,13 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   PLACEMENT_BACKGROUNDS,
+  placementBg,
   prepareOriginal,
   renderPrintFiles,
   uploadOrderFile,
   type Placement,
 } from './compose'
-import { btnPrimary, CasePreview, PhonePicker, StepCard } from './parts'
+import { btnPrimary, CasePreview, PhonePicker, StepCard, TRANSPARENT_CHECKER } from './parts'
 
 type Step = 1 | 2 | 3 | 4 | 5
 const STATE_KEY = 'casecraft:builder:v1'
@@ -226,7 +227,7 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
             <span className="font-body text-xs font-medium text-ink/55">Background</span>
             <div className="flex gap-1.5" role="radiogroup" aria-label="Background behind the photo">
               {PLACEMENT_BACKGROUNDS.map((b) => {
-                const on = (placement.bg ?? 'blur') === b.id
+                const on = placementBg(placement) === b.id
                 return (
                   <button
                     key={b.id}
@@ -238,7 +239,7 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
                     onClick={() => setPlacement({ ...placement, bg: b.id })}
                     className={`relative h-7 w-7 overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-shadow ${
                       on ? 'ring-2 ring-teal' : 'ring-1 ring-ink/15 hover:ring-ink/30'
-                    } ${b.id === 'black' ? 'bg-black' : 'bg-white'}`}
+                    } ${b.id === 'black' ? 'bg-black' : b.id === 'transparent' ? TRANSPARENT_CHECKER : 'bg-white'}`}
                   >
                     {b.id === 'blur' && (
                       // eslint-disable-next-line @next/next/no-img-element

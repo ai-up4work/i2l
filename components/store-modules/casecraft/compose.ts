@@ -2,7 +2,8 @@
 //
 // Builds the files for a custom-print order in the browser:
 //   - print   the photo as the shopper placed it, no template, 1440×2560
-//             JPEG (what gets printed);
+//             (what gets printed) — a PNG with see-through edges when the
+//             background is 'transparent', otherwise a JPEG;
 //   - preview the same with the phone template on top, small JPEG (what
 //             the seller and shopper see in lists).
 // Then uploads them, and the original photo, straight to Supabase Storage
@@ -21,23 +22,30 @@ export type Placement = {
   x: number
   y: number
   /** What fills any part of the print area the photo doesn't reach
-   *  (zoomed out, or dragged off an edge). Blurred photo by default. */
+   *  (zoomed out, or dragged off an edge). Transparent (nothing printed)
+   *  by default — blur / white / black only when the shopper picks them. */
   bg?: PlacementBackground
 }
 
-export type PlacementBackground = 'blur' | 'white' | 'black'
+export type PlacementBackground = 'transparent' | 'blur' | 'white' | 'black'
 
 export const PLACEMENT_BACKGROUNDS: { id: PlacementBackground; label: string }[] = [
+  { id: 'transparent', label: 'Transparent (nothing printed)' },
   { id: 'blur', label: 'Blurred photo' },
   { id: 'white', label: 'White' },
   { id: 'black', label: 'Black' },
 ]
 
-/** Smallest zoom: the photo at half the size that just covers the case. */
-export const MIN_ZOOM = 0.5
+/** Smallest zoom: small enough for a logo or badge in the middle of the case. */
+export const MIN_ZOOM = 0.2
 export const MAX_ZOOM = 3
 
-export const DEFAULT_PLACEMENT: Placement = { zoom: 1, x: 0, y: 0, bg: 'blur' }
+export const DEFAULT_PLACEMENT: Placement = { zoom: 1, x: 0, y: 0, bg: 'transparent' }
+
+/** The background in effect (older saved placements have none → transparent). */
+export function placementBg(p: Placement): PlacementBackground {
+  return p.bg ?? 'transparent'
+}
 
 /** The print area inside the case, as fractions of the full 9:16 canvas. */
 export function printArea(template: TemplateId): { left: number; top: number; width: number; height: number } {
@@ -66,6 +74,8 @@ async function render(opts: {
   template: TemplateId
   width: number
   overlaySrc?: string
+  /** Leave unfilled pixels see-through (print file, transparent background). */
+  keepAlpha?: boolean
 }): Promise<HTMLCanvasElement> {
   const W = opts.width
   const H = Math.round((W * 16) / 9)
@@ -73,8 +83,10 @@ async function render(opts: {
   canvas.width = W
   canvas.height = H
   const ctx = canvas.getContext('2d')!
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, W, H)
+  if (!opts.keepAlpha) {
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, W, H)
+  }
 
   const photo = await loadImage(opts.photoUrl)
   const a = printArea(opts.template)
@@ -89,8 +101,10 @@ async function render(opts: {
   ctx.clip()
 
   // Background for any part of the print area the photo doesn't reach.
-  const bg = opts.placement.bg ?? 'blur'
-  if (bg === 'blur') {
+  const bg = placementBg(opts.placement)
+  if (bg === 'transparent') {
+    // Nothing: the edges stay unprinted.
+  } else if (bg === 'blur') {
     // Blur by drawing the photo tiny, then stretching it back up — works in
     // every browser (canvas `filter` isn't supported everywhere).
     const tiny = document.createElement('canvas')
@@ -130,8 +144,11 @@ async function render(opts: {
 }
 
 export async function renderPrintFiles(opts: { photoUrl: string; placement: Placement; template: TemplateId; overlaySrc: string }) {
+  const transparent = placementBg(opts.placement) === 'transparent'
   const [print, preview] = await Promise.all([
-    render({ ...opts, overlaySrc: undefined, width: 1440 }).then((c) => toBlob(c, 'image/jpeg', 0.95)),
+    render({ ...opts, overlaySrc: undefined, width: 1440, keepAlpha: transparent }).then((c) =>
+      transparent ? toBlob(c, 'image/png', 1) : toBlob(c, 'image/jpeg', 0.95),
+    ),
     render({ ...opts, width: 540 }).then((c) => toBlob(c, 'image/jpeg', 0.85)),
   ])
   return { print, preview }

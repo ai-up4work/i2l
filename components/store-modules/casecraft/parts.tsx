@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { Check, ChevronDown, Minus, Move, Plus, Search, Smartphone } from 'lucide-react'
 import { BRANDS, type BrandId, type CaseModel, type SizeClass, type TemplateId } from '@/lib/store-modules/casecraft/catalog'
 import { formatRs } from '@/lib/store-modules/casecraft/settings'
-import { printArea, type Placement } from './compose'
+import { placementBg, printArea, type Placement } from './compose'
 
 // ---- Step card ----------------------------------------------------------------
 
@@ -216,6 +216,18 @@ export function CasePreview({
   const drag = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
   const [overlayFailed, setOverlayFailed] = useState<string | null>(null)
   const a = printArea(template)
+  const bg = placementBg(placement)
+
+  // The photo is laid out whole, at its own shape — never cropped to the
+  // case first — then sized exactly like the print file (compose.ts):
+  // zoom 1 just covers the print area, below 1 shows the edges (a round
+  // logo stays round). Until its size is known it's treated as the print
+  // area's own shape.
+  const [photoSize, setPhotoSize] = useState<{ src: string; w: number; h: number } | null>(null)
+  const areaAspect = (a.width * 9) / (a.height * 16)
+  const photoAspect = photoSize && photoSize.src === photoUrl && photoSize.h > 0 ? photoSize.w / photoSize.h : areaAspect
+  const coverW = photoAspect > areaAspect ? photoAspect / areaAspect : 1
+  const coverH = photoAspect > areaAspect ? 1 : areaAspect / photoAspect
   const canDrag = Boolean(photoUrl && onPlacementChange)
 
   // The clean look only switches on once its mask has actually loaded — a
@@ -274,13 +286,15 @@ export function CasePreview({
           <div
             ref={areaRef}
             className={`absolute overflow-hidden ${
-              !photoUrl ? (clean ? 'bg-[#efeae1]' : 'bg-parchment') : placement.bg === 'black' ? 'bg-black' : placement.bg === 'white' ? 'bg-white' : 'bg-ink/10'
+              !photoUrl
+                ? clean ? 'bg-[#efeae1]' : 'bg-parchment'
+                : bg === 'black' ? 'bg-black' : bg === 'white' ? 'bg-white' : bg === 'transparent' ? TRANSPARENT_CHECKER : 'bg-ink/10'
             }`}
             style={{ left: `${a.left * 100}%`, top: `${a.top * 100}%`, width: `${a.width * 100}%`, height: `${a.height * 100}%` }}
           >
             {/* Background where the photo doesn't reach (zoomed out / dragged
                 off an edge) — matches what's printed (compose.ts). */}
-            {photoUrl && (placement.bg ?? 'blur') === 'blur' && (
+            {photoUrl && bg === 'blur' && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={photoUrl} alt="" aria-hidden draggable={false} className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-xl" />
             )}
@@ -290,10 +304,17 @@ export function CasePreview({
                 src={photoUrl}
                 alt="Your photo"
                 draggable={false}
-                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                onLoad={(e) => {
+                  const img = e.currentTarget
+                  setPhotoSize({ src: photoUrl, w: img.naturalWidth, h: img.naturalHeight })
+                }}
+                className="pointer-events-none absolute max-w-none"
                 style={{
-                  transform: `translate(${placement.x * 100}%, ${placement.y * 100}%) scale(${placement.zoom})`,
-                  transformOrigin: 'center center',
+                  left: `${(0.5 + placement.x) * 100}%`,
+                  top: `${(0.5 + placement.y) * 100}%`,
+                  width: `${coverW * placement.zoom * 100}%`,
+                  height: `${coverH * placement.zoom * 100}%`,
+                  transform: 'translate(-50%, -50%)',
                 }}
               />
             )}
@@ -343,6 +364,10 @@ export function QuantityStepper({ value, max, onChange }: { value: number; max: 
     </div>
   )
 }
+
+/** Soft checkerboard: the usual sign for "see-through, nothing printed here". */
+export const TRANSPARENT_CHECKER =
+  'bg-white [background-image:repeating-conic-gradient(rgba(32,36,43,0.08)_0_25%,transparent_0_50%)] [background-size:14px_14px]'
 
 export const btnPrimary =
   'inline-flex items-center justify-center gap-2 rounded-full bg-indigo px-5 py-3 font-body text-sm font-semibold text-parchment transition-colors hover:bg-indigo-deep disabled:cursor-not-allowed disabled:opacity-45'
