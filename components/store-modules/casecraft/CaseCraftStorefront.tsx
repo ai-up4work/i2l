@@ -15,7 +15,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowLeft, Camera, ChevronRight, Heart, Package, Palette, ReceiptText, Truck, Upload, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Heart, Package, Palette, ReceiptText, X } from 'lucide-react'
 import StoreCover from '@/components/stores/StoreCover'
 import FollowButton from '@/components/stores/social/FollowButton'
 import ShareButton from '@/components/stores/ShareButton'
@@ -23,7 +23,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { imageThumb } from '@/lib/media'
 import { formatRs, ORDER_STATUSES, type StorefrontData, type StorefrontDesign, type StorefrontPrint } from '@/lib/store-modules/casecraft/settings'
 import CustomCaseBuilder from './CustomCaseBuilder'
-import ReadyMadeCases, { DesignCard, DesignSheet } from './ReadyMadeCases'
+import ReadyMadeCases, { DesignCard, DesignSheet, newBadgeMatters } from './ReadyMadeCases'
 import { LikeButton, LikesProvider } from './likes'
 
 type View = 'home' | 'custom' | 'ready' | 'orders'
@@ -197,9 +197,20 @@ function Home({
   onDesign: (d: StorefrontDesign) => void
 }) {
   const best = data.designs.filter((d) => d.isBestseller)
-  const fresh = data.designs.filter((d) => d.isNew && !d.isBestseller)
-  // If the seller hasn't flagged any yet, still show some designs up top.
-  const firstRow = best.length ? best : data.designs.slice(0, 10)
+  const showNew = newBadgeMatters(data.designs)
+  const fresh = showNew ? data.designs.filter((d) => d.isNew && !d.isBestseller) : []
+  // No bestsellers flagged yet: a tidy grid of designs instead — most liked
+  // first, and one of each design before its colour variants
+  // ("Card Pocket Wallet – Black / – Brown" count as one design).
+  const picks = (() => {
+    const sorted = [...data.designs].sort((a, b) => b.likes - a.likes)
+    const family = (d: StorefrontDesign) => d.name.split(/\s[\u2013\u2014-]\s/)[0].trim().toLowerCase()
+    const seen = new Set<string>()
+    const first: StorefrontDesign[] = []
+    const rest: StorefrontDesign[] = []
+    for (const d of sorted) (seen.has(family(d)) ? rest : (seen.add(family(d)), first)).push(d)
+    return [...first, ...rest].slice(0, 7)
+  })()
   const loved = [...data.designs].filter((d) => d.likes > 0).sort((a, b) => b.likes - a.likes).slice(0, 10)
   const collage = data.designs.slice(0, 3)
 
@@ -245,15 +256,32 @@ function Home({
         </ChoiceTile>
       </section>
 
-      {firstRow.length > 0 && (
-        <Row title={best.length ? 'Bestsellers' : 'Ready-made designs'} onAll={onReady} allLabel={`All ${data.designs.length}`}>
-          {firstRow.map((d) => (
-            <DesignCard key={d.id} design={d} onOpen={onDesign} className="w-[42%] flex-none snap-start sm:w-48" />
+      {best.length > 0 ? (
+        <Row title="Bestsellers" onAll={onReady} allLabel={`All ${data.designs.length}`}>
+          {best.map((d) => (
+            <DesignCard key={d.id} design={d} onOpen={onDesign} showNew={showNew} className="w-[42%] flex-none snap-start sm:w-48" />
           ))}
         </Row>
+      ) : (
+        picks.length > 0 && (
+          <section aria-label="Ready-made designs">
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h2 className="font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">Ready-made designs</h2>
+              <button type="button" onClick={onReady} className="inline-flex flex-none items-center gap-0.5 font-body text-sm font-semibold text-teal-deep hover:text-teal">
+                All {data.designs.length} <ChevronRight size={15} aria-hidden />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-4 sm:gap-x-4">
+              {picks.map((d) => (
+                <DesignCard key={d.id} design={d} onOpen={onDesign} showNew={showNew} />
+              ))}
+              {data.designs.length > picks.length && <SeeAllTile designs={data.designs.slice(picks.length, picks.length + 4)} total={data.designs.length} onClick={onReady} />}
+            </div>
+          </section>
+        )
       )}
 
-      {best.length > 0 && fresh.length > 0 && (
+      {fresh.length > 0 && (
         <Row title="New arrivals" onAll={onReady} allLabel="See all">
           {fresh.slice(0, 12).map((d) => (
             <DesignCard key={d.id} design={d} onOpen={onDesign} className="w-[42%] flex-none snap-start sm:w-48" />
@@ -267,7 +295,7 @@ function Home({
       {loved.length > 0 && (
         <Row title="Loved by customers" icon={<Heart size={17} className="fill-[#e5484d] text-[#e5484d]" aria-hidden />} onAll={onReady} allLabel="See all">
           {loved.map((d) => (
-            <DesignCard key={d.id} design={d} onOpen={onDesign} className="w-[42%] flex-none snap-start sm:w-48" />
+            <DesignCard key={d.id} design={d} onOpen={onDesign} showNew={showNew} className="w-[42%] flex-none snap-start sm:w-48" />
           ))}
         </Row>
       )}
@@ -331,35 +359,71 @@ function Row({ title, icon, onAll, allLabel, children }: { title: string; icon?:
   )
 }
 
+/** The delivery line from the seller's "lead time" setting, which may be a
+ *  bare time ("3–5 days") or a whole sentence ("Printed and delivered in …"). */
+function deliveryLine(leadTime: string): string {
+  const t = leadTime.trim().replace(/\.$/, '')
+  if (!t) return 'Printed and delivered to your door.'
+  if (/^(about\s+|within\s+)?[\d\s–\-to]+(working\s+)?(days?|weeks?)$/i.test(t)) return `Printed and at your door in ${t}.`
+  return `${t}.`
+}
+
 function HowItWorks({ leadTime, onCustom }: { leadTime: string; onCustom: () => void }) {
   const steps = [
-    { icon: Upload, title: 'Add your photo', body: 'Any photo, logo or name. Move, zoom and add text.' },
-    { icon: Camera, title: 'See it for real', body: 'Preview it on a real photo of your phone’s case.' },
-    { icon: Truck, title: 'Printed & delivered', body: leadTime ? `Printed and at your door in ${leadTime}.` : 'Printed and delivered to your door.' },
+    { title: 'Add your photo', body: 'A photo, logo or name. Move it, zoom it, add text.' },
+    { title: 'See it for real', body: 'Preview it on a real photo of your phone’s case.' },
+    { title: 'Printed & delivered', body: deliveryLine(leadTime) },
   ]
   return (
-    <section aria-label="How it works" className="rounded-3xl bg-card p-5 ring-1 ring-ink/10 sm:p-8">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">Your own case in three steps</h2>
-        <button type="button" onClick={onCustom} className="inline-flex items-center gap-1 rounded-full bg-indigo px-4 py-2 font-body text-sm font-semibold text-parchment hover:bg-indigo-deep">
-          Start designing <ChevronRight size={15} aria-hidden />
-        </button>
+    <section
+      aria-label="How it works"
+      className="relative overflow-hidden rounded-3xl bg-indigo px-5 py-7 text-parchment sm:px-10 sm:py-10"
+    >
+      <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-teal/25 blur-3xl" />
+      <div className="relative grid gap-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)] lg:items-center lg:gap-12">
+        <div>
+          <h2 className="font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">Your photo on a case, in three steps</h2>
+          <button
+            type="button"
+            onClick={onCustom}
+            className="mt-5 inline-flex items-center gap-1 rounded-full bg-gold px-5 py-2.5 font-body text-sm font-semibold text-indigo transition-colors hover:bg-gold-deep"
+          >
+            Start designing <ChevronRight size={15} aria-hidden />
+          </button>
+        </div>
+        <ol className="grid gap-5 sm:grid-cols-3 sm:gap-0">
+          {steps.map((s, i) => (
+            <li key={s.title} className={`flex gap-4 sm:block sm:px-6 ${i > 0 ? 'sm:border-l sm:border-parchment/15' : 'sm:pl-0'}`}>
+              <span className="w-8 flex-none font-display text-4xl font-bold leading-none text-gold sm:block sm:w-auto sm:text-5xl">{i + 1}</span>
+              <span className="block sm:mt-3">
+                <span className="block font-body text-[15px] font-semibold">{s.title}</span>
+                <span className="mt-0.5 block font-body text-sm leading-relaxed text-parchment/70">{s.body}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
-      <ol className="mt-5 grid gap-4 sm:grid-cols-3 sm:gap-6">
-        {steps.map((s, i) => (
-          <li key={s.title} className="flex gap-3">
-            <span className="relative grid h-11 w-11 flex-none place-items-center rounded-2xl bg-teal/10 text-teal-deep">
-              <s.icon size={19} aria-hidden />
-              <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-indigo font-body text-[10px] font-bold text-parchment">{i + 1}</span>
-            </span>
-            <span>
-              <span className="block font-body text-sm font-semibold text-ink">{s.title}</span>
-              <span className="block font-body text-sm text-ink/60">{s.body}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
     </section>
+  )
+}
+
+function SeeAllTile({ designs, total, onClick }: { designs: StorefrontDesign[]; total: number; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="group flex min-w-0 flex-col text-left">
+      <span className="relative grid aspect-[3/4] grid-cols-2 gap-1 overflow-hidden rounded-2xl bg-indigo p-1 ring-1 ring-indigo">
+        {designs.map((d) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={d.id} src={imageThumb(d.imageUrl, 200)} alt="" loading="lazy" className="h-full w-full rounded-xl object-cover opacity-40" />
+        ))}
+        <span aria-hidden className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(8,39,79,0.85)_0%,rgba(8,39,79,0.35)_75%)]" />
+        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
+          <span className="font-display text-3xl font-bold text-parchment">{total}</span>
+          <span className="inline-flex items-center gap-0.5 font-body text-sm font-semibold text-parchment">
+            See all designs <ChevronRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </span>
+      </span>
+    </button>
   )
 }
 

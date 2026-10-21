@@ -17,16 +17,33 @@ import ShareButton from '@/components/stores/ShareButton'
 type Filter = 'all' | 'new' | 'best' | 'loved'
 
 /** One ready-made design: photo, heart, name, price. Used in grids and rows. */
-export function DesignCard({ design: d, onOpen, className = '' }: { design: StorefrontDesign; onOpen: (d: StorefrontDesign) => void; className?: string }) {
+/** "New" only means something when most designs aren't new. */
+export function newBadgeMatters(designs: StorefrontDesign[]): boolean {
+  return designs.filter((d) => d.isNew).length < designs.length / 2
+}
+
+export function DesignCard({
+  design: d,
+  onOpen,
+  showNew = true,
+  className = '',
+}: {
+  design: StorefrontDesign
+  onOpen: (d: StorefrontDesign) => void
+  /** Hide the "New" badge (e.g. when nearly every design is new). */
+  showNew?: boolean
+  className?: string
+}) {
+  const badge = d.isBestseller ? 'Bestseller' : d.isNew && showNew ? 'New' : null
   return (
     <div className={`group relative min-w-0 ${className}`}>
       <button type="button" onClick={() => onOpen(d)} className="block w-full text-left">
         <span className="relative block aspect-[3/4] overflow-hidden rounded-2xl bg-card ring-1 ring-ink/10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageThumb(d.imageUrl, 500)} alt={d.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none" />
-          {(d.isNew || d.isBestseller) && (
+          {badge && (
             <span className={`absolute left-2 top-2 rounded-full px-2 py-0.5 font-body text-[10px] font-bold ${d.isBestseller ? 'bg-gold text-ink' : 'bg-card/92 text-ink'}`}>
-              {d.isBestseller ? 'Bestseller' : 'New'}
+              {badge}
             </span>
           )}
         </span>
@@ -54,7 +71,9 @@ export default function ReadyMadeCases({
   const setOpen = (id: string | null) => (onOpenChange ? onOpenChange(id) : setLocalOpen(id))
   const open = data.designs.find((d) => d.id === openKey) ?? null
 
-  const hasNew = data.designs.some((d) => d.isNew)
+  const showNew = newBadgeMatters(data.designs)
+  // A "New" filter only helps when some designs aren't new.
+  const hasNew = showNew && data.designs.some((d) => d.isNew)
   const hasBest = data.designs.some((d) => d.isBestseller)
   const hasLoved = data.designs.some((d) => d.likes > 0)
   const shown = data.designs
@@ -98,7 +117,7 @@ export default function ReadyMadeCases({
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 sm:gap-x-4 lg:grid-cols-4">
         {shown.map((d) => (
-          <DesignCard key={d.id} design={d} onOpen={(x) => setOpen(x.id)} />
+          <DesignCard key={d.id} design={d} onOpen={(x) => setOpen(x.id)} showNew={showNew} />
         ))}
       </div>
 
