@@ -1,0 +1,530 @@
+{
+ "galaxy s20": {
+  "box": [
+   139,
+   125,
+   556,
+   905
+  ],
+  "file": "Galaxy S20",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s20 fe": {
+  "box": [
+   136,
+   86,
+   567,
+   906
+  ],
+  "file": "Galaxy S20 FE",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s20 plus": {
+  "box": [
+   132,
+   76,
+   566,
+   906
+  ],
+  "file": "Galaxy S20 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s20 ultra": {
+  "box": [
+   120,
+   51,
+   584,
+   905
+  ],
+  "file": "Galaxy S20 Ultra",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s21": {
+  "box": [
+   144,
+   125,
+   556,
+   906
+  ],
+  "file": "Galaxy S21",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s21 fe": {
+  "box": [
+   144,
+   105,
+   556,
+   906
+  ],
+  "file": "Galaxy S21 FE",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s21 plus": {
+  "box": [
+   116,
+   77,
+   587,
+   909
+  ],
+  "file": "Galaxy S21 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s21 ultra": {
+  "box": [
+   132,
+   58,
+   567,
+   905
+  ],
+  "file": "Galaxy S21 Ultra",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s22": {
+  "box": [
+   153,
+   154,
+   542,
+   904
+  ],
+  "file": "Galaxy S22",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s22 plus": {
+  "box": [
+   134,
+   96,
+   556,
+   905
+  ],
+  "file": "Galaxy S22 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s22 ultra": {
+  "box": [
+   106,
+   66,
+   591,
+   907
+  ],
+  "file": "Galaxy S22 Ultra",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s23": {
+  "box": [
+   158,
+   152,
+   544,
+   908
+  ],
+  "file": "Galaxy S23",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s23 plus": {
+  "box": [
+   120,
+   94,
+   582,
+   912
+  ],
+  "file": "Galaxy S23 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s23 ultra": {
+  "box": [
+   136,
+   66,
+   555,
+   908
+  ],
+  "file": "Galaxy S23 Ultra",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s24": {
+  "box": [
+   163,
+   152,
+   547,
+   909
+  ],
+  "file": "Galaxy S24",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s24 plus": {
+  "box": [
+   128,
+   99,
+   590,
+   912
+  ],
+  "file": "Galaxy S24 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s24 ultra": {
+  "box": [
+   140,
+   68,
+   559,
+   908
+  ],
+  "file": "Galaxy S24 Ultra",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s25": {
+  "box": [
+   149,
+   146,
+   560,
+   919
+  ],
+  "file": "Galaxy S25",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s25 plus": {
+  "box": [
+   132,
+   93,
+   576,
+   919
+  ],
+  "file": "Galaxy S25 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "galaxy s25 ultra": {
+  "box": [
+   133,
+   67,
+   576,
+   919
+  ],
+  "file": "Galaxy S25 Ultra",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 11": {
+  "box": [
+   150,
+   137,
+   543,
+   910
+  ],
+  "file": "iPhone 11",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 11 pro": {
+  "box": [
+   139,
+   95,
+   552,
+   911
+  ],
+  "file": "iPhone 11 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 11 pro max": {
+  "box": [
+   129,
+   90,
+   564,
+   939
+  ],
+  "file": "iPhone 11 Pro Max",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 12": {
+  "box": [
+   154,
+   137,
+   542,
+   910
+  ],
+  "file": "iPhone 12",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 12 & 12 pro": {
+  "box": [
+   154,
+   137,
+   542,
+   910
+  ],
+  "file": "iPhone 12",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 12 mini": {
+  "box": [
+   171,
+   207,
+   528,
+   909
+  ],
+  "file": "iPhone 12 mini",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 12 pro": {
+  "box": [
+   154,
+   137,
+   544,
+   911
+  ],
+  "file": "iPhone 12 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 12 pro max": {
+  "box": [
+   139,
+   107,
+   557,
+   935
+  ],
+  "file": "iPhone 12 Pro Max",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 13": {
+  "box": [
+   152,
+   143,
+   546,
+   908
+  ],
+  "file": "iPhone 13",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 13 mini": {
+  "box": [
+   169,
+   216,
+   529,
+   909
+  ],
+  "file": "iPhone 13 mini",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 13 pro": {
+  "box": [
+   152,
+   143,
+   541,
+   911
+  ],
+  "file": "iPhone 13 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 13 pro max": {
+  "box": [
+   138,
+   96,
+   553,
+   938
+  ],
+  "file": "iPhone 13 Pro Max",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 14": {
+  "box": [
+   159,
+   141,
+   534,
+   906
+  ],
+  "file": "iPhone 14",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 14 plus": {
+  "box": [
+   141,
+   98,
+   549,
+   938
+  ],
+  "file": "iPhone 14 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 14 pro": {
+  "box": [
+   152,
+   141,
+   544,
+   906
+  ],
+  "file": "iPhone 14 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 14 pro max": {
+  "box": [
+   136,
+   97,
+   561,
+   936
+  ],
+  "file": "iPhone 14 Pro Max",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 15": {
+  "box": [
+   167,
+   152,
+   526,
+   905
+  ],
+  "file": "iPhone 15",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 15 plus": {
+  "box": [
+   135,
+   98,
+   549,
+   935
+  ],
+  "file": "iPhone 15 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 15 pro": {
+  "box": [
+   154,
+   141,
+   531,
+   905
+  ],
+  "file": "iPhone 15 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 15 pro max": {
+  "box": [
+   138,
+   96,
+   549,
+   934
+  ],
+  "file": "iPhone 15 Pro Max",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 16": {
+  "box": [
+   152,
+   142,
+   545,
+   910
+  ],
+  "file": "iPhone 16",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 16 plus": {
+  "box": [
+   137,
+   99,
+   560,
+   934
+  ],
+  "file": "iPhone 16 Plus",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 16 pro": {
+  "box": [
+   158,
+   130,
+   545,
+   910
+  ],
+  "file": "iPhone 16 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 16 pro max": {
+  "box": [
+   145,
+   88,
+   560,
+   934
+  ],
+  "file": "iPhone 16 Pro Max",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 17": {
+  "box": [
+   145,
+   88,
+   560,
+   934
+  ],
+  "file": "iPhone 17",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 17 air": {
+  "box": [
+   145,
+   88,
+   560,
+   934
+  ],
+  "file": "iPhone 17 Air",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 17 pro": {
+  "box": [
+   145,
+   88,
+   560,
+   934
+  ],
+  "file": "iPhone 17 Pro",
+  "h": 1000,
+  "w": 700
+ },
+ "iphone 17 pro max": {
+  "box": [
+   138,
+   89,
+   557,
+   922
+  ],
+  "file": "iPhone 17 Pro Max",
+  "h": 1000,
+  "w": 700
+ }
+}

@@ -24,7 +24,10 @@ export type Placement = {
   /** Turn, in degrees (clockwise). The photo still covers the print area
    *  at zoom 1 whatever the angle. */
   rotate?: number
-  /** One line of text printed over the photo. */
+  /** Extra images laid over the main photo (logos, cut-outs, stickers),
+   *  bottom to top. */
+  stickers?: Sticker[]
+  /** One line of text printed over everything. */
   text?: CaseText | null
   /** What fills any part of the print area the photo doesn't reach
    *  (zoomed out, or dragged off an edge). Transparent (nothing printed)
@@ -41,7 +44,42 @@ export const PLACEMENT_BACKGROUNDS: { id: PlacementBackground; label: string }[]
   { id: 'black', label: 'Black' },
 ]
 
-export type CaseTextFont = 'classic' | 'modern' | 'simple'
+/** An extra image on top of the main photo. */
+export type Sticker = {
+  id: string
+  /** Local link to the picked file (blob:), used for preview and print. */
+  src: string
+  name: string
+  /** Width ÷ height of the image. */
+  aspect: number
+  /** Centre, as a fraction of the print area (0–1). */
+  x: number
+  y: number
+  /** Width, as a fraction of the print area's width. */
+  size: number
+  rotate: number
+}
+
+export const MAX_STICKERS = 6
+export const STICKER_MIN_SIZE = 0.08
+export const STICKER_MAX_SIZE = 1.2
+
+export type CaseTextFont =
+  | 'classic'
+  | 'modern'
+  | 'simple'
+  | 'elegant'
+  | 'dancing'
+  | 'retro'
+  | 'signature'
+  | 'bold-script'
+  | 'editorial'
+  | 'royal'
+  | 'poster'
+  | 'fashion'
+  | 'marker'
+  | 'handwritten'
+  | 'neon'
 
 export type CaseText = {
   value: string
@@ -64,6 +102,19 @@ export const TEXT_FONTS: { id: CaseTextFont; label: string; cssVar: string; fall
   { id: 'classic', label: 'Classic', cssVar: '--font-serif-display', fallback: 'Georgia, serif', weight: 600, italic: true },
   { id: 'modern', label: 'Modern', cssVar: '--font-sans-body', fallback: 'Arial, sans-serif', weight: 700, italic: false },
   { id: 'simple', label: 'Simple', cssVar: '', fallback: 'Arial, Helvetica, sans-serif', weight: 400, italic: false },
+  // Decorative fonts, loaded in fonts.ts.
+  { id: 'elegant', label: 'Elegant', cssVar: '--cc-font-great-vibes', fallback: 'cursive', weight: 400, italic: false },
+  { id: 'dancing', label: 'Dancing', cssVar: '--cc-font-dancing', fallback: 'cursive', weight: 700, italic: false },
+  { id: 'retro', label: 'Retro', cssVar: '--cc-font-pacifico', fallback: 'cursive', weight: 400, italic: false },
+  { id: 'signature', label: 'Signature', cssVar: '--cc-font-sacramento', fallback: 'cursive', weight: 400, italic: false },
+  { id: 'bold-script', label: 'Bold script', cssVar: '--cc-font-lobster', fallback: 'cursive', weight: 400, italic: false },
+  { id: 'editorial', label: 'Editorial', cssVar: '--cc-font-playfair', fallback: 'Georgia, serif', weight: 700, italic: true },
+  { id: 'royal', label: 'Royal', cssVar: '--cc-font-cinzel', fallback: 'Georgia, serif', weight: 700, italic: false },
+  { id: 'poster', label: 'Poster', cssVar: '--cc-font-bebas', fallback: 'Impact, sans-serif', weight: 400, italic: false },
+  { id: 'fashion', label: 'Fashion', cssVar: '--cc-font-abril', fallback: 'Georgia, serif', weight: 400, italic: false },
+  { id: 'marker', label: 'Marker', cssVar: '--cc-font-marker', fallback: 'cursive', weight: 400, italic: false },
+  { id: 'handwritten', label: 'Handwritten', cssVar: '--cc-font-caveat', fallback: 'cursive', weight: 700, italic: false },
+  { id: 'neon', label: 'Neon', cssVar: '--cc-font-monoton', fallback: 'sans-serif', weight: 400, italic: false },
 ]
 
 export const TEXT_COLORS: { id: string; label: string }[] = [
@@ -109,7 +160,7 @@ export function coverScale(pw: number, ph: number, aw: number, ah: number, zoom:
 export const MIN_ZOOM = 0.2
 export const MAX_ZOOM = 3
 
-export const DEFAULT_PLACEMENT: Placement = { zoom: 1, x: 0, y: 0, rotate: 0, bg: 'transparent', text: null }
+export const DEFAULT_PLACEMENT: Placement = { zoom: 1, x: 0, y: 0, rotate: 0, bg: 'transparent', stickers: [], text: null }
 
 /** The background in effect (older saved placements have none → transparent). */
 export function placementBg(p: Placement): PlacementBackground {
@@ -204,6 +255,8 @@ async function render(opts: {
   ctx.drawImage(photo, -photo.naturalWidth / 2, -photo.naturalHeight / 2)
   ctx.restore()
 
+  for (const st of opts.placement.stickers ?? []) await drawSticker(ctx, st, rx, ry, rw, rh)
+
   const text = activeText(opts.placement)
   if (text) await drawText(ctx, text, rx, ry, rw, rh)
 
@@ -217,10 +270,27 @@ async function render(opts: {
   return canvas
 }
 
+async function drawSticker(ctx: CanvasRenderingContext2D, st: Sticker, rx: number, ry: number, rw: number, rh: number) {
+  const img = await loadImage(st.src)
+  const w = st.size * rw
+  const h = w / st.aspect
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(rx, ry, rw, rh)
+  ctx.clip()
+  ctx.translate(rx + st.x * rw, ry + st.y * rh)
+  ctx.rotate((st.rotate * Math.PI) / 180)
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(img, -w / 2, -h / 2, w, h)
+  ctx.restore()
+}
+
 async function drawText(ctx: CanvasRenderingContext2D, text: CaseText, rx: number, ry: number, rw: number, rh: number) {
   const f = textFont(text.font)
   // next/font gives the fonts generated names; read them from the page.
-  const loaded = f.cssVar ? getComputedStyle(document.body).getPropertyValue(f.cssVar).trim() : ''
+  const host = document.querySelector('[data-casecraft-fonts]') ?? document.body
+  const loaded = f.cssVar ? getComputedStyle(host).getPropertyValue(f.cssVar).trim() : ''
   const family = loaded ? `${loaded}, ${f.fallback}` : f.fallback
   const px = Math.round(text.size * rw)
   const font = `${f.italic ? 'italic ' : ''}${f.weight} ${px}px ${family}`
@@ -244,6 +314,12 @@ async function drawText(ctx: CanvasRenderingContext2D, text: CaseText, rx: numbe
   }
   ctx.fillText(text.value, rx + text.x * rw, ry + text.y * rh)
   ctx.restore()
+}
+
+/** The design alone (no template), unprinted parts see-through — for the
+ *  real-photo preview (realPreview.tsx). */
+export function renderDesignCanvas(opts: { photoUrl: string; placement: Placement; template: TemplateId; width: number }) {
+  return render({ ...opts, overlaySrc: undefined, keepAlpha: true })
 }
 
 export async function renderPrintFiles(opts: { photoUrl: string; placement: Placement; template: TemplateId; overlaySrc: string }) {

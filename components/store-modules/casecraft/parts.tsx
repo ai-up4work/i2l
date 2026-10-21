@@ -192,6 +192,8 @@ export function CasePreview({
   guides = true,
   onPlacementChange,
   onGestureStart,
+  selected,
+  onSelect,
   empty,
   className = '',
 }: {
@@ -212,11 +214,16 @@ export function CasePreview({
   onPlacementChange?: (p: Placement) => void
   /** Called once when a drag (photo or text) starts — for undo history. */
   onGestureStart?: () => void
+  /** Which layer is being edited: 'photo', 'text' or a sticker id. */
+  selected?: string
+  /** A layer was pressed on the case. */
+  onSelect?: (layer: string) => void
   empty?: ReactNode
   className?: string
 }) {
   const areaRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ what: 'photo' | 'text'; px: number; py: number; x: number; y: number } | null>(null)
+  // what: 'photo', 'text' or a sticker id.
+  const drag = useRef<{ what: string; px: number; py: number; x: number; y: number } | null>(null)
   const [overlayFailed, setOverlayFailed] = useState<string | null>(null)
   const a = printArea(template)
   const bg = placementBg(placement)
@@ -274,11 +281,17 @@ export function CasePreview({
       onPointerDown={(e) => {
         if (!canDrag) return
         e.currentTarget.setPointerCapture(e.pointerId)
-        // The text, when the press lands on it; otherwise the photo.
-        const onText = text && (e.target as HTMLElement).closest('[data-case-text]')
+        // The text or a sticker when the press lands on one; otherwise the photo.
+        const el = e.target as HTMLElement
+        const onText = text && el.closest('[data-case-text]')
+        const stickerId = el.closest<HTMLElement>('[data-sticker-id]')?.dataset.stickerId
+        const st = stickerId ? placement.stickers?.find((s) => s.id === stickerId) : undefined
         drag.current = onText
           ? { what: 'text', px: e.clientX, py: e.clientY, x: text.x, y: text.y }
-          : { what: 'photo', px: e.clientX, py: e.clientY, x: placement.x, y: placement.y }
+          : st
+            ? { what: st.id, px: e.clientX, py: e.clientY, x: st.x, y: st.y }
+            : { what: 'photo', px: e.clientX, py: e.clientY, x: placement.x, y: placement.y }
+        onSelect?.(drag.current.what)
         onGestureStart?.()
       }}
       onPointerMove={(e) => {
@@ -287,9 +300,16 @@ export function CasePreview({
         if (!d || !box || !onPlacementChange) return
         const dx = (e.clientX - d.px) / box.width
         const dy = (e.clientY - d.py) / box.height
+        const keep = (v: number) => Math.max(0, Math.min(1, v))
         if (d.what === 'text' && placement.text) {
-          const keep = (v: number) => Math.max(0, Math.min(1, v))
           onPlacementChange({ ...placement, text: { ...placement.text, x: keep(d.x + dx), y: keep(d.y + dy) } })
+          return
+        }
+        if (d.what !== 'photo') {
+          onPlacementChange({
+            ...placement,
+            stickers: (placement.stickers ?? []).map((s) => (s.id === d.what ? { ...s, x: keep(d.x + dx), y: keep(d.y + dy) } : s)),
+          })
           return
         }
         const clamp = (v: number) => Math.max(-1.5, Math.min(1.5, v))
@@ -337,12 +357,36 @@ export function CasePreview({
                 }}
               />
             )}
+            {/* Extra images on top of the photo, bottom to top. */}
+            {(placement.stickers ?? []).map((st) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={st.id}
+                src={st.src}
+                alt={st.name}
+                data-sticker-id={st.id}
+                draggable={false}
+                className={`absolute h-auto max-w-none ${canDrag ? 'cursor-move' : ''} ${
+                  canDrag && selected === st.id ? 'outline-dashed outline-2 outline-offset-2 outline-teal' : ''
+                }`}
+                style={{
+                  left: `${st.x * 100}%`,
+                  top: `${st.y * 100}%`,
+                  width: `${st.size * 100}%`,
+                  transform: `translate(-50%, -50%) rotate(${st.rotate}deg)`,
+                }}
+              />
+            ))}
             {/* The text line — sized in container units so it matches the
                 print (compose.ts drawText) at any preview size. */}
             {text && (
               <span
                 data-case-text
-                className={`absolute whitespace-nowrap leading-none ${canDrag ? 'cursor-move rounded-sm outline-dashed outline-1 outline-offset-4 outline-white/0 hover:outline-white/70' : ''}`}
+                className={`absolute whitespace-nowrap leading-none ${
+                  canDrag
+                    ? `cursor-move rounded-sm outline-dashed outline-offset-4 ${selected === 'text' ? 'outline-2 outline-teal' : 'outline-1 outline-white/0 hover:outline-white/70'}`
+                    : ''
+                }`}
                 style={{
                   left: `${text.x * 100}%`,
                   top: `${text.y * 100}%`,
