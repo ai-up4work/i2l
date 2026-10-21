@@ -9,7 +9,14 @@
   "marketShareSriLanka": {
     "month": "2026-09",
     "source": "https://gs.statcounter.com/vendor-market-share/mobile/sri-lanka",
-    "shares": { "Samsung": 33.54, "Apple": 15.06, "Xiaomi": 14.78, "Honor": 6.34, "Vivo": 5.89, "Oppo": 4.42 }
+    "shares": {
+      "Samsung": 33.54,
+      "Apple": 15.06,
+      "Xiaomi": 14.78,
+      "Honor": 6.34,
+      "Vivo": 5.89,
+      "Oppo": 4.42
+    }
   },
   "todo": [
     {
@@ -18,7 +25,20 @@
       "series": "Galaxy A",
       "status": "need-both",
       "why": "Samsung is the top brand in Sri Lanka and the A series is its biggest seller; the Galaxy A07 and Galaxy A17 were in the world's top 10 in Q2 2026. None in the catalog yet.",
-      "models": ["Galaxy A17", "Galaxy A17 5G", "Galaxy A07", "Galaxy A26", "Galaxy A36", "Galaxy A56", "Galaxy A16", "Galaxy A06", "Galaxy A15", "Galaxy A25", "Galaxy A35", "Galaxy A55"],
+      "models": [
+        "Galaxy A17",
+        "Galaxy A17 5G",
+        "Galaxy A07",
+        "Galaxy A26",
+        "Galaxy A36",
+        "Galaxy A56",
+        "Galaxy A16",
+        "Galaxy A06",
+        "Galaxy A15",
+        "Galaxy A25",
+        "Galaxy A35",
+        "Galaxy A55"
+      ],
       "done": false
     },
     {
@@ -27,7 +47,15 @@
       "series": "iPhone 16 / 17",
       "status": "need-template",
       "why": "Photos are already in case_images; only templates are missing. The iPhone 17 family is the world's best seller in 2026.",
-      "models": ["iPhone 16", "iPhone 16 Plus", "iPhone 16 Pro", "iPhone 16 Pro Max", "iPhone 17", "iPhone 17 Pro", "iPhone 17 Pro Max"],
+      "models": [
+        "iPhone 16",
+        "iPhone 16 Plus",
+        "iPhone 16 Pro",
+        "iPhone 16 Pro Max",
+        "iPhone 17",
+        "iPhone 17 Pro",
+        "iPhone 17 Pro Max"
+      ],
       "done": false
     },
     {
@@ -36,7 +64,11 @@
       "series": "iPhone Air / e",
       "status": "need-both",
       "why": "The iPhone 17e was in the world's top 10 in Q2 2026. The case_images folder named \"iPhone 17 Air\" holds the same photo as the iPhone 17, so the Air needs its own photos too.",
-      "models": ["iPhone Air", "iPhone 17e", "iPhone 16e"],
+      "models": [
+        "iPhone Air",
+        "iPhone 17e",
+        "iPhone 16e"
+      ],
       "done": false
     },
     {
@@ -45,7 +77,11 @@
       "series": "Galaxy S25",
       "status": "need-template",
       "why": "Photos are already in case_images; only templates are missing.",
-      "models": ["Galaxy S25", "Galaxy S25 Plus", "Galaxy S25 Ultra"],
+      "models": [
+        "Galaxy S25",
+        "Galaxy S25 Plus",
+        "Galaxy S25 Ultra"
+      ],
       "done": false
     },
     {
@@ -54,7 +90,14 @@
       "series": "Galaxy S26 / FE",
       "status": "need-both",
       "why": "The Galaxy S26 Ultra was #4 worldwide in Q2 2026.",
-      "models": ["Galaxy S26", "Galaxy S26 Plus", "Galaxy S26 Ultra", "Galaxy S25 FE", "Galaxy S24 FE", "Galaxy S23 FE"],
+      "models": [
+        "Galaxy S26",
+        "Galaxy S26 Plus",
+        "Galaxy S26 Ultra",
+        "Galaxy S25 FE",
+        "Galaxy S24 FE",
+        "Galaxy S23 FE"
+      ],
       "done": false
     },
     {
@@ -63,7 +106,20 @@
       "series": "Redmi / Redmi Note / POCO",
       "status": "need-both",
       "why": "#3 brand in Sri Lanka (14.8%). None in the catalog yet.",
-      "models": ["Redmi Note 15", "Redmi Note 15 Pro", "Redmi Note 15 Pro+", "Redmi Note 14", "Redmi Note 14 Pro", "Redmi Note 14 Pro+", "Redmi 15C", "Redmi 14C", "Redmi A5", "Redmi A3", "POCO X7", "POCO M7"],
+      "models": [
+        "Redmi Note 15",
+        "Redmi Note 15 Pro",
+        "Redmi Note 15 Pro+",
+        "Redmi Note 14",
+        "Redmi Note 14 Pro",
+        "Redmi Note 14 Pro+",
+        "Redmi 15C",
+        "Redmi 14C",
+        "Redmi A5",
+        "Redmi A3",
+        "POCO X7",
+        "POCO M7"
+      ],
       "done": false
     },
     {
@@ -72,7 +128,14 @@
       "series": "X / 400",
       "status": "need-both",
       "why": "#4 brand in Sri Lanka (6.3%). None in the catalog yet.",
-      "models": ["Honor X9c", "Honor X8c", "Honor X7c", "Honor X6c", "Honor 400", "Honor 400 Lite"],
+      "models": [
+        "Honor X9c",
+        "Honor X8c",
+        "Honor X7c",
+        "Honor X6c",
+        "Honor 400",
+        "Honor 400 Lite"
+      ],
       "done": false
     },
     {
@@ -81,7 +144,13 @@
       "series": "Y / V",
       "status": "need-both",
       "why": "5.9% in Sri Lanka. None in the catalog yet.",
-      "models": ["Vivo Y29", "Vivo Y19s", "Vivo Y04", "Vivo V50", "Vivo V50 Lite"],
+      "models": [
+        "Vivo Y29",
+        "Vivo Y19s",
+        "Vivo Y04",
+        "Vivo V50",
+        "Vivo V50 Lite"
+      ],
       "done": false
     },
     {
@@ -90,7 +159,13 @@
       "series": "A / Reno",
       "status": "need-both",
       "why": "4.4% in Sri Lanka. None in the catalog yet.",
-      "models": ["Oppo A5", "Oppo A5 Pro", "Oppo A3x", "Oppo Reno 14", "Oppo Reno 13"],
+      "models": [
+        "Oppo A5",
+        "Oppo A5 Pro",
+        "Oppo A3x",
+        "Oppo Reno 14",
+        "Oppo Reno 13"
+      ],
       "done": false
     },
     {
@@ -99,7 +174,14 @@
       "series": "Pixel",
       "status": "need-photo",
       "why": "These Pixel models already have templates but no real photos (they show the case drawing instead of the real look).",
-      "models": ["Pixel 5", "Pixel 6", "Pixel 6 Pro", "Pixel 7", "Pixel 8", "Pixel 8 Pro"],
+      "models": [
+        "Pixel 5",
+        "Pixel 6",
+        "Pixel 6 Pro",
+        "Pixel 7",
+        "Pixel 8",
+        "Pixel 8 Pro"
+      ],
       "done": false
     },
     {
@@ -108,7 +190,15 @@
       "series": "Pixel 9 / 10",
       "status": "need-both",
       "why": "Newer Pixels missing entirely.",
-      "models": ["Pixel 9", "Pixel 9 Pro", "Pixel 9 Pro XL", "Pixel 9a", "Pixel 10", "Pixel 10 Pro", "Pixel 10 Pro XL"],
+      "models": [
+        "Pixel 9",
+        "Pixel 9 Pro",
+        "Pixel 9 Pro XL",
+        "Pixel 9a",
+        "Pixel 10",
+        "Pixel 10 Pro",
+        "Pixel 10 Pro XL"
+      ],
       "done": false
     },
     {
@@ -117,7 +207,14 @@
       "series": "Budget",
       "status": "need-both",
       "why": "Smaller share but cheap and common. Do these last.",
-      "models": ["Tecno Spark 40", "Tecno Camon 40", "Infinix Hot 60", "Infinix Note 50", "Realme C75", "Realme 14"],
+      "models": [
+        "Tecno Spark 40",
+        "Tecno Camon 40",
+        "Infinix Hot 60",
+        "Infinix Note 50",
+        "Realme C75",
+        "Realme 14"
+      ],
       "done": false
     },
     {
@@ -126,7 +223,24 @@
       "series": "Older models",
       "status": "need-photo",
       "why": "Templates exist but no real photos. Old phones, so low priority.",
-      "models": ["iPhone X", "iPhone XS", "iPhone XS Max", "iPhone X MAX", "iPhone XR", "iPhone 8", "iPhone 8 Plus", "iPhone 7 & 8", "iPhone 7 & 8 Plus", "iPhone 6 & 6s", "iPhone 6 & 6s Plus", "iPhone 5 & 5s & 5se", "Galaxy S10", "Galaxy S10 Edge", "Galaxy S10 Plus", "Galaxy S6"],
+      "models": [
+        "iPhone X",
+        "iPhone XS",
+        "iPhone XS Max",
+        "iPhone X MAX",
+        "iPhone XR",
+        "iPhone 8",
+        "iPhone 8 Plus",
+        "iPhone 7 & 8",
+        "iPhone 7 & 8 Plus",
+        "iPhone 6 & 6s",
+        "iPhone 6 & 6s Plus",
+        "iPhone 5 & 5s & 5se",
+        "Galaxy S10",
+        "Galaxy S10 Edge",
+        "Galaxy S10 Plus",
+        "Galaxy S6"
+      ],
       "done": false
     }
   ],
