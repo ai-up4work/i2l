@@ -9,7 +9,8 @@
 'use client'
 
 import { hasChoices } from '@/lib/product-selection'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useHideOnScroll } from '@/hooks/useHideOnScroll'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import AddToBagButton from '@/components/stores/AddToBagButton'
@@ -56,6 +57,10 @@ export function StickyBuyBar({
 }) {
   const [visible, setVisible] = useState(false)
   const needsOptions = hasChoices(product)
+  // The phone bottom nav (PublicMobileNav) slides away while scrolling
+  // down; this bar sits just above it, and drops to the bottom when it goes.
+  const navAway = useHideOnScroll()
+  const bar = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const target = document.getElementById('buy-actions')
@@ -65,10 +70,33 @@ export function StickyBuyBar({
     return () => observer.disconnect()
   }, [])
 
+  // Nav dock: 64px + its bottom padding, plus room for its raised + button.
+  const bottom = navAway
+    ? 'max(10px, env(safe-area-inset-bottom))'
+    : 'calc(64px + max(10px, env(safe-area-inset-bottom)) + 26px)'
+
+  // Lift the chat bubble (bottom-24 = 96px) clear of this bar while it shows.
+  useEffect(() => {
+    const root = document.documentElement
+    if (!visible || !bar.current) {
+      root.style.removeProperty('--wd-fab-lift')
+      return
+    }
+    const h = bar.current.offsetHeight
+    root.style.setProperty('--wd-fab-lift', `max(0px, calc(${bottom} + ${h + 12}px - 96px))`)
+    return () => {
+      root.style.removeProperty('--wd-fab-lift')
+    }
+  }, [visible, bottom])
+
   if (!visible) return null
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-ink/10 bg-card/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md lg:hidden">
+    <div
+      ref={bar}
+      style={{ bottom }}
+      className="fixed inset-x-3 z-40 rounded-2xl border border-ink/10 bg-card/95 px-4 py-3 shadow-[0_10px_30px_-10px_rgba(8,39,79,0.45)] backdrop-blur-md transition-[bottom] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:hidden"
+    >
       <div className="mx-auto flex max-w-xl items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-ink/55">{product.name}</p>

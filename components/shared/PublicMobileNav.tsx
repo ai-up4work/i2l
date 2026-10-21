@@ -5,7 +5,8 @@
 // The account area's phone bottom bar (MobileBottomNav), on every public
 // page too, so a shopper can always paste a link (centre +), open the
 // stores sheet, or reach their orders and account from a phone.
-// Hidden on product pages, which have their own "Add to bag" bar.
+// Shown on product pages too; their "Add to bag" bar floats just above it
+// (StickyBuyBar in components/stores/social/SocialProductExtras.tsx).
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
@@ -17,9 +18,10 @@ import { useAuth } from '@/contexts/AuthContext'
 import { pathForView } from '@/components/dashboard/routes'
 import type { View } from '@/components/dashboard/types'
 
-/** Pages that already have their own bar along the bottom on phones. */
-export function hidesPublicMobileNav(pathname: string | null): boolean {
-  return !!pathname && /^\/stores\/[^/]+\/product\//.test(pathname)
+/** Pages that own the bottom of the screen on phones (none right now —
+ *  product pages stack their buy bar above this one instead). */
+export function hidesPublicMobileNav(_pathname: string | null): boolean {
+  return false
 }
 
 function viewForPublicPath(pathname: string | null): View {

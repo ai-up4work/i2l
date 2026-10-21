@@ -16,6 +16,7 @@ import { isEconomyLocked } from '@/lib/feature-flags'
 import ProductPurchasePanel from '@/components/stores/ProductPurchasePanel'
 import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
+import ProductBackBar from '@/components/stores/ProductBackBar'
 import ProductInfoTabs from '@/components/stores/ProductInfoTabs'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import ViewTracker from './ViewTracker'
@@ -409,6 +410,9 @@ export default async function ProductDetailPage({
             </div>
           </div>
 
+          {/* Phones: the bar above is hidden, so a way back to the store. */}
+          <ProductBackBar storeName={store.name} storeHref={`/stores/${store.platform}`} />
+
           {/* items-stretch + h-full on the info column keep the two sides
               matched in height, same fix as the old-money PDP: the buy-box
               column is bounded by the gallery's height rather than free to
@@ -416,7 +420,7 @@ export default async function ProductDetailPage({
               of inside the column, so it's not subject to that height
               constraint — it's meant to grow full-width regardless of how
               tall the gallery is. */}
-          <div className="mx-auto max-w-6xl px-6 pb-10 pt-8 lg:px-10">
+          <div className="mx-auto max-w-6xl px-6 pb-10 pt-2 sm:pt-8 lg:px-10">
             <div className="mt-4 grid gap-8 lg:grid-cols-2 items-stretch">
               {/* key={product.id} resets the size/color selection when the
                   shopper navigates between products. */}

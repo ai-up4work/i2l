@@ -49,6 +49,8 @@ export default function ChatButton({
         data-chat-bubble
         aria-label={isOpen ? 'Close chat' : 'Chat with support'}
         onClick={toggleChat}
+        // Product pages lift the bubble above their floating buy bar (StickyBuyBar).
+        style={{ translate: '0 calc(-1 * var(--wd-fab-lift, 0px))' }}
         className={`group fixed z-40 flex h-14 items-center gap-2.5 rounded-full bg-teal-deep pl-4 pr-4 text-parchment shadow-lift transition-all duration-300 ease-out hover:bg-indigo-deep hover:pl-5 hover:pr-6 ${positionClassName} ${
           isOpen ? '' : 'chat-fab'
         }`}
