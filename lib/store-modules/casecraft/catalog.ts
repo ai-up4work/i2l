@@ -47,7 +47,8 @@ export const SIZE_CLASSES: { id: SizeClass; label: string; hint: string }[] = [
 
 /** Which price band a model is in (same rule the old project priced by). */
 export function sizeClassOf(label: string): SizeClass {
-  if (/pro max|ultra/i.test(label)) return 'promax'
+  // XS Max is the big iPhone of its year — priced like a Pro Max.
+  if (/pro max|ultra|xs max/i.test(label)) return 'promax'
   if (/plus/i.test(label)) return 'plus'
   if (/pro|max/i.test(label)) return 'pro'
   return 'standard'
@@ -75,7 +76,8 @@ function brandOf(label: string): BrandId {
 }
 
 function numSort(a: CaseModel, b: CaseModel) {
-  const n = (s: string) => parseInt(s.match(/\d+/)?.[0] ?? '0', 10)
+  // "iPhone Air" sits with its generation, after the 17.
+  const n = (s: string) => (/^iPhone Air$/i.test(s) ? 17.5 : parseInt(s.match(/\d+/)?.[0] ?? '0', 10))
   return n(a.label) - n(b.label) || a.label.localeCompare(b.label)
 }
 
@@ -136,6 +138,39 @@ const TOUGH_CASES: [string, string][] = [
   ['Galaxy S22', 'ToughCases Samsung S22.png'],
   ['Galaxy S23', 'ToughCases Samsung S23.png'],
   ['Galaxy S24', 'ToughCases Samsung S24.png'],
+  // Waiting for the supplier's templates (see AWAITING_TEMPLATES below).
+  ['iPhone 16', 'ToughCases iPhone 16.png'],
+  ['iPhone 16 Plus', 'ToughCases iPhone 16 Plus.png'],
+  ['iPhone 16 Pro', 'ToughCases iPhone 16 Pro.png'],
+  ['iPhone 16 Pro Max', 'ToughCases iPhone 16 Pro Max.png'],
+  ['iPhone 17', 'ToughCases iPhone 17.png'],
+  ['iPhone Air', 'ToughCases iPhone Air.png'],
+  ['iPhone 17 Pro', 'ToughCases iPhone 17 Pro.png'],
+  ['iPhone 17 Pro Max', 'ToughCases iPhone 17 Pro Max.png'],
+  ['Galaxy S25', 'ToughCases Samsung S25.png'],
+  ['Galaxy S25 Plus', 'ToughCases Samsung S25 Plus.png'],
+  ['Galaxy S25 Ultra', 'ToughCases Samsung S25 Ultra.png'],
+]
+
+/**
+ * Templates the supplier hasn't sent yet. The shop checks whether each of
+ * these files is in public/phoneCases and hides the model until it is
+ * (lib/store-modules/casecraft/server.ts → missingTemplates), so a model
+ * can be listed here before its template arrives. Once every file is in,
+ * this list can be emptied.
+ */
+export const AWAITING_TEMPLATES: string[] = [
+  'ToughCases iPhone 16.png',
+  'ToughCases iPhone 16 Plus.png',
+  'ToughCases iPhone 16 Pro.png',
+  'ToughCases iPhone 16 Pro Max.png',
+  'ToughCases iPhone 17.png',
+  'ToughCases iPhone Air.png',
+  'ToughCases iPhone 17 Pro.png',
+  'ToughCases iPhone 17 Pro Max.png',
+  'ToughCases Samsung S25.png',
+  'ToughCases Samsung S25 Plus.png',
+  'ToughCases Samsung S25 Ultra.png',
 ]
 
 // "Classic series" — SPOKE. 32 templates.
@@ -146,7 +181,8 @@ const TOUGH_PHONE_CASES: [string, string][] = [
   ['iPhone 7 & 8', 'Tough Phone Cases iPhone 7 & 8.png'],
   ['iPhone 7 & 8 Plus', 'Tough Phone Cases iPhone 7 & 8 Plus.png'],
   ['iPhone 12 & 12 Pro', 'Tough Phone Cases iPhone 12 & 12 Pro.png'],
-  ['iPhone X MAX', 'Tough Phone Cases iPhone X MAX.png'],
+  // The template itself says "iPhone XS MAX" (the file name is the supplier's).
+  ['iPhone XS Max', 'Tough Phone Cases iPhone X MAX.png'],
   ['iPhone X', 'Tough Phone Cases iPhone X.png'],
   ['iPhone XR', 'Tough Phone Cases iPhone XR.png'],
   ['iPhone XS', 'Tough Phone Cases iPhone XS.png'],
@@ -237,4 +273,9 @@ export function cleanTemplateSrc(model: Pick<CaseModel, 'file'>): { mask: string
 /** Key used to switch one model of one case type off. */
 export function modelKey(caseTypeId: CaseTypeId, label: string): string {
   return `${caseTypeId}|${label}`
+}
+
+/** Old model names → current ones, so saved settings keep working after a rename. */
+export const RENAMED_MODELS: Record<string, string> = {
+  'tough-phone-cases|iPhone X MAX': 'tough-phone-cases|iPhone XS Max',
 }

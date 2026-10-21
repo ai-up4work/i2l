@@ -21,7 +21,7 @@ import {
   shopperPrice,
   type PaymentMethod,
 } from '@/lib/store-modules/casecraft/settings'
-import { CASECRAFT_MIGRATION_HINT, casecraftDb, isMissingTable, loadSettings, newOrderRef } from '@/lib/store-modules/casecraft/server'
+import { CASECRAFT_MIGRATION_HINT, casecraftDb, isMissingTable, loadSettings, missingTemplates, newOrderRef } from '@/lib/store-modules/casecraft/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,7 +62,8 @@ export async function POST(req: NextRequest) {
 
   const caseType = getCaseType(typeof b.caseTypeId === 'string' ? b.caseTypeId : null)
   const model = getModel(caseType?.id, typeof b.model === 'string' ? b.model : null)
-  if (!caseType || !model || !isModelOnSale(settings, caseType.id, model.label)) {
+  // A model whose print template hasn't arrived yet can't be printed.
+  if (!caseType || !model || !isModelOnSale(settings, caseType.id, model.label) || (await missingTemplates()).has(model.file)) {
     return NextResponse.json({ error: 'That phone model isn’t available any more. Pick another.' }, { status: 409 })
   }
 

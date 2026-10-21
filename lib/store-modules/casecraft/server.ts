@@ -6,6 +6,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { absoluteUrl } from '@/lib/seo'
+import { AWAITING_TEMPLATES } from './catalog'
 import {
   buildStorefrontData,
   DEFAULT_CASECRAFT_SETTINGS,
@@ -105,18 +107,46 @@ export async function loadLikeCounts(designIds: string[], printIds: string[], db
   return out
 }
 
+// ---- Templates still to come -------------------------------------------------------
+
+const TEMPLATE_CHECK_MS = 10 * 60 * 1000
+let templateCheck: { at: number; missing: Promise<Set<string>> } | null = null
+
+/**
+ * Which of catalog.ts AWAITING_TEMPLATES aren't in public/phoneCases yet
+ * (asked over HTTP, since public files aren't on the server's disk on every
+ * host). Checked at most every 10 minutes, so a template the supplier adds
+ * shows up on its own shortly after.
+ */
+export function missingTemplates(): Promise<Set<string>> {
+  if (!AWAITING_TEMPLATES.length) return Promise.resolve(new Set())
+  if (templateCheck && Date.now() - templateCheck.at < TEMPLATE_CHECK_MS) return templateCheck.missing
+  const missing = Promise.all(
+    AWAITING_TEMPLATES.map(async (file) => {
+      try {
+        const res = await fetch(absoluteUrl(`/phoneCases/${encodeURIComponent(file)}`), { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(4000) })
+        return res.ok ? null : file
+      } catch {
+        return file
+      }
+    }),
+  ).then((r) => new Set(r.filter((f): f is string => Boolean(f))))
+  templateCheck = { at: Date.now(), missing }
+  return missing
+}
+
 /** Everything the store page needs, with Wishdrop's margin applied. */
 export async function loadStorefront(slug: string): Promise<StorefrontData | null> {
   const db = casecraftDb()
   const sellerId = await sellerIdForSlug(slug, db)
   if (!sellerId) return null
-  const [rec, des, pr] = await Promise.all([loadSettings(sellerId, db), loadDesigns(sellerId, db), loadPrints(sellerId, db)])
+  const [rec, des, pr, missing] = await Promise.all([loadSettings(sellerId, db), loadDesigns(sellerId, db), loadPrints(sellerId, db), missingTemplates()])
   const likes = await loadLikeCounts(
     des.designs.filter((d) => d.active).map((d) => d.id),
     pr.prints.filter((p) => p.active).map((p) => p.id),
     db,
   )
-  return buildStorefrontData(slug, rec.settings, rec.marginPercent, des.designs, pr.prints, likes)
+  return buildStorefrontData(slug, rec.settings, rec.marginPercent, des.designs, pr.prints, likes, missing)
 }
 
 /** Short, readable order reference, e.g. CC-7K2QF9. */

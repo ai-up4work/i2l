@@ -17,7 +17,7 @@
 //
 // Pure — safe to import from client components.
 
-import { CASE_TYPES, modelKey, sizeClassOf, type CaseTypeId, type SizeClass } from './catalog'
+import { CASE_TYPES, modelKey, RENAMED_MODELS, sizeClassOf, type CaseTypeId, type SizeClass } from './catalog'
 
 export type PaymentMethod = 'cod' | 'bank'
 
@@ -82,7 +82,16 @@ export function normalizeCaseCraftSettings(raw: unknown): CaseCraftSettings {
     }
   }
   const valid = new Set(CASE_TYPES.flatMap((t) => t.models.map((m) => modelKey(t.id, m.label))))
-  const disabledModels = Array.isArray(r.disabledModels) ? [...new Set(r.disabledModels.filter((k): k is string => typeof k === 'string' && valid.has(k)))] : []
+  const disabledModels = Array.isArray(r.disabledModels)
+    ? [
+        ...new Set(
+          r.disabledModels
+            .filter((k): k is string => typeof k === 'string')
+            .map((k) => RENAMED_MODELS[k] ?? k)
+            .filter((k) => valid.has(k)),
+        ),
+      ]
+    : []
   const pay = (r.payments ?? {}) as Record<string, unknown>
   const payments = {
     cod: typeof pay.cod === 'boolean' ? pay.cod : d.payments.cod,
@@ -209,12 +218,14 @@ export function buildStorefrontData(
   designs: DesignRow[],
   prints: PrintRow[] = [],
   likes: Record<string, number> = {},
+  /** Template files not in public/phoneCases yet: their models stay hidden. */
+  missingTemplates: Set<string> = new Set(),
 ): StorefrontData {
   const prices: StorefrontData['prices'] = {}
   const models: StorefrontData['models'] = {}
   for (const t of CASE_TYPES) {
     if (!settings.caseTypes[t.id].enabled) continue
-    const onSale = t.models.filter((m) => isModelOnSale(settings, t.id, m.label)).map((m) => m.label)
+    const onSale = t.models.filter((m) => isModelOnSale(settings, t.id, m.label) && !missingTemplates.has(m.file)).map((m) => m.label)
     if (!onSale.length) continue
     models[t.id] = onSale
     const p = settings.caseTypes[t.id].prices
