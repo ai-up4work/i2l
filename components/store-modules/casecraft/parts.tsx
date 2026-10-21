@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { Check, ChevronDown, Minus, Move, Plus, Search, Smartphone } from 'lucide-react'
 import { BRANDS, type BrandId, type CaseModel, type SizeClass, type TemplateId } from '@/lib/store-modules/casecraft/catalog'
 import { formatRs } from '@/lib/store-modules/casecraft/settings'
-import { placementBg, printArea, type Placement } from './compose'
+import { activeText, coverScale, placementBg, printArea, textFont, textFontFamily, type Placement } from './compose'
 
 // ---- Step card ----------------------------------------------------------------
 
@@ -191,6 +191,7 @@ export function CasePreview({
   size,
   guides = true,
   onPlacementChange,
+  onGestureStart,
   empty,
   className = '',
 }: {
@@ -209,11 +210,13 @@ export function CasePreview({
   /** Show the factory print template instead of the clean look. */
   guides?: boolean
   onPlacementChange?: (p: Placement) => void
+  /** Called once when a drag (photo or text) starts — for undo history. */
+  onGestureStart?: () => void
   empty?: ReactNode
   className?: string
 }) {
   const areaRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
+  const drag = useRef<{ what: 'photo' | 'text'; px: number; py: number; x: number; y: number } | null>(null)
   const [overlayFailed, setOverlayFailed] = useState<string | null>(null)
   const a = printArea(template)
   const bg = placementBg(placement)
@@ -224,10 +227,14 @@ export function CasePreview({
   // logo stays round). Until its size is known it's treated as the print
   // area's own shape.
   const [photoSize, setPhotoSize] = useState<{ src: string; w: number; h: number } | null>(null)
+  // Print area as 1 wide × 1/areaAspect tall; photo as r wide × 1 tall.
   const areaAspect = (a.width * 9) / (a.height * 16)
   const photoAspect = photoSize && photoSize.src === photoUrl && photoSize.h > 0 ? photoSize.w / photoSize.h : areaAspect
-  const coverW = photoAspect > areaAspect ? photoAspect / areaAspect : 1
-  const coverH = photoAspect > areaAspect ? 1 : areaAspect / photoAspect
+  const rotate = placement.rotate ?? 0
+  const scale = coverScale(photoAspect, 1, 1, 1 / areaAspect, placement.zoom, rotate)
+  const photoW = photoAspect * scale // fraction of the area's width
+  const photoH = scale * areaAspect // fraction of the area's height
+  const text = activeText(placement)
   const canDrag = Boolean(photoUrl && onPlacementChange)
 
   // The clean look only switches on once its mask has actually loaded — a
@@ -267,14 +274,26 @@ export function CasePreview({
       onPointerDown={(e) => {
         if (!canDrag) return
         e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { px: e.clientX, py: e.clientY, x: placement.x, y: placement.y }
+        // The text, when the press lands on it; otherwise the photo.
+        const onText = text && (e.target as HTMLElement).closest('[data-case-text]')
+        drag.current = onText
+          ? { what: 'text', px: e.clientX, py: e.clientY, x: text.x, y: text.y }
+          : { what: 'photo', px: e.clientX, py: e.clientY, x: placement.x, y: placement.y }
+        onGestureStart?.()
       }}
       onPointerMove={(e) => {
         const d = drag.current
         const box = areaRef.current?.getBoundingClientRect()
         if (!d || !box || !onPlacementChange) return
+        const dx = (e.clientX - d.px) / box.width
+        const dy = (e.clientY - d.py) / box.height
+        if (d.what === 'text' && placement.text) {
+          const keep = (v: number) => Math.max(0, Math.min(1, v))
+          onPlacementChange({ ...placement, text: { ...placement.text, x: keep(d.x + dx), y: keep(d.y + dy) } })
+          return
+        }
         const clamp = (v: number) => Math.max(-1.5, Math.min(1.5, v))
-        onPlacementChange({ ...placement, x: clamp(d.x + (e.clientX - d.px) / box.width), y: clamp(d.y + (e.clientY - d.py) / box.height) })
+        onPlacementChange({ ...placement, x: clamp(d.x + dx), y: clamp(d.y + dy) })
       }}
       onPointerUp={() => (drag.current = null)}
       onPointerCancel={() => (drag.current = null)}
@@ -285,7 +304,7 @@ export function CasePreview({
           {clean && <div className="absolute inset-0 bg-white" />}
           <div
             ref={areaRef}
-            className={`absolute overflow-hidden ${
+            className={`absolute overflow-hidden [container-type:size] ${
               !photoUrl
                 ? clean ? 'bg-[#efeae1]' : 'bg-parchment'
                 : bg === 'black' ? 'bg-black' : bg === 'white' ? 'bg-white' : bg === 'transparent' ? TRANSPARENT_CHECKER : 'bg-ink/10'
@@ -312,11 +331,32 @@ export function CasePreview({
                 style={{
                   left: `${(0.5 + placement.x) * 100}%`,
                   top: `${(0.5 + placement.y) * 100}%`,
-                  width: `${coverW * placement.zoom * 100}%`,
-                  height: `${coverH * placement.zoom * 100}%`,
-                  transform: 'translate(-50%, -50%)',
+                  width: `${photoW * 100}%`,
+                  height: `${photoH * 100}%`,
+                  transform: `translate(-50%, -50%) rotate(${rotate}deg)`,
                 }}
               />
+            )}
+            {/* The text line — sized in container units so it matches the
+                print (compose.ts drawText) at any preview size. */}
+            {text && (
+              <span
+                data-case-text
+                className={`absolute whitespace-nowrap leading-none ${canDrag ? 'cursor-move rounded-sm outline-dashed outline-1 outline-offset-4 outline-white/0 hover:outline-white/70' : ''}`}
+                style={{
+                  left: `${text.x * 100}%`,
+                  top: `${text.y * 100}%`,
+                  transform: 'translate(-50%, -50%)',
+                  fontFamily: textFontFamily(text.font),
+                  fontWeight: textFont(text.font).weight,
+                  fontStyle: textFont(text.font).italic ? 'italic' : 'normal',
+                  fontSize: `${text.size * 100}cqw`,
+                  color: text.color,
+                  textShadow: text.shadow ? '0 0.04em 0.18em rgba(0,0,0,0.45)' : undefined,
+                }}
+              >
+                {text.value}
+              </span>
             )}
           </div>
           {/* A little gloss, so it reads as a case rather than a flat picture. */}

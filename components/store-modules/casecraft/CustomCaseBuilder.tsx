@@ -7,7 +7,22 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ImagePlus, LogIn, Minus, Plus, RotateCcw, ShieldCheck } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ImagePlus,
+  LogIn,
+  Minus,
+  Plus,
+  Redo2,
+  RotateCcw,
+  RotateCw,
+  ShieldCheck,
+  Trash2,
+  Undo2,
+} from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   CASE_TYPES,
@@ -25,13 +40,21 @@ import { formatRs, type DeliveryDetails, type PaymentMethod, type StorefrontData
 import CaseCheckout, { type PlacedOrder } from './CaseCheckout'
 import {
   DEFAULT_PLACEMENT,
+  DEFAULT_TEXT,
   MAX_ZOOM,
   MIN_ZOOM,
   PLACEMENT_BACKGROUNDS,
   placementBg,
   prepareOriginal,
   renderPrintFiles,
+  TEXT_COLORS,
+  TEXT_FONTS,
+  TEXT_MAX_LENGTH,
+  TEXT_MAX_SIZE,
+  TEXT_MIN_SIZE,
+  textFontFamily,
   uploadOrderFile,
+  type CaseText,
   type Placement,
 } from './compose'
 import { btnPrimary, CasePreview, PhonePicker, StepCard, TRANSPARENT_CHECKER } from './parts'
@@ -50,6 +73,9 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
   const [file, setFile] = useState<File | null>(null)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [placement, setPlacement] = useState<Placement>(DEFAULT_PLACEMENT)
+  // Undo / redo for the design (size, position, turn, background, text).
+  const [past, setPast] = useState<Placement[]>([])
+  const [future, setFuture] = useState<Placement[]>([])
   // Clean case look by default; the factory print template on demand.
   const [showGuides, setShowGuides] = useState(false)
   const [quantity, setQuantity] = useState(1)
@@ -117,7 +143,44 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
     setFile(f)
     setPhotoUrl(URL.createObjectURL(f))
     setPlacement(DEFAULT_PLACEMENT)
+    setPast([])
+    setFuture([])
   }
+
+  /** Saves the design as it is now, before a change (skips repeats). */
+  function snapshot() {
+    setPast((p) => (p.length && JSON.stringify(p[p.length - 1]) === JSON.stringify(placement) ? p : [...p.slice(-49), placement]))
+    setFuture([])
+  }
+  /** A one-step change (button, swatch): saved for undo, then applied. */
+  function commit(next: Placement) {
+    snapshot()
+    setPlacement(next)
+  }
+  function undo() {
+    if (!past.length) return
+    setFuture((f) => [placement, ...f])
+    setPlacement(past[past.length - 1])
+    setPast((p) => p.slice(0, -1))
+  }
+  function redo() {
+    if (!future.length) return
+    setPast((p) => [...p, placement])
+    setPlacement(future[0])
+    setFuture((f) => f.slice(1))
+  }
+  const nudge = (dx: number, dy: number) => {
+    const clamp = (v: number) => Math.max(-1.5, Math.min(1.5, Math.round(v * 1000) / 1000))
+    commit({ ...placement, x: clamp(placement.x + dx), y: clamp(placement.y + dy) })
+  }
+  const turn = (deg: number) => {
+    let r = ((placement.rotate ?? 0) + deg) % 360
+    if (r > 180) r -= 360
+    if (r <= -180) r += 360
+    commit({ ...placement, rotate: r })
+  }
+  /** Live text edits (typing, size slider): snapshot happens on focus / press. */
+  const setText = (patch: Partial<CaseText>) => setPlacement((p) => ({ ...p, text: { ...(p.text ?? DEFAULT_TEXT), ...patch } }))
 
   async function place(delivery: DeliveryDetails, payment: PaymentMethod): Promise<PlacedOrder> {
     if (!caseType || !model || !file || !photoUrl || !overlay) throw new Error('Finish your design first.')
@@ -165,8 +228,10 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
     return <p className="rounded-2xl bg-card p-8 text-center font-body text-sm text-ink/60 ring-1 ring-ink/10">Custom cases aren&rsquo;t available right now. Have a look at the ready-made designs.</p>
   }
 
-  const zoomBy = (d: number) =>
-    setPlacement((p) => ({ ...p, zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((p.zoom + d) * 100) / 100)) }))
+  const zoomBy = (d: number) => commit({ ...placement, zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((placement.zoom + d) * 100) / 100)) })
+  const toolBtn =
+    'inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-ink/12 bg-card px-3 font-body text-xs font-semibold text-ink/75 transition-colors hover:border-ink/30 hover:text-ink disabled:opacity-35'
+  const sectionLabel = 'mb-2 block font-body text-[11px] font-semibold uppercase tracking-wider text-ink/45'
   const iconBtn = 'grid h-8 w-8 flex-none place-items-center rounded-full text-ink/60 transition-colors hover:bg-ink/5 hover:text-ink disabled:opacity-30'
 
   const preview = (
@@ -182,6 +247,7 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
         size={model?.size}
         guides={showGuides}
         onPlacementChange={step === 4 ? setPlacement : undefined}
+        onGestureStart={snapshot}
         className="max-w-[220px] sm:max-w-[250px]"
         empty={
           <span className="font-body text-xs text-ink/45">
@@ -203,6 +269,8 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
               max={MAX_ZOOM}
               step={0.01}
               value={placement.zoom}
+              onPointerDown={snapshot}
+              onKeyDown={snapshot}
               onChange={(e) => setPlacement({ ...placement, zoom: Number(e.target.value) })}
               aria-label="Zoom"
               className="w-full accent-[var(--color-teal)]"
@@ -213,41 +281,25 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
             <span className="w-11 flex-none text-right font-body text-xs font-semibold tabular-nums text-ink/60">{Math.round(placement.zoom * 100)}%</span>
             <button
               type="button"
-              onClick={() => setPlacement({ ...DEFAULT_PLACEMENT, bg: placement.bg })}
-              aria-label="Reset size and position"
-              title="Reset size and position"
+              onClick={() => commit({ ...DEFAULT_PLACEMENT, bg: placement.bg, text: placement.text })}
+              aria-label="Reset size, position and turn"
+              title="Reset size, position and turn"
               className={iconBtn}
             >
               <RotateCcw size={14} />
             </button>
           </div>
 
-          {/* What fills the edges when the photo doesn't reach them */}
+          {/* Undo / redo */}
           <div className="flex items-center justify-between gap-2">
-            <span className="font-body text-xs font-medium text-ink/55">Background</span>
-            <div className="flex gap-1.5" role="radiogroup" aria-label="Background behind the photo">
-              {PLACEMENT_BACKGROUNDS.map((b) => {
-                const on = placementBg(placement) === b.id
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    aria-label={b.label}
-                    title={b.label}
-                    onClick={() => setPlacement({ ...placement, bg: b.id })}
-                    className={`relative h-7 w-7 overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-shadow ${
-                      on ? 'ring-2 ring-teal' : 'ring-1 ring-ink/15 hover:ring-ink/30'
-                    } ${b.id === 'black' ? 'bg-black' : b.id === 'transparent' ? TRANSPARENT_CHECKER : 'bg-white'}`}
-                  >
-                    {b.id === 'blur' && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photoUrl} alt="" className="h-full w-full scale-150 object-cover blur-[3px]" />
-                    )}
-                  </button>
-                )
-              })}
+            <span className="font-body text-xs font-medium text-ink/55">History</span>
+            <div className="flex gap-1">
+              <button type="button" onClick={undo} disabled={!past.length} aria-label="Undo" title="Undo" className={iconBtn}>
+                <Undo2 size={15} />
+              </button>
+              <button type="button" onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo" className={iconBtn}>
+                <Redo2 size={15} />
+              </button>
             </div>
           </div>
 
@@ -373,9 +425,204 @@ export default function CustomCaseBuilder({ data }: { data: StorefrontData }) {
               {photoUrl && (
                 <>
                   <p className="font-body text-xs text-ink/55">
-                    Drag the photo on the case to move it, and zoom in or out under the preview. If it doesn&rsquo;t fill the case, pick
-                    what goes behind it.
+                    Drag the photo on the case to move it and zoom under the preview — or use the buttons here. Text can be dragged too.
                   </p>
+
+                  <div className="grid gap-4 rounded-2xl border border-ink/10 p-4 sm:grid-cols-2">
+                    {/* Move: a small arrow pad */}
+                    <div>
+                      <span className={sectionLabel}>Move</span>
+                      <div className="grid w-max grid-cols-3 gap-1.5">
+                        <span />
+                        <button type="button" onClick={() => nudge(0, -0.02)} aria-label="Move up" className={toolBtn}>
+                          <ArrowUp size={15} />
+                        </button>
+                        <span />
+                        <button type="button" onClick={() => nudge(-0.02, 0)} aria-label="Move left" className={toolBtn}>
+                          <ArrowLeft size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => commit({ ...placement, x: 0, y: 0 })}
+                          aria-label="Centre the photo"
+                          title="Centre"
+                          className={toolBtn}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                        </button>
+                        <button type="button" onClick={() => nudge(0.02, 0)} aria-label="Move right" className={toolBtn}>
+                          <ArrowRight size={15} />
+                        </button>
+                        <span />
+                        <button type="button" onClick={() => nudge(0, 0.02)} aria-label="Move down" className={toolBtn}>
+                          <ArrowDown size={15} />
+                        </button>
+                        <span />
+                      </div>
+                    </div>
+
+                    {/* Rotate */}
+                    <div>
+                      <span className={sectionLabel}>
+                        Rotate <span className="ml-1 normal-case tracking-normal text-ink/60 tabular-nums">{placement.rotate ?? 0}°</span>
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button type="button" onClick={() => turn(-90)} aria-label="Turn left 90°" title="Turn left 90°" className={toolBtn}>
+                          <RotateCcw size={14} /> 90°
+                        </button>
+                        <button type="button" onClick={() => turn(90)} aria-label="Turn right 90°" title="Turn right 90°" className={toolBtn}>
+                          <RotateCw size={14} /> 90°
+                        </button>
+                        <button type="button" onClick={() => turn(-15)} aria-label="Turn left 15°" title="Turn left 15°" className={toolBtn}>
+                          <RotateCcw size={14} /> 15°
+                        </button>
+                        <button type="button" onClick={() => turn(15)} aria-label="Turn right 15°" title="Turn right 15°" className={toolBtn}>
+                          <RotateCw size={14} /> 15°
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Background */}
+                    <div className="sm:col-span-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-body text-xs font-medium text-ink/55">Background where the photo doesn&rsquo;t reach</span>
+            <div className="flex gap-1.5" role="radiogroup" aria-label="Background behind the photo">
+              {PLACEMENT_BACKGROUNDS.map((b) => {
+                const on = placementBg(placement) === b.id
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    aria-label={b.label}
+                    title={b.label}
+                    onClick={() => commit({ ...placement, bg: b.id })}
+                    className={`relative h-7 w-7 overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-shadow ${
+                      on ? 'ring-2 ring-teal' : 'ring-1 ring-ink/15 hover:ring-ink/30'
+                    } ${b.id === 'black' ? 'bg-black' : b.id === 'transparent' ? TRANSPARENT_CHECKER : 'bg-white'}`}
+                  >
+                    {b.id === 'blur' && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photoUrl} alt="" className="h-full w-full scale-150 object-cover blur-[3px]" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+                    </div>
+                  </div>
+
+                  {/* Text */}
+                  <div className="rounded-2xl border border-ink/10 p-4">
+                    <span className={sectionLabel}>Text</span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={placement.text?.value ?? ''}
+                        maxLength={TEXT_MAX_LENGTH}
+                        onFocus={snapshot}
+                        onChange={(e) => setText({ value: e.target.value })}
+                        placeholder="Add a name or a short line"
+                        className="min-w-0 flex-1 rounded-xl border border-ink/15 bg-card px-3 py-2 font-body text-sm text-ink outline-none placeholder:text-ink/35 focus:border-teal focus:ring-2 focus:ring-teal/20"
+                      />
+                      {placement.text?.value && (
+                        <button type="button" onClick={() => commit({ ...placement, text: null })} aria-label="Remove text" title="Remove text" className={toolBtn}>
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {placement.text?.value.trim() && (
+                      <div className="mt-3 space-y-3">
+                        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Font">
+                          {TEXT_FONTS.map((f) => {
+                            const on = (placement.text?.font ?? DEFAULT_TEXT.font) === f.id
+                            return (
+                              <button
+                                key={f.id}
+                                type="button"
+                                role="radio"
+                                aria-checked={on}
+                                onClick={() => commit({ ...placement, text: { ...(placement.text ?? DEFAULT_TEXT), font: f.id } })}
+                                className={`${toolBtn} ${on ? 'border-teal text-ink ring-1 ring-teal' : ''}`}
+                                style={{ fontFamily: textFontFamily(f.id), fontStyle: f.italic ? 'italic' : 'normal', fontWeight: f.weight }}
+                              >
+                                {f.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-body text-xs font-medium text-ink/55">Colour</span>
+                          <div className="flex gap-1.5" role="radiogroup" aria-label="Text colour">
+                            {TEXT_COLORS.map((c) => {
+                              const on = (placement.text?.color ?? DEFAULT_TEXT.color) === c.id
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={on}
+                                  aria-label={c.label}
+                                  title={c.label}
+                                  onClick={() => commit({ ...placement, text: { ...(placement.text ?? DEFAULT_TEXT), color: c.id } })}
+                                  className={`h-7 w-7 rounded-full ring-offset-2 ring-offset-card transition-shadow ${on ? 'ring-2 ring-teal' : 'ring-1 ring-ink/15 hover:ring-ink/30'}`}
+                                  style={{ background: c.id }}
+                                />
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        <label className="flex items-center gap-3">
+                          <span className="font-body text-xs font-medium text-ink/55">Size</span>
+                          <input
+                            type="range"
+                            min={TEXT_MIN_SIZE}
+                            max={TEXT_MAX_SIZE}
+                            step={0.005}
+                            value={placement.text?.size ?? DEFAULT_TEXT.size}
+                            onPointerDown={snapshot}
+                            onKeyDown={snapshot}
+                            onChange={(e) => setText({ size: Number(e.target.value) })}
+                            className="w-full accent-[var(--color-teal)]"
+                          />
+                        </label>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex gap-1.5">
+                            {([['Top', 0.15], ['Middle', 0.5], ['Bottom', 0.85]] as const).map(([label, y]) => (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => commit({ ...placement, text: { ...(placement.text ?? DEFAULT_TEXT), x: 0.5, y } })}
+                                className={toolBtn}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                          <label className="flex cursor-pointer items-center gap-2">
+                            <span className="font-body text-xs font-medium text-ink/55">Shadow</span>
+                            <span className="relative inline-flex">
+                              <input
+                                type="checkbox"
+                                checked={placement.text?.shadow ?? DEFAULT_TEXT.shadow}
+                                onChange={(e) => commit({ ...placement, text: { ...(placement.text ?? DEFAULT_TEXT), shadow: e.target.checked } })}
+                                className="peer sr-only"
+                              />
+                              <span className="h-5 w-9 rounded-full bg-ink/15 transition-colors peer-checked:bg-teal peer-focus-visible:ring-2 peer-focus-visible:ring-teal/40" />
+                              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <button type="button" onClick={() => setStep(5)} className={btnPrimary}>
                     Looks good, continue
                   </button>
