@@ -15,14 +15,17 @@ export default function StoreCover({
   name,
   cover,
   actions,
+  compact = false,
 }: {
   name: string
   cover?: string | null
   actions?: ReactNode
+  /** A shorter banner (store pages where the content matters more). */
+  compact?: boolean
 }) {
   return (
     <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6">
-      <div className="relative h-56 w-full overflow-hidden rounded-3xl bg-indigo sm:h-80 lg:h-[26rem]">
+      <div className={`relative w-full overflow-hidden rounded-3xl bg-indigo ${compact ? 'h-36 sm:h-56 lg:h-72' : 'h-56 sm:h-80 lg:h-[26rem]'}`}>
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={imageThumb(cover, 1600)} alt="" className="h-full w-full object-cover object-center" />

@@ -148,6 +148,29 @@ export type StorefrontDesign = {
   price: number
   isNew: boolean
   isBestseller: boolean
+  /** Shopper likes. */
+  likes: number
+}
+
+/** A photo of a real, finished case ("Fresh from the printer"). */
+export type StorefrontPrint = {
+  id: string
+  imageUrl: string
+  caption: string | null
+  model: string | null
+  designId: string | null
+  likes: number
+}
+
+export type PrintRow = {
+  id: string
+  image_url: string
+  caption: string | null
+  model_label: string | null
+  design_id: string | null
+  active: boolean
+  sort: number | null
+  created_at: string
 }
 
 export type StorefrontData = {
@@ -157,6 +180,7 @@ export type StorefrontData = {
   /** Models on sale per case type. */
   models: Partial<Record<CaseTypeId, string[]>>
   designs: StorefrontDesign[]
+  prints: StorefrontPrint[]
   deliveryFeeLKR: number
   freeDeliveryFromLKR: number
   payments: PaymentMethod[]
@@ -178,7 +202,14 @@ export type DesignRow = {
   sort: number | null
 }
 
-export function buildStorefrontData(storeSlug: string, settings: CaseCraftSettings, marginPercent: number, designs: DesignRow[]): StorefrontData {
+export function buildStorefrontData(
+  storeSlug: string,
+  settings: CaseCraftSettings,
+  marginPercent: number,
+  designs: DesignRow[],
+  prints: PrintRow[] = [],
+  likes: Record<string, number> = {},
+): StorefrontData {
   const prices: StorefrontData['prices'] = {}
   const models: StorefrontData['models'] = {}
   for (const t of CASE_TYPES) {
@@ -212,14 +243,26 @@ export function buildStorefrontData(storeSlug: string, settings: CaseCraftSettin
       price: shopperPrice(Number(d.price_lkr), marginPercent),
       isNew: Boolean(d.is_new),
       isBestseller: Boolean(d.is_bestseller),
+      likes: likes[`design:${d.id}`] ?? 0,
     })
   }
+  const shownPrints: StorefrontPrint[] = prints
+    .filter((p) => p.active)
+    .map((p) => ({
+      id: p.id,
+      imageUrl: p.image_url,
+      caption: p.caption,
+      model: p.model_label,
+      designId: p.design_id,
+      likes: likes[`print:${p.id}`] ?? 0,
+    }))
   const payments = (['cod', 'bank'] as const).filter((p) => settings.payments[p])
   return {
     storeSlug,
     prices,
     models,
     designs: out,
+    prints: shownPrints,
     deliveryFeeLKR: settings.deliveryFeeLKR,
     freeDeliveryFromLKR: settings.freeDeliveryFromLKR,
     payments,

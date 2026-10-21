@@ -3,7 +3,7 @@
 // (SellerSideNav) and the phone tab bar (SellerTabBar). The list comes
 // from sellerNavFor() in lib/store-modules: the standard portal, or a
 // custom store's own sections (e.g. Case Craft's print jobs).
-import { House, Images, Package, Printer, ReceiptText, Store } from 'lucide-react'
+import { Camera, House, Images, Package, Printer, ReceiptText, Store } from 'lucide-react'
 import type { SellerNavItem } from '@/lib/store-modules'
 
 export const SELLER_NAV_ICONS: Record<SellerNavItem['icon'], typeof House> = {
@@ -12,6 +12,7 @@ export const SELLER_NAV_ICONS: Record<SellerNavItem['icon'], typeof House> = {
   profile: Store,
   orders: Printer,
   designs: Images,
+  prints: Camera,
   pricing: ReceiptText,
 }
 

@@ -37,7 +37,12 @@ let sharpPromise: Promise<Sharp | null> | null = null
 function loadSharp() {
   // Optional: Next.js ships sharp on most hosts. Without it we still work,
   // just with PNG output and only PNG / JPEG / GIF photos.
-  sharpPromise ??= import('sharp').then((m) => (m.default ?? m) as unknown as Sharp).catch(() => null)
+  // Loaded by name at run time, so the build never needs it: if sharp
+  // isn't installed (npm i sharp), this just returns null.
+  const name = 'sharp'
+  sharpPromise ??= import(/* webpackIgnore: true */ /* turbopackIgnore: true */ name)
+    .then((m) => (m.default ?? m) as unknown as Sharp)
+    .catch(() => null)
   return sharpPromise
 }
 

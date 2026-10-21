@@ -12,6 +12,7 @@ import {
   normalizeCaseCraftSettings,
   type CaseCraftSettings,
   type DesignRow,
+  type PrintRow,
   type StorefrontData,
 } from './settings'
 
@@ -75,13 +76,47 @@ export async function loadDesigns(sellerId: string, db: Db = casecraftDb()): Pro
   return { designs: (data ?? []) as DesignRow[], needsMigration: false }
 }
 
+export async function loadPrints(sellerId: string, db: Db = casecraftDb()): Promise<{ prints: PrintRow[]; needsMigration: boolean }> {
+  const { data, error } = await db
+    .from('casecraft_prints')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .order('sort', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(300)
+  if (error) {
+    if (!isMissingTable(error)) console.error('[casecraft] prints —', error.message)
+    return { prints: [], needsMigration: isMissingTable(error) }
+  }
+  return { prints: (data ?? []) as PrintRow[], needsMigration: false }
+}
+
+/** Like totals for these designs / prints, keyed 'design:<id>' / 'print:<id>'. */
+export async function loadLikeCounts(designIds: string[], printIds: string[], db: Db = casecraftDb()): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  const ids = [...designIds, ...printIds]
+  if (!ids.length) return out
+  const { data, error } = await db.from('casecraft_like_counts').select('target_type, target_id, likes').in('target_id', ids)
+  if (error) {
+    if (!isMissingTable(error)) console.error('[casecraft] likes —', error.message)
+    return out
+  }
+  for (const r of (data ?? []) as { target_type: string; target_id: string; likes: number }[]) out[`${r.target_type}:${r.target_id}`] = Number(r.likes)
+  return out
+}
+
 /** Everything the store page needs, with Wishdrop's margin applied. */
 export async function loadStorefront(slug: string): Promise<StorefrontData | null> {
   const db = casecraftDb()
   const sellerId = await sellerIdForSlug(slug, db)
   if (!sellerId) return null
-  const [rec, des] = await Promise.all([loadSettings(sellerId, db), loadDesigns(sellerId, db)])
-  return buildStorefrontData(slug, rec.settings, rec.marginPercent, des.designs)
+  const [rec, des, pr] = await Promise.all([loadSettings(sellerId, db), loadDesigns(sellerId, db), loadPrints(sellerId, db)])
+  const likes = await loadLikeCounts(
+    des.designs.filter((d) => d.active).map((d) => d.id),
+    pr.prints.filter((p) => p.active).map((p) => p.id),
+    db,
+  )
+  return buildStorefrontData(slug, rec.settings, rec.marginPercent, des.designs, pr.prints, likes)
 }
 
 /** Short, readable order reference, e.g. CC-7K2QF9. */

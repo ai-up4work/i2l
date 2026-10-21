@@ -11,16 +11,55 @@ import { getCaseType } from '@/lib/store-modules/casecraft/catalog'
 import { formatRs, type DeliveryDetails, type PaymentMethod, type StorefrontData, type StorefrontDesign } from '@/lib/store-modules/casecraft/settings'
 import CaseCheckout, { type PlacedOrder } from './CaseCheckout'
 import { PhonePicker } from './parts'
+import { LikeButton } from './likes'
+import ShareButton from '@/components/stores/ShareButton'
 
-type Filter = 'all' | 'new' | 'best'
+type Filter = 'all' | 'new' | 'best' | 'loved'
 
-export default function ReadyMadeCases({ data }: { data: StorefrontData }) {
+/** One ready-made design: photo, heart, name, price. Used in grids and rows. */
+export function DesignCard({ design: d, onOpen, className = '' }: { design: StorefrontDesign; onOpen: (d: StorefrontDesign) => void; className?: string }) {
+  return (
+    <div className={`group relative min-w-0 ${className}`}>
+      <button type="button" onClick={() => onOpen(d)} className="block w-full text-left">
+        <span className="relative block aspect-[3/4] overflow-hidden rounded-2xl bg-card ring-1 ring-ink/10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageThumb(d.imageUrl, 500)} alt={d.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none" />
+          {(d.isNew || d.isBestseller) && (
+            <span className={`absolute left-2 top-2 rounded-full px-2 py-0.5 font-body text-[10px] font-bold ${d.isBestseller ? 'bg-gold text-ink' : 'bg-card/92 text-ink'}`}>
+              {d.isBestseller ? 'Bestseller' : 'New'}
+            </span>
+          )}
+        </span>
+        <span className="mt-2 block truncate font-body text-sm font-semibold text-ink">{d.name}</span>
+        <span className="mt-0.5 block font-body text-sm text-ink/70">{formatRs(d.price)}</span>
+      </button>
+      <LikeButton type="design" id={d.id} base={d.likes} className="absolute right-2 top-2" />
+    </div>
+  )
+}
+
+export default function ReadyMadeCases({
+  data,
+  openId,
+  onOpenChange,
+}: {
+  data: StorefrontData
+  /** The design whose sheet is open (kept in the address, so it can be shared). */
+  openId?: string | null
+  onOpenChange?: (id: string | null) => void
+}) {
   const [filter, setFilter] = useState<Filter>('all')
-  const [open, setOpen] = useState<StorefrontDesign | null>(null)
+  const [localOpen, setLocalOpen] = useState<string | null>(null)
+  const openKey = onOpenChange ? (openId ?? null) : localOpen
+  const setOpen = (id: string | null) => (onOpenChange ? onOpenChange(id) : setLocalOpen(id))
+  const open = data.designs.find((d) => d.id === openKey) ?? null
 
-  const shown = data.designs.filter((d) => filter === 'all' || (filter === 'new' ? d.isNew : d.isBestseller))
   const hasNew = data.designs.some((d) => d.isNew)
   const hasBest = data.designs.some((d) => d.isBestseller)
+  const hasLoved = data.designs.some((d) => d.likes > 0)
+  const shown = data.designs
+    .filter((d) => filter === 'all' || filter === 'loved' || (filter === 'new' ? d.isNew : d.isBestseller))
+    .sort((a, b) => (filter === 'loved' ? b.likes - a.likes : 0))
 
   if (!data.designs.length) {
     return (
@@ -33,20 +72,21 @@ export default function ReadyMadeCases({ data }: { data: StorefrontData }) {
 
   return (
     <div>
-      {(hasNew || hasBest) && (
-        <div className="mb-4 flex gap-2">
+      {(hasNew || hasBest || hasLoved) && (
+        <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">
           {(
             [
-              ['all', 'All designs'],
-              ...(hasNew ? [['new', 'New']] : []),
+              ['all', `All ${data.designs.length}`],
               ...(hasBest ? [['best', 'Bestsellers']] : []),
+              ...(hasLoved ? [['loved', 'Most loved']] : []),
+              ...(hasNew ? [['new', 'New']] : []),
             ] as [Filter, string][]
           ).map(([id, label]) => (
             <button
               key={id}
               type="button"
               onClick={() => setFilter(id)}
-              className={`rounded-full px-3.5 py-1.5 font-body text-xs font-semibold transition-colors ${
+              className={`flex-none rounded-full px-4 py-2 font-body text-sm font-semibold transition-colors ${
                 filter === id ? 'bg-indigo text-parchment' : 'bg-card text-ink/65 ring-1 ring-ink/10 hover:text-ink'
               }`}
             >
@@ -56,22 +96,9 @@ export default function ReadyMadeCases({ data }: { data: StorefrontData }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 sm:gap-4">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 sm:gap-x-4 lg:grid-cols-4">
         {shown.map((d) => (
-          <button key={d.id} type="button" onClick={() => setOpen(d)} className="group min-w-0 text-left">
-            <span className="relative block aspect-[3/4] overflow-hidden rounded-2xl bg-card ring-1 ring-ink/10">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imageThumb(d.imageUrl, 500)} alt={d.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
-              {(d.isNew || d.isBestseller) && (
-                <span className="absolute left-2 top-2 rounded-full bg-card/90 px-2 py-0.5 font-body text-[10px] font-bold uppercase tracking-wider text-ink">
-                  {d.isBestseller ? 'Bestseller' : 'New'}
-                </span>
-              )}
-            </span>
-            <span className="mt-2 block truncate font-body text-sm font-semibold text-ink">{d.name}</span>
-            {d.subtitle && <span className="block truncate font-body text-xs text-ink/55">{d.subtitle}</span>}
-            <span className="mt-0.5 block font-body text-sm font-semibold text-ink">{formatRs(d.price)}</span>
-          </button>
+          <DesignCard key={d.id} design={d} onOpen={(x) => setOpen(x.id)} />
         ))}
       </div>
 
@@ -80,7 +107,7 @@ export default function ReadyMadeCases({ data }: { data: StorefrontData }) {
   )
 }
 
-function DesignSheet({ design, data, onClose }: { design: StorefrontDesign; data: StorefrontData; onClose: () => void }) {
+export function DesignSheet({ design, data, onClose }: { design: StorefrontDesign; data: StorefrontData; onClose: () => void }) {
   const caseType = getCaseType(design.caseTypeId)
   const models = useMemo(() => caseType?.models.filter((m) => design.models.includes(m.label)) ?? [], [caseType, design.models])
   const [model, setModel] = useState<string | null>(models.length === 1 ? models[0].label : null)
@@ -115,7 +142,14 @@ function DesignSheet({ design, data, onClose }: { design: StorefrontDesign; data
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-ink/10 bg-parchment/95 px-5 py-3 backdrop-blur">
-          <p className="truncate font-display text-lg font-semibold text-ink">{design.name}</p>
+          <p className="min-w-0 flex-1 truncate font-display text-lg font-semibold text-ink">{design.name}</p>
+          <LikeButton type="design" id={design.id} base={design.likes} look="inline" />
+          <ShareButton
+            title={design.name}
+            text={`${design.name} — a ready-made phone case on Wishdrop`}
+            url={`/stores/${data.storeSlug}?view=ready&design=${design.id}`}
+            label="Share this design"
+          />
           <button type="button" onClick={onClose} aria-label="Close" className="grid h-9 w-9 flex-none place-items-center rounded-full text-ink/60 hover:bg-ink/5">
             <X size={18} />
           </button>

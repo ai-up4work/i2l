@@ -8,6 +8,7 @@ import type { SellerSession } from '@/lib/supabase/seller-auth'
 import PrintJobs from '@/components/store-modules/casecraft/seller/PrintJobs'
 import Designs from '@/components/store-modules/casecraft/seller/Designs'
 import PriceList from '@/components/store-modules/casecraft/seller/PriceList'
+import Prints from '@/components/store-modules/casecraft/seller/Prints'
 
 type SectionRender = (seller: SellerSession) => ReactNode
 
@@ -15,6 +16,7 @@ export const SELLER_SECTIONS: Record<string, Record<string, SectionRender>> = {
   casecraft: {
     orders: (seller) => <PrintJobs storeName={seller.name} />,
     designs: () => <Designs />,
+    prints: () => <Prints />,
     pricing: () => <PriceList />,
   },
 }

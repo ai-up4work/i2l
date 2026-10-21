@@ -21,7 +21,7 @@
 //
 // Pure — safe to import from client components.
 
-export type SellerSectionIcon = 'orders' | 'designs' | 'pricing' | 'overview'
+export type SellerSectionIcon = 'orders' | 'designs' | 'prints' | 'pricing' | 'overview'
 
 export type StoreModuleMeta = {
   /** Folder name under lib/store-modules. */
@@ -38,6 +38,7 @@ export const CASECRAFT_MODULE: StoreModuleMeta = {
   sellerSections: [
     { key: 'orders', label: 'Print jobs', short: 'Jobs', icon: 'orders' },
     { key: 'designs', label: 'Ready-made designs', short: 'Designs', icon: 'designs' },
+    { key: 'prints', label: 'Printed cases', short: 'Prints', icon: 'prints' },
     { key: 'pricing', label: 'Prices & models', short: 'Prices', icon: 'pricing' },
   ],
 }
