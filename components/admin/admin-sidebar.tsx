@@ -423,7 +423,7 @@ export function AdminSidebar() {
       <div className="flex h-[58px] flex-none items-center border-b border-parchment/10 px-4">
         {collapsed ? (
           <span className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-teal-deep font-display text-sm font-semibold leading-none text-parchment">
-            <img src="/wishMall-transparent.png" alt="Wishdrop" className="h-10 w-auto object-contain rounded-lg" />
+            <img src="/wishMall-transparent.png" alt="Wishdrop" className="h-10 w-auto object-contain rounded-lg" /> admin
           </span>
         ) : (
           <Image src="/wish-drop-logo.png" alt="Wishdrop" width={120} height={32} className="h-9 w-auto object-contain" />
