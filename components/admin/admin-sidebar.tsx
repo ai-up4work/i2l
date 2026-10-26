@@ -422,13 +422,11 @@ export function AdminSidebar() {
       <AirmailStripe />
       <div className="flex h-[58px] flex-none items-center border-b border-parchment/10 px-4">
         {collapsed ? (
-          <span className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-parchment/10 font-display text-lg font-semibold leading-none text-parchment ring-1 ring-parchment/20">
-            w
+          <span className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-teal-deep font-display text-sm font-semibold leading-none text-parchment">
+            <img src="/wishMall-transparent.png" alt="Wishdrop" className="h-10 w-auto object-contain rounded-lg" />
           </span>
         ) : (
-          <span className="px-2 font-display text-xl font-semibold tracking-tight text-parchment">
-            wishdrop <span className="font-body text-xs font-medium text-parchment/50">admin</span>
-          </span>
+          <Image src="/wish-drop-logo.png" alt="Wishdrop" width={120} height={32} className="h-9 w-auto object-contain" />
         )}
       </div>
 
