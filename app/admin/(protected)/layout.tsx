@@ -49,7 +49,7 @@ export default function AdminProtectedLayout({ children }: { children: ReactNode
         <div className="h-screen overflow-hidden bg-parchment">
           <AdminSidebar />
           <AdminContentShell>
-            <header className="flex flex-none items-center justify-end gap-3 border-b border-ink/10 bg-card/70 px-6 py-3">              
+            <header className="flex flex-none items-center justify-end gap-3 border-b border-ink/10 bg-indigo px-6 py-3">              
                 <GlobalSearch />
                 <AdminSignOutButton />
             </header>
