@@ -426,9 +426,16 @@ export function AdminSidebar() {
             <img src="/wishMall-transparent.png" alt="Wishdrop" className="h-10 w-auto object-contain rounded-lg" />
           </span>
         ) : (
-          <span className="mx-auto grid h-10 font-display text-sm font-semibold leading-none text-parchment">
-            <Image src="/wish-drop-logo-dark-bg.png" alt="Wishdrop" width={120} height={32} className="h-9 w-auto object-contain" /> admin
-          </span>
+          <Link href="/admin" className="flex min-w-0 items-center gap-2 px-1">
+            <Image
+              src="/wish-drop-logo-dark-bg.png"
+              alt="Wishdrop"
+              width={120}
+              height={32}
+              className="h-9 w-auto flex-none object-contain"
+            />
+            <span className="font-body text-xs font-medium text-parchment/50">admin</span>
+          </Link>
         )}
       </div>
 
