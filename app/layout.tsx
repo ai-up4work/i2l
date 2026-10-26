@@ -117,7 +117,7 @@ export const metadata: Metadata = {
   // Search Console / Bing Webmaster ownership tokens. Set these env vars
   // on Vercel (values are the "content" strings those tools give you).
   verification: {
-    ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
+    google: process.env.GOOGLE_SITE_VERIFICATION || "cK6Vo0iYv0opBWm418_u8WOk29RRA8ovqgWSo08Jif8",
     ...(process.env.YANDEX_SITE_VERIFICATION ? { yandex: process.env.YANDEX_SITE_VERIFICATION } : {}),
     other: {
       ...(process.env.BING_SITE_VERIFICATION ? { 'msvalidate.01': process.env.BING_SITE_VERIFICATION } : {}),
