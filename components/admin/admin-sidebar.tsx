@@ -52,6 +52,7 @@ import type { Role } from "@/types/admin"
 import { DASHBOARD_HREF } from "@/lib/admin/dashboard-routes"
 import { ROLE_LABEL as ROLE_LABELS, RolePreviewPopover } from "@/components/admin/Rolepreviewmenu"
 import Flag from "@/components/ui/Flag"
+import AirmailStripe from "@/components/shared/AirmailStripe"
 
 // Static sidebar nav — layout only, no auth/role logic wired up yet.
 // TODO: active-section logic beyond pathname match, real user in footer row.
@@ -265,7 +266,7 @@ function CountryFlagIcon({ country, className }: { country: NavItem["country"]; 
     return (
       <span className="inline-flex items-center gap-1">
         <Flag flag={COUNTRY_EMOJI.IN} className={className} />
-        <span className="text-[9px] leading-none text-ink/40">→</span>
+        <span className="text-[9px] leading-none text-parchment/50">→</span>
         <Flag flag={COUNTRY_EMOJI.SL} className={className} />
       </span>
     )
@@ -375,7 +376,7 @@ export function AdminSidebar() {
   ])
 
   // Separate from badgeCounts above on purpose: those are backlog SIZES
-  // (teal, numeric — "how much is in this queue"), this is a "does
+  // (numeric — "how much is in this queue"), this is a "does
   // anything here need a reply" flag (gold, a dot, not a number) — see
   // Order.hasUnrepliedMessage / RequestLine.hasUnrepliedMessage and
   // data/Wishdrop-orders-requests-unreplied-flag.sql. The two are
@@ -386,7 +387,7 @@ export function AdminSidebar() {
     flags["/admin/orders"] = visibleOrders.some((o) => o.hasUnrepliedMessage)
     flags["/admin/requests"] = requestLines.some((r) => r.hasUnrepliedMessage)
     // Customer chat's own unread signal already exists (chatThreads
-    // .unread, feeding the teal count above) and is a superset of this
+    // .unread, feeding the count above) and is a superset of this
     // — every unreplied order/request message is also a thread-level
     // unread, so no separate dot is needed there.
     return flags
@@ -397,7 +398,7 @@ export function AdminSidebar() {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-ink/10 bg-card font-body text-ink shadow-[1px_0_0_rgba(32,36,43,0.02),12px_0_28px_-20px_rgba(32,36,43,0.35)] transition-[width] duration-300 ease-out motion-reduce:transition-none ${
+      className={`fixed inset-y-0 left-0 z-40 flex flex-col bg-indigo font-body text-parchment shadow-[12px_0_28px_-20px_rgba(8,18,40,0.55)] transition-[width] duration-300 ease-out motion-reduce:transition-none ${
         collapsed ? "w-[76px]" : "w-64"
       }`}
     >
@@ -406,7 +407,7 @@ export function AdminSidebar() {
           type="button"
           onClick={toggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="absolute -right-3 top-5 z-10 grid h-6 w-6 place-items-center rounded-full border border-ink/10 bg-card text-ink/40 shadow-[0_2px_6px_rgba(32,36,43,0.14)] transition-all hover:text-teal-deep hover:shadow-[0_4px_12px_rgba(32,36,43,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
+          className="absolute -right-3 top-7 z-10 grid h-6 w-6 place-items-center rounded-full border border-ink/10 bg-card text-ink/40 shadow-[0_2px_6px_rgba(32,36,43,0.14)] transition-all hover:text-teal-deep hover:shadow-[0_4px_12px_rgba(32,36,43,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
           <ChevronsLeft
             size={13}
@@ -415,13 +416,19 @@ export function AdminSidebar() {
         </button>
       )}
 
-      <div className="flex h-16 flex-none items-center border-b border-ink/10 px-4">
+      {/* Same indigo rail + airmail stripe as the seller portal
+          (app/seller/(dashboard)/layout.tsx), so both consoles read as one
+          family. */}
+      <AirmailStripe />
+      <div className="flex h-[58px] flex-none items-center border-b border-parchment/10 px-4">
         {collapsed ? (
-          <span className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-teal-deep font-display text-sm font-semibold leading-none text-parchment">
-            <img src="/wishMall-transparent.png" alt="Wishdrop" className="h-10 w-auto object-contain rounded-lg" />
+          <span className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-parchment/10 font-display text-lg font-semibold leading-none text-parchment ring-1 ring-parchment/20">
+            w
           </span>
         ) : (
-          <Image src="/wish-drop-logo.png" alt="Wishdrop" width={120} height={32} className="h-9 w-auto object-contain" />
+          <span className="px-2 font-display text-xl font-semibold tracking-tight text-parchment">
+            wishdrop <span className="font-body text-xs font-medium text-parchment/50">admin</span>
+          </span>
         )}
       </div>
 
@@ -440,9 +447,9 @@ export function AdminSidebar() {
         </div>
 
         {groups.map((group, i) => (
-          <div key={group.label} className={`${i === 0 ? "mt-5" : "mt-6"} ${!collapsed ? "" : "border-t border-ink/[0.06] pt-5"}`}>
+          <div key={group.label} className={`${i === 0 ? "mt-5" : "mt-6"} ${!collapsed ? "" : "border-t border-parchment/10 pt-5"}`}>
             {!collapsed && (
-              <p className="px-3 pb-2 text-[11px] font-semibold tracking-[0.01em] text-ink/35">{group.label}</p>
+              <p className="px-3 pb-2 text-[11px] font-semibold tracking-[0.01em] text-parchment/40">{group.label}</p>
             )}
             <div className="flex flex-col gap-1">
               {group.items.map((item) => (
@@ -460,7 +467,7 @@ export function AdminSidebar() {
         ))}
       </nav>
 
-      <div className="flex-none border-t border-ink/10 px-3 py-3">
+      <div className="flex-none border-t border-parchment/10 px-3 py-3">
         <SidebarLink
           item={{ label: "Settings", href: "/admin/settings", icon: Settings, roles: ["manager", "sales", "warehouse"] }}
           active={isActive("/admin/settings")}
@@ -469,23 +476,23 @@ export function AdminSidebar() {
 
         <RolePreviewPopover>
           <div
-            className={`mt-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 ${
+            className={`mt-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-parchment/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
               collapsed ? "justify-center" : ""
             }`}
           >
             <span className="relative flex-none">
-              <span className="block h-8 w-8 overflow-hidden rounded-full bg-teal-deep">
+              <span className="block h-8 w-8 overflow-hidden rounded-full bg-parchment/10 ring-1 ring-parchment/20">
                 <Image src="/default-avatar.png" alt="" width={32} height={32} className="h-full w-full object-cover" />
               </span>
-              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-teal-deep ring-2 ring-card" />
+              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-indigo" />
             </span>
             {!collapsed && (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-ink/80">{currentUser.name}</span>
-                  <span className="block truncate text-xs text-ink/40">{ROLE_LABELS[role]}</span>
+                  <span className="block truncate text-sm font-semibold text-parchment">{currentUser.name}</span>
+                  <span className="block truncate text-xs text-parchment/55">{ROLE_LABELS[role]}</span>
                 </span>
-                <ChevronsUpDown size={13} className="flex-none text-ink/30" />
+                <ChevronsUpDown size={13} className="flex-none text-parchment/40" />
               </>
             )}
           </div>
@@ -507,7 +514,7 @@ function SidebarLink({
   collapsed: boolean
   count?: number
   /** A gold pulsing dot, separate from the numeric `count` pill/dot
-   * above (which is teal and means "backlog size") — this means
+   * above (which means "backlog size") — this means
    * "something in this list is waiting on a reply" specifically. See
    * badgeCounts' sibling `attentionFlags` below. The two can be true at
    * once, so they're rendered at different corners/positions rather
@@ -530,13 +537,13 @@ function SidebarLink({
       <div className="group/nav relative">
         <div
           aria-disabled="true"
-          className={`relative flex cursor-not-allowed items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium text-ink/30 ${
+          className={`relative flex cursor-not-allowed items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium text-parchment/30 ${
             collapsed ? "justify-center pl-3" : "pl-3.5"
           }`}
         >
           <Icon size={18} strokeWidth={1.75} />
           {!collapsed && <span className="truncate flex-1">{item.label}</span>}
-          {!collapsed && <Lock size={13} strokeWidth={2} className="flex-none text-ink/25" />}
+          {!collapsed && <Lock size={13} strokeWidth={2} className="flex-none text-parchment/25" />}
         </div>
 
         <span
@@ -559,31 +566,31 @@ function SidebarLink({
         href={item.href}
         aria-current={active ? "page" : undefined}
         title={item.country ? COUNTRY_TITLE[item.country] : undefined}
-        className={`relative flex items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium transition-colors before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:transition-colors before:duration-200 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 ${
+        className={`relative flex items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
           collapsed ? "justify-center pl-3" : "pl-3.5"
         } ${
           active
-            ? "bg-teal/10 text-teal-deep before:bg-teal-deep"
-            : "text-ink/55 before:bg-transparent hover:bg-ink/[0.04] hover:text-ink"
+            ? "bg-parchment/12 text-parchment"
+            : "text-parchment/65 hover:bg-parchment/5 hover:text-parchment"
         }`}
       >
         <span className="relative flex-none">
-          <Icon size={18} strokeWidth={1.75} />
+          <Icon size={18} strokeWidth={active ? 2.2 : 1.8} />
           {/* Collapsed: country flag badges the icon corner when this
               row has one (real flagcdn image via CountryFlagIcon, so it
               renders correctly even on Windows); otherwise the plain
               unread dot shows instead — the two never both apply since
               a country row's own background already signals activity. */}
           {collapsed && item.country && (
-            <span className="absolute -right-1.5 -top-1.5 overflow-hidden rounded-[2px] shadow-sm ring-1 ring-card">
+            <span className="absolute -right-1.5 -top-1.5 overflow-hidden rounded-[2px] shadow-sm ring-1 ring-indigo">
               <CountryFlagIcon country={item.country === "both" ? "IN" : item.country} className="h-2 w-3 object-cover" />
             </span>
           )}
           {collapsed && !item.country && hasSignal && (
-            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-teal-deep ring-2 ring-card" />
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-parchment ring-2 ring-indigo" />
           )}
           {collapsed && attention && (
-            <span className="absolute -left-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-gold-deep ring-2 ring-card" />
+            <span className="absolute -left-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-gold ring-2 ring-indigo" />
           )}
         </span>
         {!collapsed && <span className="truncate flex-1">{item.label}</span>}
@@ -601,7 +608,7 @@ function SidebarLink({
         {!collapsed && attention && (
           <span
             title="Something here is waiting on a reply"
-            className="ml-auto h-2 w-2 flex-none animate-pulse rounded-full bg-gold-deep"
+            className="ml-auto h-2 w-2 flex-none animate-pulse rounded-full bg-gold"
           />
         )}
         {/* Expanded: a count pill, right-aligned. Capped at "99+" so a
@@ -609,7 +616,7 @@ function SidebarLink({
         {!collapsed && hasSignal && (
           <span
             className={`ml-auto flex-none rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
-              active ? "bg-teal-deep text-parchment" : "bg-teal/12 text-teal-deep"
+              active ? "bg-gold text-indigo" : "bg-parchment/15 text-parchment"
             }`}
           >
             {count! > 99 ? "99+" : count}
