@@ -1,7 +1,10 @@
 import MarketplaceGuide from '@/components/shared/MarketplaceGuide'
 import { pageMetadata } from '@/lib/seo'
 
+// Kept out of search: Wishdrop buys from Indian stores; this marketplace
+// guide came from an earlier template and doesn't match the service.
 export const metadata = pageMetadata({
+  index: false,
   path: '/shopping/marketplaces/ebay',
   title: 'Buying from eBay | Wishdrop',
   description: "A guide to sourcing eBay listings through Wishdrop's concierge buying service.",

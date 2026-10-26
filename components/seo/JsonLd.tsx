@@ -60,6 +60,13 @@ export function organizationSchema(): Json {
     },
     description: SITE.description,
     areaServed: { '@type': 'Country', name: 'Sri Lanka' },
+    // Points Google's merchant listings at the real policy page rather than
+    // stating a return window the policy itself doesn't fix.
+    hasMerchantReturnPolicy: {
+      '@type': 'MerchantReturnPolicy',
+      applicableCountry: SITE.country,
+      merchantReturnLink: absoluteUrl('/refund-policy'),
+    },
     ...(sameAs.length ? { sameAs } : {}),
     ...(contactPoint.length ? { contactPoint } : {}),
   }
@@ -108,6 +115,10 @@ export interface ProductSchemaInput {
   sellerName: string
   averageRating?: number
   reviewCount?: number
+  /** Flat delivery fee (LKR) for the price shown — becomes the offer's shipping rate. */
+  deliveryFeeLKR?: number
+  /** Door-to-door delivery estimate in days, e.g. { min: 12, max: 15 }. */
+  deliveryDays?: { min: number; max: number }
 }
 
 /**
@@ -148,6 +159,29 @@ export function productSchema(p: ProductSchemaInput): Json {
       shippingDetails: {
         '@type': 'OfferShippingDetails',
         shippingDestination: { '@type': 'DefinedRegion', addressCountry: SITE.country },
+        ...(p.deliveryFeeLKR != null
+          ? { shippingRate: { '@type': 'MonetaryAmount', value: Math.round(p.deliveryFeeLKR * 100) / 100, currency: SITE.currency } }
+          : {}),
+        ...(p.deliveryDays
+          ? {
+              deliveryTime: {
+                '@type': 'ShippingDeliveryTime',
+                // Buying + quality check before it leaves India, then transit.
+                handlingTime: { '@type': 'QuantitativeValue', minValue: 1, maxValue: 3, unitCode: 'DAY' },
+                transitTime: {
+                  '@type': 'QuantitativeValue',
+                  minValue: Math.max(0, p.deliveryDays.min - 3),
+                  maxValue: Math.max(0, p.deliveryDays.max - 1),
+                  unitCode: 'DAY',
+                },
+              },
+            }
+          : {}),
+      },
+      hasMerchantReturnPolicy: {
+        '@type': 'MerchantReturnPolicy',
+        applicableCountry: SITE.country,
+        merchantReturnLink: absoluteUrl('/refund-policy'),
       },
     },
     ...(p.averageRating && p.reviewCount
@@ -159,5 +193,69 @@ export function productSchema(p: ProductSchemaInput): Json {
           },
         }
       : {}),
+  }
+}
+
+/** ItemList — a store's products (or any list of pages) as one list. */
+export function itemListSchema(name: string, items: { name: string; path: string; image?: string }[]): Json {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name,
+    numberOfItems: items.length,
+    itemListElement: items.map((item, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      url: absoluteUrl(item.path),
+      name: item.name,
+      ...(item.image ? { image: absoluteUrl(item.image) } : {}),
+    })),
+  }
+}
+
+/**
+ * FAQPage — Google only shows FAQ rich results for a few authoritative
+ * sites now, but the markup still states the Q&A plainly for AI answers
+ * (AI Overviews, ChatGPT, Perplexity). Questions must match the visible
+ * text on the page.
+ */
+export function faqSchema(faqs: { q: string; a: string }[]): Json {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqs.map((f) => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  }
+}
+
+export interface ArticleSchemaInput {
+  title: string
+  description: string
+  path: string
+  image?: string
+  datePublished: string
+  dateModified?: string
+  authorName?: string
+}
+
+/** Article — blog posts and guides (author + dates are freshness/trust signals). */
+export function articleSchema(a: ArticleSchemaInput): Json {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: a.title.slice(0, 110),
+    description: a.description,
+    mainEntityOfPage: absoluteUrl(a.path),
+    image: [absoluteUrl(a.image ?? SEO_IMAGES.ogDefault)],
+    datePublished: a.datePublished,
+    dateModified: a.dateModified ?? a.datePublished,
+    author: a.authorName
+      ? { '@type': 'Person', name: a.authorName }
+      : { '@type': 'Organization', name: SITE.name, url: absoluteUrl('/') },
+    publisher: { '@id': ORG_ID },
+    inLanguage: 'en-LK',
   }
 }

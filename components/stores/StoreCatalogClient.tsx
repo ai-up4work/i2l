@@ -777,7 +777,7 @@ function MobileCategorySheet({
 // Split into an inner component wrapped by a <Suspense> boundary in the
 // default export below — useSearchParams() requires this in the App
 // Router, or Next throws a build-time error.
-function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
+function StoreCatalogInner({ store, initialData }: { store: AffiliatedStore; initialData?: StoreApiResponse | null }) {
   const platform = store.platform;
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -798,11 +798,18 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
   const [search,        setSearch]        = useState(searchParams.get('q') ?? '');
   const [searchInput,   setSearchInput]   = useState(searchParams.get('q') ?? '');
 
-  const [products,    setProducts]    = useState<StoreProduct[]>([]);
-  const [totalPages,  setTotalPages]  = useState(1);
-  const [totalItems,  setTotalItems]  = useState<number | null>(null);
-  const [totalIsExact, setTotalIsExact] = useState<boolean | null>(null);
-  const [loading,     setLoading]     = useState(true);
+  // initialData: the first page, rendered on the server (see the store
+  // page) so the products are in the HTML for crawlers and show instantly.
+  // It only matches the unfiltered first page, so it's used only then.
+  const startsUnfiltered = !searchParams.get('category') && !searchParams.get('q') && !searchParams.get('page') && (searchParams.get('sort') ?? 'newest') === 'newest';
+  const seed = startsUnfiltered && initialData ? initialData : null;
+  const [products,    setProducts]    = useState<StoreProduct[]>(seed?.products ?? []);
+  const [totalPages,  setTotalPages]  = useState(seed?.totalPages ?? 1);
+  const [totalItems,  setTotalItems]  = useState<number | null>(seed?.total ?? null);
+  const [totalIsExact, setTotalIsExact] = useState<boolean | null>(seed?.totalIsExact ?? null);
+  const [loading,     setLoading]     = useState(!seed);
+  // Skip the first client fetch when the server already supplied that page.
+  const skipFirstFetch = useRef(Boolean(seed));
   const [error,       setError]       = useState<string | null>(null);
 
   const [liveCategories, setLiveCategories] = useState<CategoryFilter[] | null>(null);
@@ -927,7 +934,10 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
     [platform]
   );
 
-  useEffect(() => { fetchProducts(category, page, search, sortBy); }, [category, page, search, sortBy, fetchProducts]);
+  useEffect(() => {
+    if (skipFirstFetch.current) { skipFirstFetch.current = false; return; }
+    fetchProducts(category, page, search, sortBy);
+  }, [category, page, search, sortBy, fetchProducts]);
 
   const handleCategory = (c: CategoryFilter) => {
     setCategory(c.handle || c.title);
@@ -1280,10 +1290,10 @@ function StoreCatalogInner({ store }: { store: AffiliatedStore }) {
 
 // ─── Default export ─────────────────────────────────────────────────────────
 // useSearchParams() requires a <Suspense> boundary in the App Router.
-export default function StoreCatalogClient({ store }: { store: AffiliatedStore }) {
+export default function StoreCatalogClient({ store, initialData = null }: { store: AffiliatedStore; initialData?: StoreApiResponse | null }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-parchment" />}>
-      <StoreCatalogInner store={store} />
+      <StoreCatalogInner store={store} initialData={initialData} />
     </Suspense>
   );
 }

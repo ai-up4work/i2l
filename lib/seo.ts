@@ -31,7 +31,8 @@ export const SITE = {
   legalName: 'Wishdrop',
   shortName: 'Wishdrop',
   tagline: "Wish it. We'll drop it.",
-  defaultTitle: "Wishdrop — Wish it. We'll drop it.",
+  // Leads with what people search for; the tagline stays in og/brand copy.
+  defaultTitle: 'Wishdrop — Shop Indian Stores, Delivered to Sri Lanka',
   description:
     'Shop from your favourite Indian stores — Wishdrop buys it, quality-checks it, and delivers it to your door in Sri Lanka.',
   locale: 'en_LK',
@@ -66,8 +67,8 @@ export const SITE = {
   // Official social profiles (Organization "sameAs"). Empty entries are
   // ignored, so leave them blank until the profile exists.
   social: {
-    facebook: '', // e.g. 'https://www.facebook.com/Wishdrop'
-    instagram: '',
+    facebook: 'https://www.facebook.com/profile.php?id=61594274796466',
+    instagram: 'https://www.instagram.com/wishdrop.shop',
     tiktok: '',
     youtube: '',
     linkedin: '',

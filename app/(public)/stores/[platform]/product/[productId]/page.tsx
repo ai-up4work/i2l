@@ -364,6 +364,12 @@ export default async function ProductDetailPage({
             sellerName: store.name,
             averageRating: product.averageRating,
             reviewCount: product.reviewCount,
+            deliveryFeeLKR: primaryPricing.deliveryFeeLKR,
+            // Same windows the page shows (see ProductPurchasePanel):
+            // local shops 3–7 days, Express 12–15, Economy 21–28.
+            deliveryDays: product.origin === 'LK'
+              ? { min: 3, max: 7 }
+              : economyLocked ? { min: 12, max: 15 } : { min: 21, max: 28 },
           }),
           breadcrumbSchema([
             { name: 'Home', path: '/' },

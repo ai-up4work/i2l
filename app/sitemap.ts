@@ -3,19 +3,19 @@
 // Static public pages + every active store (hardcoded marketplaces from
 // data/stores/data.ts, plus active local sellers from Supabase).
 //
-// Individual product pages are NOT listed: they're fetched live from each
-// store's upstream feed, so enumerating them here would mean crawling every
-// store on every sitemap request. Google discovers them through the store
-// catalogue pages instead, and each product page carries its own canonical
-// + Product structured data.
+// Product pages are in per-store product sitemaps (with images) at
+// /sitemaps/products/<store>, all listed in /sitemap-index.xml — that index
+// is what robots.txt and Search Console point to.
 //
 // Uses a plain anon Supabase client (no cookies) so the result can be cached
 // and revalidated hourly instead of rendering per request.
 
 import type { MetadataRoute } from 'next'
-import { createClient } from '@supabase/supabase-js'
 import { marketplaceStores } from '@/data/stores/data'
 import { absoluteUrl } from '@/lib/seo'
+import { fetchActiveSellerSlugs } from '@/lib/sitemap-data'
+import { BLOG_POSTS } from '@/content/blog'
+import { STORE_GUIDES } from '@/content/store-guides'
 
 export const revalidate = 3600
 
@@ -33,8 +33,9 @@ const STATIC_ROUTES: { path: string; priority: number; changeFrequency: Freq }[]
   { path: '/coupons', priority: 0.6, changeFrequency: 'weekly' },
   { path: '/community/discover/recommended', priority: 0.6, changeFrequency: 'daily' },
   { path: '/shopping-guides', priority: 0.6, changeFrequency: 'monthly' },
-  { path: '/shopping/marketplaces/ebay', priority: 0.5, changeFrequency: 'monthly' },
-  { path: '/shopping/marketplaces/mercari', priority: 0.5, changeFrequency: 'monthly' },
+  { path: '/shop-from-india', priority: 0.9, changeFrequency: 'weekly' },
+  { path: '/estimate', priority: 0.7, changeFrequency: 'monthly' },
+  { path: '/taxation', priority: 0.6, changeFrequency: 'monthly' },
   { path: '/shopping/protection', priority: 0.5, changeFrequency: 'monthly' },
   { path: '/shipping/protection', priority: 0.5, changeFrequency: 'monthly' },
   { path: '/warehouses', priority: 0.5, changeFrequency: 'monthly' },
@@ -51,51 +52,27 @@ const STATIC_ROUTES: { path: string; priority: number; changeFrequency: Freq }[]
   { path: '/data-deletion', priority: 0.2, changeFrequency: 'yearly' },
 ]
 
-async function fetchActiveSellerSlugs(): Promise<{ slug: string; updatedAt?: string }[]> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !anonKey) return []
-
-  try {
-    const supabase = createClient(url, anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-    const { data, error } = await supabase
-      .from('sellers')
-      .select('platform_slug, last_sync, last_edit, created_at')
-      .eq('status', 'active')
-    if (error || !data) {
-      if (error) console.error('[sitemap] sellers', error.message)
-      return []
-    }
-    return data
-      .filter((row) => row.platform_slug)
-      .map((row) => {
-        // No updated_at column on sellers — use the most recent of the
-        // feed sync, manual edit, or creation timestamps.
-        const stamps = [row.last_sync, row.last_edit, row.created_at]
-          .filter(Boolean)
-          .map((t) => new Date(t as string).getTime())
-          .filter((t) => !Number.isNaN(t))
-        return {
-          slug: row.platform_slug as string,
-          updatedAt: stamps.length ? new Date(Math.max(...stamps)).toISOString() : undefined,
-        }
-      })
-  } catch (err) {
-    console.error('[sitemap] sellers', err)
-    return []
-  }
-}
-
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const now = new Date()
-
+  // No lastModified on static pages: stamping "now" on every request tells
+  // Google every page changed every hour, so it learns to ignore our dates.
   const staticEntries: MetadataRoute.Sitemap = STATIC_ROUTES.map((r) => ({
     url: absoluteUrl(r.path),
-    lastModified: now,
     changeFrequency: r.changeFrequency,
     priority: r.priority,
+  }))
+
+  const guideEntries: MetadataRoute.Sitemap = STORE_GUIDES.map((g) => ({
+    url: absoluteUrl(`/shop-from-india/${g.slug}`),
+    lastModified: new Date(g.reviewed),
+    changeFrequency: 'monthly',
+    priority: 0.8,
+  }))
+
+  const blogEntries: MetadataRoute.Sitemap = BLOG_POSTS.map((p) => ({
+    url: absoluteUrl(`/blog/${p.slug}`),
+    lastModified: new Date(p.updated ?? p.published),
+    changeFrequency: 'monthly',
+    priority: 0.6,
   }))
 
   const sellers = await fetchActiveSellerSlugs()
@@ -107,7 +84,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     seen.add(store.platform)
     storeEntries.push({
       url: absoluteUrl(`/stores/${encodeURIComponent(store.platform)}`),
-      lastModified: now,
       changeFrequency: 'daily',
       priority: 0.8,
     })
@@ -118,11 +94,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     seen.add(seller.slug)
     storeEntries.push({
       url: absoluteUrl(`/stores/${encodeURIComponent(seller.slug)}`),
-      lastModified: seller.updatedAt ? new Date(seller.updatedAt) : now,
+      ...(seller.updatedAt ? { lastModified: new Date(seller.updatedAt) } : {}),
       changeFrequency: 'daily',
       priority: 0.8,
     })
   }
 
-  return [...staticEntries, ...storeEntries]
+  return [...staticEntries, ...guideEntries, ...blogEntries, ...storeEntries]
 }

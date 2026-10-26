@@ -16,7 +16,7 @@ const columns = [
   },
   {
     heading: 'Shipping supports',
-    links: [{label: 'Our facilities', href: '/warehouses'}, {label: 'Prohibited items', href: '/prohibited-items'}, {label: 'Shopping guides', href: '/shopping-guides'}],
+    links: [{label: 'Our facilities', href: '/warehouses'}, {label: 'Prohibited items', href: '/prohibited-items'}, {label: 'Shop from India', href: '/shop-from-india'}, {label: 'Blog', href: '/blog'}],
   },
   {
     heading: 'Help',

@@ -1,21 +1,16 @@
 // app/api/stores/[platform]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getSellerAndConfig, getSellerAndConfigForAdmin, sellerPricingInfo } from '@/lib/store-config-db';
-import { withStorePricing } from '@/lib/store-origin';
+import { getSellerAndConfig, getSellerAndConfigForAdmin } from '@/lib/store-config-db';
+import { listStoreProducts } from '@/lib/store-listing-server';
 import { applyCategoryTiles } from '@/lib/category-tiles';
 import { canPreviewStore, PREVIEW_CACHE_HEADERS } from '@/lib/store-preview';
 import { fetchJsonApiProducts, fetchJsonApiCategories, categorySlug } from '@/lib/store-providers/jsonapi';
-import { fetchMockProducts } from '@/lib/store-providers/mock';
-import { fetchShopifyCollections, fetchShopifyProducts } from '@/lib/store-providers/shopify';
-// WooCommerce list requests go through the CATALOG-CACHED function: it
-// downloads the catalog once and filters category / search / sort locally.
-// The plain fetchWooCommerceProducts only forwards a category when the slug
-// is a key in config.categoryMap, so an unmapped handle such as
-// "askeladd-vinland-saga" silently returned the full, unfiltered list.
-import { fetchWooCommerceCategories, fetchWooCommerceProductsCached } from '@/lib/store-providers/woocommerce';
-import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
-import { fetchCatalogueCategories, fetchCatalogueProducts } from '@/lib/store-providers/catalogue';
-import { fetchAnishkaCreationProducts, ANISHKA_BASE_URL, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation';
+import { fetchShopifyCollections } from '@/lib/store-providers/shopify';
+// Product LISTS go through lib/store-listing-server.ts (WooCommerce uses the
+// catalog-cached fetch there — see that file).
+import { fetchWooCommerceCategories } from '@/lib/store-providers/woocommerce';
+import { fetchCatalogueCategories } from '@/lib/store-providers/catalogue';
+import { ANISHKA_BASE_URL, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreApiResponse, StoreApiError } from '@/lib/store.types';
 
@@ -182,24 +177,15 @@ export async function GET(
 
     const config = seller.config;
 
-    const result =
-      platform === 'anishka-creation'
-        ? await fetchAnishkaCreationProducts(platform, seller.name, fetchParams)
-        : config.type === 'shopify'
-        ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
-        : config.type === 'woocommerce'
-        ? await fetchWooCommerceProductsCached(platform, config, fetchParams)
-        : config.type === 'jsonapi'
-        ? await fetchJsonApiProducts(platform, config, seller.name, fetchParams)
-        : config.type === 'html-scrape'
-        ? await fetchHtmlScrapeProducts(platform, config, seller.name, fetchParams)
-        : config.type === 'catalogue'
-        ? await fetchCatalogueProducts(platform, seller.name, fetchParams, { includeHidden: preview, collection: searchParams.get('collection') || undefined })
-        : await fetchMockProducts(platform, fetchParams);
+    // Same lister the store page and product sitemaps use (pricing applied).
+    const result = await listStoreProducts(platform, seller, fetchParams, {
+      includeHidden: preview,
+      collection: searchParams.get('collection') || undefined,
+    });
 
     return NextResponse.json(
       {
-        products: result.products.map((p) => withStorePricing(p, sellerPricingInfo(seller))),
+        products: result.products,
         total: result.total,
         totalPages: result.totalPages,
         totalIsExact: result.totalIsExact,

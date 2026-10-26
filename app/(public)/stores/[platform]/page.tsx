@@ -10,8 +10,11 @@ import StoreCatalogClient from '@/components/stores/StoreCatalogClient'
 import SocialStoreClient from '@/components/stores/social/SocialStoreClient'
 import { hasStoreModule } from '@/lib/store-modules'
 import { ModuleStorefront } from '@/lib/store-modules/storefronts'
-import JsonLd, { breadcrumbSchema } from '@/components/seo/JsonLd'
+import JsonLd, { breadcrumbSchema, itemListSchema } from '@/components/seo/JsonLd'
 import { pageMetadata } from '@/lib/seo'
+import { getSellerAndConfig } from '@/lib/store-config-db'
+import { listStoreProducts, withTimeout } from '@/lib/store-listing-server'
+import type { StoreApiResponse } from '@/lib/store.types'
 
 // generateMetadata and the page both need the store; cache() makes that
 // one DB/lookup per request instead of two.
@@ -59,8 +62,10 @@ export async function generateMetadata({
 
 export default async function StoreLandingPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ platform: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { platform } = await params
 
@@ -69,14 +74,52 @@ export default async function StoreLandingPage({
   const { store, preview, viewer } = found
   if (found.unavailable) return <StoreUnavailable name={store.name} logo={store.logo} kind="paused" />
 
+  // First page of the standard catalogue, rendered into the HTML so search
+  // engines and AI crawlers (most don't run JavaScript) see real products
+  // and product links. Only for a live store opened without filters — a
+  // filtered/paged URL, a preview, or a slow upstream (> 3.5s) falls back
+  // to the browser loading it, exactly as before.
+  const usesCatalogue = !hasStoreModule(store.platform) && !store.isSocial
+  let initialData: StoreApiResponse | null = null
+  if (usesCatalogue && !preview) {
+    const query = await searchParams
+    const unfiltered = !query.category && !query.q && !query.page && (!query.sort || query.sort === 'newest')
+    if (unfiltered) {
+      const seller = await getSellerAndConfig(store.platform)
+      const listing = seller
+        ? await withTimeout(
+            listStoreProducts(store.platform, seller, { page: 1, perPage: 24, category: '', search: '', sort: 'newest' }),
+            3500,
+          )
+        : null
+      if (listing) {
+        initialData = { ...listing, page: 1, category: null, fetchedAt: new Date().toISOString() }
+      }
+    }
+  }
+
   return (
     <>
       <JsonLd
-        data={breadcrumbSchema([
-          { name: 'Home', path: '/' },
-          { name: 'Stores', path: '/stores' },
-          { name: store.name, path: `/stores/${store.platform}` },
-        ])}
+        data={[
+          breadcrumbSchema([
+            { name: 'Home', path: '/' },
+            { name: 'Stores', path: '/stores' },
+            { name: store.name, path: `/stores/${store.platform}` },
+          ]),
+          ...(initialData?.products.length
+            ? [
+                itemListSchema(
+                  `${store.name} products`,
+                  initialData.products.map((p) => ({
+                    name: p.name,
+                    path: `/stores/${store.platform}/product/${encodeURIComponent(p.handle)}`,
+                    image: p.image,
+                  })),
+                ),
+              ]
+            : []),
+        ]}
       />
       {preview && viewer && <HiddenStoreBanner slug={store.platform} isSocial={store.isSocial} viewer={viewer} />}
       {/* Custom (Instagram / Facebook) sellers get the photo-and-video
@@ -87,7 +130,7 @@ export default async function StoreLandingPage({
       ) : store.isSocial ? (
         <SocialStoreClient store={store} />
       ) : (
-        <StoreCatalogClient store={store} />
+        <StoreCatalogClient store={store} initialData={initialData} />
       )}
     </>
   )

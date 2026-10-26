@@ -130,7 +130,10 @@ export default function Hero() {
       <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-16 pt-10 sm:pt-14 lg:min-h-[calc(100svh-74px)] lg:px-4 lg:pb-20 lg:pt-6">
         {/* ── Copy + quote form ────────────────────────────────────────── */}
         <div className="max-w-xl">
-          <p
+          {/* SEO: this line is the page's H1 (what Google reads as the topic);
+              the big "Wish it. We'll drop it." below is the brand line. Looks
+              exactly as before — only the tags changed. */}
+          <h1
             {...rise(0)}
             className={`${rise(0).className} inline-flex items-center gap-2.5 rounded-full border border-indigo/10 bg-card/70 py-1 pl-1 pr-3.5 font-body text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo/75 backdrop-blur-sm`}
           >
@@ -140,9 +143,9 @@ export default function Hero() {
               style={{ background: AIRMAIL_STRIPE }}
             />
             Shop India · Delivered to Sri Lanka
-          </p>
+          </h1>
 
-          <h1
+          <p
             {...rise(80)}
             className={`${rise(80).className} mt-6 font-display font-semibold leading-[1.02] tracking-[-0.02em] text-indigo`}
             style={{ ...rise(80).style, fontSize: 'clamp(2.6rem, 3.6vw + 1.1rem, 4.4rem)' }}
@@ -170,7 +173,7 @@ export default function Hero() {
             </span>
             <br />
             at your door.
-          </h1>
+          </p>
 
           <p
             {...rise(160)}

@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { ArrowRight, Bell, BookOpen, Megaphone, Tag } from 'lucide-react'
 import { Callout, IconCard, PageHero, Section } from '@/components/public/PageKit'
 import { pageMetadata } from '@/lib/seo'
+import { BLOG_POSTS } from '@/content/blog'
+import { STORE_GUIDES } from '@/content/store-guides'
 
 export const metadata = pageMetadata({
   path: '/blog',
@@ -10,36 +12,20 @@ export const metadata = pageMetadata({
 })
 
 const categories = [
-  { name: 'Shopping guides', icon: BookOpen, href: '/shopping-guides', text: 'Store-by-store tips for buying with confidence.' },
+  { name: 'Shopping guides', icon: BookOpen, href: '/shop-from-india', text: 'Store-by-store guides for buying from India in Sri Lanka.' },
   { name: 'Deals & promos', icon: Tag, href: '/deals', text: "What's currently discounted across our affiliated stores." },
   { name: 'Service notices', icon: Bell, href: '/blog/categories/notices', text: 'Warehouse updates, delays, and service alerts.' },
 ]
 
+// Real posts (content/blog.ts) first, then the store guides.
 const posts = [
-  {
-    title: 'How landed cost actually works, in plain language',
-    excerpt: 'Duty, PAL, SSCL, Cess, surcharge, VAT — what each one is, and why the same-priced item can cost differently depending on category.',
-    href: '/taxation',
-    tag: 'Guide',
-  },
-  {
-    title: "Express vs. Economy: which delivery speed should you pick?",
-    excerpt: 'A breakdown of how freight, customs clearance, and delivery fees differ between our two shipping speeds.',
-    href: '/shipping/pricing',
-    tag: 'Guide',
-  },
-  {
-    title: 'What actually gets checked during quality check',
-    excerpt: 'A look at what happens to your item between arriving at our facility and leaving for Sri Lanka.',
-    href: '/shipping',
-    tag: 'Guide',
-  },
-  {
-    title: 'Buying from eBay through Wishdrop',
-    excerpt: 'Auctions, fixed-price listings, and what to check before requesting an eBay item.',
-    href: '/shopping/marketplaces/ebay',
+  ...BLOG_POSTS.map((p) => ({ title: p.title, excerpt: p.description, href: `/blog/${p.slug}`, tag: p.tag })),
+  ...STORE_GUIDES.slice(0, 3).map((g) => ({
+    title: `How to buy from ${g.name} in Sri Lanka`,
+    excerpt: g.knownFor,
+    href: `/shop-from-india/${g.slug}`,
     tag: 'Store guide',
-  },
+  })),
 ]
 
 export default function BlogPage() {
