@@ -18,8 +18,8 @@ import { getPricingSettings, type PricingSettings, type QuoteRates } from "./pri
 export type { QuoteRates } from "./pricing-settings";
 
 // Which delivery method a Simple-markup quote uses. Express = freight +
-// customs-clearance + delivery-fee model. Economy = a single postal-charges
-// line and no flat delivery fee.
+// customs-clearance + delivery-fee model. Economy = a postal-charges line
+// (India → Sri Lanka) + its own flat Sri Lanka delivery fee.
 export type DeliveryType = "express" | "economy";
 
 /** The customs rates for an HS code (DEFAULT when it isn't listed). */
@@ -246,8 +246,8 @@ function round2(value: number): number {
 // Within this mode, `deliveryType` selects between two fee structures:
 //   - "express" (default): Freight Charges + Customs Clearance (both
 //      scaled per weight block) + a flat Delivery Fee.
-//   - "economy": a single Postal Charges line (weight x rate/kg) and
-//      no flat Delivery Fee.
+//   - "economy": a Postal Charges line (weight x rate/kg) + its own
+//      flat Delivery Fee (settings.storefront.economyDeliveryFeeLKR).
 // Both variants still apply the same Profit% and flat Extra Margin.
 // ============================================================
 
@@ -265,6 +265,7 @@ export interface SimpleQuoteInput {
   weightBlockKgOverride?: number;                   // express only (block-scaling basis)
   deliveryFeeLKROverride?: number;                  // express only
   postalRatePerKgLKROverride?: number;              // economy only
+  economyDeliveryFeeLKROverride?: number;           // economy only
   extraMarginLKROverride?: number;                  // both modes
 }
 
@@ -286,7 +287,7 @@ export interface SimpleQuoteBreakdown {
   customsClearance: number; // Express only: Customs Clearance (0 in economy)
   postalCharges: number;    // Economy only: Postal Charges (0 in express)
   subtotal: number;         // costWithProfit + freight/customs (express) or + postal (economy)
-  deliveryFee: number;      // Express only: flat delivery fee (0 in economy)
+  deliveryFee: number;      // flat Sri Lanka delivery fee (Express or Economy rate)
   totalWithDelivery: number;
   extraMargin: number;      // flat extra margin, both modes
   totalCost: number;        // Final per-unit total cost (what the customer pays)
@@ -313,7 +314,7 @@ export interface SimpleQuoteBreakdown {
  * Economy delivery:
  * 3. Postal Charges = Weight (kg) x postal rate per kg
  * 4. Subtotal = Cost with profit + Postal Charges
- * 5. Total with delivery = Subtotal (no flat delivery fee in economy)
+ * 5. Total with delivery = Subtotal + flat Economy delivery fee
  * 6. Total Cost = Total with delivery + flat extra margin
  *
  * Order-level totals multiply the per-unit Total Cost by PCS/Unit.
@@ -365,17 +366,17 @@ export function calculateSimpleQuote(
     // 6. Flat delivery fee (express only)
     deliveryFee = input.deliveryFeeLKROverride ?? sf.deliveryFeeLKR;
   } else {
-    // Economy: single postal-charges line, no flat delivery fee
+    // Economy: postal charges by weight + its own flat Sri Lanka delivery fee
     const postalRatePerKgLKR =
       input.postalRatePerKgLKROverride ?? sf.economyPostalRatePerKgLKR;
     postalCharges = weightKg * postalRatePerKgLKR;
-    deliveryFee = 0;
+    deliveryFee = input.economyDeliveryFeeLKROverride ?? sf.economyDeliveryFeeLKR;
   }
 
   // 5. Subtotal
   const subtotal = costWithProfit + freightCharges + customsClearance + postalCharges;
 
-  // Total with delivery (delivery fee is 0 for economy)
+  // Total with delivery (Express or Economy delivery fee)
   const totalWithDelivery = subtotal + deliveryFee;
 
   // 7. Flat extra margin -> final total cost
@@ -424,7 +425,7 @@ export function calculateSimpleQuote(
 //                      the existing UI destructuring; despite the name it
 //                      follows currencyCode, not literal USD.)
 //   estimatedTotalLkr = the real grand total, in LKR — includes the flat
-//                      Delivery Fee (Express only) and Extra Margin that
+//                      Delivery Fee (both methods) and Extra Margin that
 //                      subtotal/serviceFee above deliberately exclude.
 // ============================================================
 
@@ -442,6 +443,7 @@ export interface RequestPreviewQuoteInput {
   weightBlockKgOverride?: number;
   deliveryFeeLKROverride?: number;
   postalRatePerKgLKROverride?: number;
+  economyDeliveryFeeLKROverride?: number;
   extraMarginLKROverride?: number;
 }
 
@@ -474,6 +476,7 @@ export function calculateRequestPreviewQuote(
     weightBlockKgOverride: input.weightBlockKgOverride,
     deliveryFeeLKROverride: input.deliveryFeeLKROverride,
     postalRatePerKgLKROverride: input.postalRatePerKgLKROverride,
+    economyDeliveryFeeLKROverride: input.economyDeliveryFeeLKROverride,
     extraMarginLKROverride: input.extraMarginLKROverride,
   }, settings);
 
@@ -491,8 +494,8 @@ export function calculateRequestPreviewQuote(
   const serviceFee = round2((serviceFeePerUnitLKR / exchangeRateUsed) * qty);
   const estimatedFeeUsd = round2(subtotal + serviceFee);
 
-  // The real grand total (LKR) — includes the flat Delivery Fee (Express
-  // only) and Extra Margin, which subtotal/serviceFee deliberately exclude.
+  // The real grand total (LKR) — includes the flat Delivery Fee (either
+  // method) and Extra Margin, which subtotal/serviceFee deliberately exclude.
   const estimatedTotalLkr = simple.orderTotalCost;
 
   return {
@@ -521,8 +524,7 @@ export function calculateRequestPreviewQuote(
 // margin structure.
 //
 //   catalogPrice     = subtotal                (what's shown publicly)
-//   serviceFeeLKR    = deliveryFee + extraMargin (Express)
-//                    = extraMargin              (Economy — no flat delivery fee)
+//   serviceFeeLKR    = deliveryFee + extraMargin (Express or Economy delivery fee)
 //   actualTotalCost  = catalogPrice + serviceFeeLKR = totalCost (what's actually charged)
 //
 // Does not duplicate any math — it's a thin read of calculateSimpleQuote's
@@ -548,7 +550,7 @@ export interface CatalogQuoteBreakdown {
   postalCharges: number;    // Economy only (0 in express)
 
   catalogPrice: number;     // = subtotal — the number shown on the catalog page
-  deliveryFeeLKR: number;   // flat delivery fee, broken out (0 in economy)
+  deliveryFeeLKR: number;   // flat Sri Lanka delivery fee, broken out (Express or Economy rate)
   extraMarginLKR: number;   // flat extra margin, broken out
   serviceFeeLKR: number;    // = deliveryFeeLKR + extraMarginLKR — shown as "Service & Delivery/Postal" at checkout
   actualTotalCost: number;  // = catalogPrice + serviceFeeLKR — what's really charged
@@ -572,7 +574,7 @@ export interface CatalogQuoteBreakdown {
  *
  * Example (INR 1000, 0.5kg, default rates):
  *   Express: catalogPrice = 7490, serviceFeeLKR = 700 (450 delivery + 250 margin), actualTotalCost = 8190
- *   Economy: catalogPrice = 5100, serviceFeeLKR = 250 (margin only, no flat delivery fee), actualTotalCost = 5350
+ *   Economy: serviceFeeLKR = economy delivery fee + 250 margin (e.g. 450 + 250 = 700)
  */
 export function calculateCatalogQuote(
   input: SimpleQuoteInput,
@@ -645,7 +647,7 @@ export function calculateExpressCatalogQuote(
   return calculateCatalogQuote({ ...input, deliveryType: "express" }, settings);
 }
 
-/** Same as calculateCatalogQuote, but always priced as Economy (single Postal Charges line, no flat Delivery Fee), regardless of any deliveryType passed in `input`. */
+/** Same as calculateCatalogQuote, but always priced as Economy (Postal Charges + Economy Delivery Fee), regardless of any deliveryType passed in `input`. */
 export function calculateEconomyCatalogQuote(
   input: Omit<SimpleQuoteInput, "deliveryType">,
   settings: PricingSettings = getPricingSettings()
@@ -707,7 +709,7 @@ export function getEconomyCatalogPriceLKR(
 //   deliveryType: "economy",
 // });
 // // economyCatalog.catalogPrice     -> 5100
-// // economyCatalog.serviceFeeLKR    -> 250   (extra margin only — no flat delivery fee in economy)
+// // economyCatalog.serviceFeeLKR    -> 700   (450 economy delivery + 250 extra margin)
 // // economyCatalog.actualTotalCost  -> 5350
 //
 // const expressPrice = getExpressCatalogPriceLKR({

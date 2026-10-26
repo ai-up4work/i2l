@@ -28,6 +28,7 @@ export default async function ShippingPricingPage() {
   const economyRows = [
     { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
     { label: 'Postal charges', value: `~LKR ${sf.economyPostalRatePerKgLKR.toLocaleString()} per kg (single line, no separate freight/customs split)` },
+    { label: 'Delivery fee', value: `Flat LKR ${sf.economyDeliveryFeeLKR}` },
     { label: 'Service margin', value: `Flat LKR ${sf.extraMarginLKR}` },
   ]
 
@@ -104,7 +105,7 @@ export default async function ShippingPricingPage() {
             name="Economy"
             tag={economyLocked ? 'Coming soon' : 'Lower cost'}
             tagClass="bg-gold/15 text-gold-deep"
-            text="One postal-charges line by weight and no separate delivery fee. Usually slower than Express."
+            text="One postal-charges line by weight, plus a flat delivery fee. Usually slower than Express."
             rows={economyRows}
           />
         </div>

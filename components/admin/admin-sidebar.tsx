@@ -237,44 +237,11 @@ function getGroups(role: Role): Group[] {
     .filter((group) => group.items.length > 0)
 }
 
-// India: real flag proportions are a horizontal stack — saffron / white
-// / green, each a third of the height. Sri Lanka's real flag is more
-// involved (lion panel + two vertical stripes inside a maroon field
-// with a gold border); simplified here to its distinctive vertical
-// gold/green/orange bands against the maroon field, since a literal
-// lion doesn't read at nav-row scale. Both are applied as the row's
-// *entire* background at low opacity, not just a corner chip or accent
-// bar, so the whole button visually reads as "this stage's flag."
-const IN_STRIPES =
-  "linear-gradient(180deg, #FF993330 0%, #FF993330 33%, #FFFFFF30 33%, #FFFFFF30 66%, #13880830 66%, #13880830 100%)"
-
-const SL_BANDS =
-  "linear-gradient(90deg, #FFBE2930 0%, #FFBE2930 6%, #00534E30 6%, #00534E30 11%, #EB740030 11%, #EB740030 16%, #8D153A30 16%, #8D153A30 100%)"
-
-/**
- * Full-row background for a nav item, keyed off its country. Active
- * state always wins (returns undefined so the existing teal active
- * background shows through unobstructed) — a page you're currently on
- * should never be visually competing with a second pattern. "both" (in
- * transit) splits the row into two halves via layered backgrounds:
- * India's stripes on the left, Sri Lanka's bands on the right, meeting
- * in the middle.
- */
-function getCountryRowStyle(country: NavItem["country"], active: boolean): React.CSSProperties | undefined {
-  if (active || !country) return undefined
-  if (country === "IN") return { backgroundImage: IN_STRIPES }
-  if (country === "SL") return { backgroundImage: SL_BANDS }
-  // both: two backgrounds, each confined to half the row width via
-  // background-size/position, so India owns the left half and Sri
-  // Lanka the right — a literal "leaving one flag, arriving at the
-  // other" read for the in-transit stage.
-  return {
-    backgroundImage: `${IN_STRIPES}, ${SL_BANDS}`,
-    backgroundSize: "50% 100%, 50% 100%",
-    backgroundPosition: "left, right",
-    backgroundRepeat: "no-repeat, no-repeat",
-  }
-}
+// Country is shown only as the small flag chip (same treatment the
+// admin pages use for India / Sri Lanka) — the rows themselves stay on
+// the shared palette. The old full-row flag-stripe backgrounds were the
+// only place in the console painting raw saffron/green/maroon fills,
+// which made the sidebar read as a different app from the pages beside it.
 
 const COUNTRY_TITLE = {
   IN: "India",
@@ -408,7 +375,7 @@ export function AdminSidebar() {
   ])
 
   // Separate from badgeCounts above on purpose: those are backlog SIZES
-  // (rose, numeric — "how much is in this queue"), this is a "does
+  // (teal, numeric — "how much is in this queue"), this is a "does
   // anything here need a reply" flag (gold, a dot, not a number) — see
   // Order.hasUnrepliedMessage / RequestLine.hasUnrepliedMessage and
   // data/Wishdrop-orders-requests-unreplied-flag.sql. The two are
@@ -419,7 +386,7 @@ export function AdminSidebar() {
     flags["/admin/orders"] = visibleOrders.some((o) => o.hasUnrepliedMessage)
     flags["/admin/requests"] = requestLines.some((r) => r.hasUnrepliedMessage)
     // Customer chat's own unread signal already exists (chatThreads
-    // .unread, feeding the rose count above) and is a superset of this
+    // .unread, feeding the teal count above) and is a superset of this
     // — every unreplied order/request message is also a thread-level
     // unread, so no separate dot is needed there.
     return flags
@@ -540,7 +507,7 @@ function SidebarLink({
   collapsed: boolean
   count?: number
   /** A gold pulsing dot, separate from the numeric `count` pill/dot
-   * above (which is rose and means "backlog size") — this means
+   * above (which is teal and means "backlog size") — this means
    * "something in this list is waiting on a reply" specifically. See
    * badgeCounts' sibling `attentionFlags` below. The two can be true at
    * once, so they're rendered at different corners/positions rather
@@ -549,7 +516,6 @@ function SidebarLink({
 }) {
   const Icon = item.icon
   const hasSignal = !!count && count > 0
-  const countryRowStyle = getCountryRowStyle(item.country, active)
 
   // Locked: visible so it's clear the section exists and roughly what's
   // planned, but not a real <Link> — there's no page behind it worth
@@ -592,14 +558,13 @@ function SidebarLink({
       <Link
         href={item.href}
         aria-current={active ? "page" : undefined}
-        style={countryRowStyle}
         title={item.country ? COUNTRY_TITLE[item.country] : undefined}
         className={`relative flex items-center gap-3 rounded-xl py-2.5 pr-3 text-sm font-medium transition-colors before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:transition-colors before:duration-200 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 ${
           collapsed ? "justify-center pl-3" : "pl-3.5"
         } ${
           active
-            ? "bg-teal/[0.08] text-teal-deep before:bg-teal-deep"
-            : "text-ink/55 before:bg-transparent hover:brightness-95 hover:text-ink"
+            ? "bg-teal/10 text-teal-deep before:bg-teal-deep"
+            : "text-ink/55 before:bg-transparent hover:bg-ink/[0.04] hover:text-ink"
         }`}
       >
         <span className="relative flex-none">
@@ -615,7 +580,7 @@ function SidebarLink({
             </span>
           )}
           {collapsed && !item.country && hasSignal && (
-            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-card" />
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-teal-deep ring-2 ring-card" />
           )}
           {collapsed && attention && (
             <span className="absolute -left-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-gold-deep ring-2 ring-card" />
@@ -624,9 +589,8 @@ function SidebarLink({
         {!collapsed && <span className="truncate flex-1">{item.label}</span>}
         {/* Expanded: the literal flag(s), rendered as real images via
             the shared Flag component — sits before the count pill so
-            neither crowds out the label truncation. The row's own
-            background (countryRowStyle above) gives the ambient color
-            signal; this gives the precise, always-correct glyph. */}
+            neither crowds out the label truncation. This chip is the
+            only country signal on the row. */}
         {!collapsed && item.country && (
           <span className="flex-none">
             <CountryFlagIcon country={item.country} className="h-2.5 w-4 rounded-[1px] object-cover shadow-sm" />
@@ -643,7 +607,11 @@ function SidebarLink({
         {/* Expanded: a count pill, right-aligned. Capped at "99+" so a
             very large backlog doesn't blow out the row width. */}
         {!collapsed && hasSignal && (
-          <span className="ml-auto flex-none rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+          <span
+            className={`ml-auto flex-none rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+              active ? "bg-teal-deep text-parchment" : "bg-teal/12 text-teal-deep"
+            }`}
+          >
             {count! > 99 ? "99+" : count}
           </span>
         )}

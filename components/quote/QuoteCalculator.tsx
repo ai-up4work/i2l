@@ -79,7 +79,7 @@ const SIMPLE_FORMULAS: Record<string, string> = {
   customsClearance: "= (Weight ÷ weight block kg) × customs clearance rate per block",
   postalCharges: "= Weight (kg) × postal charge rate per kg",
   subtotal: "= Cost with profit + Freight Charges + Customs Clearance (Express), or + Postal Charges (Economy)",
-  totalWithDelivery: "= Subtotal + delivery fee (Express only, Economy has no flat delivery fee)",
+  totalWithDelivery: "= Subtotal + Sri Lanka delivery fee (Express or Economy rate)",
   totalCost: "= Total with delivery + extra margin",
 }
 
@@ -187,6 +187,7 @@ function QuoteDemoPage() {
 
   // Simple markup config, Economy only
   const [postalRateOverride, setPostalRateOverride] = useState(live.storefront.economyPostalRatePerKgLKR)
+  const [economyDeliveryFeeOverride, setEconomyDeliveryFeeOverride] = useState(live.storefront.economyDeliveryFeeLKR)
 
   // Local shop config
   const [localMarginOverride, setLocalMarginOverride] = useState(live.local.marginPercent)
@@ -225,6 +226,7 @@ function QuoteDemoPage() {
     setDeliveryFeeOverride(live.storefront.deliveryFeeLKR)
     setExtraMarginOverride(live.storefront.extraMarginLKR)
     setPostalRateOverride(live.storefront.economyPostalRatePerKgLKR)
+    setEconomyDeliveryFeeOverride(live.storefront.economyDeliveryFeeLKR)
   }
 
   // Does anything in the panel differ from the live rates?
@@ -235,7 +237,8 @@ function QuoteDemoPage() {
     weightBlockOverride !== live.storefront.weightBlockKg ||
     deliveryFeeOverride !== live.storefront.deliveryFeeLKR ||
     extraMarginOverride !== live.storefront.extraMarginLKR ||
-    postalRateOverride !== live.storefront.economyPostalRatePerKgLKR
+    postalRateOverride !== live.storefront.economyPostalRatePerKgLKR ||
+    economyDeliveryFeeOverride !== live.storefront.economyDeliveryFeeLKR
 
   const customsQuote: QuoteBreakdown = useMemo(() => {
     return calculateQuote({
@@ -287,6 +290,7 @@ function QuoteDemoPage() {
       weightBlockKgOverride: weightBlockOverride,
       deliveryFeeLKROverride: deliveryFeeOverride,
       postalRatePerKgLKROverride: postalRateOverride,
+      economyDeliveryFeeLKROverride: economyDeliveryFeeOverride,
       extraMarginLKROverride: extraMarginOverride,
     })
   }, [
@@ -301,6 +305,7 @@ function QuoteDemoPage() {
     weightBlockOverride,
     deliveryFeeOverride,
     postalRateOverride,
+    economyDeliveryFeeOverride,
     extraMarginOverride,
   ])
 
@@ -363,15 +368,11 @@ function QuoteDemoPage() {
               ]
             : [{ label: "Postal Charges", value: formatLKR(simpleQuote.postalCharges), formula: SIMPLE_FORMULAS.postalCharges }]),
           { label: "Subtotal", value: formatLKR(simpleQuote.subtotal), formula: SIMPLE_FORMULAS.subtotal },
-          ...(deliveryType === "express"
-            ? [
-                {
-                  label: "Total + Delivery",
-                  value: formatLKR(simpleQuote.totalWithDelivery),
-                  formula: SIMPLE_FORMULAS.totalWithDelivery,
-                },
-              ]
-            : []),
+          {
+            label: "Total + Delivery",
+            value: formatLKR(simpleQuote.totalWithDelivery),
+            formula: SIMPLE_FORMULAS.totalWithDelivery,
+          },
           {
             label: "Total Cost (+ Extra Margin)",
             value: formatLKR(simpleQuote.totalCost),
@@ -671,7 +672,15 @@ function QuoteDemoPage() {
                             <ConfigField label="Delivery fee" value={deliveryFeeOverride} onChange={setDeliveryFeeOverride} suffix="LKR" />
                           </>
                         ) : (
-                          <ConfigField label="Postal charge / kg" value={postalRateOverride} onChange={setPostalRateOverride} suffix="LKR" />
+                          <>
+                            <ConfigField label="Postal charge / kg" value={postalRateOverride} onChange={setPostalRateOverride} suffix="LKR" />
+                            <ConfigField
+                              label="Delivery fee"
+                              value={economyDeliveryFeeOverride}
+                              onChange={setEconomyDeliveryFeeOverride}
+                              suffix="LKR"
+                            />
+                          </>
                         )}
                         <ConfigField label="Extra margin" value={extraMarginOverride} onChange={setExtraMarginOverride} suffix="LKR" />
                       </div>

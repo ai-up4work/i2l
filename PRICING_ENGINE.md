@@ -14,7 +14,7 @@ don't change when you deploy.
 
 | Section | Settings | Used for |
 |---|---|---|
-| Storefront prices | profit %, service charge, weight block, Express freight / customs clearance per kg, delivery fee, Economy postal per kg | every Indian-store price: cards, product pages, cart, checkout |
+| Storefront prices | profit %, service charge, weight block, Express freight / customs clearance per kg and delivery fee, Economy postal per kg and delivery fee | every Indian-store price: cards, product pages, cart, checkout |
 | Exchange rates | LKR per 1 unit of each currency; add or remove currencies | all currency conversion |
 | Local stores and Wishdrop Mall | local margin, local delivery, handling (pickup) per shop, Mall delivery | local stores and Wishdrop Mall |
 | Customs calculator | freight per kg, default weight, HS codes with duty / PAL / cess / surcharge / SSCL / VAT; add or remove codes | the quote calculator's customs mode |
@@ -71,3 +71,13 @@ Prices are still worked out in the browser, as before. The rates were
 already shipped to every visitor inside the JavaScript bundle, so making
 them editable doesn't expose anything new. Moving all pricing to the
 server is a separate job, needed before taking real payments.
+
+## Economy delivery fee
+
+Economy used to fold the Sri Lanka delivery into its postal charge. It
+now has its own **Delivery fee** under Economy, next to the postal
+charge, the same way Express has one. It's charged per item, shows as
+the "Delivery" line on product pages, the estimator, cart and checkout,
+and can be adjusted per calculation in the quote calculator. Settings
+saved before this change pick up the built-in default (LKR 450) until
+you save a value.

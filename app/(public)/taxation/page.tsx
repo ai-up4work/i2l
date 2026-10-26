@@ -105,7 +105,8 @@ export default function TaxationPage() {
             <p>
               For some catalogue products and delivery options, Wishdrop instead shows a simplified,
               all-in price that bundles a flat service margin with weight-based freight and
-              clearance charges (Express), or a single postal-charges line (Economy), rather than
+              clearance charges (Express), or a single postal-charges line (Economy), plus a flat
+              delivery fee, rather than
               itemising each duty component separately. In both cases, the amount you pay at
               checkout is the full amount due — there is nothing further to pay on delivery unless
               your order changes after purchase.

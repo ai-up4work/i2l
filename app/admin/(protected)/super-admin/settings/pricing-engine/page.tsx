@@ -332,7 +332,7 @@ export default function PricingEnginePage() {
         <div className="flex min-w-0 flex-col gap-4">
           <Section
             title="Storefront prices"
-            description="What every product from an Indian store costs a shopper. Express is the default; Economy replaces freight, clearance and delivery with one postal charge."
+            description="What every product from an Indian store costs a shopper. Express is the default. Economy replaces freight and clearance with one postal charge, and has its own Sri Lanka delivery fee."
           >
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <NumberField label="Profit" suffix="%" value={sf.profitPercent} saved={sfSaved.profitPercent} onChange={(v) => update((s) => (s.storefront.profitPercent = v))} hint="On the product cost" disabled={disabled} />
@@ -343,7 +343,7 @@ export default function PricingEnginePage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <NumberField label="Freight" suffix="LKR / kg" value={sf.freightRatePerKgLKR} saved={sfSaved.freightRatePerKgLKR} onChange={(v) => update((s) => (s.storefront.freightRatePerKgLKR = v))} hint="Billed in weight blocks" disabled={disabled} />
               <NumberField label="Customs clearance" suffix="LKR / kg" value={sf.customsClearanceRatePerKgLKR} saved={sfSaved.customsClearanceRatePerKgLKR} onChange={(v) => update((s) => (s.storefront.customsClearanceRatePerKgLKR = v))} hint="Billed in weight blocks" disabled={disabled} />
-              <NumberField label="Delivery fee" suffix="LKR" value={sf.deliveryFeeLKR} saved={sfSaved.deliveryFeeLKR} onChange={(v) => update((s) => (s.storefront.deliveryFeeLKR = v))} hint="Flat, per item" disabled={disabled} />
+              <NumberField label="Delivery fee" suffix="LKR" value={sf.deliveryFeeLKR} saved={sfSaved.deliveryFeeLKR} onChange={(v) => update((s) => (s.storefront.deliveryFeeLKR = v))} hint="Sri Lanka delivery, flat, per item" disabled={disabled} />
             </div>
             <p className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-ink/40">Economy</p>
             <div
@@ -374,7 +374,8 @@ export default function PricingEnginePage() {
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <NumberField label="Postal charge" suffix="LKR / kg" value={sf.economyPostalRatePerKgLKR} saved={sfSaved.economyPostalRatePerKgLKR} onChange={(v) => update((s) => (s.storefront.economyPostalRatePerKgLKR = v))} hint="No separate delivery fee" disabled={disabled} />
+              <NumberField label="Postal charge" suffix="LKR / kg" value={sf.economyPostalRatePerKgLKR} saved={sfSaved.economyPostalRatePerKgLKR} onChange={(v) => update((s) => (s.storefront.economyPostalRatePerKgLKR = v))} hint="India → Sri Lanka, by weight" disabled={disabled} />
+              <NumberField label="Delivery fee" suffix="LKR" value={sf.economyDeliveryFeeLKR} saved={sfSaved.economyDeliveryFeeLKR} onChange={(v) => update((s) => (s.storefront.economyDeliveryFeeLKR = v))} hint="Sri Lanka delivery, flat, per item" disabled={disabled} />
             </div>
           </Section>
 

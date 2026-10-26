@@ -15,8 +15,8 @@
 // separately in three different components.
 //
 // WHY ECONOMY: the storefront shows one headline price with no delivery-
-// method picker, so we need to pick one. Economy (single Postal Charges
-// line, no flat Delivery Fee) is the current business decision — see
+// method picker, so we need to pick one. Economy (Postal Charges line +
+// its own flat Delivery Fee) is the current business decision — see
 // DISPLAY_DELIVERY_TYPE below. Anywhere that needs to show the *other*
 // delivery method's price explicitly (e.g. a future Express upsell, or
 // the internal quote calculator at /demo/quote) should call the
@@ -214,11 +214,11 @@ export function getProductPricing(product: ProductPriceableItem, settings: Prici
 //                                         postal, and handling — see
 //                                         calculateCatalogQuote)
 //   Service Charge -> serviceChargeLKR  (flat extra margin, both methods)
-//   Delivery       -> deliveryFeeLKR    (flat delivery fee — 0 for Economy,
-//                                         since Economy has no separate
-//                                         flat delivery fee, only a
-//                                         Postal Charges line baked into
-//                                         Price)
+//   Delivery       -> deliveryFeeLKR    (flat Sri Lanka delivery fee —
+//                                         Express and Economy each have
+//                                         their own rate in the pricing
+//                                         engine; Economy's postal
+//                                         charges stay baked into Price)
 //   Total          -> actualTotalLKR    (Price + Service Charge + Delivery
 //                                         = calculateCatalogQuote's
 //                                         actualTotalCost)
@@ -236,7 +236,7 @@ export interface DeliveryPriceOption {
   /** "Service Charge" row — flat extra margin, applies to both delivery methods. */
   serviceChargeLKR: number;
   formattedServiceCharge: string;
-  /** "Delivery" row — flat delivery fee. Always 0 for Economy (no flat delivery fee in that mode). */
+  /** "Delivery" row — flat Sri Lanka delivery fee (Express or Economy rate, per the pricing engine). */
   deliveryFeeLKR: number;
   formattedDeliveryFee: string;
   /** "Total" row — Price + Service Charge + Delivery; what's actually charged for one unit. */
@@ -255,7 +255,8 @@ export interface DualDeliveryPricing {
    *  method comparison), and a Rs 500 pickup per store is added at
    *  checkout. `fixedPrice` is true for these too. */
   localStore?: boolean;
-  /** Express priceLKR - Economy priceLKR. Null if the difference isn't positive. */
+  /** Express actualTotalLKR - Economy actualTotalLKR (price + service charge
+   *  + each method's own delivery fee). Null if the difference isn't positive. */
   expressPremiumLKR: number | null;
   formattedExpressPremium: string | null;
 }
@@ -401,7 +402,9 @@ export function getDualDeliveryPricing(product: ProductPriceableItem, settings: 
   const economy = getDeliveryPriceOption(product, calculateEconomyCatalogQuote, settings);
   const express = getDeliveryPriceOption(product, calculateExpressCatalogQuote, settings);
 
-  const rawDelta = express.priceLKR - economy.priceLKR;
+  // Compare full per-item totals: Express and Economy each carry their own
+  // delivery fee, so comparing priceLKR alone would hide that difference.
+  const rawDelta = express.actualTotalLKR - economy.actualTotalLKR;
   const expressPremiumLKR = rawDelta > 0 ? rawDelta : null;
 
   return {

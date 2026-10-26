@@ -51,8 +51,13 @@ export interface PricingSettings {
     customsClearanceRatePerKgLKR: number
     /** Express: flat delivery fee per item. */
     deliveryFeeLKR: number
-    /** Economy: postal charge, LKR per kg (replaces freight + clearance + delivery). */
+    /** Economy: postal charge India → Sri Lanka, LKR per kg (replaces
+     *  freight + clearance). Sri Lanka delivery is billed separately below. */
     economyPostalRatePerKgLKR: number
+    /** Economy: flat Sri Lanka delivery fee per item — the Economy
+     *  counterpart of `deliveryFeeLKR` (Express). Kept separate so the two
+     *  methods can be priced independently. */
+    economyDeliveryFeeLKR: number
     /** Flat extra margin per item, shown to shoppers as the service charge. */
     extraMarginLKR: number
     /** Economy delivery on offer. Off = shown as "Coming soon" and can't be
@@ -108,6 +113,7 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
     customsClearanceRatePerKgLKR: 2000,
     deliveryFeeLKR: 450,
     economyPostalRatePerKgLKR: 3500,
+    economyDeliveryFeeLKR: 450,
     extraMarginLKR: 250,
     economyEnabled: false,
   },
@@ -202,6 +208,7 @@ export function normalizePricingSettings(raw: unknown): PricingSettings {
       customsClearanceRatePerKgLKR: num(sf.customsClearanceRatePerKgLKR, d.storefront.customsClearanceRatePerKgLKR, PRICING_LIMITS.money),
       deliveryFeeLKR: num(sf.deliveryFeeLKR, d.storefront.deliveryFeeLKR, PRICING_LIMITS.money),
       economyPostalRatePerKgLKR: num(sf.economyPostalRatePerKgLKR, d.storefront.economyPostalRatePerKgLKR, PRICING_LIMITS.money),
+      economyDeliveryFeeLKR: num(sf.economyDeliveryFeeLKR, d.storefront.economyDeliveryFeeLKR, PRICING_LIMITS.money),
       extraMarginLKR: num(sf.extraMarginLKR, d.storefront.extraMarginLKR, PRICING_LIMITS.money),
       economyEnabled: typeof sf.economyEnabled === 'boolean' ? sf.economyEnabled : d.storefront.economyEnabled,
     },
