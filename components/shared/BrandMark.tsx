@@ -13,7 +13,7 @@ export default function BrandMark({
   showName = true,
 }: BrandMarkProps) {
   return (
-    <Link href="/" className="flex items-center gap-2.5 -mt-2">
+    <Link href="/" className="flex items-center gap-2.5 -mt-6">
       {/* Brand icon */}
       <span
         className={`inline-grid place-items-center ${className}`}
