@@ -31,7 +31,7 @@ export default function Footer() {
         <div className="flex flex-col gap-12 pb-12 lg:flex-row lg:gap-14">
           <div className="lg:w-56 lg:flex-none">
             <BrandMark />
-            <p className="mt-3 font-body text-sm text-ink/60">Shop more. Wait less. Delivered home.</p>
+            <p className="mt-8 font-body text-sm text-ink/60">Shop more. Wait less. Delivered home.</p>
           </div>
 
           <div className="lg:w-60 lg:flex-none">
