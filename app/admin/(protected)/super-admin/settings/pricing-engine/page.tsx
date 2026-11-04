@@ -113,6 +113,10 @@ function draftProblems(s: PricingSettings): string[] {
   if (!(s.storefront.weightBlockKg > 0)) problems.push('Weight block must be more than 0 kg')
   for (const [c, r] of Object.entries(s.currencyRatesToLKR)) if (!(r > 0)) problems.push(`Exchange rate for ${c}`)
   for (const [c, r] of Object.entries(s.customs.hsCodes)) for (const f of RATE_FIELDS) check(`HS ${c} ${f.label}`, r[f.key])
+  s.weightPresets.forEach((w, i) => {
+    if (!w.label.trim()) problems.push(`Weight category ${i + 1} needs a name`)
+    if (!(w.kg > 0)) problems.push(`Weight for “${w.label || `category ${i + 1}`}”`)
+  })
   return problems
 }
 
@@ -204,6 +208,7 @@ export default function PricingEnginePage() {
 
   const [newCurrency, setNewCurrency] = useState({ code: '', rate: '' })
   const [newHs, setNewHs] = useState({ code: '', label: '' })
+  const [newPreset, setNewPreset] = useState({ label: '', kg: '' })
 
   const [preview, setPreview] = useState({ price: 2500, currency: 'INR', weight: 0.5 })
 
@@ -338,6 +343,7 @@ export default function PricingEnginePage() {
               <NumberField label="Profit" suffix="%" value={sf.profitPercent} saved={sfSaved.profitPercent} onChange={(v) => update((s) => (s.storefront.profitPercent = v))} hint="On the product cost" disabled={disabled} />
               <NumberField label="Service charge" suffix="LKR" value={sf.extraMarginLKR} saved={sfSaved.extraMarginLKR} onChange={(v) => update((s) => (s.storefront.extraMarginLKR = v))} hint="Flat, per item, both methods" disabled={disabled} />
               <NumberField label="Weight block" suffix="kg" value={sf.weightBlockKg} saved={sfSaved.weightBlockKg} onChange={(v) => update((s) => (s.storefront.weightBlockKg = v))} hint="Also the weight used when a product has none" disabled={disabled} />
+              <NumberField label="Packaging on store weight" suffix="%" value={sf.storeWeightMarginPercent} saved={sfSaved.storeWeightMarginPercent} onChange={(v) => update((s) => (s.storefront.storeWeightMarginPercent = v))} hint="Pasted links that give a weight: 400 g at 30% ships at 520 g" disabled={disabled} />
             </div>
             <p className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-ink/40">Express</p>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -377,6 +383,78 @@ export default function PricingEnginePage() {
               <NumberField label="Postal charge" suffix="LKR / kg" value={sf.economyPostalRatePerKgLKR} saved={sfSaved.economyPostalRatePerKgLKR} onChange={(v) => update((s) => (s.storefront.economyPostalRatePerKgLKR = v))} hint="India → Sri Lanka, by weight" disabled={disabled} />
               <NumberField label="Delivery fee" suffix="LKR" value={sf.economyDeliveryFeeLKR} saved={sfSaved.economyDeliveryFeeLKR} onChange={(v) => update((s) => (s.storefront.economyDeliveryFeeLKR = v))} hint="Sri Lanka delivery, flat, per item" disabled={disabled} />
             </div>
+          </Section>
+
+          <Section
+            title="Weight categories"
+            description="For pasted links (Amazon, Myntra, FirstCry…) whose store doesn’t give a weight. The category whose words best match the product title is picked automatically; shoppers can pick another one or type their own weight. Orders priced with an estimated weight are flagged for a price check."
+          >
+            {draft.weightPresets.length === 0 && (
+              <p className="mb-3 text-sm text-ink/55">No categories: every such item uses the weight block ({sf.weightBlockKg} kg) and shoppers can only type a weight.</p>
+            )}
+            <div className="flex flex-col gap-2">
+              {draft.weightPresets.map((w, i) => {
+                const savedRow = saved.weightPresets.find((x) => x.id === w.id)
+                return (
+                  <div key={w.id} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-start gap-2 rounded-xl border border-ink/10 bg-parchment/40 p-3 sm:grid-cols-[minmax(0,14rem)_96px_minmax(0,1fr)_auto]">
+                    <input
+                      aria-label="Category name"
+                      value={w.label}
+                      maxLength={60}
+                      disabled={disabled}
+                      onChange={(e) => update((s) => (s.weightPresets[i].label = e.target.value))}
+                      className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm outline-none focus:border-teal/60 ${savedRow && savedRow.label !== w.label ? 'border-gold/60' : 'border-ink/15'}`}
+                    />
+                    <div className="flex items-center gap-1">
+                      <SmallNumber ariaLabel={`${w.label} weight`} value={w.kg} saved={savedRow?.kg} disabled={disabled} onChange={(v) => update((s) => (s.weightPresets[i].kg = v))} />
+                      <span className="text-xs text-ink/45">kg</span>
+                    </div>
+                    <input
+                      aria-label={`${w.label} title words`}
+                      value={w.keywords.join(', ')}
+                      disabled={disabled}
+                      placeholder="Title words, comma separated"
+                      onChange={(e) =>
+                        update((s) => (s.weightPresets[i].keywords = e.target.value.split(',').map((k) => k.trimStart().toLowerCase())))
+                      }
+                      className="col-span-3 rounded-lg border border-ink/15 bg-white px-2.5 py-1.5 text-xs text-ink/70 outline-none focus:border-teal/60 sm:col-span-1"
+                    />
+                    {canEdit && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${w.label}`}
+                        onClick={() => update((s) => s.weightPresets.splice(i, 1))}
+                        className="row-start-1 self-center justify-self-end rounded-full p-1 text-ink/35 hover:bg-red-50 hover:text-red-600 sm:col-start-4"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {canEdit && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <input value={newPreset.label} maxLength={60} onChange={(e) => setNewPreset((p) => ({ ...p, label: e.target.value }))} placeholder="Name, e.g. Perfume bottle" className={`${input} !w-auto`} style={{ width: 220 }} />
+                <input type="number" step="0.05" value={newPreset.kg} onChange={(e) => setNewPreset((p) => ({ ...p, kg: e.target.value }))} placeholder="kg" className={`${input} !w-auto`} style={{ width: 96 }} />
+                <button
+                  type="button"
+                  disabled={!newPreset.label.trim() || !(Number(newPreset.kg) > 0) || draft.weightPresets.length >= 20}
+                  onClick={() => {
+                    const label = newPreset.label.trim()
+                    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'category'
+                    let id = base
+                    for (let n = 2; draft.weightPresets.some((w) => w.id === id); n++) id = `${base}-${n}`
+                    update((s) => s.weightPresets.push({ id, label, kg: Number(newPreset.kg), keywords: [] }))
+                    setNewPreset({ label: '', kg: '' })
+                  }}
+                  className={btnSmall}
+                >
+                  <Plus size={12} /> Add category
+                </button>
+                <span className="text-xs text-ink/45">Up to 20. Title words are matched as whole words; the longest match wins.</span>
+              </div>
+            )}
           </Section>
 
           <Section title="Exchange rates" description="How many rupees one unit of each currency is worth. Used to convert every store’s prices. LKR is always 1.">

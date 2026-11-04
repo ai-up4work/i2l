@@ -81,3 +81,64 @@ the "Delivery" line on product pages, the estimator, cart and checkout,
 and can be adjusted per calculation in the quote calculator. Settings
 saved before this change pick up the built-in default (LKR 450) until
 you save a value.
+
+## Weight for pasted links
+
+Freight and customs clearance are charged by weight, but stores like
+Amazon, Myntra or FirstCry rarely say how much an item weighs. Before,
+those items were quietly priced at the weight block (0.5 kg) and the
+product page only showed the store price converted to rupees.
+
+**What shoppers see.** The product page shows the delivered price (Express:
+item, freight, customs clearance, service charge, delivery) with the store
+price underneath, and a weight row:
+
+- the store's own weight when the listing gives one, plus the **packaging
+  margin** (Storefront prices → "Packaging on store weight", default 30%:
+  a 400 g item is priced at 520 g). Shoppers can change it, but it's a quiet
+  "Edit" link with a warning; a changed store weight is flagged for the
+  Price check like any estimate;
+- otherwise the **weight category** that best matches the title, e.g. a
+  kurti → "T-shirt, top or kurti", 0.3 kg;
+- otherwise the weight block.
+
+They can pick another category or type a weight (0.1–30 kg). The price, the
+"Get quote" breakdown, the bag and checkout all use that weight.
+
+**Weight categories** are on this page (name, kg, title words). The longest
+matching title word wins ("smartwatch" beats "watch"). Saved settings from
+before this change get the built-in list until you save.
+
+**Checking.** Checkout saves the weight and store price on each item and
+flags the order (`price_review`). On the order page, **Price check** shows
+each item's weight and where it came from. Enter the real weight to re-price
+an item with the pricing engine, or type a price. Saving updates the order
+and checkout totals, writes an internal note, and tells the customer (app
+notification, push and a message in their order chat). Only while the order
+is unpaid. Needs `data/wishdrop-weight-estimates.sql` (row 20 in
+SUPABASE_MIGRATIONS_TO_RUN.md).
+
+Code: `lib/weight-estimate.ts`, `components/platforms/LandedPrice.tsx`,
+`lib/checkout/server.ts`, `lib/orders/price-check.ts`,
+`components/admin/orders/OrderPriceCheckCard.tsx`.
+
+## Every order: price confirmed before payment
+
+Every checkout order now starts as **price to confirm**, whatever it is
+(pasted link, store product, Wishdrop Mall, local shop):
+
+1. The customer places the order. The pay page says "We're confirming your
+   final price — please don't pay before that"; My orders shows
+   *Confirming price*.
+2. Staff open the order (Admin → Orders → filter *Price to confirm*), check
+   each item with the store in **Price check**, set the real weight or price
+   if needed, and press **Confirm price & tell the customer**. The customer
+   always gets the final total (app notification, push, order chat) with a
+   link to their order.
+3. Only then can staff **send the payment request** and **record the
+   payment** on the Payment card. Recording a payment on an unconfirmed
+   order is refused on the server too (`lib/payments/server.ts`).
+
+Request (Channel 3) orders are unchanged: staff already set their price on
+the request. `data/wishdrop-weight-estimates.sql` also adds orders that were
+placed before this change and are still unpaid to the queue.

@@ -14,7 +14,7 @@ import { buildWhatsAppLink } from '@/lib/chat/waLink'
 
 const topics = [
   'An existing request or order',
-  'Shipping, customs, or delivery',
+  'Shipping or delivery',
   'Billing, refunds, or coupons',
   'Whether you can get an item',
   'Becoming a Wishdrop seller',

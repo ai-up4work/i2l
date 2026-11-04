@@ -3,6 +3,7 @@ import type { StoreProduct, StoreProductOption, StoreProductVariant } from '@/li
 import type { JsonApiProviderConfig } from '@/lib/store-config';
 import type { ProviderFetchParams, ProviderFetchResult } from './types';
 import { applySort, stripHtml } from './types';
+import { timedFetch as fetch } from './timed-fetch';
 
 const CACHE_SECONDS = 60 * 10; // 10 min
 const HEADERS = {

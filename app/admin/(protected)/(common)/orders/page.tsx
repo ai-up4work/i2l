@@ -5,7 +5,7 @@ import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { RefundNotice } from "@/components/admin/orders/OrderPaymentCard"
-import { ChevronRight, Flag, Inbox, MapPinned, MessageCircle, Package, Search, SearchX, Wallet, X } from "lucide-react"
+import { ChevronRight, Flag, Inbox, MapPinned, MessageCircle, Package, Scale, Search, SearchX, Wallet, X } from "lucide-react"
 
 import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext"
 import type { Channel, Order, OrderStage } from "@/types/admin"
@@ -119,6 +119,7 @@ export default function OrdersPage() {
   const [siteFilter, setSiteFilter] = useState<"all" | string>("all")
   const [delayedOnly, setDelayedOnly] = useState(false)
   const [unpaidOnly, setUnpaidOnly] = useState(false)
+  const [priceCheckOnly, setPriceCheckOnly] = useState(false)
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [sortMode, setSortMode] = useState<SortMode>("recent")
@@ -133,6 +134,7 @@ export default function OrdersPage() {
     siteFilter !== "all" ||
     delayedOnly ||
     unpaidOnly ||
+    priceCheckOnly ||
     dateFrom !== "" ||
     dateTo !== ""
 
@@ -143,6 +145,7 @@ export default function OrdersPage() {
     setSiteFilter("all")
     setDelayedOnly(false)
     setUnpaidOnly(false)
+    setPriceCheckOnly(false)
     setDateFrom("")
     setDateTo("")
   }
@@ -179,6 +182,7 @@ export default function OrdersPage() {
       if (siteFilter !== "all" && o.siteId !== siteFilter) return false
       if (delayedOnly && !o.delayed) return false
       if (unpaidOnly && !o.awaitingPayment) return false
+      if (priceCheckOnly && !o.priceReview) return false
       if (from && new Date(o.placedAt) < from) return false
       if (to && new Date(o.placedAt) > to) return false
       return true
@@ -347,6 +351,16 @@ export default function OrdersPage() {
             Awaiting payment ({visibleOrders.filter((o) => o.awaitingPayment).length})
           </label>
 
+          <label className="flex items-center gap-2 pb-1.5 text-sm text-ink/70">
+            <input
+              type="checkbox"
+              checked={priceCheckOnly}
+              onChange={(e) => setPriceCheckOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-ink/20 text-teal-deep focus-visible:ring-2 focus-visible:ring-teal/40"
+            />
+            Price to confirm ({visibleOrders.filter((o) => o.priceReview).length})
+          </label>
+
           {hasActiveFilters && (
             <button
               type="button"
@@ -423,6 +437,15 @@ export default function OrdersPage() {
                               <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
                                 <Flag size={11} className="shrink-0" aria-hidden />
                                 QC issue
+                              </span>
+                            )}
+                            {o.priceReview && (
+                              <span
+                                title="Final price not confirmed yet — open the order and use Price check. No payment can be requested or recorded until then."
+                                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gold/15 px-2.5 py-1 text-xs font-semibold text-gold-deep ring-1 ring-inset ring-gold/30"
+                              >
+                                <Scale size={11} className="shrink-0" aria-hidden />
+                                Confirm price
                               </span>
                             )}
                             {o.awaitingPayment && (

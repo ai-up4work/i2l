@@ -151,6 +151,8 @@ export interface Order {
    *  mark it paid on the order page. Older orders (no checkout) are never
    *  treated as awaiting payment. */
   awaitingPayment?: boolean
+  /** Prices to confirm before asking for payment (Price check card). */
+  priceReview?: boolean
   /** orders.payment_status (checkout and request orders). Paid / refunded
    *  orders can't be deleted — they're cancelled & refunded instead. */
   paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded' | null

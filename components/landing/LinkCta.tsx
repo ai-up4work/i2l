@@ -60,7 +60,7 @@ export default function LinkCTA() {
             </div>
             <div>
               <p className="font-body text-[11px] font-semibold uppercase tracking-[0.2em] text-gold">
-                Customs declaration
+                Buy from any store
               </p>
               <h2 className="mt-2 font-display text-2xl text-ink sm:text-3xl">Have a product link?</h2>
               <p className="mt-1 font-body text-sm text-ink/60">Paste it here and start your request.</p>

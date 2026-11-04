@@ -184,8 +184,7 @@ export default function TermsPage() {
           body: (
             <p>
               International shipments may be subject to import duties, taxes, and customs
-              clearance procedures in Sri Lanka, as set out in our <a href="/taxation">Taxation</a>{' '}
-              page. You are responsible for ensuring the items you request are lawful to import.
+              clearance procedures in Sri Lanka. You are responsible for ensuring the items you request are lawful to import.
               Wishdrop will not purchase, ship, or attempt to import any item on the{' '}
               <a href="/prohibited-items">Prohibited Items</a> list or any item that is otherwise
               illegal to import into Sri Lanka, and reserves the right to seize, surrender to

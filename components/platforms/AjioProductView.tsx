@@ -21,7 +21,6 @@ import {
   Flame,
   Zap,
 } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -30,6 +29,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_BRAND_LINE, PDP_LABEL, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the same structural layout as
@@ -80,14 +80,11 @@ import PdpInfoTabs from './PdpInfoTabs'
 const AJIO_INK = '#2C4152'
 const AJIO_ORANGE = '#E86B2D'
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 function fmtDate(iso: string | null | undefined): string | null {
@@ -553,8 +550,8 @@ export default function AjioProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
 
   // Prefer computing the live percentage off price/mrp; fall back to the
   // extractor-provided `discountPercentage`.
@@ -609,9 +606,9 @@ export default function AjioProductView({
         <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-[#e6e6e6] bg-[#fafafa] px-4 py-3">
           <PackageX size={16} className="mt-0.5 flex-none" style={{ color: AJIO_ORANGE }} strokeWidth={1.8} />
           <div>
-            <p className="text-xs font-bold text-[#2c4152]">Listing appears unavailable</p>
+            <p className="text-xs font-bold text-[#2c4152]">Sold out on Ajio</p>
             <p className="mt-0.5 text-xs leading-relaxed text-[#767676]">
-              No &quot;Add to Bag&quot; button was found and sold-out copy was detected on the page.
+              Ajio isn’t selling this right now. Try another colour or size, or check back later.
             </p>
           </div>
         </div>
@@ -690,7 +687,7 @@ export default function AjioProductView({
               </span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-[#8a8a8a]">Inclusive of all taxes</p>
+          <LandedPriceDetails result={result} />
 
 
           {optionEntries.length > 0 && (

@@ -9,6 +9,7 @@ import {
   fetchShopifyPlusCollections,
   isKnownShopifyPlusStore,
 } from './shopify-plus';
+import { timedFetch as fetch } from './timed-fetch';
 
 const CACHE_SECONDS = 60 * 60 * 24; // 24 hours
 const HEADERS = {
@@ -780,21 +781,31 @@ export async function fetchShopifyProduct(
 
   let restResult: StoreProduct | null = null;
   let restThrew = false;
+  let restError: unknown = null;
   try {
     restResult = await fetchShopifyProductRest(platform, config, storeName, handle);
-  } catch {
+  } catch (err) {
     restThrew = true;
+    restError = err;
   }
 
   if (restResult) return restResult;
+
+  // The store didn't answer at all (timed out): checking whether it's
+  // headless loads the same site with a browser, which would hang the
+  // same way. Give up here; the plain page fetch is still tried after.
+  const name = (restError as { name?: string } | null)?.name;
+  if (restThrew && (name === 'TimeoutError' || name === 'AbortError')) throw restError;
 
   // REST came back null/errored — check whether this is actually a
   // headless store before concluding "no such product".
   const plusConfig = await discoverShopifyPlusConfig(discoveryTargetUrl);
   if (!plusConfig) {
     // Confirmed not headless: a REST throw here is a real upstream
-    // error worth surfacing, not a silent null.
-    if (restThrew) return fetchShopifyProductRest(platform, config, storeName, handle);
+    // error worth surfacing, not a silent null. FIX: this used to call
+    // REST a second time (with its own retries) only to fail the same way
+    // — re-throw the first error instead.
+    if (restThrew) throw restError;
     return null; // genuine 404
   }
 

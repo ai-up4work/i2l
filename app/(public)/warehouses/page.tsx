@@ -12,7 +12,7 @@ export const metadata = pageMetadata({
 const facilities = [
   { region: 'India — National hub', role: 'Primary receiving & quality-check facility for affiliated Indian sellers.' },
   { region: 'India — Regional partner sites', role: 'Additional receiving points used to reduce seller-side domestic shipping time.' },
-  { region: 'Sri Lanka — Clearance & last-mile', role: 'Where consolidated shipments clear customs before handoff to local delivery.' },
+  { region: 'Sri Lanka — Arrival & last-mile', role: 'Where shipments arrive and are sorted for delivery to your door.' },
 ]
 
 const steps = [

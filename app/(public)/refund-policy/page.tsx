@@ -68,7 +68,7 @@ export default function RefundPolicyPage() {
                 <li>
                   <strong>Our Role:</strong> Wishdrop acts as your purchasing and logistics
                   partner. We only assist you with purchasing the item, managing international
-                  shipping, handling customs clearance, and delivering it safely to your
+                  shipping, handling the import, and delivering it safely to your
                   doorstep.
                 </li>
               </ul>

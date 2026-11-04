@@ -19,8 +19,8 @@ type Notice = {
 const notices: Notice[] = [
   {
     date: '10 Sep 2026',
-    title: 'Customs processing running slightly longer than usual',
-    text: 'Sri Lanka Customs is currently experiencing higher-than-normal clearance volumes. Shipments already in transit may take a few extra days beyond the estimate shown on your order. No action is needed on your part.',
+    title: 'Import processing running slightly longer than usual',
+    text: 'Import processing in Sri Lanka is currently busier than usual. Shipments already in transit may take a few extra days beyond the estimate shown on your order. No action is needed on your part.',
     level: 'warning',
   },
   {
@@ -52,7 +52,7 @@ export default function ServiceNoticesPage() {
         eyebrow="Service notices"
         title="Updates &"
         accent="service alerts."
-        intro="Anything that could affect your order timeline — facility updates, customs delays or platform changes — is posted here first."
+        intro="Anything that could affect your order timeline — facility updates, shipping delays or platform changes — is posted here first."
         width="narrow"
       />
 

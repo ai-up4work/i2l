@@ -152,19 +152,34 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
     )
   }
   const ids = live.map((o) => o.displayId).join(', ')
+  // Every order's final price is confirmed by our team before payment
+  // (Admin → order → Price check). Until then there's nothing to pay.
+  const confirming = checkout.needsPriceReview && !paid
   const waText = paid
     ? `Hi Wishdrop, I have a question about my order ${ids}.`
-    : `Hi Wishdrop, I just placed order ${ids} (${lkr(checkout.totalLKR)}). Please send me the payment details.`
+    : confirming
+      ? `Hi Wishdrop, I just placed order ${ids}. Please let me know the final price.`
+      : `Hi Wishdrop, my order ${ids} is confirmed at ${lkr(checkout.totalLKR)}. Please send me the payment details.`
   const wa = buildWhatsAppLink(null, waText)
 
   const steps = [
-    { icon: Check, title: 'Order placed', text: 'We’ve got your order and your prices are locked in.', done: true },
+    { icon: Check, title: 'Order placed', text: 'We’ve got your order.', done: true },
+    {
+      icon: ShieldCheck,
+      title: confirming ? 'We confirm your final price' : 'Final price confirmed',
+      text: confirming
+        ? 'Our team checks every item with the store — price, weight and stock — and messages you the final total.'
+        : `Your final total is ${lkr(checkout.totalLKR)}.`,
+      done: !confirming,
+    },
     {
       icon: Wallet,
       title: paid ? 'Payment received' : 'Pay on WhatsApp',
       text: paid
         ? `Thank you — received ${checkout.paidAt ? new Date(checkout.paidAt).toLocaleDateString('en-LK', { day: 'numeric', month: 'short' }) : ''}.`
-        : 'We’ll send payment details to your WhatsApp. Pay by bank transfer and send us the slip.',
+        : confirming
+          ? 'Once your price is confirmed, we send payment details to your WhatsApp. Please don’t pay before that.'
+          : 'We’ll send payment details to your WhatsApp. Pay by bank transfer and send us the slip.',
       done: paid,
     },
     { icon: PackageCheck, title: 'We buy, check & ship', text: 'We buy your items, quality-check them and send them to your door.', done: false },
@@ -190,7 +205,9 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink/60 sm:text-[15px]">
             {paid
               ? 'We’re buying your items now. You’ll get updates in My orders and on WhatsApp.'
-              : 'One last step: we’ll send payment details to your WhatsApp. Your order starts as soon as it’s paid.'}
+              : confirming
+                ? 'We’re confirming your final price with the store. We’ll message you the total and payment details — please don’t pay before that.'
+                : 'Your final price is confirmed. We’ll send payment details to your WhatsApp; your order starts as soon as it’s paid.'}
           </p>
           <p className="mt-4 inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-ink/50">
             {live.map((o) => (
@@ -207,7 +224,7 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
               className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-bold text-white shadow-[0_10px_24px_-12px_rgba(37,211,102,0.8)] transition-colors hover:bg-[#1ebe5d] sm:w-auto"
             >
               <MessageCircle size={17} />
-              {paid ? 'Message us on WhatsApp' : 'Get payment details on WhatsApp'}
+              {paid || confirming ? 'Message us on WhatsApp' : 'Get payment details on WhatsApp'}
             </a>
             <Link
               href="/account/orders"
@@ -258,7 +275,7 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
                 }`}
               >
                 {paid ? <Check size={12} strokeWidth={3} /> : <Clock size={12} />}
-                {paid ? 'Paid' : 'Awaiting payment'}
+                {paid ? 'Paid' : confirming ? 'Confirming price' : 'Awaiting payment'}
               </span>
             </div>
             <div className="mt-5 space-y-2">
@@ -283,13 +300,12 @@ export default function OrderPlacedPage({ params }: { params: Promise<{ checkout
               </div>
             )}
             <div className="mt-4 flex items-baseline justify-between border-t border-dashed border-ink/15 pt-4">
-              <span className="text-sm font-semibold text-ink">{paid ? 'Total paid' : 'Total to pay'}</span>
+              <span className="text-sm font-semibold text-ink">{paid ? 'Total paid' : confirming ? 'Estimated total' : 'Total to pay'}</span>
               <span className="font-display text-2xl font-semibold tabular-nums text-indigo">{lkr(checkout.totalLKR)}</span>
             </div>
-            {checkout.needsPriceReview && !paid && (
+            {confirming && (
               <p className="mt-4 text-xs leading-relaxed text-ink/50">
-                We’ll double-check a price or two with the store before sending payment details — if anything changes,
-                we’ll tell you first.
+                This can still change: we check the store’s price, the weight and stock first, then tell you the final total.
               </p>
             )}
             <p className="mt-5 flex items-start gap-2 text-xs text-ink/45">

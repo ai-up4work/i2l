@@ -287,7 +287,7 @@ export default function OrderPaymentCard({
       {data.needsPriceReview && (
         <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-gold/10 px-3 py-2 text-xs text-gold-deep ring-1 ring-gold/25">
           <AlertTriangle size={13} className="mt-0.5 flex-none" />
-          Some prices couldn’t be confirmed from the store. Check them before asking for payment.
+          Final price not confirmed yet. Use Price check above — payment can’t be requested or recorded until then.
         </p>
       )}
 
@@ -356,7 +356,14 @@ export default function OrderPaymentCard({
                 {details || 'Add your bank details once — they’re saved on this device and added to every payment request.'}
               </p>
             )}
-            {wa ? (
+            {data.needsPriceReview ? (
+              // Asking for money before the weight/price is confirmed is how a
+              // wrong weight category ends up paid for. Price check first.
+              <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-gold/10 px-3 py-2.5 text-xs font-semibold text-gold-deep ring-1 ring-gold/25">
+                <AlertTriangle size={13} className="mt-0.5 flex-none" />
+                Confirm the final price in Price check above first. The customer is told the total; then you can send the payment request and record the payment.
+              </p>
+            ) : wa ? (
               <a
                 href={`https://wa.me/${wa}?text=${encodeURIComponent(message)}`}
                 target="_blank"
@@ -370,8 +377,8 @@ export default function OrderPaymentCard({
             )}
           </div>
 
-          {/* Record the payment */}
-          {marking ? (
+          {/* Record the payment — only once the final price is confirmed. */}
+          {data.needsPriceReview ? null : marking ? (
             <form
               onSubmit={async (e) => {
                 e.preventDefault()
@@ -402,6 +409,7 @@ export default function OrderPaymentCard({
                 <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Paid by her brother" className={`${FIELD} mt-1`} />
               </label>
               <p className="text-[11px] text-ink/45">Records {lkr(data.totalLKR)} as received for {ids}.</p>
+
               <div className="flex gap-2 pt-1">
                 <button type="button" onClick={() => setMarking(false)} className="flex-1 rounded-xl border border-ink/15 px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-ink/[0.04]">
                   Cancel

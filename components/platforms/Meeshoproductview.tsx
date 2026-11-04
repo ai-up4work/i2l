@@ -27,7 +27,6 @@ const MEESHO: PlatformTheme = {
   stock: '#038D63',
   primary: { label: 'ADD TO CART', color: '#9F2089', icon: 'cart' },
   quote: { color: '#F43397' },
-  priceNote: 'Inclusive of all taxes',
 }
 
 export default function MeeshoProductView(props: PlatformViewProps) {

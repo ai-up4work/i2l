@@ -32,6 +32,7 @@ import type { ProviderFetchParams, ProviderFetchResult } from './types';
 import { applySort, detectGender, stripHtml } from './types';
 import type { ShopifyCollectionSummary } from './shopify';
 import { fetchRendered } from '@/lib/scrape/browser-fetch';
+import { timedFetch as fetch } from './timed-fetch';
 
 const DEFAULT_API_VERSION = '2026-04'; // keep in step with shopify.ts's REST version where practical
 const DISCOVERY_TIMEOUT_MS = 20_000;
@@ -79,6 +80,14 @@ interface CacheEntry {
 }
 
 const discoveryCache = new Map<string, CacheEntry>();
+
+// FIX: a failed discovery was never remembered, so every lookup of a
+// store that isn't headless — or blocks our headless browser — paid for
+// the whole slow check again (page fetch + up to two headless renders).
+// Remember "nothing found" per store for a while and skip straight past.
+const NEGATIVE_CACHE_SECONDS = Number(process.env.SHOPIFY_PLUS_NEGATIVE_CACHE_SECONDS) || 6 * 60 * 60;
+const notHeadless = new Map<string, number>();
+const STATIC_DISCOVERY_TIMEOUT_MS = 8_000;
 
 function cacheKey(domain: string): string {
   return domain.toLowerCase().replace(/^www\./, '');
@@ -255,6 +264,9 @@ export async function discoverShopifyPlusConfig(
   const origin = new URL(targetUrl).origin;
   const cached = getCachedConfig(origin);
   if (cached) return cached;
+  const missUntil = notHeadless.get(cacheKey(origin));
+  if (missUntil && missUntil > Date.now()) return null;
+  const startedAt = Date.now();
 
   const apiVersion = opts.apiVersion ?? DEFAULT_API_VERSION;
   const timeoutMs = opts.timeoutMs ?? DISCOVERY_TIMEOUT_MS;
@@ -262,7 +274,8 @@ export async function discoverShopifyPlusConfig(
   let resolved: { myshopifyDomain: string; storefrontToken: string } | null = null;
 
   try {
-    const res = await fetch(targetUrl, { headers: HEADERS, cache: 'no-store' });
+    // Was unlimited: a store that never answered held the lookup open.
+    const res = await fetch(targetUrl, { headers: HEADERS, cache: 'no-store', signal: AbortSignal.timeout(STATIC_DISCOVERY_TIMEOUT_MS) });
     if (res.ok) {
       const html = await res.text();
       resolved = tryStaticDiscovery(html);
@@ -277,11 +290,17 @@ export async function discoverShopifyPlusConfig(
 
   // Second attempt against the bare origin, only if the target page
   // wasn't already the origin (avoid a pointless duplicate render).
-  if (!resolved && targetUrl !== origin && `${targetUrl}/` !== origin) {
+  // Only when the first render was quick (e.g. the page simply had no
+  // Storefront call): if it ran to its time limit, a second one would too.
+  if (!resolved && targetUrl !== origin && `${targetUrl}/` !== origin && Date.now() - startedAt < timeoutMs / 2) {
     resolved = await discoverViaHeadlessBrowser(origin, timeoutMs);
   }
 
-  if (!resolved) return null;
+  if (!resolved) {
+    notHeadless.set(cacheKey(origin), Date.now() + NEGATIVE_CACHE_SECONDS * 1000);
+    if (notHeadless.size > 500) notHeadless.delete(notHeadless.keys().next().value as string);
+    return null;
+  }
 
   const config: ShopifyPlusConfig = {
     type: 'shopify-plus',
@@ -814,4 +833,4 @@ export async function fetchShopifyPlusCollections(config: ShopifyPlusConfig): Pr
  */
 export function isKnownShopifyPlusStore(originUrl: string): boolean {
   return getCachedConfig(new URL(originUrl).origin) != null;
-}
+}

@@ -1,127 +1,145 @@
-// app/demo/scraper-qa/ScraperQaClient.tsx
+// app/demo/scraper-qa/Scraperqaclient.tsx
+//
+// Scraper QA — runs a link through the EXACT customer item-screen flow.
+//
+// The old page had its own copies of every platform view, its own fetch
+// (320 s timeout, no retry, no preview, no fallback) and always skipped the
+// cache, so "works on QA" didn't mean "works for customers". This page
+// instead mounts the real pieces:
+//
+//   DashboardProvider   beginRequestForUrl → quick preview (/api/og-lookup)
+//                       + useProductLookup (same retry, waits, time limits,
+//                       preview fallback, store redirect)
+//   ProductRequestOverlay → the real ItemInfoModal and platform views
+//
+// So the screen, the outcome and the time taken are what a customer gets.
+// The only differences, all opt-in:
+//   - "Skip cache" adds fresh=1 (staff only): a real read, not the 1-hour
+//     cached copy, so timing is honest for a link pasted for the first time.
+//   - Add to cart / wishlist / chat request are logged instead of done, so
+//     testing doesn't fill your real cart or create requests.
+//   - A store redirect is shown instead of followed.
+//
+// Network timing comes from watching the page's own requests (window.fetch
+// is wrapped, read-only, while a run is active) — nothing in the flow is
+// changed to measure it.
+//
+// Saved links: table scraper_qa_links via /api/admin/scraper-qa/links
+// (data/wishdrop-scraper-qa-links.sql). Until that's run, links are kept in
+// this browser.
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import Image from 'next/image'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertTriangle,
+  Bookmark,
+  BookmarkCheck,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Clipboard,
   ExternalLink,
   Loader2,
-  Star,
-  AlertTriangle,
-  XCircle,
-  Zap,
-  CheckCircle2,
-  Circle,
-  MessageSquare,
-  Flag,
-  ThumbsUp,
-  ThumbsDown,
-  PackageX,
+  Play,
   Search,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
   X,
-  Clock,
-  RotateCcw,
-  Copy,
-  Check,
-  Tag,
 } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
-import { SITE_LOGOS } from '@/lib/platform-logos'
-// Test cases now arrive as a prop (static marketplaces + DB sellers, built
-// server-side in page.tsx). SITE_LOGOS_SQUARE is only used for the live
-// logo in the URL bar, where no preset (and so no `logo`) exists yet.
-import { SITE_LOGOS_SQUARE, type ScraperTestLink as PresetLink } from '@/data/stores/demo'
+import { DashboardProvider, useDashboard } from '@/contexts/DashboardContext'
+import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
+import type { ItemSandboxAction } from '@/components/dashboard/ItemInfoModal'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
-import AmazonProductView from './platforms/AmazonProductView'
-import FlipkartProductView from './platforms/FlipkartProductView'
-import MeeshoProductView from './platforms/Meeshoproductview'
-import MyntraProductView from './platforms/MyntraProductView'
-import EbayProductView from './platforms/EbayProductView'
-import AjioProductView from './platforms/AjioProductView'
-import JioMartProductView from './platforms/JioMartProductView'
-import SnapdealProductView from './platforms/SnapdealProductView'
-import ShopifyProductView from './platforms/Shopifyproductview'
-import WooCommerceProductView from './platforms/Woocommerceproductview'
-import FirstCryProductView from './platforms/FirstCryProductView'
-import NykaaProductView from './platforms/NykaaProductView'
-import HopscotchProductView from './platforms/HopscotchProductView'
-import TataCliqProductView from './platforms/TataCliqProductView'
-import AliExpressProductView from './platforms/AliExpressProductView'
+import type { ScraperTestLink as PresetLink } from '@/data/stores/demo'
 
-// ---------------------------------------------------------------------
-// Site helpers (client-safe)
-//
-// parsers.ts's detectSite() can't be imported here — it pulls cheerio,
-// Playwright and every extractor into the client bundle. This is a small
-// hostname-only mirror of its SITE_HOST_MAP, used ONLY to pick a logo and
-// a display name for a URL before/without a scrape result. Keep the
-// needles in sync with SITE_HOST_MAP when a platform is added.
-// ---------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-const HOST_NEEDLES: Array<[string, string]> = [
-  ['amazon', 'amazon'],
-  ['flipkart', 'flipkart'],
-  ['meesho', 'meesho'],
-  ['myntra', 'myntra'],
-  ['ebay', 'ebay'],
-  ['ajio', 'ajio'],
-  ['snapdeal', 'snapdeal'],
-  ['jiomart', 'jiomart'],
-  ['firstcry', 'firstcry'],
-  ['nykaa', 'nykaa'],
-  ['hopscotch', 'hopscotch'],
-  ['tatacliq', 'tatacliq'],
-  ['aliexpress', 'aliexpress'],
-  ['westside', 'westside'],
-  ['boat-lifestyle', 'boat'],
-  ['seleqt', 'seleqt'],
-]
+type Outcome = 'product' | 'needs_check' | 'unreadable' | 'redirect'
+type Verdict = 'untested' | 'pass' | 'fail'
 
-const SITE_NAMES: Record<string, string> = {
-  amazon: 'Amazon',
-  flipkart: 'Flipkart',
-  meesho: 'Meesho',
-  myntra: 'Myntra',
-  ebay: 'eBay',
-  ajio: 'Ajio',
-  snapdeal: 'Snapdeal',
-  jiomart: 'JioMart',
-  firstcry: 'FirstCry',
-  nykaa: 'Nykaa',
-  hopscotch: 'Hopscotch',
-  tatacliq: 'Tata CLiQ',
-  aliexpress: 'AliExpress',
-  westside: 'Westside',
-  boat: 'boAt Lifestyle',
-  seleqt: 'Seleqt',
-  shopify: 'Shopify store',
-  woocommerce: 'WooCommerce store',
-  generic: 'Unrecognised site',
+type SavedLink = {
+  id: string
+  url: string
+  label: string | null
+  note: string | null
+  status: Verdict
+  last_outcome: Outcome | null
+  last_ms: number | null
+  last_site: string | null
+  last_title: string | null
+  last_price: string | null
+  last_error: string | null
+  last_fresh: boolean | null
+  last_run_at: string | null
 }
 
-/** Lowercased logo/name key for a URL, or null when nothing matches. */
-function siteKeyForUrl(url: string): string | null {
-  let u: URL
-  try {
-    u = new URL(url)
-  } catch {
-    return null
-  }
-  const host = u.hostname.toLowerCase()
-  for (const [needle, key] of HOST_NEEDLES) if (host.includes(needle)) return key
-  if (/\/products\/[^/?#]+/i.test(u.pathname)) return 'shopify'
-  if (/\/product\/[^/?#]+\/?$/i.test(u.pathname)) return 'woocommerce'
-  return null
+type NetEvent = {
+  id: number
+  kind: 'lookup' | 'preview' | 'other'
+  path: string
+  startMs: number
+  endMs: number | null
+  status: number | null
+  summary: string | null
 }
 
-/** ScrapeResult['site'] -> the lowercase key SITE_LOGOS/SITE_NAMES use
- * ('tataCliq' and 'Aliexpress' are mixed-case in the SiteId union). */
-function normalizeSite(site: string | null | undefined): string | null {
-  return site ? site.toLowerCase() : null
+type LogEvent = { atMs: number; text: string; tone?: 'info' | 'warn' | 'good' }
+
+type Run = {
+  url: string
+  startedAt: number
+  fresh: boolean
+  sawLoading: boolean
+  firstContentMs: number | null
+  doneMs: number | null
+  outcome: Outcome | null
+  redirect: string | null
+  result: ScrapeResult | null
 }
 
-function hostnameOf(url: string): string {
+const OUTCOME_LABEL: Record<Outcome, string> = {
+  product: 'Product page',
+  needs_check: 'Partial — chat screen',
+  unreadable: 'Couldn’t load — chat screen',
+  redirect: 'Our store page',
+}
+const OUTCOME_TONE: Record<Outcome, string> = {
+  product: 'bg-teal/10 text-teal-deep ring-teal/25',
+  needs_check: 'bg-gold/15 text-gold-deep ring-gold/30',
+  unreadable: 'bg-rose-50 text-rose-700 ring-rose-200',
+  redirect: 'bg-indigo/10 text-indigo ring-indigo/20',
+}
+const OUTCOME_HELP: Record<Outcome, string> = {
+  product: 'The customer sees the product with a price and can add it to the cart.',
+  needs_check: 'Name/photo only — the customer is asked to chat so the team confirms price and options.',
+  unreadable: 'Nothing usable — the customer gets “We couldn’t load this listing” and the chat button.',
+  redirect: 'This link is one of our own stores — the customer is taken to our store page.',
+}
+
+// Sites with their own product view in ItemInfoModal (anything else falls
+// to the generic chat view even with a price). Keep in step with its switch.
+const BRANDED_SITES = new Set([
+  'amazon', 'flipkart', 'meesho', 'myntra', 'ebay', 'ajio', 'jiomart', 'snapdeal', 'firstcry', 'tatacliq',
+  'nykaa', 'hopscotch', 'westside', 'shopify', 'boat', 'woocommerce', 'seleqt', 'lenskart', 'croma',
+])
+
+/** What ItemInfoModal shows for this result — same rules as that file. */
+function outcomeOf(r: ScrapeResult | null): Outcome {
+  if (!r) return 'unreadable'
+  if (r.internalRedirect) return 'redirect'
+  const hasPrice = r.price != null && String(r.price).trim() !== ''
+  if (r.error || (!r.title && !hasPrice && !r.images?.length)) return 'unreadable'
+  const price = Number(r.price)
+  if (r.ogOnly || !r.site || !BRANDED_SITES.has(r.site) || !(price > 0)) return 'needs_check'
+  return 'product'
+}
+
+const secs = (ms: number | null | undefined) => (ms == null ? '—' : `${(ms / 1000).toFixed(1)} s`)
+
+function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '')
   } catch {
@@ -129,1614 +147,728 @@ function hostnameOf(url: string): string {
   }
 }
 
-/** Brand tile: the platform's logo from SITE_LOGOS, or an initial when
- * no logo file exists for that key (e.g. aliexpress today). */
-function SiteLogo({ site, size = 'md' }: { site: string | null; size?: 'sm' | 'md' | 'lg' }) {
-  const src = site ? SITE_LOGOS[site] : undefined
-  const name = (site && SITE_NAMES[site]) || site || 'Unknown'
-  const box = size === 'lg' ? 'h-12 w-16' : size === 'sm' ? 'h-7 w-9' : 'h-9 w-12'
-  return (
-    <span
-      className={`relative grid flex-none place-items-center overflow-hidden rounded-lg border border-ink/10 bg-white ${box}`}
-    >
-      {src ? (
-        <Image src={src} alt={name} fill sizes="64px" className="object-contain p-1" />
-      ) : (
-        <span className="text-xs font-bold text-ink/35">{name.slice(0, 1).toUpperCase()}</span>
-      )}
-    </span>
-  )
+function ago(iso: string | null): string {
+  if (!iso) return 'never run'
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
+  const h = Math.round(m / 60)
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`
 }
 
-/** Square brand tile. `src` wins when given (test-case rows pass the
- * store's own logo, which is how DB sellers get a logo at all); otherwise
- * falls back to the static SITE_LOGOS_SQUARE map by site key. */
-function SiteLogoSquared({
-  site,
-  src: srcProp,
-  label,
-  size = 'md',
-  className = '',
-}: {
-  site: string | null
-  src?: string
-  label?: string
-  size?: 'sm' | 'md' | 'lg'
-  className?: string
-}) {
-  const src = srcProp || (site ? SITE_LOGOS_SQUARE[site] : undefined)
-  const name = label || (site && SITE_NAMES[site]) || site || 'Unknown'
-  const box = size === 'lg' ? 'h-12 w-12' : size === 'sm' ? 'h-7 w-7' : 'h-9 w-9'
-  return (
-    <span
-      className={`relative grid flex-none place-items-center overflow-hidden bg-white ${box} ${className}`}
-    >
-      {src ? (
-        <Image src={src} alt={name} fill sizes="64px" className="object-contain" />
-      ) : (
-        <span className="text-xs font-bold text-ink/35">{name.slice(0, 1).toUpperCase()}</span>
-      )}
-    </span>
-  )
+function summarise(path: string, body: unknown, status: number): string {
+  if (!body || typeof body !== 'object') return status >= 400 ? `HTTP ${status} (not JSON — likely a platform timeout)` : 'no body'
+  const b = body as Record<string, unknown>
+  if (path.includes('/api/og-lookup')) {
+    return b.title || b.image ? `preview: ${b.title ? `“${String(b.title).slice(0, 60)}”` : 'no title'}${b.image ? ' + image' : ''}` : 'preview: nothing found'
+  }
+  if (b.internalRedirect) return `our store → ${b.internalRedirect}`
+  if (b.error) return `error: ${String(b.error).slice(0, 140)}`
+  const bits = [
+    b.site ? String(b.site) : null,
+    b.price ? `price ${b.currencyCode ?? ''} ${b.price}`.trim() : 'no price',
+    b.ogOnly ? 'preview only' : null,
+    b.cachedAt ? `cached ${String(b.cachedAt).slice(11, 16)}` : null,
+    b.stale ? 'older copy' : null,
+    b.source ? `via ${b.source}` : null,
+  ].filter(Boolean)
+  return bits.join(' · ')
 }
 
-// ---------- Fetch-tier labels ----------
-// `tone` flags cost: 'paid' = a metered fallback tier was needed, which is
-// exactly what a reviewer wants to notice when a platform "works".
-type ChipTone = 'neutral' | 'teal' | 'gold' | 'red'
+// ---------------------------------------------------------------------------
+// Saved links — server, or this browser until the table exists
+// ---------------------------------------------------------------------------
 
-const SOURCE_INFO: Record<NonNullable<ScrapeResult['source']>, { label: string; tone: ChipTone }> = {
-  direct: { label: 'Direct fetch', tone: 'neutral' },
-  shopify_api: { label: "Shopify's product API", tone: 'teal' },
-  woocommerce_api: { label: "WooCommerce's Store API", tone: 'teal' },
-  ebay_api: { label: "eBay's Browse API", tone: 'teal' },
-  parsebot: { label: 'Parse.bot API', tone: 'teal' },
-  scraperapi: { label: 'ScraperAPI proxy (paid)', tone: 'gold' },
-  scrapingdog: { label: 'Scrapingdog (paid)', tone: 'gold' },
-  scrape_do: { label: 'scrape.do (paid)', tone: 'gold' },
-  fingerprint_fetch: { label: 'TLS-fingerprint fetch', tone: 'gold' },
-}
+const LOCAL_KEY = 'wishdrop:scraper-qa:links'
 
-const CHIP_TONES: Record<ChipTone, string> = {
-  neutral: 'bg-ink/5 text-ink/60 ring-ink/10',
-  teal: 'bg-teal/10 text-teal-deep ring-teal/20',
-  gold: 'bg-gold/15 text-gold-deep ring-gold/30',
-  red: 'bg-red-50 text-red-600 ring-red-200',
-}
-
-function Chip({ tone = 'neutral', icon, children }: { tone?: ChipTone; icon?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${CHIP_TONES[tone]}`}
-    >
-      {icon}
-      {children}
-    </span>
-  )
-}
-
-// ---------- QA review state (per test case) ----------
-type TestStatus = 'untested' | 'pass' | 'fail'
-type StatusFilter = 'all' | TestStatus
-
-type CaseState = {
-  status: TestStatus
-  comment: string
-}
-
-const DEFAULT_CASE_STATE: CaseState = { status: 'untested', comment: '' }
-
-const REVIEW_STORAGE_KEY = 'scraper-qa-review-v1'
-
-function loadReviewState(): Record<string, CaseState> {
-  if (typeof window === 'undefined') return {}
+function readLocal(): SavedLink[] {
   try {
-    const raw = window.localStorage.getItem(REVIEW_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
+    const raw = window.localStorage.getItem(LOCAL_KEY)
+    return raw ? (JSON.parse(raw) as SavedLink[]) : []
   } catch {
-    return {}
+    return []
+  }
+}
+function writeLocal(links: SavedLink[]) {
+  try {
+    window.localStorage.setItem(LOCAL_KEY, JSON.stringify(links))
+  } catch {
+    // storage full / blocked — the list still works for this visit
   }
 }
 
-function Bar({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded bg-ink/10 ${className}`} />
-}
+function useSavedLinks() {
+  const [links, setLinks] = useState<SavedLink[]>([])
+  const [local, setLocal] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-function ProductSkeleton() {
-  return (
-    <div className="rounded-2xl border border-ink/10 bg-white p-5" aria-busy="true" aria-live="polite">
-      <div className="grid gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        {/* Image gallery skeleton */}
-        <div className="flex gap-3">
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Bar key={i} className="h-12 w-12 flex-none" />
-            ))}
-          </div>
-          <Bar className="aspect-square flex-1 rounded-lg" />
-        </div>
-
-        {/* Details skeleton */}
-        <div>
-          <Bar className="h-3 w-20 rounded-full" />
-          <Bar className="mt-3 h-5 w-4/5" />
-          <Bar className="mt-2 h-5 w-3/5" />
-          <Bar className="mt-3 h-4 w-32" />
-
-          <div className="mt-4 h-px w-full bg-ink/10" />
-
-          <Bar className="mt-4 h-7 w-28" />
-          <Bar className="mt-2 h-4 w-24" />
-
-          {/* Variant swatches row */}
-          <div className="mt-5">
-            <Bar className="h-3 w-16" />
-            <div className="mt-2 grid grid-cols-5 gap-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Bar key={i} className="aspect-square" />
-              ))}
-            </div>
-          </div>
-
-          {/* Size pill row */}
-          <div className="mt-4">
-            <Bar className="h-3 w-12" />
-            <div className="mt-2 flex flex-wrap gap-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Bar key={i} className="h-8 w-12 rounded-md" />
-              ))}
-            </div>
-          </div>
-
-          <Bar className="mt-4 h-5 w-20" />
-
-          <div className="mt-3 flex flex-col gap-2 sm:max-w-[220px]">
-            <Bar className="h-9 w-full rounded-full" />
-            <Bar className="h-9 w-full rounded-full" />
-          </div>
-
-          <Bar className="mt-4 h-3 w-40" />
-          <Bar className="mt-2 h-3 w-28" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** Sits above the skeleton while a scrape is in flight: which site, and a
- * live seconds counter — scrapes can take a minute or more once they fall
- * through to a paid fallback tier, and a silent skeleton looks hung. */
-function LoadingBanner({ url }: { url: string }) {
-  const [secs, setSecs] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => setSecs((s) => s + 1), 1000)
-    return () => clearInterval(t)
+    fetch('/api/admin/scraper-qa/links')
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body.error ?? 'Could not load saved links')
+        if (body.needsMigration) {
+          setLocal(true)
+          setLinks(readLocal())
+        } else setLinks(body.links as SavedLink[])
+      })
+      .catch((e: Error) => {
+        setError(e.message)
+        setLocal(true)
+        setLinks(readLocal())
+      })
+      .finally(() => setLoaded(true))
   }, [])
-  const site = siteKeyForUrl(url)
-  return (
-    <div className="mb-4 flex items-center gap-3 rounded-2xl border border-ink/10 bg-white px-4 py-3">
-      <SiteLogo site={site} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <Loader2 size={14} className="animate-spin text-teal-deep" />
-          Scraping {hostnameOf(url)}
-        </p>
-        <p className="mt-0.5 text-xs text-ink/45">
-          {secs >= 20
-            ? 'Taking a while — it has probably fallen through to a hosted fallback tier.'
-            : 'Fetching, then falling back tier by tier if the site blocks us.'}
-        </p>
-      </div>
-      <span className="inline-flex items-center gap-1 text-xs font-semibold tabular-nums text-ink/50">
-        <Clock size={12} />
-        {secs}s
-      </span>
-    </div>
+
+  const apply = useCallback(
+    (next: SavedLink[]) => {
+      setLinks(next)
+      if (local) writeLocal(next)
+    },
+    [local],
   )
-}
 
-function StatusIcon({ status }: { status: TestStatus }) {
-  if (status === 'pass') return <CheckCircle2 size={16} className="text-teal-deep" strokeWidth={2} />
-  if (status === 'fail') return <XCircle size={16} className="text-red-500" strokeWidth={2} />
-  return <Circle size={16} className="text-ink/25" strokeWidth={2} />
-}
-
-// ---------- User feedback on a live scrape result ----------
-type FeedbackVerdict = 'correct' | 'incorrect'
-
-type FeedbackEntry = {
-  verdict: FeedbackVerdict | null
-  comment: string
-  submitted: boolean
-}
-
-const DEFAULT_FEEDBACK_ENTRY: FeedbackEntry = { verdict: null, comment: '', submitted: false }
-
-const FEEDBACK_STORAGE_KEY = 'scraper-qa-feedback-v1'
-
-function loadFeedbackState(): Record<string, FeedbackEntry> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = window.localStorage.getItem(FEEDBACK_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-async function submitFeedback(payload: {
-  url: string
-  verdict: FeedbackVerdict
-  comment: string
-  result: ScrapeResult
-}) {
-  try {
-    await fetch('/api/product-lookup/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-  } catch {
-    // Best-effort only — the local copy in FEEDBACK_STORAGE_KEY is the
-    // source of truth for this session even if the network call fails.
-  }
-}
-
-function FeedbackBox({
-  entry,
-  onVerdict,
-  onComment,
-  onSubmit,
-}: {
-  entry: FeedbackEntry
-  onVerdict: (verdict: FeedbackVerdict) => void
-  onComment: (comment: string) => void
-  onSubmit: () => void
-}) {
-  return (
-    <section className="mt-6 rounded-2xl border border-ink/10 bg-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Flag size={14} className="text-ink/40" />
-          <p className="text-sm font-semibold text-ink">Is this result accurate?</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => onVerdict('correct')}
-            aria-pressed={entry.verdict === 'correct'}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ring-1 ring-inset transition-colors ${
-              entry.verdict === 'correct'
-                ? 'bg-teal/15 text-teal-deep ring-teal/40'
-                : 'bg-white text-ink/55 ring-ink/10 hover:text-teal-deep hover:ring-teal/30'
-            }`}
-          >
-            <ThumbsUp size={13} /> Looks right
-          </button>
-          <button
-            type="button"
-            onClick={() => onVerdict('incorrect')}
-            aria-pressed={entry.verdict === 'incorrect'}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ring-1 ring-inset transition-colors ${
-              entry.verdict === 'incorrect'
-                ? 'bg-red-50 text-red-600 ring-red-300'
-                : 'bg-white text-ink/55 ring-ink/10 hover:text-red-500 hover:ring-red-200'
-            }`}
-          >
-            <ThumbsDown size={13} /> Something&apos;s off
-          </button>
-        </div>
-      </div>
-
-      {entry.verdict && (
-        <div className="mt-3">
-          <textarea
-            value={entry.comment}
-            onChange={(e) => onComment(e.target.value)}
-            rows={2}
-            placeholder={
-              entry.verdict === 'incorrect'
-                ? 'What is wrong — price, sizes, images, availability…?'
-                : 'Optional note'
+  const save = useCallback(
+    async (url: string, label?: string | null, run?: Record<string, unknown>): Promise<SavedLink | null> => {
+      if (local) {
+        const existing = links.find((l) => l.url === url)
+        const row: SavedLink = existing
+          ? { ...existing, label: label ?? existing.label }
+          : {
+              id: `local-${Date.now()}`,
+              url,
+              label: label ?? null,
+              note: null,
+              status: 'untested',
+              last_outcome: null,
+              last_ms: null,
+              last_site: null,
+              last_title: null,
+              last_price: null,
+              last_error: null,
+              last_fresh: null,
+              last_run_at: null,
             }
-            className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-xs text-ink outline-none placeholder:text-ink/35 focus:border-teal"
-          />
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-[11px] font-medium text-teal-deep">
-              {entry.submitted ? (
-                <span className="inline-flex items-center gap-1">
-                  <Check size={12} /> Saved — thanks
-                </span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={entry.submitted}
-              className="rounded-lg bg-teal px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-teal-deep disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Send feedback
-            </button>
-          </div>
-        </div>
-      )}
-    </section>
-  )
-}
-
-/** Small badge row for the variant options currently selected in the view. */
-function OptionsRow({ options }: { options: Record<string, string> | null | undefined }) {
-  if (!options || !Object.keys(options).length) return null
-  return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {Object.entries(options).map(([label, value]) => (
-        <span
-          key={label}
-          className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-[11px] font-semibold text-ink/60 ring-1 ring-inset ring-ink/10"
-        >
-          <span className="text-ink/40">{label}:</span> {value}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-/** Renders 1–5 filled/outline stars from the scraper's raw rating string. */
-function RatingStars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
-  const value = rating ? parseFloat(rating) : NaN
-  if (Number.isNaN(value)) return null
-  const rounded = Math.round(value)
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Star
-            key={i}
-            size={13}
-            className={i < rounded ? 'fill-gold-deep text-gold-deep' : 'fill-transparent text-ink/20'}
-            strokeWidth={1.5}
-          />
-        ))}
-      </span>
-      <span className="text-xs font-semibold text-ink/60">
-        {value.toFixed(1)}
-        {count && <span className="font-normal text-ink/40"> ({count})</span>}
-      </span>
-    </span>
-  )
-}
-
-/** Simple thumbnail strip + main image. */
-function ImageStrip({ images, alt }: { images: string[]; alt: string }) {
-  if (!images.length) {
-    return (
-      <div className="grid aspect-square place-items-center rounded-2xl border border-dashed border-ink/15 bg-card text-xs font-medium text-ink/35">
-        No images found
-      </div>
-    )
-  }
-  const [main, ...rest] = images
-  return (
-    <div>
-      <div className="aspect-square overflow-hidden rounded-2xl border border-ink/10 bg-card">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={main} alt={alt} className="h-full w-full object-contain" />
-      </div>
-      {rest.length > 0 && (
-        <div className="mt-2 grid grid-cols-5 gap-2">
-          {rest.slice(0, 9).map((src) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={src}
-              src={src}
-              alt=""
-              className="aspect-square rounded-lg border border-ink/10 bg-card object-contain"
-            />
-          ))}
-        </div>
-      )}
-      <p className="mt-2 text-[10px] font-medium text-ink/35">{images.length} image{images.length === 1 ? '' : 's'} found</p>
-    </div>
-  )
-}
-
-function fmtPrice(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
-}
-
-/** Amazon-style clickable variant grid — each tile shows the option's
- * thumbnail, label, and price (when the scraper found one). Clicking a
- * non-selected tile re-runs the scrape against THAT variant's own URL,
- * same as clicking a swatch on Amazon itself — a full live re-fetch, not
- * a local price swap. Tiles with no resolvable link are shown but
- * disabled rather than silently omitted, so a reviewer can see the
- * extractor found the option even if it couldn't find a link for it.
- * Tiles the extractor flagged `outOfStock` are likewise disabled,
- * desaturated, and labeled distinctly from a merely-linkless tile, so a
- * reviewer can tell "this option is genuinely sold out" apart from "the
- * scraper just didn't find a URL".
- *
- * Only used by the last-resort fallback below (a `site` with no
- * dedicated view here). Every platform routed in renderPlatformView()
- * has its own view under ./platforms instead. */
-function VariantPicker({
-  variants,
-  onSelect,
-}: {
-  variants: NonNullable<ScrapeResult['variants']>
-  onSelect: (url: string) => void
-}) {
-  return (
-    <div className="mt-4 flex flex-col gap-3">
-      {variants.map((dim) => (
-        <div key={dim.dimension}>
-          <p className="mb-1.5 text-xs font-semibold text-ink/50">{dim.dimension}</p>
-          <div className="flex flex-wrap gap-2">
-            {dim.options.map((opt) => {
-              const priceLabel = fmtPrice(opt.price, opt.currencyCode)
-              const clickable = !!opt.url && !opt.selected && !opt.outOfStock
-              return (
-                <button
-                  key={opt.label}
-                  type="button"
-                  disabled={!clickable}
-                  onClick={() => opt.url && onSelect(opt.url)}
-                  title={
-                    opt.outOfStock
-                      ? 'Out of stock'
-                      : opt.url
-                        ? undefined
-                        : 'No direct link found for this option'
-                  }
-                  className={`flex flex-col items-center gap-1 rounded-xl border px-2.5 py-2 text-left transition-colors ${
-                    opt.selected
-                      ? 'border-teal bg-teal/10'
-                      : opt.outOfStock
-                        ? 'cursor-not-allowed border-ink/8 bg-card/50 opacity-40 grayscale'
-                        : clickable
-                          ? 'border-ink/12 bg-card hover:border-teal/50'
-                          : 'cursor-not-allowed border-ink/8 bg-card/50 opacity-50'
-                  }`}
-                >
-                  {opt.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={opt.image} alt={opt.label} className="h-10 w-10 rounded-md object-contain" />
-                  )}
-                  <span className="max-w-[80px] truncate text-[11px] font-semibold text-ink/75">
-                    {opt.label}
-                  </span>
-                  {opt.outOfStock ? (
-                    <span className="text-[9px] font-bold uppercase text-red-500">Out of stock</span>
-                  ) : (
-                    priceLabel && <span className="text-[10px] font-bold text-teal-deep">{priceLabel}</span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** Plain layout for a site with no dedicated view (e.g. westside, seleqt,
- * or a truly unrecognised store). */
-function GenericResult({
-  result,
-  siteKey,
-  onSelectVariant,
-}: {
-  result: ScrapeResult
-  siteKey: string | null
-  onSelectVariant: (url: string) => void
-}) {
-  return (
-    <div className="grid gap-8 rounded-2xl border border-ink/10 bg-white p-5 sm:grid-cols-2">
-      <ImageStrip images={result.images ?? []} alt={result.title ?? 'Product image'} />
-
-      <div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
-          <SiteLogo site={siteKey} size="sm" />
-          <span>{(siteKey && SITE_NAMES[siteKey]) ?? result.site ?? 'unknown'}</span>
-          {result.rating && (
-            <>
-              <span className="text-ink/20">·</span>
-              <RatingStars rating={result.rating} count={result.review_count} />
-            </>
-          )}
-        </div>
-
-        <h2 className="mt-2 font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
-          {result.title ?? <span className="italic text-ink/35">No title found</span>}
-        </h2>
-
-        {result.seller && <p className="mt-1 text-xs text-ink/45">Sold by {result.seller}</p>}
-        <OptionsRow options={result.options} />
-
-        <div className="mt-3 flex items-baseline gap-2">
-          <p className="text-2xl font-bold text-teal-deep">
-            {fmtPrice(result.price, result.currencyCode) ?? (
-              <span className="text-base font-semibold text-ink/35">No price found</span>
-            )}
-          </p>
-          {result.mrp && result.mrp !== result.price && (
-            <p className="text-sm font-semibold text-ink/40 line-through">
-              {fmtPrice(result.mrp, result.currencyCode)}
-            </p>
-          )}
-        </div>
-
-        {result.availability && (
-          <p className="mt-2 inline-block rounded-md bg-card px-2 py-0.5 text-[11px] font-semibold text-ink/55 ring-1 ring-inset ring-ink/10">
-            {result.availability}
-          </p>
-        )}
-
-        {result.variants && result.variants.length > 0 && (
-          <VariantPicker variants={result.variants} onSelect={onSelectVariant} />
-        )}
-
-        <a
-          href={result.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition-colors hover:text-ink"
-        >
-          Open original listing <ExternalLink size={12} />
-        </a>
-      </div>
-    </div>
-  )
-}
-
-// ---------- Result header + field coverage ----------
-
-type RunMeta = { ms: number; attempts: number }
-
-function CoverageStrip({ result }: { result: ScrapeResult }) {
-  const checks: { label: string; ok: boolean; detail?: string }[] = [
-    { label: 'Title', ok: !!result.title },
-    { label: 'Price', ok: result.price != null && result.price !== '' },
-    { label: 'MRP', ok: !!result.mrp },
-    {
-      label: 'Images',
-      ok: (result.images?.length ?? 0) > 0,
-      detail: result.images?.length ? String(result.images.length) : undefined,
+        const merged = run ? localRun(row, run) : row
+        apply([merged, ...links.filter((l) => l.url !== url)])
+        return merged
+      }
+      const res = await fetch('/api/admin/scraper-qa/links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, label, run }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(body.error ?? 'Could not save the link')
+        return null
+      }
+      const row = body.link as SavedLink
+      setLinks((prev) => [row, ...prev.filter((l) => l.url !== row.url)])
+      return row
     },
-    {
-      label: 'Variants',
-      ok: (result.variants?.length ?? 0) > 0,
-      detail: result.variants?.length
-        ? result.variants.map((d) => `${d.dimension} ×${d.options.length}`).join(', ')
-        : undefined,
+    [apply, links, local],
+  )
+
+  const patch = useCallback(
+    async (id: string, changes: { status?: Verdict; run?: Record<string, unknown>; note?: string | null }) => {
+      if (local) {
+        apply(links.map((l) => (l.id !== id ? l : localRun({ ...l, ...(changes.status ? { status: changes.status } : {}), ...(changes.note !== undefined ? { note: changes.note } : {}) }, changes.run))))
+        return
+      }
+      const res = await fetch('/api/admin/scraper-qa/links', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...changes }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) return setError(body.error ?? 'Could not update the link')
+      setLinks((prev) => prev.map((l) => (l.id === id ? (body.link as SavedLink) : l)))
     },
-    { label: 'Rating', ok: !!result.rating },
-    { label: 'Seller', ok: !!result.seller },
-  ]
-
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {checks.map((c) => (
-        <span
-          key={c.label}
-          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold ${
-            c.ok ? 'bg-teal/10 text-teal-deep' : 'bg-ink/5 text-ink/40'
-          }`}
-        >
-          {c.ok ? <Check size={11} strokeWidth={3} /> : <X size={11} strokeWidth={3} />}
-          {c.label}
-          {c.detail && <span className="font-medium opacity-70">· {c.detail}</span>}
-        </span>
-      ))}
-    </div>
+    [apply, links, local],
   )
-}
 
-function ResultHeader({
-  result,
-  meta,
-  selection,
-  isPreset,
-  caseStatus,
-  onSetStatus,
-  onRerun,
-}: {
-  result: ScrapeResult
-  meta: RunMeta | null
-  selection: Record<string, string>
-  isPreset: boolean
-  caseStatus: TestStatus
-  onSetStatus: (status: 'pass' | 'fail') => void
-  onRerun: () => void
-}) {
-  const key = normalizeSite(result.site)
-  const name = (key && SITE_NAMES[key]) ?? result.site ?? 'Unknown site'
-  const source = result.source ? SOURCE_INFO[result.source] : null
-  const selectionEntries = Object.entries(selection)
-
-  return (
-    <div className="mb-5 rounded-2xl border border-ink/10 bg-white p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <SiteLogo site={key} size="lg" />
-        <div className="min-w-0 flex-1">
-          <p className="font-display text-lg font-extrabold leading-tight text-ink">{name}</p>
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex max-w-full items-center gap-1 truncate text-xs text-ink/45 transition-colors hover:text-ink"
-          >
-            <span className="truncate">{hostnameOf(result.url)}</span>
-            <ExternalLink size={11} className="flex-none" />
-          </a>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={onRerun}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-ink/60 ring-1 ring-inset ring-ink/15 transition-colors hover:bg-ink/5 hover:text-ink"
-          >
-            <RotateCcw size={12} /> Re-run
-          </button>
-
-          {isPreset && (
-            <div className="inline-flex overflow-hidden rounded-lg ring-1 ring-inset ring-ink/15" role="group" aria-label="Mark test case">
-              <button
-                type="button"
-                onClick={() => onSetStatus('pass')}
-                aria-pressed={caseStatus === 'pass'}
-                className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold transition-colors ${
-                  caseStatus === 'pass' ? 'bg-teal text-white' : 'text-ink/55 hover:bg-teal/10 hover:text-teal-deep'
-                }`}
-              >
-                <CheckCircle2 size={12} /> Pass
-              </button>
-              <button
-                type="button"
-                onClick={() => onSetStatus('fail')}
-                aria-pressed={caseStatus === 'fail'}
-                className={`inline-flex items-center gap-1 border-l border-ink/15 px-3 py-1.5 text-xs font-bold transition-colors ${
-                  caseStatus === 'fail' ? 'bg-red-500 text-white' : 'text-ink/55 hover:bg-red-50 hover:text-red-500'
-                }`}
-              >
-                <XCircle size={12} /> Fail
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        {source && <Chip tone={source.tone}>{source.label}</Chip>}
-        {meta && (
-          <Chip icon={<Clock size={11} />}>
-            {(meta.ms / 1000).toFixed(1)}s{meta.attempts > 1 ? ' · retried once' : ''}
-          </Chip>
-        )}
-        {result.ogOnly && <Chip tone="gold">OG tags only — no variants / MRP / rating</Chip>}
-        {result.unavailable && (
-          <Chip tone="red" icon={<PackageX size={11} />}>
-            Unavailable
-          </Chip>
-        )}
-        {selectionEntries.length > 0 && (
-          <Chip tone="teal" icon={<Tag size={11} />}>
-            Selected in view: {selectionEntries.map(([k, v]) => `${k} ${v}`).join(' · ')}
-          </Chip>
-        )}
-      </div>
-
-      <div className="mt-3 border-t border-ink/10 pt-3">
-        <CoverageStrip result={result} />
-      </div>
-    </div>
+  const remove = useCallback(
+    async (id: string) => {
+      if (!local) {
+        const res = await fetch(`/api/admin/scraper-qa/links?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+        if (!res.ok) return setError('Could not delete the link')
+      }
+      apply(links.filter((l) => l.id !== id))
+    },
+    [apply, links, local],
   )
+
+  return { links, local, loaded, error, setError, save, patch, remove }
 }
 
-function errorHint(message: string): string | null {
-  if (/403|cloudflare|attention required|BLOCKED|captcha/i.test(message)) {
-    return 'The site blocked the request. Datacenter IPs are often refused — check that the hosted-render fallback (scrape.do / Scrapingdog) is configured for this platform.'
+function localRun(row: SavedLink, run?: Record<string, unknown>): SavedLink {
+  if (!run) return row
+  return {
+    ...row,
+    last_outcome: (run.outcome as Outcome) ?? null,
+    last_ms: typeof run.ms === 'number' ? Math.round(run.ms) : null,
+    last_site: (run.site as string) ?? null,
+    last_title: (run.title as string) ?? null,
+    last_price: (run.price as string) ?? null,
+    last_error: (run.error as string) ?? null,
+    last_fresh: run.fresh === true,
+    last_run_at: new Date().toISOString(),
   }
-  if (/timed out|timeout/i.test(message)) {
-    return 'The site, or a fallback tier, took too long. Re-run once — first calls to a fallback can be slow.'
-  }
-  if (/JS_SHELL/i.test(message)) {
-    return 'The page only fills in after JavaScript runs, and no rendering tier produced real markup.'
-  }
-  return null
 }
 
-function ErrorCard({ title, message, onRetry }: { title: string; message: string; onRetry?: () => void }) {
-  const hint = errorHint(message)
-  return (
-    <div className="flex items-start gap-2.5 rounded-2xl border border-red-300/40 bg-red-50 p-5">
-      <XCircle size={18} className="mt-0.5 flex-none text-red-500" strokeWidth={1.8} />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-ink">{title}</p>
-        <p className="mt-1 break-words text-xs text-ink/60">{message}</p>
-        {hint && <p className="mt-2 text-xs font-medium text-ink/70">{hint}</p>}
-        {onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-ink/70 ring-1 ring-inset ring-red-200 transition-colors hover:text-ink"
-          >
-            <RotateCcw size={12} /> Try again
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function CopyJsonButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard unavailable — the JSON is still selectable by hand.
-    }
-  }
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold text-ink/50 ring-1 ring-inset ring-ink/15 transition-colors hover:text-ink"
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? 'Copied' : 'Copy JSON'}
-    </button>
-  )
-}
-
-const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'untested', label: 'Untested' },
-  { key: 'pass', label: 'Passed' },
-  { key: 'fail', label: 'Failed' },
-]
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function ScraperQaClient({ presetLinks }: { presetLinks: PresetLink[] }) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const urlFromQuery = searchParams.get('url') ?? ''
-
-  const [inputValue, setInputValue] = useState(urlFromQuery)
-  const [activeUrl, setActiveUrl] = useState(urlFromQuery)
-  // Bumped on every lookup so "Re-run" on the SAME url still re-fires the
-  // fetch effect (activeUrl alone wouldn't change).
-  const [runId, setRunId] = useState(0)
-  const [result, setResult] = useState<ScrapeResult | null>(null)
-  const [runMeta, setRunMeta] = useState<RunMeta | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [requestError, setRequestError] = useState<string | null>(null)
-
-  const [reviewState, setReviewState] = useState<Record<string, CaseState>>({})
-  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set())
-  const [openNotesFor, setOpenNotesFor] = useState<Set<string>>(new Set())
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [caseQuery, setCaseQuery] = useState('')
-
-  const [feedbackState, setFeedbackState] = useState<Record<string, FeedbackEntry>>({})
-
-  // Demo commerce state handed to whichever platform view renders, so the
-  // qty stepper / wishlist / add-to-cart in those views actually respond
-  // on this page instead of getting undefined props. Purely local — no
-  // real cart or wishlist is touched.
-  const [qty, setQty] = useState(1)
-  const [inWishlist, setInWishlist] = useState(false)
-  const [justAdded, setJustAdded] = useState(false)
-  // Variant options (e.g. { Size: 'M' }) reported by views that support it.
-  const [selection, setSelection] = useState<Record<string, string>>({})
-
-  // Gates prefillUnavailableNote (called from inside an async fetch
-  // .then, well after mount) so it doesn't fire before the load effect
-  // below has had a chance to populate reviewState from localStorage.
-  const hydrated = useRef(false)
-
-  // Each save effect must skip its OWN first run, not just check a
-  // shared "have we loaded yet" flag. On mount, the load effect below
-  // calls setReviewState(loaded)/setFeedbackState(loaded) — both async,
-  // batched updates — and sets hydrated.current = true synchronously in
-  // the same pass. The two save effects then run in that SAME commit,
-  // see hydrated.current already true, and would write their CURRENT
-  // closure value (still the original `{}` from the very first render,
-  // since the load's setState hasn't been applied yet) straight to
-  // localStorage — silently overwriting whatever was already saved
-  // there. A per-effect "skip my first run" ref sidesteps this
-  // regardless of effect ordering or how many renders the load takes.
-  const reviewSaveSkip = useRef(true)
-  const feedbackSaveSkip = useRef(true)
-
-  useEffect(() => {
-    setReviewState(loadReviewState())
-    setFeedbackState(loadFeedbackState())
-    hydrated.current = true
-  }, [])
-
-  useEffect(() => {
-    if (reviewSaveSkip.current) {
-      reviewSaveSkip.current = false
-      return
-    }
-    try {
-      window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(reviewState))
-    } catch {
-      // best-effort only
-    }
-  }, [reviewState])
-
-  useEffect(() => {
-    if (feedbackSaveSkip.current) {
-      feedbackSaveSkip.current = false
-      return
-    }
-    try {
-      window.localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(feedbackState))
-    } catch {
-      // best-effort only
-    }
-  }, [feedbackState])
-
-  // Reset the demo cart state when a different product loads.
-  useEffect(() => {
-    setQty(1)
-    setInWishlist(false)
-    setJustAdded(false)
-  }, [result?.url])
-
-  useEffect(() => {
-    if (!justAdded) return
-    const t = setTimeout(() => setJustAdded(false), 1600)
-    return () => clearTimeout(t)
-  }, [justAdded])
-
-  // Reads from the LIVE reviewState — fine for rendering, where a
-  // render always has the current committed state. NOT safe to call
-  // from inside a setReviewState updater (its `prev` argument may be
-  // newer than this closure's `reviewState`) — every updater below
-  // reads `prev[url]` directly instead, for exactly that reason.
-  function getCase(url: string): CaseState {
-    return reviewState[url] ?? DEFAULT_CASE_STATE
-  }
-
-  function getFeedback(url: string): FeedbackEntry {
-    return feedbackState[url] ?? DEFAULT_FEEDBACK_ENTRY
-  }
-
-  function cycleStatus(url: string) {
-    setReviewState((prev) => {
-      const current = prev[url] ?? DEFAULT_CASE_STATE
-      const next: TestStatus =
-        current.status === 'untested' ? 'pass' : current.status === 'pass' ? 'fail' : 'untested'
-      return { ...prev, [url]: { ...current, status: next } }
-    })
-  }
-
-  /** Explicit pass/fail from the result header; pressing the active one
-   * again clears it back to untested. */
-  function setStatus(url: string, status: 'pass' | 'fail') {
-    setReviewState((prev) => {
-      const current = prev[url] ?? DEFAULT_CASE_STATE
-      return { ...prev, [url]: { ...current, status: current.status === status ? 'untested' : status } }
-    })
-  }
-
-  function setComment(url: string, comment: string) {
-    setReviewState((prev) => ({
-      ...prev,
-      [url]: { ...(prev[url] ?? DEFAULT_CASE_STATE), comment },
-    }))
-  }
-
-  function prefillUnavailableNote(url: string) {
-    // Can fire from inside the fetch `.then` before the load effect has
-    // run, on a page opened directly with `?url=...`. At that point
-    // reviewState is still empty, so bail rather than stamp a note that
-    // the load effect would then appear to "erase" a moment later.
-    if (!hydrated.current) return
-    setReviewState((prev) => {
-      // Always derive `current` from `prev` inside a setState updater —
-      // reading the closure's reviewState here would be a stale snapshot
-      // from whenever the enclosing effect last re-ran, and would
-      // silently overwrite any edit made while the network call was in
-      // flight.
-      const current = prev[url] ?? DEFAULT_CASE_STATE
-      if (current.comment) return prev
-      return {
-        ...prev,
-        [url]: {
-          ...current,
-          comment: 'Auto-flagged: no buybox/add-to-cart detected — looked like a genuinely unavailable listing, not a scrape failure. Confirm or correct.',
-        },
-      }
-    })
-  }
-
-  function setFeedbackVerdict(url: string, verdict: FeedbackVerdict) {
-    setFeedbackState((prev) => ({
-      ...prev,
-      [url]: { ...(prev[url] ?? DEFAULT_FEEDBACK_ENTRY), verdict, submitted: false },
-    }))
-  }
-
-  function setFeedbackComment(url: string, comment: string) {
-    setFeedbackState((prev) => ({
-      ...prev,
-      [url]: { ...(prev[url] ?? DEFAULT_FEEDBACK_ENTRY), comment, submitted: false },
-    }))
-  }
-
-  function handleFeedbackSubmit(url: string, currentResult: ScrapeResult) {
-    const entry = getFeedback(url)
-    if (!entry.verdict) return
-    setFeedbackState((prev) => ({
-      ...prev,
-      [url]: { ...(prev[url] ?? DEFAULT_FEEDBACK_ENTRY), submitted: true },
-    }))
-    submitFeedback({ url, verdict: entry.verdict, comment: entry.comment, result: currentResult })
-  }
-
-  function toggleSelected(url: string) {
-    setSelectedUrls((prev) => {
-      const next = new Set(prev)
-      if (next.has(url)) next.delete(url)
-      else next.add(url)
-      return next
-    })
-  }
-
-  function toggleNotesOpen(url: string) {
-    setOpenNotesFor((prev) => {
-      const next = new Set(prev)
-      if (next.has(url)) next.delete(url)
-      else next.add(url)
-      return next
-    })
-  }
-
-  function bulkMark(status: TestStatus) {
-    setReviewState((prev) => {
-      const next = { ...prev }
-      selectedUrls.forEach((url) => {
-        next[url] = { ...(prev[url] ?? DEFAULT_CASE_STATE), status }
-      })
-      return next
-    })
-  }
-
-  const passCount = presetLinks.filter((p) => getCase(p.url).status === 'pass').length
-  const failCount = presetLinks.filter((p) => getCase(p.url).status === 'fail').length
-  const untestedCount = presetLinks.length - passCount - failCount
-  const totalCount = presetLinks.length
-
-  const filterCounts: Record<StatusFilter, number> = {
-    all: totalCount,
-    untested: untestedCount,
-    pass: passCount,
-    fail: failCount,
-  }
-
-  const q = caseQuery.trim().toLowerCase()
-  const visiblePresets = presetLinks.filter((p) => {
-    if (statusFilter !== 'all' && getCase(p.url).status !== statusFilter) return false
-    if (!q) return true
-    return `${p.label} ${p.product}`.toLowerCase().includes(q)
-  })
-  const allVisibleSelected = visiblePresets.length > 0 && visiblePresets.every((p) => selectedUrls.has(p.url))
-
-  function toggleSelectAllVisible() {
-    setSelectedUrls((prev) => {
-      const next = new Set(prev)
-      if (allVisibleSelected) visiblePresets.forEach((p) => next.delete(p.url))
-      else visiblePresets.forEach((p) => next.add(p.url))
-      return next
-    })
-  }
-
-  /** `keepSelection` is set by a variant-tile click: that's a re-scrape of
-   * the SAME product family, so the shopper's chosen size should carry
-   * over. A fresh lookup (form, preset, re-run) starts clean. */
-  function runLookup(targetUrl: string, opts?: { keepSelection?: boolean }) {
-    const trimmed = targetUrl.trim()
-    if (!trimmed) return
-    setInputValue(trimmed)
-    setActiveUrl(trimmed)
-    setRunId((n) => n + 1)
-    if (!opts?.keepSelection) setSelection({})
-    router.push(`${pathname}?url=${encodeURIComponent(trimmed)}`, { scroll: false })
-  }
-
-  const SCRAPE_TIMEOUT_MS = 320_000
-
-  useEffect(() => {
-    if (!activeUrl) return
-    let cancelled = false
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT_MS)
-    const startedAt = performance.now()
-    let attempts = 1
-
-    setLoading(true)
-    setRequestError(null)
-    // NOTE: `result` is deliberately not cleared here. While `loading`
-    // is true we always render the skeleton (see below), so it doesn't
-    // matter that the old result is still in state — but keeping it
-    // means that if this fetch fails, the `.catch` below can leave the
-    // last good result in place instead of wiping it.
-
-    // needVariants=true: this QA tool exists to inspect size/color
-    // pickers, so it always requests them. Today this only affects the
-    // RESPONSE, not the fetch strategy: scrapeProduct() (see parsers.ts)
-    // doesn't currently use needVariants to trigger any extra render/proxy
-    // tier — it's used purely to attach a warning to the result when a
-    // site's picker is known to render client-side (VARIANT_REQUIRES_RENDER)
-    // and no variant data came back.
-    //
-    // Mirrors the real customer-facing paste-a-link flow
-    // (hooks/useProductLookup.ts) in ONE respect only: it retries once
-    // after a 5s delay before giving up, so a platform that "flakily
-    // works" isn't judged here on a single attempt. It does NOT mirror
-    // that flow's OG-metadata fallback or blanket "unreadable" message —
-    // this page's purpose is showing whether the REAL scraper got real
-    // data, so it reports the true scraper error text.
-    const RETRY_DELAY_MS = 5000
-    const fetchUrl = `/api/product-lookup?url=${encodeURIComponent(activeUrl)}&needVariants=true&qa=true`
-
-    async function attemptLookup(): Promise<ScrapeResult> {
-      // x-scrape-source: qa-tool tells the route to (a) skip the
-      // affiliated-seller shortcut, which would return an
-      // { internalRedirect } instead of a scrape result, and (b) keep
-      // this traffic out of Scrape health counts.
-      const res = await fetch(fetchUrl, {
-        signal: controller.signal,
-        headers: { 'x-scrape-source': 'qa-tool' },
-      })
-      const body = await res.json().catch(() => null)
-      if (!res.ok) throw new Error((body && body.error) || `Request failed (${res.status})`)
-      if (body && body.internalRedirect) {
-        throw new Error(
-          `Route returned an affiliated-store redirect (${body.internalRedirect}) instead of a scrape result.`,
-        )
-      }
-      return body as ScrapeResult
-    }
-
-    async function run() {
-      let data: ScrapeResult
-      try {
-        data = await attemptLookup()
-        if (data.error) throw new Error(data.error)
-      } catch (firstErr) {
-        if (cancelled) return
-        try {
-          attempts = 2
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
-          if (cancelled) return
-          data = await attemptLookup()
-          if (data.error) throw new Error(data.error)
-        } catch (secondErr) {
-          if (!cancelled) {
-            const err = secondErr instanceof Error ? secondErr : firstErr
-            const isTimeout = err instanceof DOMException && err.name === 'AbortError'
-            setRequestError(
-              isTimeout
-                ? `Scrape timed out after ${Math.round(SCRAPE_TIMEOUT_MS / 1000)}s — the target site took too long to respond.`
-                : err instanceof Error
-                  ? err.message
-                  : 'Request failed'
-            )
-            // Intentionally not clearing `result` here — if a variant
-            // re-fetch fails we keep showing the last successful result
-            // rather than wiping the whole panel; the error surfaces as
-            // an inline banner above the (still visible) stale result.
-          }
-          return
-        }
-      }
-
-      if (!cancelled) {
-        setResult(data)
-        setRunMeta({ ms: Math.round(performance.now() - startedAt), attempts })
-        if (data.unavailable) {
-          prefillUnavailableNote(activeUrl)
-        }
-      }
-    }
-
-    run().finally(() => {
-      clearTimeout(timeoutId)
-      if (!cancelled) setLoading(false)
-    })
-
-    return () => {
-      cancelled = true
-      clearTimeout(timeoutId)
-      controller.abort()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeUrl, runId])
-
-  // Props handed to every platform view. These views take the same
-  // PlatformViewProps as in ItemInfoModal; the commerce ones are wired to
-  // local demo state here so the buttons respond.
-  function renderPlatformView(r: ScrapeResult) {
-    const props = {
-      result: r,
-      onSelectVariant: (url: string) => runLookup(url, { keepSelection: true }),
-      onSelectionChange: setSelection,
-      initialSelection: selection,
-      qty,
-      onQtyChange: setQty,
-      inWishlist,
-      onToggleWishlist: () => setInWishlist((w) => !w),
-      onAddToCart: () => setJustAdded(true),
-      justAdded,
-      onRequestReview: () => {},
-      loading: false,
-      canAct: true,
-    }
-
-    switch (normalizeSite(r.site)) {
-      case 'amazon':
-        return <AmazonProductView {...props} />
-      case 'flipkart':
-        return <FlipkartProductView {...props} />
-      case 'meesho':
-        return <MeeshoProductView {...props} />
-      case 'myntra':
-        return <MyntraProductView {...props} />
-      case 'ebay':
-        return <EbayProductView {...props} />
-      case 'ajio':
-        return <AjioProductView {...props} />
-      case 'jiomart':
-        return <JioMartProductView {...props} />
-      case 'snapdeal':
-        return <SnapdealProductView {...props} />
-      // boAt is Shopify-backed and reuses the Shopify view (which picks
-      // the boAt logo from result.site).
-      case 'shopify':
-      case 'boat':
-        return <ShopifyProductView {...props} />
-      case 'woocommerce':
-        return <WooCommerceProductView {...props} />
-      case 'firstcry':
-        return <FirstCryProductView {...props} />
-      case 'nykaa':
-        return <NykaaProductView {...props} />
-      case 'hopscotch':
-        return <HopscotchProductView {...props} />
-      // parsers.ts's detectSite() returns lowercase 'tatacliq'; the old
-      // check here compared against 'tataCliq', which never matched, so
-      // every Tata CLiQ result fell through to the generic layout.
-      // normalizeSite() lowercases both spellings.
-      case 'tatacliq':
-        return <TataCliqProductView {...props} />
-      case 'aliexpress':
-        return <AliExpressProductView {...props} />
-      default:
-        return null
-    }
-  }
-
-  const resultSiteKey = result ? normalizeSite(result.site) : null
-  const typedSiteKey = siteKeyForUrl(inputValue)
-  const isPreset = presetLinks.some((p) => p.url === activeUrl)
-  const warnings = result?.warning ? result.warning.split(' | ').filter(Boolean) : []
-  const pct = (n: number) => (totalCount ? (n / totalCount) * 100 : 0)
+  // Lives outside DashboardProvider: the provider takes these as props.
+  const [fresh, setFresh] = useState(true)
+  const redirectRef = useRef<(path: string) => void>(() => {})
+  const onInternalRedirect = useCallback((path: string) => redirectRef.current(path), [])
 
   return (
-    <div className="mx-auto max-w-7xl px-6 pb-20 pt-8 lg:px-10">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
-            Scrape test
-          </h1>
-          <p className="mt-1 max-w-xl text-sm text-ink/55">
-            Calls <code className="rounded bg-card px-1.5 py-0.5 text-xs">/api/product-lookup</code> against a real
-            URL, live, right now. Nothing here is cached or mocked.
-          </p>
-        </div>
-        <div className="flex items-center gap-4 text-xs font-semibold text-ink/50">
-          <span className="inline-flex items-center gap-1.5">
-            <CheckCircle2 size={14} className="text-teal-deep" /> {passCount} passed
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <XCircle size={14} className="text-red-500" /> {failCount} failed
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Circle size={14} className="text-ink/30" /> {untestedCount} untested
-          </span>
-        </div>
-      </div>
+    <DashboardProvider freshLookups={fresh} onInternalRedirect={onInternalRedirect}>
+      <Workbench presetLinks={presetLinks} fresh={fresh} setFresh={setFresh} redirectRef={redirectRef} />
+    </DashboardProvider>
+  )
+}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          runLookup(inputValue)
-        }}
-        className="mt-6 flex gap-2"
-      >
-        <div className="relative flex-1">
-          {/* Live platform detection: the logo appears as soon as the
-              pasted URL's host is recognised. */}
-          {typedSiteKey && (
-            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2">
-              <SiteLogoSquared site={typedSiteKey} size="sm" />
-            </span>
-          )}
-          <input
-            type="url"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Paste a product URL — Amazon, Flipkart, Ajio, boAt, Tata CLiQ…"
-            className={`w-full rounded-xl border border-ink/15 bg-card py-3 pr-10 text-sm text-ink outline-none placeholder:text-ink/35 focus:border-teal ${
-              typedSiteKey ? 'pl-14' : 'pl-4'
-            }`}
-            required
-          />
-          {inputValue && (
+function Workbench({
+  presetLinks,
+  fresh,
+  setFresh,
+  redirectRef,
+}: {
+  presetLinks: PresetLink[]
+  fresh: boolean
+  setFresh: (v: boolean) => void
+  redirectRef: React.MutableRefObject<(path: string) => void>
+}) {
+  const { beginRequestForUrl, lookupLoading, scrapeResult, modalOpen, closeModal } = useDashboard()
+  const saved = useSavedLinks()
+
+  const [input, setInput] = useState('')
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<'all' | 'saved' | 'presets' | 'failing'>('all')
+  const [run, setRun] = useState<Run | null>(null)
+  const [net, setNet] = useState<NetEvent[]>([])
+  const [log, setLog] = useState<LogEvent[]>([])
+  const [hudOpen, setHudOpen] = useState(true)
+  const [now, setNow] = useState(0)
+  const [copied, setCopied] = useState(false)
+
+  const runRef = useRef<Run | null>(null)
+  runRef.current = run
+
+  const at = () => (runRef.current ? performance.now() - runRef.current.startedAt : 0)
+  const note = useCallback((text: string, tone?: LogEvent['tone']) => {
+    if (!runRef.current) return
+    setLog((l) => [...l, { atMs: performance.now() - runRef.current!.startedAt, text, tone }])
+  }, [])
+
+  // A store redirect: shown, not followed.
+  redirectRef.current = (path: string) => {
+    note(`Store redirect: the customer would be taken to ${path}`, 'good')
+    setRun((r) => (r ? { ...r, redirect: path, outcome: r.doneMs != null ? 'redirect' : r.outcome } : r))
+    // Customers leave the item screen here; so do we (without navigating).
+    closeModal()
+  }
+
+  // ---- Watch the page's own requests (read-only) while a run is on ----
+  useEffect(() => {
+    const original = window.fetch
+    let seq = 0
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const current = runRef.current
+      const watched = current && (href.includes('/api/product-lookup') || href.includes('/api/og-lookup'))
+      if (!watched) return original(input, init)
+      const id = ++seq
+      const kind: NetEvent['kind'] = href.includes('/api/og-lookup') ? 'preview' : 'lookup'
+      const path = href.replace(/^https?:\/\/[^/]+/, '')
+      const startMs = performance.now() - current!.startedAt
+      setNet((n) => [...n, { id, kind, path, startMs, endMs: null, status: null, summary: null }])
+      try {
+        const res = await original(input, init)
+        const body = await res.clone().json().catch(() => null)
+        const endMs = performance.now() - current!.startedAt
+        setNet((n) => n.map((e) => (e.id === id ? { ...e, endMs, status: res.status, summary: summarise(path, body, res.status) } : e)))
+        return res
+      } catch (err) {
+        const endMs = performance.now() - current!.startedAt
+        const msg = err instanceof Error ? `${err.name}: ${err.message}` : 'failed'
+        setNet((n) => n.map((e) => (e.id === id ? { ...e, endMs, status: 0, summary: msg } : e)))
+        throw err
+      }
+    }
+    return () => {
+      window.fetch = original
+    }
+  }, [])
+
+  // ---- Ticking clock while running ----
+  useEffect(() => {
+    if (!run || run.doneMs != null) return
+    const t = setInterval(() => setNow(performance.now()), 200)
+    return () => clearInterval(t)
+  }, [run])
+
+  // ---- Follow the real flow's state ----
+  useEffect(() => {
+    const r = runRef.current
+    if (!r || r.doneMs != null) return
+    // One combined update, so nothing set here overwrites anything else.
+    const next: Run = { ...r }
+    if (lookupLoading) next.sawLoading = true
+    if (scrapeResult && !scrapeResult.internalRedirect && next.firstContentMs == null) {
+      next.firstContentMs = at()
+      note(scrapeResult.title ? `First thing on screen: “${scrapeResult.title.slice(0, 70)}”` : 'First thing on screen')
+    }
+    // Finished: the lookup was running and has stopped.
+    if (next.sawLoading && !lookupLoading) {
+      const doneMs = at()
+      const outcome: Outcome = next.redirect || scrapeResult?.internalRedirect ? 'redirect' : outcomeOf(scrapeResult)
+      Object.assign(next, { doneMs, outcome, result: scrapeResult, redirect: next.redirect ?? scrapeResult?.internalRedirect ?? null })
+      runRef.current = next
+      setRun(next)
+      note(`Done — ${OUTCOME_LABEL[outcome]}`, outcome === 'product' || outcome === 'redirect' ? 'good' : 'warn')
+      const existing = saved.links.find((l) => l.url === r.url)
+      if (existing) {
+        void saved.patch(existing.id, {
+          run: {
+            outcome,
+            ms: doneMs,
+            site: scrapeResult?.site ?? null,
+            title: scrapeResult?.title ?? null,
+            price: scrapeResult?.price ? `${scrapeResult.currencyCode ?? ''} ${scrapeResult.price}`.trim() : null,
+            error: scrapeResult?.error ?? null,
+            fresh: r.fresh,
+          },
+        })
+      }
+      return
+    }
+    if (next.sawLoading !== r.sawLoading || next.firstContentMs !== r.firstContentMs) {
+      runRef.current = next
+      setRun(next)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookupLoading, scrapeResult])
+
+  const start = useCallback(
+    (url: string) => {
+      const clean = url.trim()
+      if (!/^https?:\/\//i.test(clean)) return
+      setNet([])
+      setLog([])
+      setHudOpen(true)
+      const r: Run = { url: clean, startedAt: performance.now(), fresh, sawLoading: false, firstContentMs: null, doneMs: null, outcome: null, redirect: null, result: null }
+      runRef.current = r
+      setRun(r)
+      setLog([{ atMs: 0, text: `Pasted ${hostOf(clean)}${fresh ? ' (skipping cache)' : ' (cache allowed, like customers)'}` }])
+      void beginRequestForUrl(clean)
+    },
+    [beginRequestForUrl, fresh],
+  )
+
+  const sandbox = useCallback(
+    (action: ItemSandboxAction, detail?: unknown) => {
+      if (action === 'add-to-cart') {
+        const d = detail as { product?: { title?: string; weightKg?: number | null; weightSource?: string | null }; qty?: number } | undefined
+        const w = d?.product?.weightKg != null ? ` at ${d.product.weightKg} kg (${d.product.weightSource ?? 'estimate'})` : ''
+        note(`Customer pressed Add to cart — would add ${d?.qty ?? 1} × “${(d?.product?.title ?? 'item').slice(0, 50)}”${w}. Not added (QA).`, 'good')
+      } else if (action === 'wishlist') note('Customer pressed the wishlist heart. Not saved (QA).')
+      else note('Customer pressed Go to cart — would open /account/cart.')
+    },
+    [note],
+  )
+
+  const fakeRequest = useCallback(
+    async (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => {
+      note(
+        `Customer pressed Chat about this item — would create a request${opts?.itemName ? ` named “${opts.itemName}”` : ''}${opts?.photoUrl ? ' with their photo' : ''}. Not created (QA).`,
+        'good',
+      )
+      return { ok: true }
+    },
+    [note],
+  )
+
+  // ---- List ----
+  const savedUrls = new Set(saved.links.map((l) => l.url))
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const savedRows = saved.links.map((l) => ({ key: l.id, url: l.url, label: l.label || l.last_title || hostOf(l.url), saved: l, preset: null as PresetLink | null }))
+    const presetRows = presetLinks
+      .filter((p) => !savedUrls.has(p.url))
+      .map((p) => ({ key: `p:${p.url}`, url: p.url, label: `${p.label} — ${p.product}`, saved: null as SavedLink | null, preset: p }))
+    let all = [...savedRows, ...presetRows]
+    if (filter === 'saved') all = savedRows
+    if (filter === 'presets') all = presetRows
+    if (filter === 'failing') all = savedRows.filter((r) => r.saved!.status === 'fail' || r.saved!.last_outcome === 'unreadable')
+    if (q) all = all.filter((r) => r.url.toLowerCase().includes(q) || r.label.toLowerCase().includes(q))
+    return all
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved.links, presetLinks, query, filter])
+
+  const current = run ? saved.links.find((l) => l.url === run.url) ?? null : null
+  const elapsed = run ? (run.doneMs ?? (now ? Math.max(0, now - run.startedAt) : 0)) : 0
+  const resultJson = run?.result ?? scrapeResult
+
+  return (
+    <div className="min-h-screen bg-parchment font-body text-ink">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        <header>
+          <p className="text-xs font-semibold uppercase tracking-wide text-teal-deep">Super Admin · QA</p>
+          <h1 className="mt-1 font-display text-3xl font-semibold">Scraper QA</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink/60">
+            Opens each link in the real item screen with the same requests, retries, time limits and fallback a customer gets — if it works
+            here, it works for them, in the same time. Add to cart and chat requests are only logged.
+          </p>
+        </header>
+
+        {/* Paste a link */}
+        <form
+          className="mt-6 flex flex-col gap-2 sm:flex-row"
+          onSubmit={(e) => {
+            e.preventDefault()
+            start(input)
+          }}
+        >
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-ink/15 bg-white px-3 focus-within:border-teal/50 focus-within:ring-2 focus-within:ring-teal/15">
+            <span className="sr-only">Product link</span>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Paste a product link, e.g. https://www.myntra.com/…"
+              className="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-ink/35"
+            />
+            {input && (
+              <button type="button" aria-label="Clear" onClick={() => setInput('')} className="text-ink/35 hover:text-ink">
+                <X size={15} />
+              </button>
+            )}
+          </label>
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setInputValue('')}
-              aria-label="Clear URL"
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-ink/35 hover:bg-ink/5 hover:text-ink/70"
+              disabled={!/^https?:\/\//i.test(input.trim())}
+              onClick={() => saved.save(input.trim())}
+              className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-ink/15 bg-white px-4 text-sm font-semibold text-ink/70 hover:bg-ink/[0.04] disabled:opacity-40 sm:flex-none"
             >
-              <X size={14} />
+              <Bookmark size={15} /> Save
             </button>
-          )}
-        </div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex flex-none items-center gap-2 rounded-xl bg-teal px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-teal-deep disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-          Scrape
-        </button>
-      </form>
+            <button
+              type="submit"
+              disabled={!/^https?:\/\//i.test(input.trim())}
+              className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-teal-deep px-5 text-sm font-semibold text-white hover:bg-indigo disabled:opacity-40 sm:flex-none"
+            >
+              <Play size={15} /> Run
+            </button>
+          </div>
+        </form>
 
-      <div className="mt-6 grid gap-8 lg:grid-cols-[380px_1fr] lg:items-start">
-        {/* Left rail: test cases. Sticky with its own scroll so a long
-            result on the right never pushes the list out of reach. */}
-        <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-1">
-          <div className="rounded-2xl border border-ink/10 bg-white p-3">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <p className="text-sm font-bold text-ink">Test cases</p>
-              <p className="text-[11px] font-semibold text-ink/40">
-                {passCount + failCount} of {totalCount} tested
-              </p>
-            </div>
+        <label className="mt-3 flex items-start gap-2 text-xs text-ink/60">
+          <input type="checkbox" checked={fresh} onChange={(e) => setFresh(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0b7280]" />
+          <span>
+            <span className="font-semibold text-ink/75">Skip cache</span> — real timing for a link no one has pasted in the last hour (uses scraper
+            credits). Untick to see exactly what a customer gets right now, cached copy included.
+          </span>
+        </label>
 
-            {/* Progress: passed / failed / untested share of all cases. */}
-            <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
-              <div className="bg-teal-deep transition-all" style={{ width: `${pct(passCount)}%` }} />
-              <div className="bg-red-400 transition-all" style={{ width: `${pct(failCount)}%` }} />
-            </div>
+        {saved.local && saved.loaded && (
+          <p className="mt-4 rounded-xl bg-gold/10 px-3 py-2 text-xs text-gold-deep ring-1 ring-gold/25">
+            Saved links are kept in this browser only. Run <code className="font-mono">data/wishdrop-scraper-qa-links.sql</code> in Supabase to share
+            them with the team.
+          </p>
+        )}
+        {saved.error && !saved.local && (
+          <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200">
+            {saved.error}{' '}
+            <button type="button" onClick={() => saved.setError(null)} className="font-semibold underline">
+              Dismiss
+            </button>
+          </p>
+        )}
 
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {FILTERS.map((f) => (
+        {/* Links */}
+        <section className="mt-6 rounded-2xl border border-ink/10 bg-card">
+          <div className="flex flex-col gap-3 border-b border-ink/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ['all', 'All'],
+                  ['saved', `Saved (${saved.links.length})`],
+                  ['presets', 'Store samples'],
+                  ['failing', 'Failing'],
+                ] as const
+              ).map(([key, label]) => (
                 <button
-                  key={f.key}
+                  key={key}
                   type="button"
-                  onClick={() => setStatusFilter(f.key)}
-                  aria-pressed={statusFilter === f.key}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
-                    statusFilter === f.key
-                      ? 'bg-ink text-white'
-                      : 'bg-ink/5 text-ink/55 hover:bg-ink/10 hover:text-ink'
+                  onClick={() => setFilter(key)}
+                  aria-pressed={filter === key}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${
+                    filter === key ? 'bg-teal-deep text-white ring-teal-deep' : 'bg-white text-ink/60 ring-ink/10 hover:text-ink'
                   }`}
                 >
-                  {f.label} <span className="opacity-60">{filterCounts[f.key]}</span>
+                  {label}
                 </button>
               ))}
             </div>
+            <label className="flex items-center gap-2 rounded-lg border border-ink/10 bg-white px-2.5 sm:w-64">
+              <Search size={14} className="text-ink/35" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search links" className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none" />
+            </label>
+          </div>
 
-            <div className="relative mt-3">
-              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/30" />
-              <input
-                type="search"
-                value={caseQuery}
-                onChange={(e) => setCaseQuery(e.target.value)}
-                placeholder="Filter platforms or products"
-                className="w-full rounded-lg border border-ink/12 bg-card py-2 pl-8 pr-3 text-xs text-ink outline-none placeholder:text-ink/35 focus:border-teal"
-              />
-            </div>
-
-            <div className="mt-3 flex items-center justify-between gap-2 px-1">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-[11px] font-semibold text-ink/50">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAllVisible}
-                  className="h-3.5 w-3.5 rounded border-ink/30 accent-teal"
-                />
-                Select all shown
-              </label>
-              {selectedUrls.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedUrls(new Set())}
-                  className="text-[11px] font-semibold text-ink/35 hover:text-ink/60"
-                >
-                  Clear ({selectedUrls.size})
-                </button>
-              )}
-            </div>
-
-            {selectedUrls.size > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-ink/10 bg-card px-3 py-2">
-                <span className="text-[11px] font-semibold text-ink/50">{selectedUrls.size} selected</span>
-                <button
-                  type="button"
-                  onClick={() => bulkMark('pass')}
-                  className="rounded-lg bg-teal/10 px-2.5 py-1 text-[11px] font-bold text-teal-deep hover:bg-teal/20"
-                >
-                  Mark passed
-                </button>
-                <button
-                  type="button"
-                  onClick={() => bulkMark('fail')}
-                  className="rounded-lg bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-500 hover:bg-red-100"
-                >
-                  Mark failed
-                </button>
-                <button
-                  type="button"
-                  onClick={() => bulkMark('untested')}
-                  className="rounded-lg bg-ink/5 px-2.5 py-1 text-[11px] font-bold text-ink/50 hover:bg-ink/10"
-                >
-                  Reset
-                </button>
-              </div>
-            )}
-
-            <div className="mt-3 flex flex-col gap-1.5">
-              {visiblePresets.length === 0 && (
-                <p className="rounded-xl border border-dashed border-ink/15 px-3 py-6 text-center text-xs text-ink/40">
-                  No test cases match this filter.
-                </p>
-              )}
-
-              {visiblePresets.map((preset: PresetLink) => {
-                const active = activeUrl === preset.url
-                const caseState = getCase(preset.url)
-                const isSelected = selectedUrls.has(preset.url)
-                const notesOpen = openNotesFor.has(preset.url)
-                const siteKey = siteKeyForUrl(preset.url) ?? normalizeSite(preset.label)
-
+          {!saved.loaded ? (
+            <p className="flex items-center gap-2 p-6 text-sm text-ink/50">
+              <Loader2 size={15} className="animate-spin" /> Loading links…
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="p-6 text-sm text-ink/50">No links here yet. Paste one above and press Save.</p>
+          ) : (
+            <ul className="divide-y divide-ink/[0.07]">
+              {rows.map((row) => {
+                const s = row.saved
+                const running = run?.url === row.url && run.doneMs == null
                 return (
-                  <div
-                    key={preset.url}
-                    className={`rounded-xl border px-2.5 py-2 transition-colors ${
-                      active
-                        ? 'border-teal bg-teal/10'
-                        : isSelected
-                          ? 'border-teal/40 bg-teal/5'
-                          : 'border-ink/10 bg-card hover:border-ink/20'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelected(preset.url)}
-                        className="h-3.5 w-3.5 flex-none rounded border-ink/30 accent-teal"
-                        aria-label={`Select ${preset.label} test case`}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => runLookup(preset.url)}
-                        disabled={loading}
-                        className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {/* The store's own logo (from the affiliatedStores
-                            entry or the sellers row) wins; falls back to
-                            the static per-site map, then an initial. */}
-                        <SiteLogoSquared
-                          site={siteKey}
-                          src={preset.logo}
-                          label={preset.label}
-                          size="sm"
-                          className="flex-none"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1.5 text-xs font-bold text-ink/85">
-                            {preset.label}
-                            {active && loading && (
-                              <Loader2 size={12} className="animate-spin text-teal-deep" />
-                            )}
-                          </span>
-                          <span className="block truncate text-[11px] font-medium text-ink/45">
-                            {preset.product}
-                          </span>
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => toggleNotesOpen(preset.url)}
-                        className={`flex-none rounded-md p-1 ${
-                          notesOpen || caseState.comment
-                            ? 'text-teal-deep'
-                            : 'text-ink/30 hover:text-ink/55'
-                        }`}
-                        title="Add a note about this test case"
-                        aria-label="Toggle notes"
-                      >
-                        <MessageSquare size={14} strokeWidth={2} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => cycleStatus(preset.url)}
-                        className="flex-none rounded-md p-1 hover:bg-ink/5"
-                        title="Click to cycle: untested → pass → fail"
-                        aria-label={`Mark ${preset.label} status`}
-                      >
-                        <StatusIcon status={caseState.status} />
-                      </button>
+                  <li key={row.key} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center">
+                    <button type="button" onClick={() => start(row.url)} className="min-w-0 flex-1 text-left">
+                      <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                        {running ? <Loader2 size={14} className="flex-none animate-spin text-teal-deep" /> : <Play size={13} className="flex-none text-teal-deep" />}
+                        <span className="truncate">{row.label}</span>
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-ink/45">{row.url}</p>
+                      {s && (
+                        <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink/50">
+                          {s.last_outcome && (
+                            <span className={`rounded-full px-2 py-0.5 font-semibold ring-1 ring-inset ${OUTCOME_TONE[s.last_outcome]}`}>{OUTCOME_LABEL[s.last_outcome]}</span>
+                          )}
+                          {s.last_ms != null && <span className="tabular-nums">{secs(s.last_ms)}</span>}
+                          <span>· {ago(s.last_run_at)}</span>
+                          {s.last_fresh === false && <span>· cached</span>}
+                          {s.last_error && <span className="truncate text-rose-600">· {s.last_error.slice(0, 80)}</span>}
+                        </p>
+                      )}
+                    </button>
+                    <div className="flex flex-none items-center gap-1.5">
+                      {s ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Mark as working"
+                            aria-pressed={s.status === 'pass'}
+                            onClick={() => saved.patch(s.id, { status: s.status === 'pass' ? 'untested' : 'pass' })}
+                            className={`grid h-8 w-8 place-items-center rounded-lg ring-1 ring-inset ${s.status === 'pass' ? 'bg-teal/15 text-teal-deep ring-teal/30' : 'text-ink/35 ring-ink/10 hover:text-teal-deep'}`}
+                          >
+                            <ThumbsUp size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Mark as broken"
+                            aria-pressed={s.status === 'fail'}
+                            onClick={() => saved.patch(s.id, { status: s.status === 'fail' ? 'untested' : 'fail' })}
+                            className={`grid h-8 w-8 place-items-center rounded-lg ring-1 ring-inset ${s.status === 'fail' ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'text-ink/35 ring-ink/10 hover:text-rose-600'}`}
+                          >
+                            <ThumbsDown size={14} />
+                          </button>
+                          <a href={row.url} target="_blank" rel="noopener noreferrer" aria-label="Open on the store" className="grid h-8 w-8 place-items-center rounded-lg text-ink/35 ring-1 ring-inset ring-ink/10 hover:text-ink">
+                            <ExternalLink size={14} />
+                          </a>
+                          <button
+                            type="button"
+                            aria-label="Remove saved link"
+                            onClick={() => {
+                              if (window.confirm('Remove this saved link?')) void saved.remove(s.id)
+                            }}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-ink/35 ring-1 ring-inset ring-ink/10 hover:text-rose-600"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => saved.save(row.url, row.label)}
+                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-teal-deep ring-1 ring-inset ring-teal/25 hover:bg-teal/5"
+                        >
+                          <Bookmark size={13} /> Save
+                        </button>
+                      )}
                     </div>
-
-                    {notesOpen && (
-                      <textarea
-                        value={caseState.comment}
-                        onChange={(e) => setComment(preset.url, e.target.value)}
-                        placeholder="Notes about this test case — what you saw, what broke, follow-ups…"
-                        rows={2}
-                        className="mt-2 w-full rounded-lg border border-ink/15 bg-white/70 px-2.5 py-2 text-xs text-ink outline-none placeholder:text-ink/35 focus:border-teal"
-                      />
-                    )}
-                  </div>
+                  </li>
                 )
               })}
-            </div>
-          </div>
-        </aside>
+            </ul>
+          )}
+        </section>
+      </div>
 
-        {/* Right column: result of the active scrape. Flows naturally
-            (not sticky) — a tall platform view scrolls with the page. */}
-        <main className="min-w-0">
-          {!activeUrl && !result && !loading && (
-            <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-ink/15 bg-card/60 px-6 text-center">
-              <div className="flex -space-x-2">
-                {['amazon', 'flipkart', 'myntra', 'ajio', 'boat'].map((k) => (
-                  <span key={k} className="rounded-lg ring-2 ring-white">
-                    <SiteLogo site={k} />
-                  </span>
-                ))}
-              </div>
-              <p className="text-sm font-semibold text-ink/60">Nothing scraped yet</p>
-              <p className="max-w-xs text-xs text-ink/40">
-                Paste any marketplace product URL above, or pick a platform from the test cases.
+      {/* The real item screen, exactly as on store pages and the account. */}
+      <ProductRequestOverlay sandbox={sandbox} onSubmitRequestOverride={fakeRequest} />
+
+      {/* Run panel — floats above the item screen. */}
+      {run && (
+        <aside
+          className={`fixed bottom-3 left-3 z-[250] flex w-[min(26rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-[0_20px_50px_-20px_rgba(32,36,43,0.5)] ${hudOpen ? 'max-h-[70vh]' : ''}`}
+          aria-label="QA run"
+        >
+          <div className="flex items-center gap-2 border-b border-ink/10 px-3.5 py-2.5">
+            {run.doneMs == null ? <Loader2 size={15} className="flex-none animate-spin text-teal-deep" /> : <Check size={15} className="flex-none text-teal-deep" />}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-ink">{hostOf(run.url)}</p>
+              <p className="text-[11px] tabular-nums text-ink/50">
+                {run.doneMs == null ? `Running… ${secs(elapsed)}` : `Done in ${secs(run.doneMs)}`}
+                {run.firstContentMs != null && ` · first content ${secs(run.firstContentMs)}`}
               </p>
             </div>
-          )}
+            <button type="button" aria-label={hudOpen ? 'Collapse' : 'Expand'} onClick={() => setHudOpen((o) => !o)} className="grid h-7 w-7 place-items-center rounded-md text-ink/45 hover:bg-ink/5">
+              {hudOpen ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+            </button>
+            <button
+              type="button"
+              aria-label="Close run"
+              onClick={() => {
+                closeModal()
+                setRun(null)
+                runRef.current = null
+              }}
+              className="grid h-7 w-7 place-items-center rounded-md text-ink/45 hover:bg-ink/5"
+            >
+              <X size={15} />
+            </button>
+          </div>
 
-          {/* Skeleton covers both the very first lookup AND every
-              variant/size re-fetch. */}
-          {loading && (
-            <>
-              <LoadingBanner key={`${activeUrl}-${runId}`} url={activeUrl} />
-              <ProductSkeleton />
-            </>
-          )}
-
-          {/* Hard failure with nothing to fall back on (first load failed). */}
-          {!loading && requestError && !result && (
-            <ErrorCard title="Request failed" message={requestError} onRetry={() => runLookup(activeUrl)} />
-          )}
-
-          {!loading && result && result.error && (
-            <ErrorCard title="Scrape failed" message={result.error} onRetry={() => runLookup(activeUrl)} />
-          )}
-
-          {!loading && result && !result.error && (
-            <div>
-              <ResultHeader
-                result={result}
-                meta={runMeta}
-                selection={selection}
-                isPreset={isPreset}
-                caseStatus={getCase(activeUrl).status}
-                onSetStatus={(status) => setStatus(activeUrl, status)}
-                onRerun={() => runLookup(activeUrl)}
-              />
-
-              {/* If a variant re-fetch failed, keep the stale result
-                  visible and surface the failure inline instead of
-                  wiping the panel. */}
-              {requestError && (
-                <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-                  <AlertTriangle size={13} className="flex-none" />
-                  {requestError} — showing the last successful result.
+          {hudOpen && (
+            <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3 text-xs">
+              {run.outcome && (
+                <div className="mb-3">
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${OUTCOME_TONE[run.outcome]}`}>{OUTCOME_LABEL[run.outcome]}</span>
+                  <p className="mt-1.5 text-[11px] leading-snug text-ink/55">{OUTCOME_HELP[run.outcome]}</p>
                 </div>
               )}
 
-              {/* Distinct amber "unavailable" card — the scraper positively
-                  reporting "nothing to sell here", not a scrape failure. */}
-              {result.unavailable && (
-                <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3">
-                  <PackageX size={16} className="mt-0.5 flex-none text-gold-deep" strokeWidth={1.8} />
-                  <div>
-                    <p className="text-xs font-bold text-ink/80">Listing appears unavailable</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-ink/60">
-                      No buy button or price block was found on this page at all — likely a
-                      retired or out-of-stock variant, not a scraper bug. If this looks wrong,
-                      use the feedback box below to flag it.
-                    </p>
-                  </div>
-                </div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink/40">Requests</p>
+              {net.length === 0 ? (
+                <p className="text-ink/40">Waiting…</p>
+              ) : (
+                <ol className="space-y-1.5">
+                  {net.map((e, i) => {
+                    const prev = net.filter((x) => x.kind === 'lookup' && x.id < e.id).pop()
+                    const gap = e.kind === 'lookup' && prev?.endMs != null ? e.startMs - prev.endMs : null
+                    const n = net.filter((x) => x.kind === e.kind && x.id <= e.id).length
+                    return (
+                      <li key={e.id} className="rounded-lg bg-parchment/70 px-2.5 py-1.5">
+                        {gap != null && gap > 500 && <p className="mb-1 text-[10px] text-ink/45">waited {secs(gap)} before retrying</p>}
+                        <p className="flex items-baseline justify-between gap-2">
+                          <span className="font-semibold text-ink/75">
+                            {e.kind === 'preview' ? `Preview ${n > 1 ? `#${n}` : ''}` : `Full read #${n}`}
+                            {e.path.includes('refresh=1') ? ' (refresh)' : ''}
+                          </span>
+                          <span className="tabular-nums text-ink/50">
+                            {secs(e.startMs)} → {e.endMs != null ? `${secs(e.endMs)} (${secs(e.endMs - e.startMs)})` : '…'}
+                          </span>
+                        </p>
+                        {e.summary && (
+                          <p className={`mt-0.5 break-words ${e.status && e.status >= 400 ? 'text-rose-700' : e.summary.startsWith('error') ? 'text-rose-700' : 'text-ink/55'}`}>
+                            {e.status ? `${e.status} · ` : ''}
+                            {e.summary}
+                          </p>
+                        )}
+                        {i === 0 && null}
+                      </li>
+                    )
+                  })}
+                </ol>
               )}
 
-              {warnings.length > 0 && !result.unavailable && (
-                <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3">
-                  <AlertTriangle size={15} className="mt-0.5 flex-none text-gold-deep" strokeWidth={1.8} />
-                  {warnings.length === 1 ? (
-                    <p className="text-xs leading-relaxed text-ink/70">{warnings[0]}</p>
-                  ) : (
-                    <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-ink/70">
-                      {warnings.map((w, i) => (
-                        <li key={i}>{w}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+              <p className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-wide text-ink/40">What happened</p>
+              <ol className="space-y-1">
+                {log.map((l, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="w-11 flex-none tabular-nums text-ink/40">{secs(l.atMs)}</span>
+                    <span className={l.tone === 'warn' ? 'text-gold-deep' : l.tone === 'good' ? 'text-teal-deep' : 'text-ink/65'}>{l.text}</span>
+                  </li>
+                ))}
+              </ol>
+
+              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-ink/10 pt-3">
+                {current ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => saved.patch(current.id, { status: 'pass' })}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-semibold ring-1 ring-inset ${current.status === 'pass' ? 'bg-teal/15 text-teal-deep ring-teal/30' : 'text-ink/60 ring-ink/10 hover:text-teal-deep'}`}
+                    >
+                      <ThumbsUp size={13} /> Works
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => saved.patch(current.id, { status: 'fail' })}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-semibold ring-1 ring-inset ${current.status === 'fail' ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'text-ink/60 ring-ink/10 hover:text-rose-600'}`}
+                    >
+                      <ThumbsDown size={13} /> Broken
+                    </button>
+                    <span className="inline-flex items-center gap-1 px-1 text-ink/45">
+                      <BookmarkCheck size={13} /> Saved — this run is recorded
+                    </span>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      saved.save(run.url, run.result?.title ?? null, run.doneMs != null && run.outcome
+                        ? {
+                            outcome: run.outcome,
+                            ms: run.doneMs,
+                            site: run.result?.site ?? null,
+                            title: run.result?.title ?? null,
+                            price: run.result?.price ? `${run.result.currencyCode ?? ''} ${run.result.price}`.trim() : null,
+                            error: run.result?.error ?? null,
+                            fresh: run.fresh,
+                          }
+                        : undefined)
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-semibold text-teal-deep ring-1 ring-inset ring-teal/25 hover:bg-teal/5"
+                  >
+                    <Bookmark size={13} /> Save link{run.doneMs != null ? ' + this result' : ''}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!resultJson}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(JSON.stringify({ url: run.url, ms: run.doneMs, outcome: run.outcome, requests: net, result: resultJson }, null, 2))
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 1500)
+                    } catch {
+                      // clipboard blocked
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-semibold text-ink/60 ring-1 ring-inset ring-ink/10 hover:text-ink disabled:opacity-40"
+                >
+                  {copied ? <Check size={13} /> : <Clipboard size={13} />} {copied ? 'Copied' : 'Copy JSON'}
+                </button>
+                {!modalOpen && run.doneMs != null && (
+                  <button type="button" onClick={() => start(run.url)} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-semibold text-ink/60 ring-1 ring-inset ring-ink/10 hover:text-ink">
+                    <Play size={13} /> Run again
+                  </button>
+                )}
+              </div>
+              {run.result?.error && (
+                <p className="mt-2 flex items-start gap-1.5 break-words text-[11px] text-rose-700">
+                  <AlertTriangle size={12} className="mt-px flex-none" /> {run.result.error}
+                </p>
               )}
-
-              {/* Every recognized platform gets its own look-alike layout
-                  so a reviewer can eyeball a match against the real site.
-                  Only a site with no dedicated view falls through to the
-                  plain layout. */}
-              {renderPlatformView(result) ?? (
-                <GenericResult
-                  result={result}
-                  siteKey={resultSiteKey}
-                  onSelectVariant={(url) => runLookup(url, { keepSelection: true })}
-                />
-              )}
-
-              <FeedbackBox
-                entry={getFeedback(activeUrl)}
-                onVerdict={(v) => setFeedbackVerdict(activeUrl, v)}
-                onComment={(c) => setFeedbackComment(activeUrl, c)}
-                onSubmit={() => handleFeedbackSubmit(activeUrl, result)}
-              />
-
-              <details className="group mt-6 rounded-2xl border border-ink/10 bg-card">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-bold text-ink/55">
-                  <span>
-                    Raw response
-                    <span className="ml-1 inline-block transition-transform group-open:rotate-180">⌄</span>
-                  </span>
-                </summary>
-                <div className="border-t border-ink/10 px-4 py-3">
-                  <div className="mb-2 flex justify-end">
-                    <CopyJsonButton text={JSON.stringify(result, null, 2)} />
-                  </div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[11px] leading-relaxed text-ink/60">
-                    {JSON.stringify(result, null, 2)}
-                  </pre>
-                </div>
-              </details>
             </div>
           )}
-        </main>
-      </div>
+        </aside>
+      )}
     </div>
   )
 }

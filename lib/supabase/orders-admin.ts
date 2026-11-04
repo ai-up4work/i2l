@@ -297,6 +297,9 @@ export interface AdminOrder {
    *  bought until staff mark it paid (lib/payments/server.ts). */
   checkoutId: string | null
   paymentStatus: 'unpaid' | 'paid' | 'failed' | 'refunded' | null
+  /** Checkout flagged a price to confirm (estimated weight / unconfirmed
+   *  store price) — see Admin → order → Price check. */
+  priceReview: boolean
   isLocal: boolean
   /** Rs 500 per local shop, charged once per order (lib/store-origin.ts). */
   pickupFeeLKR: number
@@ -343,6 +346,7 @@ type OrderRow = {
   /** Set for orders placed through checkout; absent before the payments SQL runs. */
   checkout_id?: string | null
   payment_status?: string | null
+  price_review?: boolean | null
   site_id: string | null
   request_id: string | null
   chat_thread_id: string | null
@@ -404,6 +408,7 @@ function mapRowToAdminOrder(
     pickupFeeLKR: Number(row.pickup_fee_lkr ?? 0),
     checkoutId: row.checkout_id ?? null,
     paymentStatus: (row.payment_status as AdminOrder['paymentStatus']) ?? null,
+    priceReview: !!row.price_review,
     carrier: row.carrier ?? undefined,
     trackingNumber: row.tracking_number ?? undefined,
     estimatedDelivery: row.estimated_delivery ?? undefined,
@@ -467,13 +472,13 @@ let originColumnsMissing = false
 let paymentColumnsMissing = false
 function orderSelect(): string {
   const base = originColumnsMissing ? ORDER_SELECT : ORDER_SELECT_WITH_ORIGIN
-  return paymentColumnsMissing ? base : base.replace('has_unreplied_message,', 'has_unreplied_message, checkout_id, payment_status,')
+  return paymentColumnsMissing ? base : base.replace('has_unreplied_message,', 'has_unreplied_message, checkout_id, payment_status, price_review,')
 }
 /** A column the select asked for isn't in the database yet: drop that
  *  group and retry (payment columns first, then the local-store ones). */
 function noteMissingOriginColumns(error: { code?: string; message?: string } | null): boolean {
   if (error?.code !== '42703') return false
-  if (!paymentColumnsMissing && /checkout_id|payment_status/.test(error.message ?? '')) {
+  if (!paymentColumnsMissing && /checkout_id|payment_status|price_review/.test(error.message ?? '')) {
     paymentColumnsMissing = true
     return true
   }

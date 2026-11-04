@@ -73,6 +73,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
 
   let result
   if (body.action === 'mark-paid') {
+    // Every order's final price is confirmed by staff (and the customer told)
+    // before any payment is recorded — Price check on the order page.
+    if (current.needsPriceReview) {
+      return NextResponse.json({ error: 'Confirm the final price first (Price check on this order). The customer is told the confirmed total, then you can record their payment.' }, { status: 409 })
+    }
     if (!MANUAL_METHODS.includes(body.method as ManualMethod)) {
       return NextResponse.json({ error: 'Choose how the customer paid.' }, { status: 400 })
     }

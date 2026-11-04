@@ -55,11 +55,16 @@ export async function recordManualPayment(
   const admin = createServiceRoleClient()
   const { data: checkout } = await db(admin)
     .from('checkouts')
-    .select('id, user_id, total_lkr, payment_status')
+    .select('id, user_id, total_lkr, payment_status, needs_price_review')
     .eq('id', checkoutId)
     .maybeSingle()
   if (!checkout) return { ok: false, error: 'Checkout not found.', status: 404 }
   if (checkout.payment_status === 'paid') return { ok: false, error: 'This order is already marked as paid.', status: 409 }
+  // No payment before staff have confirmed the final price and told the
+  // customer (lib/orders/price-check.ts) — whatever route calls this.
+  if (checkout.needs_price_review) {
+    return { ok: false, error: 'Confirm the final price first (Price check on the order page).', status: 409 }
+  }
   if (!MANUAL_METHODS.includes(input.method)) return { ok: false, error: 'Choose how the customer paid.', status: 400 }
 
   const amount = input.amountLKR != null && Number.isFinite(input.amountLKR) && input.amountLKR > 0 ? input.amountLKR : Number(checkout.total_lkr)

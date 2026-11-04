@@ -23,7 +23,7 @@ const guides = [
   {
     icon: Wallet,
     title: 'Understanding your quote',
-    text: 'Every quote breaks down product price, service fee, freight, and estimated customs charges separately. See our Shipping Pricing page for exactly how each line is calculated.',
+    text: 'Every quote shows the same three lines: the price (the item with international shipping and handling), a flat service charge and delivery. See our Shipping Pricing page for what goes into each.',
   },
   {
     icon: BookOpen,

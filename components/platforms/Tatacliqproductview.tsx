@@ -23,7 +23,6 @@ const TATA_CLIQ: PlatformTheme = {
   primary: { label: 'ADD TO BAG', color: '#0B1E48', icon: 'bag' },
   quote: { color: '#E33121' },
   showSeller: true,
-  priceNote: 'Inclusive of all taxes',
 }
 
 export default function TataCliqProductView(props: PlatformViewProps) {

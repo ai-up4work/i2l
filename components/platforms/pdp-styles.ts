@@ -32,10 +32,11 @@ export const PDP_LABEL = 'text-[10px] font-bold uppercase tracking-wide text-ink
 
 /**
  * Price, options, stock and buttons. On desktop this column is as tall as
- * the photos (minus the title row). Any spare height is split evenly above
- * the price and above the buttons, so the price & options sit in the
- * middle and the buttons line up with the bottom of the gallery. When the
- * content is taller than the photo it simply flows as normal (the buttons
- * keep a 24px gap above them).
+ * the photos (minus the title row). The price sits straight under the title
+ * and the buttons line up with the bottom of the gallery; any spare height
+ * goes between the options and the buttons. (It used to be split above the
+ * price too, which left a big empty gap between the title and the price on
+ * every short listing.) When the content is taller than the photo it simply
+ * flows as normal (the buttons keep a 24px gap above them).
  */
-export const PDP_REST = 'min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:first-child]:mt-auto sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6'
+export const PDP_REST = 'min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6'

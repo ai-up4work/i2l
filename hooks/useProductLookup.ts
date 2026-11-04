@@ -15,14 +15,21 @@ const RETRY_DELAY_MS = 5000
 // every method it has — running that whole chain again would just double
 // the wait before the shopper sees the "couldn't read it" screen.
 const QUICK_FAILURE_MS = 15_000
+// The server answers within ~70 s (PRODUCT_LOOKUP_DEADLINE_MS in
+// app/api/product-lookup/route.ts). If nothing has come back by this
+// point, stop waiting and show the preview / chat screen.
+const CLIENT_TIMEOUT_MS = 85_000
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchProductLookup(url: string, refresh = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
+async function fetchProductLookup(url: string, refresh = false, fresh = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
   try {
-    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}`)
+    // `fresh`: the scraper QA page only (staff) — skip the server cache.
+    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}${fresh ? '&fresh=1' : ''}`, {
+      signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+    })
     const data = (await res.json().catch(() => null)) as ScrapeResult | null
     return { ok: res.ok && !!data && !data.error, data }
   } catch {
@@ -85,7 +92,11 @@ async function fetchOgFallback(url: string, knownSite: ScrapeResult['site']): Pr
   }
 }
 
-export function useProductLookup() {
+/** `options.fresh`: skip the server's cache (scraper QA page, staff only).
+ *  Everything else — retries, waits, time limits, fallback — is the same. */
+export function useProductLookup(options: { fresh?: boolean } = {}) {
+  const freshRef = useRef(!!options.fresh)
+  freshRef.current = !!options.fresh
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Full, unmodified /api/product-lookup payload for the most recent URL —
@@ -125,11 +136,15 @@ export function useProductLookup() {
     setResult(null)
 
     const startedAt = Date.now()
-    let attempt = await fetchProductLookup(url)
-    if (!attempt.ok && (!attempt.data || Date.now() - startedAt < QUICK_FAILURE_MS)) {
+    let attempt = await fetchProductLookup(url, false, freshRef.current)
+    // FIX: this used to retry whenever the reply had no body, however long
+    // it took. When Vercel cut a lookup off at its 300 s limit the reply
+    // wasn't JSON, so the whole 300 s chain ran a second time — the
+    // 5–10 minute waits. Only a failure that came back quickly is retried.
+    if (!attempt.ok && Date.now() - startedAt < QUICK_FAILURE_MS) {
       await sleep(RETRY_DELAY_MS)
       if (generation.current !== myGeneration) return null
-      attempt = await fetchProductLookup(url)
+      attempt = await fetchProductLookup(url, false, freshRef.current)
     }
     if (generation.current !== myGeneration) return null
 
@@ -138,7 +153,7 @@ export function useProductLookup() {
       if (data.stale) {
         // FAST: an older copy (1–24h) — show it now, get the live one
         // behind it. The item screen shows "Updating price…" meanwhile.
-        void fetchProductLookup(url, true).then((live) => {
+        void fetchProductLookup(url, true, freshRef.current).then((live) => {
           if (generation.current !== myGeneration) return
           if (live.ok && live.data) {
             setError(live.data.warning ?? null)

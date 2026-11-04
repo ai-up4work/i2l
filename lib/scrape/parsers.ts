@@ -202,6 +202,10 @@ export type ScrapeResult = {
   mpn?: string | null
   gtin?: string | null
   categoryPath?: string | null
+  /** Item weight in kg, only when the store itself gives one (e.g. an
+   *  affiliated Shopify Plus store). Never guessed here — see
+   *  lib/weight-estimate.ts for estimates. */
+  weightKg?: number | null
   itemSpecifics?: { name: string; value: string }[] | null
   quantityAvailable?: number | null
   quantitySold?: number | null
@@ -1152,6 +1156,10 @@ async function fetchDirectWithRetries(
       // different headers a second later. When a slower method is lined
       // up behind this one, go to it now instead of retrying.
       if (hasLaterTiers && !!error && (isBlockedOrShell || error.startsWith('TIMEOUT'))) break
+      // FIX: a timeout was retried twice more even with no later tier —
+      // 3 × 15 s for a page that wasn't going to answer. Once is enough;
+      // a block (403, challenge) is still retried with other headers.
+      if (!!error && error.startsWith('TIMEOUT')) break
     }
     return { html: null, error: lastError }
   }

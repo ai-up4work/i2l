@@ -35,6 +35,7 @@ import type { StoreProduct } from '@/lib/store.types'
 import { ensureProductSnapshot } from '@/lib/supabase/product-snapshots'
 import { getOrCreateGeneralThread } from '@/lib/supabase/chat'
 import { checkMallStock, deductMallStockForOrder } from '@/lib/wishdrop-mall/stock'
+import { clampCustomerWeight, isEstimatedWeight, isWeightSource, withPackagingMargin, type WeightSource } from '@/lib/weight-estimate'
 import {
   computeDiscount,
   db,
@@ -64,6 +65,9 @@ export type CheckoutLineInput = {
   currencyCode: string | null
   sourcePrice: string | null
   weightKg: number | null
+  /** Where the browser's weightKg came from (lib/weight-estimate.ts). Only
+   *  used for pasted links whose store gives no weight. */
+  weightSource: WeightSource | null
   source: 'catalogue' | 'link'
   selectedOptions: Record<string, string> | null
   productHandle: string | null
@@ -109,6 +113,11 @@ export function parseLines(raw: unknown): CheckoutLineInput[] | { error: string 
           )
         : null
     const weight = Number(r?.weightKg)
+    // The browser can't claim a weight came from the store — only the
+    // server's own read of the store can (trustedSourcePrice).
+    const rawSource = isWeightSource(r?.weightSource) ? r.weightSource : null
+    const weightSource: WeightSource | null =
+      rawSource === 'store' || rawSource === 'staff' ? 'default' : rawSource
     lines.push({
       id: str(r?.id, 500) ?? url,
       url,
@@ -117,7 +126,9 @@ export function parseLines(raw: unknown): CheckoutLineInput[] | { error: string 
       image: str(r?.image),
       currencyCode: str(r?.currencyCode, 8),
       sourcePrice: r?.sourcePrice == null ? null : String(r.sourcePrice).slice(0, 32),
-      weightKg: Number.isFinite(weight) && weight > 0 ? weight : null,
+      // Kept within what a shopper may type (0.1–30 kg).
+      weightKg: Number.isFinite(weight) && weight > 0 ? clampCustomerWeight(weight) : null,
+      weightSource: Number.isFinite(weight) && weight > 0 ? weightSource ?? 'custom' : null,
       source: r?.source === 'catalogue' ? 'catalogue' : 'link',
       selectedOptions: opts && Object.keys(opts).length ? opts : null,
       productHandle: str(r?.productHandle, 300),
@@ -160,6 +171,9 @@ type SourcePrice = {
   price: number
   currency: string
   weightKg: number | null
+  /** 'store' = the store's own weight. Anything else is an estimate
+   *  (the shopper's category / typed weight, or the weight block). */
+  weightSource: WeightSource
   origin: StoreOrigin | null
   marginIncluded: boolean | undefined
   source: PriceSource
@@ -247,7 +261,36 @@ function parsePrice(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
-async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, stores: Map<string, StoreInfo>): Promise<SourcePrice> {
+/**
+ * For a pasted link, the same rule as the item screen (lib/weight-estimate.ts):
+ *  - the store gives a weight: that plus the packaging margin (Pricing
+ *    engine), unless the shopper deliberately changed it — then theirs,
+ *    flagged for staff to check;
+ *  - otherwise the shopper's category / typed weight (clamped in
+ *    parseLines), else the weight block — both flagged.
+ * The browser can never mark its weight as the store's (parseLines).
+ */
+function linkWeight(
+  storeKg: number | null | undefined,
+  line: CheckoutLineInput,
+  settings: PricingSettings,
+): { weightKg: number | null; weightSource: WeightSource } {
+  const store = Number(storeKg)
+  const shopperChose = line.weightKg != null && (line.weightSource === 'category' || line.weightSource === 'custom')
+  if (Number.isFinite(store) && store > 0) {
+    if (shopperChose) return { weightKg: line.weightKg, weightSource: line.weightSource! }
+    return { weightKg: withPackagingMargin(store, settings), weightSource: 'store' }
+  }
+  if (line.weightKg != null) return { weightKg: line.weightKg, weightSource: line.weightSource ?? 'custom' }
+  return { weightKg: null, weightSource: 'default' }
+}
+
+async function trustedSourcePrice(
+  admin: AdminClient,
+  line: CheckoutLineInput,
+  stores: Map<string, StoreInfo>,
+  settings: PricingSettings,
+): Promise<SourcePrice> {
   const catalogueInfo = line.site ? stores.get(line.site) : undefined
   const isHttp = /^https?:\/\//i.test(line.url)
 
@@ -276,6 +319,7 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
           // The store's own weight only — the browser's copy came from
           // this same product, so it can't add anything but a forged value.
           weightKg: product.weightKg ?? null,
+          weightSource: product.weightKg ? 'store' : 'default',
           origin: catalogueInfo?.origin ?? product.origin ?? null,
           marginIncluded: catalogueInfo?.marginIncluded ?? product.marginIncluded,
           source: line.site === 'wishdrop-mall' ? 'mall' : 'catalogue',
@@ -299,7 +343,7 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
       return {
         price: Number(obs.price),
         currency: linkInfo?.currency ?? obs.currency ?? line.currencyCode ?? 'INR',
-        weightKg: obs.weight_kg != null ? Number(obs.weight_kg) : null,
+        ...linkWeight(obs.weight_kg, line, settings),
         origin: linkInfo?.origin ?? null,
         marginIncluded: linkInfo?.marginIncluded,
         source: 'observed',
@@ -324,7 +368,7 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
       return {
         price: freshPrice,
         currency: linkInfo?.currency ?? fresh.currencyCode ?? line.currencyCode ?? 'INR',
-        weightKg: weight,
+        ...linkWeight(weight, line, settings),
         origin: linkInfo?.origin ?? null,
         marginIncluded: linkInfo?.marginIncluded,
         source: 'live_scrape',
@@ -340,7 +384,8 @@ async function trustedSourcePrice(admin: AdminClient, line: CheckoutLineInput, s
   return {
     price: parsePrice(line.sourcePrice) ?? 0,
     currency: info?.currency ?? line.currencyCode ?? 'USD',
-    weightKg: line.weightKg,
+    // Catalogue lines never take the browser's weight (see step 1).
+    ...(isHttp ? linkWeight(null, line, settings) : { weightKg: null, weightSource: 'default' as const }),
     origin: info?.origin ?? null,
     marginIncluded: info?.marginIncluded,
     source: 'customer',
@@ -369,6 +414,14 @@ export type PricedLine = {
   missingOptions: SelectionKey[]
   /** Server-checked store for this line (see SourcePrice.storeSlug). */
   storeSlug: string | null
+  /** The weight this line was priced at, and where it came from. */
+  weightKg: number
+  weightSource: WeightSource
+  /** A pasted link priced at an estimated weight: staff confirm it. */
+  weightEstimated: boolean
+  /** The store price the LKR price was built from (for re-pricing later). */
+  sourcePrice: number
+  sourceCurrency: string
 }
 
 export type CartPricing = {
@@ -389,7 +442,7 @@ export async function priceCart(
 ): Promise<CartPricing> {
   const s = settings ?? (await ensurePricingSettings())
   const stores = await loadStoreInfo(admin)
-  const sources = await Promise.all(lines.map((l) => trustedSourcePrice(admin, l, stores)))
+  const sources = await Promise.all(lines.map((l) => trustedSourcePrice(admin, l, stores, s)))
 
   const priced: PricedLine[] = lines.map((input, i) => {
     const src = sources[i]
@@ -405,8 +458,14 @@ export async function priceCart(
       s,
     )
     const option = delivery === 'economy' ? dual.economy : dual.express
+    const isLink = input.source !== 'catalogue' && /^https?:\/\//i.test(input.url)
     return {
       input,
+      weightKg: src.weightKg ?? s.storefront.weightBlockKg,
+      weightSource: src.weightSource,
+      weightEstimated: isLink && src.origin !== 'LK' && isEstimatedWeight(src.weightSource),
+      sourcePrice: src.price,
+      sourceCurrency: src.currency,
       origin: src.origin === 'LK' ? 'LK' : 'IN',
       option,
       unitTotalLKR: option.actualTotalLKR,
@@ -431,7 +490,7 @@ export async function priceCart(
     deliverySubtotalLKR: priced.reduce((t, l) => t + l.deliveryLKR, 0),
     pickupLKR: pickup.totalLKR,
     pickupByOrigin: { IN: 0, LK: pickup.totalLKR },
-    needsReview: priced.some((l) => !l.verified),
+    needsReview: priced.some((l) => !l.verified || l.weightEstimated),
   }
 }
 
@@ -462,7 +521,16 @@ export type CartCoupon = {
 }
 
 export type CheckoutQuote = {
-  lines: { id: string; unitTotalLKR: number; priceLKR: number; verified: boolean; inStock: boolean; missingOptions: SelectionKey[] }[]
+  lines: {
+    id: string
+    unitTotalLKR: number
+    priceLKR: number
+    verified: boolean
+    inStock: boolean
+    missingOptions: SelectionKey[]
+    weightKg: number
+    weightEstimated: boolean
+  }[]
   priceSubtotalLKR: number
   serviceSubtotalLKR: number
   deliverySubtotalLKR: number
@@ -557,6 +625,8 @@ export async function quoteCheckout(
       verified: l.verified,
       inStock: l.inStock,
       missingOptions: l.missingOptions,
+      weightKg: l.weightKg,
+      weightEstimated: l.weightEstimated,
     })),
     priceSubtotalLKR: pricing.priceSubtotalLKR,
     serviceSubtotalLKR: pricing.serviceSubtotalLKR,
@@ -602,6 +672,22 @@ async function insertOrder(admin: AdminClient, fields: Record<string, unknown>):
     if (!collision || attempt === 4) throw error
   }
   throw new Error('Could not create order.')
+}
+
+const WEIGHT_COLUMNS = ['weight_kg', 'weight_source', 'source_price', 'source_currency'] as const
+
+/** Inserts order items. If data/wishdrop-weight-estimates.sql hasn't been
+ *  run yet, the weight columns don't exist — retry without them so a
+ *  missed migration never blocks checkout. */
+async function insertOrderItems(admin: AdminClient, rows: Record<string, unknown>[]): Promise<{ message: string } | null> {
+  const { error } = await db(admin).from('order_items').insert(rows)
+  if (!error) return null
+  const missingColumn = error.code === 'PGRST204' || /column .* does not exist|could not find the .* column/i.test(error.message ?? '')
+  if (!missingColumn) return error
+  console.warn('[checkout] order_items weight columns missing — run data/wishdrop-weight-estimates.sql')
+  const trimmed = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !(WEIGHT_COLUMNS as readonly string[]).includes(k))))
+  const retry = await db(admin).from('order_items').insert(trimmed)
+  return retry.error ?? null
 }
 
 async function saveAddress(admin: AdminClient, userId: string, r: CheckoutRecipient): Promise<string> {
@@ -697,7 +783,11 @@ export async function placeCheckout(
       discount_lkr: c.discount,
       total_lkr: total,
       coupon_id: c.coupon?.id ?? null,
-      needs_price_review: pricing.needsReview,
+      // Every order waits for staff to confirm the final price (and tell the
+      // customer) before payment is asked for or recorded — Admin → order →
+      // Price check. `pricing.needsReview` still marks the items that most
+      // need a look (unconfirmed price, estimated weight).
+      needs_price_review: true,
     })
     .select('id')
     .single()
@@ -745,7 +835,10 @@ export async function placeCheckout(
         discount_lkr: groupDiscount,
         coupon_id: groupDiscount > 0 ? c.coupon?.id ?? null : null,
         payment_status: 'unpaid',
-        price_review: group.some((l) => !l.verified),
+        // Always: staff confirm every order's final price before payment
+        // (Admin → order → Price check). Items that especially need a look
+        // carry price_verified = false / an estimated weight_source.
+        price_review: true,
         ...(origin === 'LK' ? { store_origin: 'LK', pickup_fee_lkr: pickup } : {}),
       })
       created.push({ id: order.id, displayId: order.display_id })
@@ -779,10 +872,15 @@ export async function placeCheckout(
             request_link: isCatalogue ? null : l.input.url || null,
             price_verified: l.verified,
             price_source: l.priceSource,
+            // data/wishdrop-weight-estimates.sql
+            weight_kg: l.weightKg,
+            weight_source: l.weightSource,
+            source_price: l.sourcePrice,
+            source_currency: l.sourceCurrency,
           }
         }),
       )
-      const { error: itemsError } = await db(admin).from('order_items').insert(itemRows)
+      const itemsError = await insertOrderItems(admin, itemRows)
       if (itemsError) throw itemsError
 
       if (group.some((l) => l.input.url.startsWith('wishdrop-mall:'))) {

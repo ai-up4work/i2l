@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!guide) return {}
   return pageMetadata({
     title: `How to Buy from ${guide.name} in Sri Lanka (Delivered, Priced in LKR)`,
-    description: `${guide.name} doesn’t deliver to Sri Lanka — Wishdrop buys it for you in India, quality-checks it and delivers to your door. Prices in rupees, no customs to pay on arrival.`,
+    description: `${guide.name} doesn’t deliver to Sri Lanka — Wishdrop buys it for you in India, quality-checks it and delivers to your door. Prices in rupees, nothing more to pay on arrival.`,
     path: `/shop-from-india/${guide.slug}`,
     type: 'article',
   })
@@ -50,14 +50,14 @@ export default async function StoreGuidePage({ params }: { params: Promise<{ slu
 
   const steps = [
     { icon: Link2, title: `Find it on ${guide.name}`, text: `Pick the product, size and colour on ${guide.domain} and copy the link.` },
-    { icon: Wallet, title: 'Get your price in LKR', text: 'Paste the link and see one delivered total in rupees — product, service, freight and customs clearance.' },
+    { icon: Wallet, title: 'Get your price in LKR', text: 'Paste the link and see one delivered total in rupees — the item with shipping and handling, service and delivery.' },
     { icon: ShieldCheck, title: 'Pay, we buy it', text: 'Pay by card or mobile wallet. We buy the item in India on your behalf.' },
     { icon: PackageCheck, title: 'Quality check', text: 'It arrives at our facility, where we check it matches your order before it ships.' },
-    { icon: Truck, title: 'Delivered to your door', text: 'We clear customs in Sri Lanka and deliver to your address. Track every step in your account.' },
+    { icon: Truck, title: 'Delivered to your door', text: 'We handle the import and deliver to your address. Track every step in your account.' },
   ]
 
   const rows = [
-    { label: 'Item, shipping & customs clearance', value: example.express.formattedPrice },
+    { label: 'Item, shipping & handling', value: example.express.formattedPrice },
     { label: 'Service charge', value: example.express.formattedServiceCharge },
     { label: 'Delivery to your door', value: example.express.formattedDeliveryFee },
   ]
@@ -100,7 +100,7 @@ export default async function StoreGuidePage({ params }: { params: Promise<{ slu
         <Callout icon={CheckCircle2}>
           <strong>{guide.name}</strong> ({guide.domain}) is {guide.knownFor.charAt(0).toLowerCase() + guide.knownFor.slice(1)} It delivers to
           Indian addresses only, so Sri Lankan shoppers can’t order directly. With Wishdrop you send the link, we buy it in India, check it, and
-          deliver it to your door in Sri Lanka — one price in LKR, no customs to pay when it arrives.
+          deliver it to your door in Sri Lanka — one price in LKR, nothing more to pay when it arrives.
         </Callout>
       </Section>
 

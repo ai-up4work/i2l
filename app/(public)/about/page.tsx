@@ -34,7 +34,7 @@ const values = [
 
 const journey = [
   { step: '01', title: 'Discover', text: 'Browse affiliated stores and products, or submit a link to something you found elsewhere.' },
-  { step: '02', title: 'Quote', text: 'See the product price, service fee, freight, duties, and estimated total, clearly, before you commit.' },
+  { step: '02', title: 'Quote', text: 'See one all-in price in rupees — the item with shipping and handling, our service charge and delivery — before you commit.' },
   { step: '03', title: 'We buy it for you', text: 'Wishdrop purchases the item directly from the seller on your behalf.' },
   { step: '04', title: 'Quality check', text: 'Your item is received and inspected at a Wishdrop facility before it travels onward.' },
   { step: '05', title: 'Ship & deliver', text: 'We consolidate and ship to Sri Lanka, and hand it to you at your door.' },
@@ -47,7 +47,7 @@ export default function AboutPage() {
         eyebrow="About Wishdrop"
         title="Wish it. We’ll"
         accent="drop it."
-        intro="Wishdrop is a concierge shopping and delivery service for Sri Lanka. You pick something from an Indian store — we buy it, check it, ship it and hand it to you, without you dealing with international payments, warehouses, customs or couriers."
+        intro="Wishdrop is a concierge shopping and delivery service for Sri Lanka. You pick something from an Indian store — we buy it, check it, ship it and hand it to you, without you dealing with international payments, warehouses, import paperwork or couriers."
         actions={
           <>
             <ButtonLink href="/stores">Browse stores</ButtonLink>

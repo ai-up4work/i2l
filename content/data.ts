@@ -266,7 +266,6 @@ export const navLinks: NavLink[] = [
     items: [
       { name: 'Forwarding services', desc: 'Ship packages from 10+ countries to Home', href: '/shipping/' },
       { name: 'Pricing', desc: 'Calculate shipping cost by weight & destination', href: '/shipping/pricing/' },
-      { name: 'Taxation', desc: 'Duty, Tax & Customs Document', href: '/taxation/' },
       { name: 'Shipping protection plan', desc: 'Secure your international shipments', href: '/shipping/protection/' },
     ],
   },

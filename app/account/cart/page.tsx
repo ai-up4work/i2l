@@ -32,7 +32,9 @@ import {
   Minus,
   Plus,
   MessageCircle,
+  Scale,
 } from 'lucide-react'
+import { formatKg, isEstimatedWeight } from '@/lib/weight-estimate'
 import CartVariantPicker, { cartLineHandle, optionsLabel } from '@/components/cart/CartVariantPicker'
 import { useCart, type CartLineItem, type CartProduct } from '@/contexts/Cartcontext'
 import { useOrders } from '@/contexts/Ordercontexts'
@@ -107,6 +109,7 @@ function toCheckoutLine(line: CartLineItem) {
     currencyCode: p.currencyCode ?? null,
     sourcePrice: p.sourcePrice ?? null,
     weightKg: p.weightKg ?? null,
+    weightSource: p.weightSource ?? null,
     source: p.source ?? 'link',
     selectedOptions: p.selectedOptions ?? null,
     productHandle: p.productHandle ?? null,
@@ -374,7 +377,7 @@ function BreakdownColumn({
         ))}
       </div>
       <p className="mt-1.5 text-[10px] leading-snug text-ink/35">
-        Price includes currency conversion, freight &amp; handling.
+        Price includes the item, international shipping and handling.
       </p>
       <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-ink/[0.08] pt-2">
         <span className="text-xs font-semibold text-ink">Total</span>
@@ -674,6 +677,13 @@ function ReviewLine({
               </span>
             )}
             <LinkDetailsField line={line} />
+            {line.product.weightKg != null && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-ink/50">
+                <Scale size={11} className="flex-none text-ink/40" />
+                Priced at {formatKg(line.product.weightKg)}
+                {isEstimatedWeight(line.product.weightSource) ? ' (estimated — our team confirms it before you pay)' : ''}
+              </p>
+            )}
           </div>
         )}
 
@@ -1690,8 +1700,8 @@ function CartPageContent() {
               <div className="mt-5 flex items-start gap-2.5 rounded-2xl bg-teal/[0.06] px-4 py-3 text-xs leading-relaxed text-ink/60">
                 <MessageCircle size={15} className="mt-0.5 flex-none text-teal-deep" />
                 <p>
-                  <span className="font-semibold text-ink/75">No payment now.</span> After you confirm, we check the prices and
-                  send payment details to your WhatsApp.
+                  <span className="font-semibold text-ink/75">No payment now.</span> After you confirm, our team checks every item
+                  with the store and messages you the final price, then the payment details on WhatsApp.
                 </p>
               </div>
               <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-ink/40">

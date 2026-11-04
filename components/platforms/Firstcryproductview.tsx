@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react'
 import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -12,6 +11,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * FirstCry look-alike view for the scrape QA tool, brought into full
@@ -44,14 +44,11 @@ import PdpInfoTabs from './PdpInfoTabs'
  *     so this view omits the rating row entirely when absent.
  */
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'INR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 function RatingStars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
@@ -292,8 +289,8 @@ export default function FirstCryProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
 
   const inStock = result.unavailable
     ? false
@@ -360,6 +357,7 @@ export default function FirstCryProductView({
             )}
             {mrp && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
           </div>
+          <LandedPriceDetails result={result} />
 
           {!!result.variants?.length && (
             <div className="mt-5 flex flex-col gap-4">
@@ -392,7 +390,7 @@ export default function FirstCryProductView({
                           ? 'Out of stock'
                           : opt.url
                             ? undefined
-                            : `${opt.label} — no direct link found, selection is visual only`
+                            : `${opt.label} — shown for reference; choose it on the store’s page`
 
                         return (
                           <SizePill

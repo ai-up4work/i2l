@@ -14,7 +14,7 @@ import { pageMetadata } from '@/lib/seo'
 export const metadata = pageMetadata({
   title: 'Shop from Indian Online Stores in Sri Lanka — Delivered to Your Door',
   description:
-    'Buy from Amazon India, Flipkart, Myntra, Nykaa, AJIO and more from Sri Lanka. Wishdrop buys it in India, quality-checks it and delivers it — one price in LKR, no customs to pay on arrival.',
+    'Buy from Amazon India, Flipkart, Myntra, Nykaa, AJIO and more from Sri Lanka. Wishdrop buys it in India, quality-checks it and delivers it — one price in LKR, nothing more to pay on arrival.',
   path: '/shop-from-india',
 })
 

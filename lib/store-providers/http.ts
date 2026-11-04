@@ -91,6 +91,26 @@ const MAX_RETRIES = 2;
 const MAX_CONCURRENT_PER_HOST = 4;
 const FIRECRAWL_ENDPOINT = 'https://api.firecrawl.dev/v2/scrape';
 
+// FIX: requests had no time limit at all. A store that accepted the
+// connection and never answered (or a slow Firecrawl render) held the
+// whole product lookup until Vercel killed it at 300 s — one cause of a
+// pasted Gymshark link taking 5–10 minutes. Each request now gives up
+// after these, and a timeout isn't retried (a store that didn't answer in
+// 15 s won’t on the next try either).
+const STORE_FETCH_TIMEOUT_MS = Number(process.env.STORE_FETCH_TIMEOUT_MS) || 15_000;
+const FIRECRAWL_TIMEOUT_MS = Number(process.env.FIRECRAWL_TIMEOUT_MS) || 35_000;
+
+/** The caller's signal (if any) plus our own time limit. */
+function withTimeout(signal: AbortSignal | null | undefined, ms: number): AbortSignal {
+  const t = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, t]) : t;
+}
+
+function isTimeoutError(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 const DEBUG = () => process.env.STORE_DEBUG === '1';
 
 // ── Per-host concurrency limiter ────────────────────────────────────────────
@@ -340,7 +360,7 @@ async function firecrawlScrape(target: URL, init: NextInit): Promise<Response> {
   const res = await fetch(FIRECRAWL_ENDPOINT, {
     method: 'POST',
     cache: 'no-store',
-    signal: init.signal,
+    signal: withTimeout(init.signal, FIRECRAWL_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${firecrawlKey()}`,
       'Content-Type': 'application/json',
@@ -619,7 +639,7 @@ async function directRequest(
     let lastRes: Response | undefined;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const res = await fetch(requestUrl, { ...init, headers });
+        const res = await fetch(requestUrl, { ...init, headers, signal: withTimeout(init.signal, STORE_FETCH_TIMEOUT_MS) });
         if (!RETRY_STATUSES.has(res.status)) return res;
         lastRes = res;
         // A Cloudflare managed challenge can't be passed by retrying, and
@@ -630,7 +650,8 @@ async function directRequest(
         if (res.status === 403 && (await isJsonBody(res))) break;
         if (attempt < MAX_RETRIES) await sleep(retryDelayMs(attempt, res));
       } catch (err) {
-        if (attempt === MAX_RETRIES) throw err;
+        // Timed out (or the caller gave up): don't try again.
+        if (attempt === MAX_RETRIES || isTimeoutError(err)) throw err;
         await sleep(retryDelayMs(attempt));
       }
     }
@@ -775,4 +796,4 @@ export async function storeFetch(input: string | URL, init: NextInit = {}): Prom
   }
 
   return res;
-}
+}

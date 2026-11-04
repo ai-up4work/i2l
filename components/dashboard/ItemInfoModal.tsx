@@ -38,6 +38,9 @@ import {
   type DeliveryPriceOption,
 } from '@/lib/pricing'
 import Image from 'next/image'
+import { LinkWeightContext, WeightControl, formatStorePrice, initialWeightFor } from '@/components/platforms/LandedPrice'
+import { formatKg, isEstimatedWeight, type WeightChoice } from '@/lib/weight-estimate'
+import { getPricingSettings } from '@/lib/pricing-settings'
 
 /**
  * CHANNEL 1/2 (priced, real listing) vs CHANNEL 3 (unpriced — ogOnly or
@@ -104,11 +107,17 @@ type ItemOverlayProps = {
    * this prop at all.
    */
   /** `itemName` / `photoUrl`: optional name and photo the customer added for an item we couldn't read. */
-  onSubmitRequest?: (opts?: { itemName?: string; photoUrl?: string }) => Promise<{ ok: boolean; error?: string }>
+  onSubmitRequest?: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => Promise<{ ok: boolean; error?: string }>
   onDeliveryChoiceChange?: (choice: DeliveryChoice) => void
   loading?: boolean
   onRetry?: () => void
+  /** Scraper QA page only: Add to cart / wishlist / Go to cart are reported
+   *  here instead of touching the real cart, wishlist or navigating. The
+   *  screen itself behaves exactly as for a customer. */
+  sandbox?: (action: 'add-to-cart' | 'wishlist' | 'go-to-cart', detail?: unknown) => void
 }
+
+export type ItemSandboxAction = 'add-to-cart' | 'wishlist' | 'go-to-cart'
 
 type DeliveryChoice = 'economy' | 'express'
 
@@ -201,16 +210,18 @@ function toProductSnapshot(result: ScrapeResult) {
     title: result.title ?? 'Untitled item',
     image: result.images?.[0] ?? null,
     currencyCode: result.currencyCode ?? null,
-    weightKg: (result as ScrapeResult & { weightKg?: number | null }).weightKg ?? null,
     source: 'link' as const,
   }
 }
 
-function toPriceableItem(result: ScrapeResult): ProductPriceableItem {
+// Weight is the shopper's choice (or our estimate) — see LandedPrice.tsx.
+// Currency falls back to INR, the same as the platform views' price line,
+// so the quote breakdown and the product page always agree.
+function toPriceableItem(result: ScrapeResult, weightKg: number): ProductPriceableItem {
   return {
     price: result.price != null ? Number(result.price) : 0,
-    currency: result.currencyCode ?? 'USD',
-    weightKg: (result as ScrapeResult & { weightKg?: number | null }).weightKg ?? undefined,
+    currency: result.currencyCode ?? 'INR',
+    weightKg,
   }
 }
 
@@ -351,17 +362,22 @@ function QuotePricingBlock({
   qty,
   deliveryChoice,
   onDeliveryChoiceChange,
+  weight,
 }: {
   result: ScrapeResult
   qty: number
   deliveryChoice: DeliveryChoice
   onDeliveryChoiceChange: (choice: DeliveryChoice) => void
+  weight: WeightChoice
 }) {
-  const dual = getDualDeliveryPricing(toPriceableItem(result))
+  const dual = getDualDeliveryPricing(toPriceableItem(result, weight.kg))
   const selected = deliveryChoice === 'economy' ? dual.economy : dual.express
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Weight drives the shipping cost — changeable here too. */}
+      <WeightControl result={result} compact />
+
       <div>
         <p className="mb-2 text-xs font-semibold text-ink/50">Delivery method</p>
         <DeliveryModeToggle value={deliveryChoice} onChange={onDeliveryChoiceChange} />
@@ -384,7 +400,8 @@ function QuotePricingBlock({
           </span>
         </div>
         <p className="mt-1.5 text-[10px] leading-snug text-ink/40">
-          Includes currency conversion, freight &amp; handling.
+          Includes the item, international shipping and handling for {formatKg(weight.kg)}
+          {isEstimatedWeight(weight.source) ? ' (estimated)' : ''}, service charge and delivery.
         </p>
       </div>
 
@@ -431,6 +448,7 @@ function QuoteModal({
   justAdded,
   onGoToCart,
   selectedOptions,
+  weight,
 }: {
   open: boolean
   onClose: () => void
@@ -446,6 +464,7 @@ function QuoteModal({
   justAdded: boolean
   onGoToCart: () => void
   selectedOptions: SelectedOptions
+  weight: WeightChoice
 }) {
   const [entered, setEntered] = useState(false)
 
@@ -536,6 +555,7 @@ function QuoteModal({
             qty={qty}
             deliveryChoice={deliveryChoice}
             onDeliveryChoiceChange={onDeliveryChoiceChange}
+            weight={weight}
           />
         ) : (
           <div className="rounded-xl border border-ink/10 bg-card p-4">
@@ -761,7 +781,7 @@ function ChatListingView({
 
         {/* Rest of buy box: price, notice, qty + chat action.
             Mobile: third (area "rest"). Desktop: bottom-right column. */}
-        <div className="min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:first-child]:mt-auto sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6">
+        <div className="min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6">
           {priceLabel ? (
             <p className="text-3xl font-bold text-teal-deep">{priceLabel}</p>
           ) : (
@@ -999,10 +1019,10 @@ function GenericProductView(
 ) {
   const { result, qty, onQtyChange, onGoToChat, loading, canAct, submitting, submitError } = props
   const hostname = hostnameFromUrl(result.url)
-  const priceLabel =
-    result.price != null && result.price !== ''
-      ? [result.currencyCode, result.price].filter(Boolean).join(' ')
-      : null
+  // The store's own price, clearly labelled — this view isn't priced by us
+  // (the team confirms the final price in chat), so no rupee conversion.
+  const storePrice = formatStorePrice(result.price, result.currencyCode)
+  const priceLabel = storePrice ? `Store price ${storePrice}` : null
 
   return (
     <ChatListingView
@@ -1193,7 +1213,7 @@ function ProductSkeleton({
             bordered qty-stepper + full-width button shape. Always
             skeletal regardless of preview state — price/notice/CTA all
             need the full scrape. */}
-        <div className="min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:first-child]:mt-auto sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6">
+        <div className="min-w-0 [grid-area:rest] sm:flex sm:flex-col sm:[&>*:last-child]:mt-auto sm:[&>*:last-child]:pt-6">
           <div className="h-9 w-40 animate-pulse rounded-md bg-ink/10" />
 
           <div className="mt-4 h-[52px] animate-pulse rounded-xl bg-ink/5" />
@@ -1311,6 +1331,7 @@ export default function ItemInfoModal({
   onDeliveryChoiceChange,
   loading = false,
   onRetry,
+  sandbox,
 }: ItemOverlayProps) {
   const router = useRouter()
   const [quoteOpen, setQuoteOpen] = useState(false)
@@ -1341,6 +1362,12 @@ export default function ItemInfoModal({
   // url), consumed by the freshly-mounted view via `initialSelection`,
   // then cleared as soon as that view reports its own selection.
   const carrySelectionRef = useRef<SelectedOptions | null>(null)
+
+  // Weight the price is worked out with (see LandedPrice.tsx). Starts as
+  // the store's own weight (+ packaging margin) or our estimate; the
+  // shopper can change it. Stored with the listing it belongs to (site
+  // + title, so a size/colour re-read of the same product keeps it).
+  const [weightPick, setWeightPick] = useState<{ key: string; choice: WeightChoice } | null>(null)
 
   const cart = useCart()
   const wishlist = useWishlist()
@@ -1426,6 +1453,15 @@ export default function ItemInfoModal({
     result && selection.url === result.url ? selection.options : {}
   const hasSelection = Object.keys(selectedOptions).length > 0
 
+  const listingKey = result ? `${result.site ?? ''}|${result.title ?? ''}` : ''
+  const autoWeight = result ? initialWeightFor(result) : null
+  // The shopper's choice wins, including over the store's weight (allowed,
+  // not encouraged — see WeightControl).
+  const weight: WeightChoice | null = autoWeight && weightPick?.key === listingKey ? weightPick.choice : autoWeight
+  const weightContext = weight
+    ? { weight, setWeight: (choice: WeightChoice) => setWeightPick({ key: listingKey, choice }) }
+    : null
+
   const handleSelectVariant = (url: string) => {
     // A variant re-scrape is about to swap the result (and remount the
     // view). Remember what was chosen so the new view can restore it.
@@ -1443,6 +1479,7 @@ export default function ItemInfoModal({
   function handleToggleWishlist() {
     if (!productSnapshot) return
     const wishlistProduct: WishlistProduct = { ...productSnapshot, price: result?.price != null ? String(result.price) : null }
+    if (sandbox) return sandbox('wishlist', wishlistProduct)
     wishlist.toggleItem(wishlistProduct)
   }
 
@@ -1457,14 +1494,21 @@ export default function ItemInfoModal({
       selectedOptions: hasSelection ? selectedOptions : undefined,
       sourcePrice: result?.price != null ? String(result.price) : null,
       estimatedPrice: estimatedPrice ?? null,
+      // Checkout uses this weight when the store doesn't give one, and
+      // flags the order so staff confirm it (lib/checkout/server.ts).
+      weightKg: weight?.kg ?? null,
+      weightSource: weight?.source ?? null,
+      weightLabel: weight?.label ?? null,
     }
-    cart.addItem(cartProduct, qty)
+    if (sandbox) sandbox('add-to-cart', { product: cartProduct, qty })
+    else cart.addItem(cartProduct, qty)
     setJustAdded(true)
   }
 
   function handleGoToCart() {
     setQuoteOpen(false)
     onClose()
+    if (sandbox) return sandbox('go-to-cart')
     router.push('/account/cart')
   }
 
@@ -1478,7 +1522,8 @@ export default function ItemInfoModal({
     if (!onSubmitRequest) return
     setSubmitError(null)
     setSubmitting(true)
-    const res = await onSubmitRequest({ itemName: itemName.trim() || undefined, photoUrl: photoUrl ?? undefined })
+    // `chat`: these buttons always open a chat with the team (see confirmRequest).
+    const res = await onSubmitRequest({ itemName: itemName.trim() || undefined, photoUrl: photoUrl ?? undefined, chat: true })
     setSubmitting(false)
     if (!res.ok) {
       setSubmitError(res.error ?? 'Something went wrong starting the chat. Please try again.')
@@ -1516,7 +1561,10 @@ export default function ItemInfoModal({
   const platformView = (() => {
     if (!commerceProps) return null
 
-    if (commerceProps.result.ogOnly) return <GenericProductView {...commerceProps} />
+    // No price we can stand behind (preview-only read, or the store page
+    // gave none): the "we'll confirm it in chat" screen, never a branded
+    // page with a buyable Rs. 0 — same rule as the scraper QA page.
+    if (commerceProps.result.ogOnly || !canBuildBreakdown(commerceProps.result)) return <GenericProductView {...commerceProps} />
 
     switch (commerceProps.result.site) {
       case 'amazon':
@@ -1564,6 +1612,7 @@ export default function ItemInfoModal({
   })()
 
   return (
+    <LinkWeightContext.Provider value={weightContext}>
     <div
       className="fixed inset-0 z-30 pointer-events-none"
       role="dialog"
@@ -1705,7 +1754,9 @@ export default function ItemInfoModal({
         justAdded={justAdded}
         onGoToCart={handleGoToCart}
         selectedOptions={selectedOptions}
+        weight={weight ?? { kg: getPricingSettings().storefront.weightBlockKg, source: 'default' }}
       />
     </div>
+    </LinkWeightContext.Provider>
   )
 }

@@ -11,6 +11,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a Seleqt (seleqt.wishlink.com) scrape result — same structural
@@ -253,8 +254,8 @@ export default function SeleqtProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp.replace(/[^0-9.]/g, '')) > Number(result.price.replace(/[^0-9.]/g, ''))
       ? Math.round(
@@ -313,6 +314,7 @@ export default function SeleqtProductView({
               <span className="rounded bg-[#6D28D9] px-2 py-0.5 text-[10px] font-bold text-white">{pctOff}% off</span>
             )}
           </div>
+          <LandedPriceDetails result={result} />
 
           {!!result.variants?.length && (
             <div className="mt-4 flex flex-col gap-4">

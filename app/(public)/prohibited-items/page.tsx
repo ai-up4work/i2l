@@ -91,12 +91,12 @@ const categories: Category[] = [
   },
   {
     name: 'Others',
-    blurb: 'Anything the law or Customs says no to.',
+    blurb: 'Anything the law says no to.',
     items: [
       {
         title: 'Items restricted by law',
         description:
-          'Anything Sri Lankan or Indian law prohibits, or that needs a permit or approval from Customs or another authority before it can be imported.',
+          'Anything Sri Lankan or Indian law prohibits, or that needs a permit or import approval from an authority before it can be brought in.',
         image: '/images/prohibited/restricted-by-law.png',
         badge: 'Check first',
       },

@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react'
 import { ExternalLink, Star, Gavel, Package, Check, Minus, Plus, Heart, ShoppingBag, ShoppingCart } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -12,6 +11,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -57,14 +57,11 @@ import PdpInfoTabs from './PdpInfoTabs'
  * are read defensively via `as any`, same pattern used elsewhere.
  */
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 function EbaySellerBadge({
@@ -147,7 +144,7 @@ function VariantRow({
                   ? 'Out of stock'
                   : opt.url
                     ? undefined
-                    : `${opt.label} — no direct variation link found, selection is visual only`
+                    : `${opt.label} — shown for reference; choose it on the store’s page`
               }
               className={`group relative flex min-h-[42px] flex-col items-center justify-center gap-0.5 rounded-lg border px-3.5 py-2 text-[13px] font-medium leading-tight transition-all ${
                 opt.outOfStock
@@ -400,8 +397,8 @@ export default function EbayProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -505,6 +502,7 @@ export default function EbayProductView({
               </span>
             )}
           </div>
+          <LandedPriceDetails result={result} />
 
           {isAuction && (
             <AuctionBlock
@@ -553,8 +551,8 @@ export default function EbayProductView({
                   ))}
                 </div>
                 <p className="mt-1.5 text-[11px] text-[#bdbdbd]">
-                  No dimension/option picker was found on the static page — showing only
-                  the currently selected value.
+                  The seller’s other options couldn’t be read — this is the one on the listing. Mention a
+                  different one in chat if you need it.
                 </p>
               </div>
             )}

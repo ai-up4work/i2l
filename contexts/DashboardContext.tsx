@@ -116,7 +116,7 @@ type DashboardContextValue = {
   saveItemInfo: (event: FormEvent) => void
   /** `itemName`: optional name the customer typed for an item we couldn't
    *  read. Becomes the request's item_name (staff can keep or change it). */
-  confirmRequest: (opts?: { itemName?: string; photoUrl?: string }) => Promise<ConfirmResult>
+  confirmRequest: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => Promise<ConfirmResult>
   setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
 }
@@ -238,7 +238,18 @@ function finalUnitPriceLKRFor(draft: Draft): number {
   return Math.round(selected.actualTotalLKR)
 }
 
-export function DashboardProvider({ children }: { children: React.ReactNode }) {
+export function DashboardProvider({
+  children,
+  freshLookups = false,
+  onInternalRedirect,
+}: {
+  children: React.ReactNode
+  /** Scraper QA page only: skip the server cache (see useProductLookup). */
+  freshLookups?: boolean
+  /** Called instead of navigating when a pasted link belongs to one of our
+   *  own stores (the QA page shows it rather than leaving). */
+  onInternalRedirect?: (path: string) => void
+}) {
   const router = useRouter()
   const { user } = useAuth()
   const cart = useCart()
@@ -261,7 +272,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     result: scrapeResult,
     lookup,
     reset: resetLookup,
-  } = useProductLookup()
+  } = useProductLookup({ fresh: freshLookups })
 
   const resetDraft = useCallback(() => {
     setDraft(emptyDraft)
@@ -295,12 +306,24 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         if (latestUrlRef.current !== url || live.error) return
         setDraft((current) => applyScrapeResultToDraft(current, live))
       })
+      // FIX: a link to one of our own affiliated stores comes back as
+      // { internalRedirect: '/stores/…' } (app/api/product-lookup). Nothing
+      // handled it, so the shopper got the "couldn't load this listing"
+      // screen for a product we actually sell. Open our own page instead.
+      if (product?.internalRedirect && latestUrlRef.current === url) {
+        if (onInternalRedirect) onInternalRedirect(product.internalRedirect)
+        else {
+          setModalOpen(false)
+          router.push(product.internalRedirect)
+        }
+        return
+      }
       if (!product || product.error) return
 
       setDraft((current) => applyScrapeResultToDraft(current, product))
       setAutoFilled(true)
     },
-    [lookup],
+    [lookup, onInternalRedirect, router],
   )
 
   const startItemInfo = useCallback(
@@ -340,7 +363,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     setDraft((current) => ({ ...current, deliveryChoice: choice }))
   }, [])
 
-  const confirmRequest = useCallback(async (opts?: { itemName?: string; photoUrl?: string }): Promise<ConfirmResult> => {
+  const confirmRequest = useCallback(async (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }): Promise<ConfirmResult> => {
     // What the customer called it, if they typed a name (couldn't-read items).
     const customerItemName = (opts?.itemName ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)
     if (!user) {
@@ -352,7 +375,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
     const supabase = createClient()
     try {
-      if (draft.unitPrice > 0) {
+      // FIX: `chat` = the item screen's "Chat about this item" button. It
+      // used to land here too whenever the draft had a price (an unknown
+      // store with a readable price), silently adding the item to the bag
+      // — no chat, no weight — while the screen said the team would check
+      // it first. Those buttons now always start the chat.
+      if (draft.unitPrice > 0 && !opts?.chat) {
         // Priced automatically: goes into the bag like any other item, so
         // checkout prices it on the server and it waits for payment
         // (lib/checkout/server.ts). This used to create an unpaid order
@@ -376,7 +404,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         // Channel 3 — couldn't be priced automatically (no extractor
         // matched, or the site blocked scraping outright).
         const hasRealImage = draft.image && draft.image !== productImage[0]
-        const og = hasRealImage ? null : await fetchOgMetadataClient(draft.url)
+        // Reuse the preview already on the item screen; fetch again only
+        // if there wasn't one (a second fetch can fail where the first worked).
+        const shownPreview = ogPreview && ogPreview.url === draft.url && (ogPreview.title || ogPreview.image) ? ogPreview : null
+        const og = hasRealImage ? null : shownPreview ?? (await fetchOgMetadataClient(draft.url).catch(() => null))
         // The customer's own photo (item screen) wins over anything we found;
         // staff can keep, replace or remove it on the request page.
         const customerPhoto = opts?.photoUrl && /^https:\/\//.test(opts.photoUrl) ? opts.photoUrl : undefined
@@ -401,7 +432,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
             note: buildRequestNote(draft),
             // The customer's own name for it wins; staff can edit it on the
             // request page (Product title).
-            item_name: customerItemName || draft.name,
+            // A failed read leaves draft.name empty; fall back to the
+            // page's own title (the same one shown on the item screen).
+            item_name: customerItemName || draft.name.trim() || og?.title || draft.url,
             screenshot_url: screenshotUrl ?? null,
             source_domain: sourceDomainFor(draft.url),
             chat_thread_id: threadId,
@@ -447,7 +480,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       console.error('[dashboard] failed to confirm request', err)
       return { ok: false, error: err instanceof Error ? err.message : 'Something went wrong. Please try again.' }
     }
-  }, [draft, user, router, cart])
+  }, [draft, user, router, cart, ogPreview])
 
   // confirmCartOrder (the browser inserting orders and prices straight
   // into the database) is gone: checkout now goes through POST
@@ -455,7 +488,26 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   // (lib/checkout/server.ts).
 
   const scrapeResultWithPreview = useMemo<ScrapeResult | null>(() => {
-    if (scrapeResult) return scrapeResult
+    if (scrapeResult) {
+      // FIX: a failed full read used to replace the quick preview outright,
+      // so the name and photo that were already on screen vanished and the
+      // "couldn't load" screen showed an empty picture. Keep whatever the
+      // preview found for anything the failed read is missing. Only for
+      // failed reads: a real read is never mixed with preview data, and the
+      // result stays marked as failed so it can't turn into a buyable
+      // product page with no price.
+      const hasPrice = scrapeResult.price != null && String(scrapeResult.price).trim() !== ''
+      const failed = !!scrapeResult.error || (!scrapeResult.title && !hasPrice && !scrapeResult.images?.length)
+      const needTitle = !scrapeResult.title && !!ogPreview?.title
+      const needImage = !scrapeResult.images?.length && !!ogPreview?.image
+      if (!failed || !ogPreview || (!needTitle && !needImage)) return scrapeResult
+      return {
+        ...scrapeResult,
+        error: scrapeResult.error || 'Could not read this listing',
+        title: scrapeResult.title || ogPreview.title || undefined,
+        images: needImage ? [ogPreview.image!] : scrapeResult.images,
+      }
+    }
     if (ogPreview && (ogPreview.title || ogPreview.image)) {
       return {
         url: ogPreview.url,

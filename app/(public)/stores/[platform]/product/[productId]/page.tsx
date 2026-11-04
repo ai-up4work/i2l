@@ -302,8 +302,11 @@ export default async function ProductDetailPage({
   if ('price-breakdown' in query) {
     const variant = variantFromQuery(product, query)
     const staff = await isStoreStaff()
-    if (staff || store.storeType === 'marketplace') {
-      redirect(fullQuoteHref(staff ? '/admin/quote' : '/demo/quote', product, variant, await ensurePricingSettings()))
+    // Staff get the full calculator. Every shopper — marketplace products
+    // included (they used to get the staff calculator, with our rates and
+    // cost lines) — gets the customer breakdown.
+    if (staff) {
+      redirect(fullQuoteHref('/admin/quote', product, variant, await ensurePricingSettings()))
     }
     redirect(customerQuoteHref(store.platform, product.handle || productId, variant))
   }

@@ -228,7 +228,7 @@ export default function PriceEstimator({
               )}
               <dl className="mt-3 flex flex-col gap-1.5 border-t border-parchment/15 pt-3 font-body text-xs">
                 <div className="flex justify-between gap-3">
-                  <dt className="text-parchment/65">{o.method === 'economy' ? 'Item, postage & customs' : 'Item, shipping & customs'}</dt>
+                  <dt className="text-parchment/65">{o.method === 'economy' ? 'Item, postage & handling' : 'Item, shipping & handling'}</dt>
                   <dd className="tabular-nums">{o.perItem.formattedPrice}</dd>
                 </div>
                 <div className="flex justify-between gap-3">

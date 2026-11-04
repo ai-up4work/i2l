@@ -225,11 +225,11 @@ export function getStoreGuide(slug: string): StoreGuide | undefined {
 export const SHARED_GUIDE_FAQS = (storeName: string) => [
   {
     q: `How long does delivery from ${storeName} to Sri Lanka take?`,
-    a: 'Express usually arrives in about 12–15 days from purchase. Economy, when available, usually takes about 3–4 weeks. Timelines depend on the seller’s dispatch time and customs, and we tell you early if anything runs late.',
+    a: 'Express usually arrives in about 12–15 days from purchase. Economy, when available, usually takes about 3–4 weeks. Timelines depend on the seller’s dispatch time and import processing, and we tell you early if anything runs late.',
   },
   {
-    q: 'Do I have to pay customs duty when the parcel arrives?',
-    a: 'No. The total you accept already covers the product, Wishdrop’s service, freight and customs clearance. There’s nothing more to pay on delivery unless your order changes after purchase.',
+    q: 'Do I have to pay anything when the parcel arrives?',
+    a: 'No. The total you accept is all-in: the product, international shipping and handling, Wishdrop’s service and delivery. There’s nothing more to pay on delivery unless your order changes after purchase.',
   },
   {
     q: 'Do I need an Indian address or a parcel-forwarding account?',

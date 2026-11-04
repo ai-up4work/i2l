@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
 import RequestActionButton from '@/components/stores/RequestActionButton'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -11,6 +10,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_LABEL, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -77,14 +77,11 @@ function samePid(a?: string | null, b?: string | null) {
   }
 }
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 /** Flipkart's green rating pill — filled white star + numeric rating. */
@@ -388,8 +385,8 @@ export default function FlipkartProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -467,6 +464,7 @@ export default function FlipkartProductView({
               <p className="text-base font-semibold text-[#a0a0a0]">No price found</p>
             )}
           </div>
+          <LandedPriceDetails result={result} />
 
           {/* VARIANT DIMENSIONS — each dimension (Color, Size, ...) is
               its own full-width block, stacked vertically (flex-col)
@@ -521,7 +519,7 @@ export default function FlipkartProductView({
                         const optOriginalPrice =
                           opt.mrp && opt.mrp !== opt.price ? fmt(opt.mrp, opt.currencyCode) : null
                         const selected = opt.label === selectedLabel
-                        const disabledTitle = opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`
+                        const disabledTitle = opt.url ? undefined : `${opt.label} — shown for reference; choose it on the store’s page`
                         const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
                         return hasImages ? (
                           <FlipkartSwatch

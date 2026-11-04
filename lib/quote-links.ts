@@ -5,7 +5,7 @@
 //
 //   staff         → /admin/quote, pre-filled with the seller's price,
 //                   currency, weight and store type: the full calculator.
-//   shoppers      → /demo/quote?product=<store>/<handle>&variant=<id>: the
+//   shoppers      → /price-breakdown?product=<store>/<handle>&variant=<id>: the
 //                   calculator's customer mode. Only a product reference
 //                   travels in the URL; the shopper-safe numbers are
 //                   computed on the server by buildCustomerQuote below, so
@@ -84,7 +84,8 @@ export function fullQuoteHref(
 export function customerQuoteHref(platform: string, handle: string, variant: StoreProductVariant | null): string {
   const params = new URLSearchParams({ product: `${platform}/${handle}` })
   if (variant) params.set('variant', variant.id)
-  return `/demo/quote?${params.toString()}`
+  // Public page (app/(public)/price-breakdown). /demo/* is Super Admin only.
+  return `/price-breakdown?${params.toString()}`
 }
 
 function toOption(id: CustomerQuoteOption['id'], label: string, o: DeliveryPriceOption, unavailable?: boolean): CustomerQuoteOption {

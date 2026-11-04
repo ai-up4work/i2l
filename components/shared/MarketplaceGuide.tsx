@@ -54,7 +54,7 @@ export default function MarketplaceGuide({
           steps={[
             { title: 'Copy the link', text: `Find the item on ${name} and copy its product page link.` },
             { title: 'Paste it in', text: 'Paste it into a new request and add any size, colour or quantity details.' },
-            { title: 'Check your quote', text: 'See the product price, service fee, freight and customs — then confirm.' },
+            { title: 'Check your quote', text: 'See the full price — item, service charge and delivery — then confirm.' },
             { title: 'We do the rest', text: 'Wishdrop buys it, checks it at quality control, and delivers it to you.' },
           ]}
         />

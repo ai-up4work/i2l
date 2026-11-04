@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { ExternalLink, Star, ChevronDown, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -11,6 +10,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -54,14 +54,11 @@ import PdpInfoTabs from './PdpInfoTabs'
  *     instead of floating separately
  */
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 function MyntraRatingBadge({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
@@ -182,7 +179,7 @@ function SizeRow({
                   ? 'Out of stock'
                   : opt.url
                     ? undefined
-                    : `${opt.label} — no direct link found, selection is visual only`
+                    : `${opt.label} — shown for reference; choose it on the store’s page`
               }
               className={`relative flex min-h-11 min-w-11 flex-col items-center justify-center rounded-full border px-3 py-1.5 text-[13px] font-semibold ${
                 opt.outOfStock
@@ -520,8 +517,8 @@ export default function MyntraProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -602,8 +599,7 @@ export default function MyntraProductView({
             {mrp && <span className="text-base font-medium text-[#94969f] line-through">MRP {mrp}</span>}
             {pctOff !== null && <span className="text-sm font-bold text-[#ff905a]">({pctOff}% OFF)</span>}
           </div>
-          {savings && <p className="mt-0.5 text-xs font-semibold text-[#03a685]">You save {savings}</p>}
-          <p className="mt-0.5 text-[11px] text-[#94969f]">inclusive of all taxes</p>
+          <LandedPriceDetails result={result} />
 
           <div className="mt-4 flex flex-col gap-4">
             {colorDim && <ColorSwatchRow dim={colorDim} onPick={(label, url) => pickOption('Color', label, url)} />}

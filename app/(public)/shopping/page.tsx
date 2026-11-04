@@ -29,7 +29,7 @@ const paths = [
 
 const steps = [
   { title: 'Tell us what you want', text: 'Pick a product from an affiliated store, or paste a link and add any details (size, colour, quantity).' },
-  { title: 'Review your quote', text: 'See the product price, our service fee, freight, and estimated customs charges before you pay anything.' },
+  { title: 'Review your quote', text: 'See one all-in price — the item with shipping and handling, our service charge and delivery — before you pay anything.' },
   { title: 'We buy it', text: 'Once you accept and pay, Wishdrop purchases the item directly from the seller.' },
   { title: 'Track it home', text: 'Follow your order through quality check, shipping, and delivery from your account.' },
 ]

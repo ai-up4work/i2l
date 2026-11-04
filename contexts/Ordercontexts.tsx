@@ -125,6 +125,8 @@ export type Order = {
    *  used for the "Pay now" link. Absent on orders from before that. */
   checkoutId?: string
   paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded'
+  /** Our team hasn't confirmed the final price yet — nothing to pay. */
+  priceReview?: boolean
 }
 
 export const FILTERS: Array<OrderStatus | 'All'> = [
@@ -841,6 +843,7 @@ type OrderRow = {
   created_at: string
   checkout_id?: string | null
   payment_status?: string | null
+  price_review?: boolean | null
   order_items: {
     id: string
     title: string
@@ -883,6 +886,7 @@ function rowToOrder(row: OrderRow): Order {
     estimatedDelivery: row.estimated_delivery ?? undefined,
     checkoutId: row.checkout_id ?? undefined,
     paymentStatus: (row.payment_status as Order['paymentStatus']) ?? undefined,
+    priceReview: row.price_review === true,
     recipient: row.addresses
       ? { name: row.addresses.recipient_name, city: row.addresses.city, country: row.addresses.country }
       : undefined,
@@ -953,7 +957,7 @@ export function OrdersProvider({
     const fetchOrders = (withPayment: boolean) =>
       supabase
         .from('orders')
-        .select(`${BASE}${withPayment ? ', checkout_id, payment_status' : ''}, ${ITEMS}`)
+        .select(`${BASE}${withPayment ? ', checkout_id, payment_status, price_review' : ''}, ${ITEMS}`)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
@@ -961,7 +965,7 @@ export function OrdersProvider({
       let { data, error: fetchError } = await fetchOrders(true)
       // Database without data/wishdrop-coupons-referrals-payments.sql yet:
       // load orders without the payment columns rather than failing.
-      if (fetchError && /checkout_id|payment_status/.test(fetchError.message)) {
+      if (fetchError && /checkout_id|payment_status|price_review/.test(fetchError.message)) {
         ;({ data, error: fetchError } = await fetchOrders(false))
       }
       if (cancelled) return

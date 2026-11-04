@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react'
 import { Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -12,6 +11,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_BRAND_LINE, PDP_LABEL, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -44,14 +44,11 @@ import PdpInfoTabs from './PdpInfoTabs'
 
 const NYKAA_PINK = '#FC2779'
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 /** Nykaa's magenta rating pill — filled white star + numeric rating. */
@@ -390,8 +387,8 @@ export default function NykaaProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -475,7 +472,7 @@ export default function NykaaProductView({
               </span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-[#a3a3a3]">MRP Incl. of all taxes</p>
+          <LandedPriceDetails result={result} />
 
           {!!result.variants?.length && (
             <div className="mt-4 flex flex-col gap-4">
@@ -491,7 +488,7 @@ export default function NykaaProductView({
                     <div className="flex flex-wrap gap-2">
                       {dim.options.map((opt) => {
                         const selected = opt.label === selectedLabel
-                        const disabledTitle = opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`
+                        const disabledTitle = opt.url ? undefined : `${opt.label} — shown for reference; choose it on the store’s page`
                         const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
                         return (
                           <NykaaChip

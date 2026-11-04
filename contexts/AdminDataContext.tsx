@@ -589,6 +589,7 @@ function mapToOrder(
     isLocal: o.isLocal,
     pickupFeeLKR: o.pickupFeeLKR,
     awaitingPayment: Boolean(o.checkoutId) && o.paymentStatus === "unpaid",
+    priceReview: o.priceReview && o.paymentStatus === "unpaid",
     paymentStatus: o.paymentStatus,
     isManualQuote: o.channel === 3,
     warehouseSubstage: o.substage,

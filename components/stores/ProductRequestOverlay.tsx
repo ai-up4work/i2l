@@ -1,10 +1,22 @@
 // components/stores/ProductRequestOverlay.tsx
 'use client'
 
-import ItemInfoModal from '@/components/dashboard/ItemInfoModal'
+import ItemInfoModal, { type ItemSandboxAction } from '@/components/dashboard/ItemInfoModal'
 import { useDashboard } from '@/contexts/DashboardContext'
 
-export default function ProductRequestOverlay() {
+/**
+ * The item screen for a pasted link. The scraper QA page (/demo/scraper-qa)
+ * mounts this same component so what it tests is what customers get; it
+ * only passes `sandbox` / `onSubmitRequestOverride` so a test run doesn't
+ * fill the tester's real cart or create real requests.
+ */
+export default function ProductRequestOverlay({
+  sandbox,
+  onSubmitRequestOverride,
+}: {
+  sandbox?: (action: ItemSandboxAction, detail?: unknown) => void
+  onSubmitRequestOverride?: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => Promise<{ ok: boolean; error?: string }>
+} = {}) {
   const {
     draft,
     setDraft,
@@ -34,7 +46,8 @@ export default function ProductRequestOverlay() {
       qty={draft.qty}
       onQtyChange={(qty) => setDraft({ ...draft, qty })}
       onClose={closeModal}
-      onSubmitRequest={confirmRequest}
+      onSubmitRequest={onSubmitRequestOverride ?? confirmRequest}
+      sandbox={sandbox}
       estimatedPriceLKR={draft.estimatedPriceLKR ?? null}
       loading={lookupLoading}
       onSelectVariant={(url) => {
@@ -48,4 +61,4 @@ export default function ProductRequestOverlay() {
       }}
     />
   )
-}
+}

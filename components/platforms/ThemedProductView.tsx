@@ -23,7 +23,6 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import { Check, Heart, Minus, Plus, Ruler, ShoppingBag, ShoppingCart, Star, X } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -31,6 +30,7 @@ import RequestActionButton from '@/components/stores/RequestActionButton'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_BRAND_LINE, PDP_CONTAINER, PDP_GRID, PDP_LABEL, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 export type PlatformTheme = {
   /** Key into SITE_LOGOS. */
@@ -54,14 +54,11 @@ export type PlatformTheme = {
   priceNote?: string
 }
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 function Rating({ theme, rating, count }: { theme: PlatformTheme; rating?: string | null; count?: string | null }) {
@@ -129,7 +126,7 @@ function OptionRow({
       <div className={hasImages ? 'flex flex-wrap gap-2.5' : 'flex flex-wrap gap-1.5'}>
         {dim.options.map((opt, i) => {
           const isSelected = opt.label === selected
-          const title = opt.outOfStock ? `${opt.label} — out of stock` : opt.url ? opt.label : `${opt.label} — no direct link found, selection is visual only`
+          const title = opt.outOfStock ? `${opt.label} — out of stock` : opt.url ? opt.label : `${opt.label} — shown for reference; choose it on the store’s page`
           if (hasImages) {
             return (
               <button
@@ -290,8 +287,8 @@ export default function ThemedProductView({ theme, ...props }: PlatformViewProps
     if (opt.url && !opt.selected) onSelectVariant(opt.url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pct =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -366,6 +363,7 @@ export default function ThemedProductView({ theme, ...props }: PlatformViewProps
               </span>
             )}
           </div>
+          <LandedPriceDetails result={result} />
           {theme.priceNote && <p className="mt-1 text-[11px] font-medium text-ink/40">{theme.priceNote}</p>}
 
           {variants.length > 0 && (

@@ -7,7 +7,7 @@ export const metadata = pageMetadata({
   path: '/shipping',
   title: 'Shipping & Delivery | Wishdrop',
   description:
-    'How Wishdrop ships your order from an affiliated store to your door in Sri Lanka — consolidation, customs, and delivery, explained.',
+    'How Wishdrop ships your order from the store to your door in Sri Lanka — checking, shipping, import and delivery, explained.',
 })
 
 const stages = [
@@ -23,8 +23,8 @@ const stages = [
   },
   {
     icon: ShieldCheck,
-    title: 'Customs clearance',
-    text: 'We handle the customs declaration and clearance process in Sri Lanka — you don\u2019t need to file anything yourself.',
+    title: 'Import & paperwork',
+    text: 'We handle all the import paperwork in Sri Lanka — you don\u2019t need to file anything yourself.',
   },
   {
     icon: Clock,
@@ -40,7 +40,7 @@ const faqs = [
   },
   {
     q: 'How long does delivery take?',
-    a: 'Timelines vary by seller dispatch time, product weight, and customs processing, and are shown as an estimate on your quote and order page. We\u2019ll flag it if something is running longer than expected.',
+    a: 'Timelines vary by seller dispatch time, product weight, and import processing, and are shown as an estimate on your quote and order page. We\u2019ll flag it if something is running longer than expected.',
   },
   {
     q: 'Can I track my order?',
@@ -59,7 +59,7 @@ export default function ShippingPage() {
         eyebrow="Shipping & delivery"
         title="From the seller’s shelf"
         accent="to your door."
-        intro="Wishdrop handles the whole journey from India to Sri Lanka — you don’t need an overseas address, a forwarding service, or any customs paperwork."
+        intro="Wishdrop handles the whole journey from India to Sri Lanka — you don’t need an overseas address, a forwarding service, or any import paperwork."
       />
 
       <Section eyebrow="The journey" title="What happens after you order">
@@ -71,14 +71,10 @@ export default function ShippingPage() {
           <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-12">
             <h2 className="font-display text-3xl font-semibold leading-tight text-indigo">What your delivery cost includes</h2>
             <p className="font-body text-[15px] leading-relaxed text-ink/65">
-              The total on your quote already covers the product price, Wishdrop&apos;s service fee, freight, and customs
-              duties and taxes — see{' '}
+              The total on your quote is all-in: the item with international shipping and handling, Wishdrop&apos;s
+              service charge and delivery to your door — see{' '}
               <Link href="/shipping/pricing" className="font-semibold text-teal-deep underline underline-offset-2">
-                how pricing is calculated
-              </Link>{' '}
-              and{' '}
-              <Link href="/taxation" className="font-semibold text-teal-deep underline underline-offset-2">
-                how customs charges work
+                how your total is put together
               </Link>
               . There&apos;s nothing more to pay on delivery unless your order changes after purchase.
             </p>

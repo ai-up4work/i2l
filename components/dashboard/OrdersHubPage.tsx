@@ -89,6 +89,13 @@ function OrderStatusBadge({ order }: { order: Order }) {
   if (order.paymentStatus === 'refunded') {
     return <span className="rounded-full bg-ink/[0.06] px-3 py-1 text-xs font-medium text-ink/70">Refunded</span>
   }
+  if (isAwaitingPayment(order) && order.priceReview) {
+    return (
+      <span className="rounded-full bg-teal/10 px-3 py-1 text-xs font-medium text-teal-deep ring-1 ring-inset ring-teal/20">
+        Confirming price
+      </span>
+    )
+  }
   if (isAwaitingPayment(order)) {
     return (
       <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200">
@@ -839,7 +846,7 @@ function OrderCardActions({
           href={`/account/pay/${order.checkoutId}`}
           className="flex-1 rounded-xl bg-teal px-4 py-2.5 text-center text-sm font-medium text-white transition-all duration-150 hover:bg-teal-deep active:scale-[0.98]"
         >
-          How to pay
+          {order.priceReview ? 'Price status' : 'How to pay'}
         </a>
         <SecondaryButton onClick={onGoToDetails}>View Details</SecondaryButton>
       </>

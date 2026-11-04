@@ -51,17 +51,17 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         heading: 'How Express is priced',
         paragraphs: [
-          'Express covers freight and customs clearance, both charged by weight in small weight blocks, plus a flat delivery fee to your door in Sri Lanka and a flat service charge per item.',
+          'Express is the faster way: the price covers international shipping and handling (heavier items cost more), plus a flat delivery fee to your door in Sri Lanka and a flat service charge per item.',
         ],
       },
       {
         heading: 'How Economy is priced',
         paragraphs: [
-          'Economy replaces freight and customs clearance with a single postal charge by weight, plus its own flat delivery fee and the same service charge. For light items the difference is small; for heavier items Economy can save more.',
+          'Economy is slower and costs less to ship, with its own flat delivery fee and the same service charge. For light items the difference is small; for heavier items Economy can save more.',
         ],
       },
       {
-        heading: 'Both include customs — nothing to pay on arrival',
+        heading: 'Both are all-in — nothing to pay on arrival',
         paragraphs: [
           'Whichever you choose, the total you accept is the total you pay. There’s nothing more to pay when the parcel arrives unless your order changes after purchase.',
         ],
@@ -70,7 +70,7 @@ export const BLOG_POSTS: BlogPost[] = [
     faqs: [
       {
         q: 'How long does Express delivery from India to Sri Lanka take with Wishdrop?',
-        a: 'Usually about 12–15 days from purchase, depending on the seller’s dispatch time and customs.',
+        a: 'Usually about 12–15 days from purchase, depending on the seller’s dispatch time and import processing.',
       },
       {
         q: 'Is Economy delivery always available?',
@@ -119,7 +119,7 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         heading: 'Not sure? Ask before you order',
         paragraphs: [
-          'Some items need a permit or Customs approval to enter Sri Lanka. If you’re unsure about something, message us before ordering and we’ll check.',
+          'Some items need a permit or import approval to enter Sri Lanka. If you’re unsure about something, message us before ordering and we’ll check.',
         ],
       },
     ],
@@ -132,7 +132,7 @@ export const BLOG_POSTS: BlogPost[] = [
     slug: 'whats-included-in-your-wishdrop-price',
     title: 'What’s included in your Wishdrop price (and why there’s nothing to pay on delivery)',
     description:
-      'Your Wishdrop total covers the item, shipping, customs clearance, a service charge and delivery to your door — quoted in LKR before you pay.',
+      'Your Wishdrop total covers the item, international shipping and handling, a service charge and delivery to your door — quoted in LKR before you pay.',
     tag: 'Guide',
     published: '2026-10-26',
     author: 'Wishdrop team',
@@ -140,14 +140,14 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         heading: 'The short answer',
         paragraphs: [
-          'One price in Sri Lankan rupees covers everything: the product, international shipping, customs clearance, a service charge and delivery to your door. You see it before you pay, and there’s nothing more to pay when the parcel arrives.',
+          'One price in Sri Lankan rupees covers everything: the product, international shipping and handling, a service charge and delivery to your door. You see it before you pay, and there’s nothing more to pay when the parcel arrives.',
         ],
       },
       {
         heading: 'The three lines you’ll see',
         paragraphs: ['Every product shows the same breakdown on the product page, in the cart and at checkout:'],
         bullets: [
-          'Price — the item converted to LKR, including shipping and customs clearance',
+          'Price — the item in LKR, including international shipping and handling',
           'Service charge — a flat amount per item for buying, checking and handling your order',
           'Delivery — a flat fee to bring it to your door in Sri Lanka',
         ],
@@ -155,7 +155,7 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         heading: 'Why weight matters',
         paragraphs: [
-          'Shipping and customs clearance are charged by weight, so a heavy item costs more to bring over than a light one at the same shop price. If a seller doesn’t list a weight we use a sensible default and adjust once the item is weighed at quality check.',
+          'Shipping depends on weight, so a heavy item costs more to bring over than a light one at the same shop price. If a seller doesn’t list a weight, our team checks it and confirms your final price before you pay.',
         ],
       },
       {
@@ -166,7 +166,7 @@ export const BLOG_POSTS: BlogPost[] = [
       },
     ],
     related: [
-      { label: 'How customs charges work', href: '/taxation' },
+      { label: 'How your total is put together', href: '/shipping/pricing' },
       { label: 'Payment methods', href: '/policy/payment-method' },
       { label: 'Estimate a delivered price', href: '/estimate' },
     ],

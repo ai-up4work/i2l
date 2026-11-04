@@ -102,8 +102,13 @@ const nextConfig = {
       { source: '/policy/returns', destination: '/refund-policy', permanent: true },
       { source: '/policy/refund', destination: '/refund-policy', permanent: true },
       { source: '/policy/terms', destination: '/terms', permanent: true },
+      // The Taxation & Customs page published how duties are built into our
+      // price. Customer-facing pricing is all-in and general now
+      // (/shipping/pricing); the old page and its links are retired.
+      { source: '/taxation', destination: '/shipping/pricing', permanent: true },
+      { source: '/taxation/', destination: '/shipping/pricing', permanent: true },
     ]
   },
 }
 
-export default nextConfig
+export default nextConfig

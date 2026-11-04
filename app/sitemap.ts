@@ -35,7 +35,6 @@ const STATIC_ROUTES: { path: string; priority: number; changeFrequency: Freq }[]
   { path: '/shopping-guides', priority: 0.6, changeFrequency: 'monthly' },
   { path: '/shop-from-india', priority: 0.9, changeFrequency: 'weekly' },
   { path: '/estimate', priority: 0.7, changeFrequency: 'monthly' },
-  { path: '/taxation', priority: 0.6, changeFrequency: 'monthly' },
   { path: '/shopping/protection', priority: 0.5, changeFrequency: 'monthly' },
   { path: '/shipping/protection', priority: 0.5, changeFrequency: 'monthly' },
   { path: '/warehouses', priority: 0.5, changeFrequency: 'monthly' },

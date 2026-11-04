@@ -11,6 +11,7 @@ import { STAGE_ORDER, CHANNEL_LABEL, type Channel, type Order, type OrderStage }
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
 import OrderPaymentCard from "@/components/admin/orders/OrderPaymentCard"
+import OrderPriceCheckCard from "@/components/admin/orders/OrderPriceCheckCard"
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
 import QcIssueBanner from "@/components/shared/QcIssueBanner"
 import { createClient } from "@/lib/supabase/client"
@@ -204,6 +205,8 @@ function MessageAttachment({
 export default function OrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>()
   const router = useRouter()
+  // Bumped when a Price check is saved, so the payment card reloads its total.
+  const [priceCheckVersion, setPriceCheckVersion] = useState(0)
   const {
     getOrder,
     sites,
@@ -759,7 +762,11 @@ export default function OrderDetailPage() {
           <aside className="flex flex-col lg:col-span-1">
             {/* Payment (manual / WhatsApp) — Sales, Manager, Super Admin. */}
             {resolveOrderId(order.id) && ["sales", "manager", "super_admin"].includes(String(currentUser?.role ?? "")) && (
-              <OrderPaymentCard orderId={resolveOrderId(order.id)!} role={currentUser?.role ?? null} onCancelled={() => router.push("/admin/orders")} />
+              <>
+                {/* Estimated weights / unconfirmed prices — check before asking for payment. */}
+                <OrderPriceCheckCard orderId={resolveOrderId(order.id)!} onSaved={() => setPriceCheckVersion((v) => v + 1)} />
+                <OrderPaymentCard key={priceCheckVersion} orderId={resolveOrderId(order.id)!} role={currentUser?.role ?? null} onCancelled={() => router.push("/admin/orders")} />
+              </>
             )}
             <section className="flex flex-1 flex-col rounded-2xl border border-gold/30 bg-gold/[0.07] p-5">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">

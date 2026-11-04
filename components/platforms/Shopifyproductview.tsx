@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react'
 import { BadgeCheck, Star, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -12,6 +11,7 @@ import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_GRID, PDP_REST, PDP_TITLE } from './pdp-styles'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a Shopify scrape result (source: 'shopify_api') using the
@@ -77,14 +77,11 @@ import { PDP_GRID, PDP_REST, PDP_TITLE } from './pdp-styles'
  * adapter.
  */
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 // Display names for Shopify-backed brands that have their own logo.
@@ -501,8 +498,8 @@ export default function ShopifyProductView({
     ? [selectedImage, ...images.filter((src) => src !== selectedImage)]
     : images
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -586,6 +583,7 @@ export default function ShopifyProductView({
             {mrp && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
             {pctOff !== null && <span className="text-sm font-bold text-indigo-deep">{pctOff}% off</span>}
           </div>
+          <LandedPriceDetails result={result} />
 
           {!!result.variants?.length && (
             <div className="mt-4 flex flex-col gap-4">

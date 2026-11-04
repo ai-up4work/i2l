@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Star, ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check, ChevronLeft, ChevronRight, Ruler, X } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -12,6 +11,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the SAME visual language as the
@@ -79,14 +79,11 @@ import PdpInfoTabs from './PdpInfoTabs'
  *     (basis-full), while qty/wishlist/cart stay put on the first line.
  */
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'LKR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 function RatingStars({ rating, count }: { rating: string | null | undefined; count?: string | null }) {
@@ -120,6 +117,7 @@ function DimensionChip({
   selected,
   onClick,
   disabledTitle,
+  outOfStock,
 }: {
   label: string
   price?: string | null
@@ -127,19 +125,24 @@ function DimensionChip({
   selected: boolean
   onClick?: () => void
   disabledTitle?: string
+  /** Sold out at the store: shown struck through, can't be picked. */
+  outOfStock?: boolean
 }) {
-  const interactive = !!onClick
+  const interactive = !!onClick && !outOfStock
   return (
     <button
       type="button"
       onClick={interactive ? onClick : undefined}
-      title={disabledTitle}
+      disabled={outOfStock}
+      title={outOfStock ? `${label} — out of stock` : disabledTitle}
       aria-pressed={selected}
       className={
         'flex flex-col items-center rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ' +
-        (selected
-          ? 'border-teal-deep bg-teal-deep text-white'
-          : 'border-ink/15 text-ink/70' + (interactive ? ' hover:border-ink/30 cursor-pointer' : ''))
+        (outOfStock
+          ? 'cursor-not-allowed border-ink/10 text-ink/30 line-through'
+          : selected
+            ? 'border-teal-deep bg-teal-deep text-white'
+            : 'border-ink/15 text-ink/70' + (interactive ? ' hover:border-ink/30 cursor-pointer' : ''))
       }
     >
       {label}
@@ -163,6 +166,7 @@ function DimensionSwatch({
   selected,
   onClick,
   disabledTitle,
+  outOfStock,
 }: {
   label: string
   imageUrl?: string | null
@@ -171,14 +175,16 @@ function DimensionSwatch({
   selected: boolean
   onClick?: () => void
   disabledTitle?: string
+  outOfStock?: boolean
 }) {
-  const interactive = !!onClick
+  const interactive = !!onClick && !outOfStock
   return (
-    <span className="inline-flex flex-col items-center gap-1">
+    <span className={`inline-flex flex-col items-center gap-1 ${outOfStock ? 'opacity-40' : ''}`}>
       <button
         type="button"
         onClick={interactive ? onClick : undefined}
-        title={disabledTitle}
+        disabled={outOfStock}
+        title={outOfStock ? `${label} — out of stock` : disabledTitle}
         aria-pressed={selected}
         aria-label={label}
         className={
@@ -309,7 +315,7 @@ function PagedSwatchGrid({
               originalPrice={optOriginalPrice}
               selected={opt.label === selectedLabel}
               onClick={() => onPick(opt.label, opt.url ?? null)}
-              disabledTitle={opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`}
+              disabledTitle={opt.url ? undefined : `${opt.label} — shown for reference; choose it on the store’s page`}
             />
           )
         })}
@@ -682,8 +688,8 @@ export default function AmazonProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
 
   const inStock = result.unavailable
     ? false
@@ -746,6 +752,7 @@ export default function AmazonProductView({
             )}
             {mrp && <p className="text-base font-semibold text-ink/40 line-through">{mrp}</p>}
           </div>
+          <LandedPriceDetails result={result} />
 
           {!!result.variants?.length && (
             <div className="mt-5 flex flex-col gap-4">
@@ -801,7 +808,7 @@ export default function AmazonProductView({
                             opt.mrp && opt.mrp !== opt.price ? fmt(opt.mrp, opt.currencyCode) : null
 
                           const selected = opt.label === selectedLabel
-                          const disabledTitle = opt.url ? undefined : `${opt.label} — no direct link found, selection is visual only`
+                          const disabledTitle = opt.url ? undefined : `${opt.label} — shown for reference; choose it on the store’s page`
                           const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
                           return hasImages ? (
                             <DimensionSwatch
@@ -813,6 +820,7 @@ export default function AmazonProductView({
                               selected={selected}
                               onClick={onPick}
                               disabledTitle={disabledTitle}
+                              outOfStock={opt.outOfStock}
                             />
                           ) : (
                             <DimensionChip
@@ -823,6 +831,7 @@ export default function AmazonProductView({
                               selected={selected}
                               onClick={onPick}
                               disabledTitle={disabledTitle}
+                              outOfStock={opt.outOfStock}
                             />
                           )
                         })}

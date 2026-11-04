@@ -35,9 +35,26 @@ export interface HsCodeRates extends QuoteRates {
   label: string
 }
 
+/** A weight category a shopper can pick for a pasted link whose store
+ *  doesn't tell us the weight (lib/weight-estimate.ts). */
+export interface WeightPreset {
+  /** Stable id, saved on cart lines, e.g. "shoes". */
+  id: string
+  /** Shown to shoppers, e.g. "Shoes & sandals". */
+  label: string
+  kg: number
+  /** Words in a product title that suggest this category, lower case. */
+  keywords: string[]
+}
+
 export interface PricingSettings {
   /** How many LKR one unit of each currency is worth. LKR is always 1. */
   currencyRatesToLKR: Record<string, number>
+
+  /** Weight categories for pasted links with no weight from the store.
+   *  The best match for the product title is picked automatically and the
+   *  shopper can change it (or type their own weight). */
+  weightPresets: WeightPreset[]
 
   /** Storefront pricing (lib/quote.ts calculateSimpleQuote) — what every
    *  product page, card and cart line uses. */
@@ -45,6 +62,9 @@ export interface PricingSettings {
     profitPercent: number
     /** Freight and customs clearance are billed per block of this many kg. */
     weightBlockKg: number
+    /** Pasted links whose store gives a weight: that weight is raised by
+     *  this much for packaging (a 400 g item ships at 520 g at 30%). */
+    storeWeightMarginPercent: number
     /** Express: freight, LKR per kg (billed in weight blocks). */
     freightRatePerKgLKR: number
     /** Express: customs clearance, LKR per kg (billed in weight blocks). */
@@ -106,9 +126,22 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
     JPY: 2,
     HKD: 38,
   },
+  weightPresets: [
+    { id: 'light-clothing', label: 'T-shirt, top or kurti', kg: 0.3, keywords: ['t-shirt', 'tshirt', 'tee', 'top', 'tops', 'kurti', 'kurta', 'blouse', 'shirt', 'leggings', 'innerwear', 'bra', 'brief', 'socks', 'nightwear', 'shorts', 'dupatta', 'scarf', 'stole'] },
+    { id: 'clothing', label: 'Dress, jeans or saree', kg: 0.6, keywords: ['dress', 'jeans', 'trouser', 'trousers', 'pant', 'pants', 'saree', 'sari', 'skirt', 'jumpsuit', 'co-ord', 'kurta set', 'salwar', 'suit'] },
+    { id: 'heavy-clothing', label: 'Jacket, hoodie or lehenga', kg: 1, keywords: ['jacket', 'hoodie', 'sweatshirt', 'sweater', 'coat', 'blazer', 'lehenga', 'sherwani', 'gown'] },
+    { id: 'shoes', label: 'Shoes & sandals', kg: 1.2, keywords: ['shoe', 'shoes', 'sneaker', 'sneakers', 'sandal', 'sandals', 'slipper', 'slippers', 'heels', 'boot', 'boots', 'footwear', 'flip flops', 'loafers', 'mojari', 'juttis'] },
+    { id: 'bag', label: 'Bag or handbag', kg: 0.8, keywords: ['bag', 'handbag', 'backpack', 'tote', 'sling bag', 'clutch', 'purse', 'luggage', 'duffle'] },
+    { id: 'small', label: 'Beauty, jewellery or small item', kg: 0.3, keywords: ['lipstick', 'serum', 'cream', 'perfume', 'cosmetic', 'makeup', 'shampoo', 'face wash', 'earring', 'earrings', 'necklace', 'bracelet', 'ring', 'jewellery', 'jewelry', 'wallet', 'sunglasses', 'watch', 'belt', 'cap'] },
+    { id: 'electronics', label: 'Phone or small electronics', kg: 0.6, keywords: ['phone', 'smartphone', 'earbuds', 'earphones', 'headphones', 'headphone', 'smartwatch', 'charger', 'power bank', 'speaker', 'trimmer', 'mouse', 'keyboard'] },
+    { id: 'large-electronics', label: 'Laptop or large electronics', kg: 3, keywords: ['laptop', 'notebook pc', 'monitor', 'printer', 'mixer', 'grinder', 'air fryer', 'microwave', 'tablet'] },
+    { id: 'toys', label: 'Toys & kids items', kg: 0.8, keywords: ['toy', 'toys', 'puzzle', 'doll', 'lego', 'diaper', 'diapers', 'baby'] },
+    { id: 'books', label: 'Books', kg: 0.5, keywords: ['book', 'novel', 'paperback', 'hardcover'] },
+  ],
   storefront: {
     profitPercent: 30,
     weightBlockKg: 0.5,
+    storeWeightMarginPercent: 30,
     freightRatePerKgLKR: 2380,
     customsClearanceRatePerKgLKR: 2000,
     deliveryFeeLKR: 450,
@@ -199,11 +232,39 @@ export function normalizePricingSettings(raw: unknown): PricingSettings {
   }
   if (!hsCodes.DEFAULT) hsCodes.DEFAULT = { ...d.customs.hsCodes.DEFAULT }
 
+  // Weight categories: settings saved before this existed get the defaults.
+  // An explicitly empty list is kept (staff turned categories off).
+  const rawPresets = Array.isArray(r.weightPresets) ? (r.weightPresets as unknown[]) : null
+  const weightPresets: WeightPreset[] = []
+  const seenIds = new Set<string>()
+  for (const p of rawPresets ?? d.weightPresets) {
+    const v = (p ?? {}) as Record<string, unknown>
+    const label = typeof v.label === 'string' ? v.label.trim().slice(0, 60) : ''
+    const kg = num(v.kg, NaN, PRICING_LIMITS.weightKg)
+    if (!label || !Number.isFinite(kg)) continue
+    let id = (typeof v.id === 'string' && v.id.trim() ? v.id : label)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'category'
+    while (seenIds.has(id)) id = `${id}-2`
+    seenIds.add(id)
+    const keywords = (Array.isArray(v.keywords) ? v.keywords : typeof v.keywords === 'string' ? v.keywords.split(',') : [])
+      .filter((k): k is string => typeof k === 'string')
+      .map((k) => k.trim().toLowerCase().slice(0, 40))
+      .filter(Boolean)
+      .slice(0, 40)
+    weightPresets.push({ id, label, kg, keywords })
+    if (weightPresets.length >= 20) break
+  }
+
   return {
     currencyRatesToLKR,
+    weightPresets,
     storefront: {
       profitPercent: num(sf.profitPercent, d.storefront.profitPercent, PRICING_LIMITS.percent),
       weightBlockKg: num(sf.weightBlockKg, d.storefront.weightBlockKg, PRICING_LIMITS.weightKg),
+      storeWeightMarginPercent: num(sf.storeWeightMarginPercent, d.storefront.storeWeightMarginPercent, { min: 0, max: 200 }),
       freightRatePerKgLKR: num(sf.freightRatePerKgLKR, d.storefront.freightRatePerKgLKR, PRICING_LIMITS.money),
       customsClearanceRatePerKgLKR: num(sf.customsClearanceRatePerKgLKR, d.storefront.customsClearanceRatePerKgLKR, PRICING_LIMITS.money),
       deliveryFeeLKR: num(sf.deliveryFeeLKR, d.storefront.deliveryFeeLKR, PRICING_LIMITS.money),

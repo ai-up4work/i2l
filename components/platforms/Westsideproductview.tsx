@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react'
 import { ExternalLink, Minus, Plus, Heart, ShoppingBag, ShoppingCart, Check } from 'lucide-react'
-import { formatPrice } from '@/lib/currency'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
@@ -12,6 +11,7 @@ import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
 import { PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
+import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
 /**
  * Renders a scrape result using the SAME structural layout as
@@ -86,14 +86,11 @@ import PdpInfoTabs from './PdpInfoTabs'
  * own extra fields.
  */
 
+// Option, offer and bid prices are the STORE's own price, in its own
+// currency — the headline is the delivered price (LandedPrice.tsx), so a
+// rupee conversion here would contradict it.
 function fmt(amount: string | null | undefined, currency: string | null | undefined) {
-  const n = amount != null ? Number(amount) : NaN
-  if (Number.isNaN(n)) return null
-  try {
-    return formatPrice(n, currency ?? 'INR')
-  } catch {
-    return `${currency ?? ''} ${n}`.trim()
-  }
+  return formatStorePrice(amount, currency ?? 'INR')
 }
 
 /** Small uppercase label pill for brand/gender/category context next
@@ -379,8 +376,8 @@ export default function WestsideProductView({
     if (url) onSelectVariant(url)
   }
 
-  const price = fmt(result.price, result.currencyCode)
-  const mrp = result.mrp && result.mrp !== result.price ? fmt(result.mrp, result.currencyCode) : null
+  // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
+  const { price, mrp } = useLandedPrice(result)
   const pctOff =
     result.mrp && result.price && Number(result.mrp) > Number(result.price)
       ? Math.round((1 - Number(result.price) / Number(result.mrp)) * 100)
@@ -453,6 +450,7 @@ export default function WestsideProductView({
               <span className="rounded bg-[#a9812f] px-2 py-0.5 text-[10px] font-bold text-white">{pctOff}% off</span>
             )}
           </div>
+          <LandedPriceDetails result={result} />
 
           {!!result.variants?.length && (
             <div className="mt-4 flex flex-col gap-4">
@@ -470,7 +468,7 @@ export default function WestsideProductView({
                         const selected = opt.label === selectedLabel
                         const disabledTitle = opt.url
                           ? undefined
-                          : `${opt.label} — no direct link found, selection is visual only`
+                          : `${opt.label} — shown for reference; choose it on the store’s page`
                         const onPick = () => pickOption(dim.dimension, opt.label, opt.url)
 
                         return isColor ? (

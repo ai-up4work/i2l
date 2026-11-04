@@ -70,7 +70,7 @@ export default function SellerLoginPage() {
           </div>
 
           <p className="mt-10 hidden font-body text-xs text-parchment/50 lg:mt-0 lg:block">
-            Payments, customs, shipping and customer questions are all handled by Wishdrop.
+            Payments, shipping, import and customer questions are all handled by Wishdrop.
           </p>
         </div>
       </section>

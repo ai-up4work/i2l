@@ -15,7 +15,7 @@ export const metadata = pageMetadata({
   path: '/stores/apply',
   title: 'Sell on Wishdrop',
   description:
-    'Sell your Instagram and Facebook products to shoppers in Sri Lanka. Wishdrop handles payment, shipping, customs and delivery. You set your price.',
+    'Sell your Instagram and Facebook products to shoppers in Sri Lanka. Wishdrop handles payment, shipping, import and delivery. You set your price.',
 })
 
 const steps = [
@@ -33,20 +33,20 @@ const steps = [
   },
   {
     title: 'We buy from you and deliver',
-    text: 'We buy each item at the price you set, check it, ship it and deliver it to the shopper’s door. Customs and customer questions are ours.',
+    text: 'We buy each item at the price you set, check it, ship it and deliver it to the shopper’s door. Import paperwork and customer questions are ours.',
   },
 ]
 
 const before = [
   'Overseas buyers can’t pay you easily',
   'Every order is a long DM thread',
-  'Shipping abroad and customs are on you',
+  'Shipping abroad and import paperwork are on you',
   'A lost parcel is your problem',
 ]
 const after = [
   'Shoppers pay Wishdrop in rupees',
   'Orders arrive ready to fulfil',
-  'We ship, clear customs and deliver',
+  'We ship, handle the import and deliver',
   'We handle questions, returns and tracking',
 ]
 
@@ -65,7 +65,7 @@ const faqs = [
   },
   {
     q: 'How does the item get to the shopper?',
-    a: 'You hand the item over in India and we take it from there: checking, international shipping, customs and delivery in Sri Lanka. We agree the hand-over details with you when your store is set up.',
+    a: 'You hand the item over in India and we take it from there: checking, international shipping, import and delivery in Sri Lanka. We agree the hand-over details with you when your store is set up.',
   },
   {
     q: 'When do I get paid?',
@@ -85,7 +85,7 @@ export default function StoresApplyPage() {
             </h1>
             <p className="mt-5 max-w-lg font-body text-base leading-relaxed text-parchment/75 sm:text-lg">
               Your products, your photos, your price. Shoppers in Sri Lanka buy from your own store on Wishdrop, and we
-              take care of payment, shipping, customs and delivery.
+              take care of payment, shipping, import and delivery.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a href="#apply" className="flex h-12 items-center justify-center rounded-xl bg-gold px-7 font-body text-[15px] font-semibold text-indigo transition-colors hover:bg-parchment">

@@ -33,6 +33,11 @@ export type CartProduct = {
   sourcePrice?: string | null
   estimatedPrice?: string | null
   weightKg?: number | null
+  /** Where weightKg came from (lib/weight-estimate.ts): 'store' = the
+   *  listing's own weight; anything else is an estimate staff confirm. */
+  weightSource?: import('@/lib/weight-estimate').WeightSource | null
+  /** The weight category or note shown with it, e.g. "Shoes & sandals". */
+  weightLabel?: string | null
   source?: 'catalogue' | 'link'
   selectedOptions?: Record<string, string>
   /** Store location when added ('LK' = local Sri Lankan shop). The cart

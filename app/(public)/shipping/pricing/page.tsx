@@ -1,5 +1,15 @@
-import Link from 'next/link'
-import { Landmark, Scale } from 'lucide-react'
+// app/(public)/shipping/pricing/page.tsx
+//
+// How a shopper's total is put together — in general terms on purpose.
+//
+// This page used to publish the Pricing engine's internal rates (freight
+// and customs clearance per kg, postal per kg, the customs-cascade freight
+// rate) and link to a duty/tax breakdown. That exposed how Wishdrop's price
+// is built and committed us to line items we don't itemise on quotes. Now it
+// explains what the price depends on (store price, weight, delivery speed)
+// and shows only the two flat lines every breakdown already shows: the
+// service charge and the delivery fee.
+import { Package, Scale } from 'lucide-react'
 import { Card, CtaEnvelope, IconCard, PageHero, Section } from '@/components/public/PageKit'
 import { isEconomyLocked } from '@/lib/feature-flags'
 import { ensurePricingSettings } from '@/lib/pricing-settings-server'
@@ -9,27 +19,25 @@ import { pageMetadata } from '@/lib/seo'
 export const metadata = pageMetadata({
   path: '/shipping/pricing',
   title: 'Shipping Pricing | Wishdrop',
-  description: 'How Wishdrop calculates freight, service fees, and delivery pricing by weight and delivery speed.',
+  description: 'What goes into your Wishdrop total: the item with international shipping and handling, a flat service charge, and doorstep delivery.',
 })
 
 export default async function ShippingPricingPage() {
-  // Published rates come straight from the saved pricing settings
-  // (Admin → Pricing engine), so this page can't drift from real prices.
+  // The two flat amounts come from the saved pricing settings
+  // (Admin → Pricing engine), so they always match real quotes.
   const pricingSettings = await ensurePricingSettings()
-  const { storefront: sf, customs } = pricingSettings
+  const { storefront: sf } = pricingSettings
   const economyLocked = isEconomyLocked(pricingSettings)
+  const lkr = (n: number) => `LKR ${n.toLocaleString('en-LK')}`
   const expressRows = [
-    { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
-    { label: 'Freight charge', value: `~LKR ${sf.freightRatePerKgLKR.toLocaleString()} per kg, billed in ${sf.weightBlockKg}kg blocks` },
-    { label: 'Customs clearance', value: `~LKR ${sf.customsClearanceRatePerKgLKR.toLocaleString()} per kg, billed in ${sf.weightBlockKg}kg blocks` },
-    { label: 'Delivery fee', value: `Flat LKR ${sf.deliveryFeeLKR}` },
-    { label: 'Service margin', value: `Flat LKR ${sf.extraMarginLKR}` },
+    { label: 'Price', value: 'The item, with international shipping and handling' },
+    { label: 'Service charge', value: `Flat ${lkr(sf.extraMarginLKR)} per item` },
+    { label: 'Delivery', value: `Flat ${lkr(sf.deliveryFeeLKR)} per item, to your door` },
   ]
   const economyRows = [
-    { label: 'Product cost', value: 'Seller\u2019s price, converted to LKR' },
-    { label: 'Postal charges', value: `~LKR ${sf.economyPostalRatePerKgLKR.toLocaleString()} per kg (single line, no separate freight/customs split)` },
-    { label: 'Delivery fee', value: `Flat LKR ${sf.economyDeliveryFeeLKR}` },
-    { label: 'Service margin', value: `Flat LKR ${sf.extraMarginLKR}` },
+    { label: 'Price', value: 'The item, with international shipping and handling' },
+    { label: 'Service charge', value: `Flat ${lkr(sf.extraMarginLKR)} per item` },
+    { label: 'Delivery', value: `Flat ${lkr(sf.economyDeliveryFeeLKR)} per item, to your door` },
   ]
 
   const RateCard = ({
@@ -67,18 +75,9 @@ export default async function ShippingPricingPage() {
       <PageHero
         eyebrow="Shipping & pricing"
         title="How your total"
-        accent="is calculated."
-        intro="Every quote is built from a few clear ingredients: the product’s price, its weight, your delivery speed, and customs charges. Here’s exactly what goes into it."
-        meta={
-          <>
-            Current published rates, for illustration — your live quote always shows the exact total. Some products use
-            full customs pricing instead (see{' '}
-            <Link href="/taxation" className="text-teal-deep underline underline-offset-2">
-              Taxation
-            </Link>
-            ).
-          </>
-        }
+        accent="is put together."
+        intro="One price in rupees, shown before you pay: the item with international shipping and handling, a flat service charge, and delivery to your door. Nothing more to pay when it arrives."
+        meta="Your live quote always shows the exact total for the item you choose."
       />
 
       <Section
@@ -94,18 +93,12 @@ export default async function ShippingPricingPage() {
 
       <Section>
         <div className="grid gap-5 lg:grid-cols-2">
-          <RateCard
-            name="Express"
-            tag="Faster"
-            tagClass="bg-teal/10 text-teal-deep"
-            text="Separate freight and customs-clearance lines, plus a flat delivery fee."
-            rows={expressRows}
-          />
+          <RateCard name="Express" tag="Faster" tagClass="bg-teal/10 text-teal-deep" text="Usually about 12–15 days." rows={expressRows} />
           <RateCard
             name="Economy"
             tag={economyLocked ? 'Coming soon' : 'Lower cost'}
             tagClass="bg-gold/15 text-gold-deep"
-            text="One postal-charges line by weight, plus a flat delivery fee. Usually slower than Express."
+            text="Usually about 3–4 weeks, for a lower price."
             rows={economyRows}
           />
         </div>
@@ -115,19 +108,15 @@ export default async function ShippingPricingPage() {
         <div className="grid gap-5 lg:grid-cols-2">
           <IconCard
             icon={Scale}
-            title="A note on weight"
-            text={`Freight, customs-clearance and postal charges all scale with weight — a 1kg item pays roughly double the ${sf.weightBlockKg}kg block rate. If a seller doesn’t list a weight, we use a sensible default and adjust once the item is weighed at quality check. Items priced outside the flat models above use roughly LKR ${customs.freightRatePerKgLKR.toLocaleString()} per kg for freight.`}
+            title="Weight matters"
+            text="Heavier and bulkier items cost more to bring over, so two things at the same shop price can have different totals. If the store doesn’t list a weight, you can pick the kind of item; our team checks the weight and confirms your final price before you pay."
           />
-          <IconCard icon={Landmark} title="Products with full customs pricing" tone="gold">
-            <p className="mt-1.5 font-body text-sm leading-relaxed text-ink/60">
-              Some products are quoted with the full customs cascade instead — Duty, PAL, SSCL, Cess, Surcharge and VAT,
-              applied in order to the product&apos;s value and category. See{' '}
-              <Link href="/taxation" className="font-semibold text-teal-deep underline underline-offset-2">
-                Taxation
-              </Link>{' '}
-              for how each works.
-            </p>
-          </IconCard>
+          <IconCard
+            icon={Package}
+            title="One price, all in"
+            text="The total covers buying the item, quality-checking it, shipping it to Sri Lanka and delivering it to you. You don’t pay anything extra at your door, and we confirm the final price with you before asking for payment."
+            tone="gold"
+          />
         </div>
       </Section>
 
