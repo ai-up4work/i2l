@@ -1,0 +1,23 @@
+{
+ "ToughCases iPhone 17 Pro.png": {
+  "ax": 0.382239,
+  "bx": 138.0,
+  "ay": 0.382239,
+  "by": 80.0,
+  "note": "exact: template and photo made from the same picture"
+ },
+ "ToughCases iPhone 18 Pro.png": {
+  "ax": 0.382239,
+  "bx": 138.0,
+  "ay": 0.382239,
+  "by": 80.0,
+  "note": "exact: template and photo made from the same picture"
+ },
+ "ToughCases iPhone 18 Pro Max.png": {
+  "ax": 0.382239,
+  "bx": 138.0,
+  "ay": 0.382239,
+  "by": 80.0,
+  "note": "exact: template and photo made from the same picture"
+ }
+}
