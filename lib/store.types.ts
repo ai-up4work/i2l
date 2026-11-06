@@ -131,6 +131,23 @@ export interface StoreProduct {
    * the swatch picker to find it at all; this only changes what's shown.
    */
   variantLabel?: string;
+  /**
+   * Contents of a hamper / gift basket / bundle — shown as "What's included"
+   * on the product page. Only set when the store's feed lists them (e.g.
+   * Guldasta Stories' basket_items); absent for ordinary products.
+   */
+  includedItems?: StoreIncludedItem[];
+}
+
+/** One item inside a hamper/bundle product. Display-only — not separately purchasable. */
+export interface StoreIncludedItem {
+  name: string;
+  description?: string;
+  image?: string;
+  /** Only when more than one comes in the bundle. */
+  quantity?: number;
+  /** When the item comes in sizes the shopper picks (e.g. a jersey). */
+  sizes?: string[];
 }
 
 export interface StoreApiResponse {

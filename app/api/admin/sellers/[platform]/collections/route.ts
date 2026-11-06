@@ -41,6 +41,7 @@ import { fetchShopifyCollections } from '@/lib/store-providers/shopify'
 import { fetchWooCommerceCategories } from '@/lib/store-providers/woocommerce'
 import { fetchJsonApiCategories } from '@/lib/store-providers/jsonapi'
 import { fetchAnishkaCreationProducts, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation'
+import { fetchGuldastaCollectionsWithCounts } from '@/lib/store-providers/sellers/guldasta-stories'
 
 interface SellerCollectionRow {
   id: string
@@ -140,6 +141,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
   if (platform === 'anishka-creation') {
     try {
       const collections = await fetchAnishkaCollectionsWithCounts(platform)
+      return NextResponse.json({ collections })
+    } catch (err) {
+      return NextResponse.json({
+        collections: [],
+        warning: err instanceof Error ? err.message : "Could not reach this seller's live feed.",
+      })
+    }
+  }
+
+  // Guldasta Stories: same idea as the Anishka block above, but its data
+  // comes from the store's own Supabase REST API (see
+  // lib/store-providers/sellers/guldasta-stories.ts) — one live request per
+  // top-level category for the count. Also independent of provider_config.
+  if (platform === 'guldasta-stories') {
+    try {
+      const collections = await fetchGuldastaCollectionsWithCounts()
       return NextResponse.json({ collections })
     } catch (err) {
       return NextResponse.json({

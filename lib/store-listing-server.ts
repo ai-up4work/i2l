@@ -22,6 +22,7 @@ import { fetchWooCommerceProductsCached } from '@/lib/store-providers/woocommerc
 import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape'
 import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue'
 import { fetchAnishkaCreationProducts } from '@/lib/store-providers/sellers/anishka-creation'
+import { fetchGuldastaProducts } from '@/lib/store-providers/sellers/guldasta-stories'
 import type { ProviderFetchParams } from '@/lib/store-providers/types'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -51,6 +52,8 @@ export async function listStoreProducts(
   const result =
     platform === 'anishka-creation'
       ? await fetchAnishkaCreationProducts(platform, seller.name, params)
+      : platform === 'guldasta-stories'
+      ? await fetchGuldastaProducts(platform, seller.name, params)
       : config.type === 'shopify'
         ? await fetchShopifyProducts(platform, config, seller.name, params)
         : config.type === 'woocommerce'

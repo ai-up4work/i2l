@@ -284,6 +284,8 @@ export interface TestExtractorResult {
   categoryImages?: import('@/lib/category-tiles').CategoryImageCandidate[]
   sampleProducts?: StoreProduct[]
   currencyDetected?: boolean
+  /** Built-in extractors only: what the extractor detected about the feed (shown under the checklist). */
+  diagnostics?: string
 }
 
 /** Result of testing one specific product by URL/handle, rather than a

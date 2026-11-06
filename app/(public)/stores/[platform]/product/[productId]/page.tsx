@@ -18,6 +18,7 @@ import ProductRequestOverlay from '@/components/stores/ProductRequestOverlay'
 import ShareButton from '@/components/stores/ShareButton'
 import ProductBackBar from '@/components/stores/ProductBackBar'
 import ProductInfoTabs from '@/components/stores/ProductInfoTabs'
+import IncludedItems from '@/components/stores/IncludedItems'
 import { DashboardProvider } from '@/contexts/DashboardContext'
 import ViewTracker from './ViewTracker'
 import JsonLd, { breadcrumbSchema, productSchema } from '@/components/seo/JsonLd'
@@ -448,6 +449,9 @@ export default async function ProductDetailPage({
             {/* Description / Details / Shipping & Returns / Size chart —
                 bottom-most, full-width tab strip, availability-driven
                 (a tab only appears if the product has data backing it). */}
+            {/* Hamper / bundle contents, when the feed lists them. */}
+            <IncludedItems product={product} />
+
             <ProductInfoTabs product={product} />
 
             {isSocial && <MoreFromStore products={moreFromStore} platform={store.platform} storeName={store.name} />}

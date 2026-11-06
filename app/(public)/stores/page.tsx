@@ -2,6 +2,7 @@
 'use client';
 
 import { hasStoreModule } from '@/lib/store-modules';
+import { hasCustomExtractor } from '@/lib/store-providers/sellers';
 import { useFollowedStores } from '@/hooks/useFollowedStores';
 import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -220,7 +221,7 @@ function ItemCount({ store, live }: { store: StoreWithProvider; live?: LiveCount
   // Custom stores with their own page (lib/store-modules) have no item count.
   if (hasStoreModule(store.slug)) return <>Made to order</>;
 
-  if (store.providerType === 'mock' && store.slug !== 'anishka-creation') {
+  if (store.providerType === 'mock' && !hasCustomExtractor(store.slug)) {
     return <>{cached ?? 0} items</>;
   }
 
@@ -551,9 +552,9 @@ export default function StoresPage() {
 
   // Live item counts, checked one store at a time (same queue as
   // /admin/sellers) so this page doesn't hit every feed at once.
-  // anishka-creation is 'mock' in config but has a real feed by slug.
+  // Custom-extractor stores (lib/store-providers/sellers) are 'mock' in config but have a real feed by slug.
   const liveFeedPlatforms = useMemo(
-    () => stores.filter(s => s.providerType !== 'mock' || s.slug === 'anishka-creation').map(s => s.slug),
+    () => stores.filter(s => s.providerType !== 'mock' || hasCustomExtractor(s.slug)).map(s => s.slug),
     [stores],
   );
   const { entries: liveCounts } = useSequentialLiveProductCounts(liveFeedPlatforms);

@@ -12,6 +12,7 @@
 
 import { getSellerAndConfig } from '@/lib/store-config-db'
 import { isMockStore, listStoreProducts, withTimeout } from '@/lib/store-listing-server'
+import { hasCustomExtractor } from '@/lib/store-providers/sellers'
 import { absoluteUrl } from '@/lib/seo'
 import type { StoreProduct } from '@/lib/store.types'
 
@@ -46,7 +47,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ platfor
   const { platform } = await params
   // Only live stores — getSellerAndConfig returns nothing for hidden ones.
   const seller = await getSellerAndConfig(platform)
-  if (!seller || isMockStore(seller)) return emptyUrlset()
+  // Custom-extractor stores are 'mock' in config but have a real feed.
+  if (!seller || (isMockStore(seller) && !hasCustomExtractor(platform))) return emptyUrlset()
 
   const pages = platform === 'anishka-creation' || !API_TYPES.has(seller.config.type) ? 1 : MAX_PAGES
   const products: StoreProduct[] = []

@@ -11,6 +11,7 @@ import { fetchShopifyCollections } from '@/lib/store-providers/shopify';
 import { fetchWooCommerceCategories } from '@/lib/store-providers/woocommerce';
 import { fetchCatalogueCategories } from '@/lib/store-providers/catalogue';
 import { ANISHKA_BASE_URL, ANISHKA_CATEGORY_PATHS } from '@/lib/store-providers/sellers/anishka-creation';
+import { GULDASTA_SITE_URL, fetchGuldastaCollections } from '@/lib/store-providers/sellers/guldasta-stories';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 import type { StoreApiResponse, StoreApiError } from '@/lib/store.types';
 
@@ -78,6 +79,24 @@ export async function GET(
           collections: searchParams.get('raw') === '1'
             ? Object.keys(ANISHKA_CATEGORY_PATHS).map((title) => ({ handle: title, title, image: null, featured: false }))
             : applyCategoryTiles(Object.keys(ANISHKA_CATEGORY_PATHS).map((title) => ({ handle: title, title })), seller.config),
+        });
+      }
+
+      // Guldasta Stories — same reasoning as the Anishka block above: its
+      // seller row is a 'mock' stub, which would otherwise fall into the
+      // final `else` below and return the 400 "mock store with no live
+      // categories". Its categories come from the store's own Supabase
+      // project instead — see
+      // lib/store-providers/sellers/guldasta-stories.ts's header comment.
+      if (platform === 'guldasta-stories') {
+        const live = await fetchGuldastaCollections();
+        return NextResponse.json({
+          platform,
+          baseUrl: GULDASTA_SITE_URL,
+          count: live.length,
+          collections: searchParams.get('raw') === '1'
+            ? live.map((c) => ({ ...c, image: c.image ?? null, featured: false }))
+            : applyCategoryTiles(live, seller.config),
         });
       }
 

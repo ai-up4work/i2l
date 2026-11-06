@@ -7,7 +7,7 @@
 //
 // Pure — safe to import from client components.
 
-export const CUSTOM_EXTRACTOR_SLUGS = ['anishka-creation'] as const
+export const CUSTOM_EXTRACTOR_SLUGS = ['anishka-creation', 'guldasta-stories'] as const
 
 export function hasCustomExtractor(slug: string | null | undefined): boolean {
   return !!slug && (CUSTOM_EXTRACTOR_SLUGS as readonly string[]).includes(slug)

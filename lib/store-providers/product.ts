@@ -7,6 +7,7 @@ import { fetchShopifyProduct, fetchShopifyProductRestOnly } from './shopify';
 import { fetchWooCommerceProduct } from './woocommerce';
 import { fetchHtmlScrapeProduct } from './html-scrape';
 import { fetchAnishkaCreationProduct } from './sellers/anishka-creation';
+import { fetchGuldastaProduct } from './sellers/guldasta-stories';
 import { fetchCatalogueProduct } from './catalogue';
 
 /** Stamps the store's location / margin facts onto a fetched product. */
@@ -38,6 +39,10 @@ async function fetchForSeller(
   // html-scrape's generic selector config at all.
   if (platform === 'anishka-creation') {
     return fetchAnishkaCreationProduct(platform, seller.name, handle);
+  }
+  // Guldasta Stories — reads the store's own Supabase API (see its file header).
+  if (platform === 'guldasta-stories') {
+    return fetchGuldastaProduct(platform, seller.name, handle);
   }
 
   const config = seller.config;
@@ -77,6 +82,10 @@ export async function fetchStoreProductForRedirectCheck(platform: string, handle
 async function fetchForSellerRestOnly(platform: string, handle: string, seller: ResolvedSeller): Promise<StoreProduct | null> {
   if (platform === 'anishka-creation') {
     return fetchAnishkaCreationProduct(platform, seller.name, handle);
+  }
+  // Guldasta Stories — reads the store's own Supabase API (see its file header).
+  if (platform === 'guldasta-stories') {
+    return fetchGuldastaProduct(platform, seller.name, handle);
   }
 
   const config = seller.config;

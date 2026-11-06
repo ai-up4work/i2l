@@ -836,10 +836,29 @@ export default function SellerFormClient({
   const manualProduct =
     manualResult?.ok && manualResult.product ? normalizeProduct(manualResult.product) : null
 
+  // Stores whose extractor is written in code (lib/store-providers/sellers):
+  // saved as 'mock', but with a real live feed that Test & verify can run.
+  const customExtractorSlug = seller?.platform ?? createdPlatform
+  const isCustomExtractor = providerType === 'mock' && hasCustomExtractor(customExtractorSlug)
+
   const runManualTest = async () => {
     if (!manualInput.trim()) return
     setManualLoading(true)
     setManualResult(null)
+    if (isCustomExtractor) {
+      // Built-in extractor: test the saved store's own code, not a form config.
+      try {
+        const res = await fetch(
+          `/api/admin/sellers/${customExtractorSlug}/test-custom-extractor?product=${encodeURIComponent(manualInput.trim())}`,
+          { cache: 'no-store' },
+        )
+        setManualResult((await res.json()) as TestExtractorProductResult)
+      } catch (e) {
+        setManualResult({ ok: false, error: e instanceof Error ? e.message : 'Request failed.' })
+      }
+      setManualLoading(false)
+      return
+    }
     try {
       const res = await fetch('/api/admin/sellers/test-extractor', {
         method: 'POST',
@@ -873,9 +892,12 @@ export default function SellerFormClient({
       ? baseUrl && jsonFields.listEndpoint && `${baseUrl.replace(/\/+$/, '')}${jsonFields.listEndpoint}`
       : providerType === 'html-scrape'
       ? listingUrl && listingUrl
+      : isCustomExtractor
+      ? `${baseUrl || form.storeUrl || customExtractorSlug} (built-in extractor, live)`
       : null
 
   const canRunSimulation =
+    isCustomExtractor ||
     (providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape') &&
     !!baseUrl &&
     (providerType !== 'jsonapi' ||
@@ -936,7 +958,9 @@ export default function SellerFormClient({
     const start = Date.now()
     let result: TestExtractorResult
     try {
-      const res = await fetch('/api/admin/sellers/test-extractor', {
+      const res = isCustomExtractor
+        ? await fetch(`/api/admin/sellers/${customExtractorSlug}/test-custom-extractor`, { cache: 'no-store' })
+        : await fetch('/api/admin/sellers/test-extractor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1020,6 +1044,13 @@ export default function SellerFormClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
+  // Built-in extractor stores: always run once on load, so Test & verify
+  // shows the live result instead of an empty panel.
+  useEffect(() => {
+    if (!isNew && seller && isCustomExtractor) runSimulation()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Auto-run once on load for an EDIT-mode seller that's still unverified.
   useEffect(() => {
     if (!isNew && seller && form.status === 'pending_review' && providerType !== 'mock' && canRunSimulation) {
@@ -1044,6 +1075,7 @@ export default function SellerFormClient({
     { pass: 0, fail: 0, skip: 0 }
   )
   const isLiveProvider =
+    isCustomExtractor ||
     providerType === 'shopify' || providerType === 'woocommerce' || providerType === 'jsonapi' || providerType === 'html-scrape'
 
   // ---- ADD mode: wizard ----
@@ -1754,7 +1786,7 @@ export default function SellerFormClient({
 
   const testPanel = (
     <div className="flex flex-col gap-5">
-      {providerType === 'mock' && (
+      {providerType === 'mock' && !isCustomExtractor && (
         <div className={`flex flex-col items-center justify-center gap-3 p-10 text-center border-dashed ${groupClass}`}>
           <Package size={26} className="text-ink/20" strokeWidth={1.5} />
           <p className="max-w-xs text-xs leading-relaxed text-ink/45">
@@ -1873,7 +1905,7 @@ export default function SellerFormClient({
               <button
                 type="button"
                 onClick={runManualTest}
-                disabled={manualLoading || !manualInput.trim() || !baseUrl}
+                disabled={manualLoading || !manualInput.trim() || (!baseUrl && !isCustomExtractor)}
                 className="flex flex-none items-center gap-1.5 rounded-xl bg-indigo px-3.5 py-2 text-sm font-semibold text-white shadow-[0_10px_28px_-10px_rgba(37,41,120,0.5)] transition-all hover:bg-indigo-deep active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-ink/20 disabled:shadow-none disabled:active:scale-100"
               >
                 {manualLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
@@ -1946,6 +1978,10 @@ export default function SellerFormClient({
             </div>
           )}
 
+          {testResult?.diagnostics && !simRunning && (
+            <p className={`p-3 font-mono text-[11px] leading-relaxed text-ink/50 ${groupClass}`}>{testResult.diagnostics}</p>
+          )}
+
           {testResult?.ok && sampleProducts.length > 0 && (
             <div>
               <div className="mb-3 flex items-center justify-between">
@@ -1968,7 +2004,7 @@ export default function SellerFormClient({
             </div>
           )}
 
-          {testResult?.ok && (testResult.categories?.length || categoryTiles.length > 0) ? (
+          {providerType !== 'mock' && testResult?.ok && (testResult.categories?.length || categoryTiles.length > 0) ? (
             <CategoryTilesPanel
               tiles={categoryTiles}
               candidates={categoryCandidates}

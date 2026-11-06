@@ -18,6 +18,7 @@ import { fetchWooCommerceProducts } from '@/lib/store-providers/woocommerce';
 import { fetchHtmlScrapeProducts } from '@/lib/store-providers/html-scrape';
 import { fetchCatalogueProducts } from '@/lib/store-providers/catalogue';
 import { fetchAnishkaCreationProducts } from '@/lib/store-providers/sellers/anishka-creation';
+import { fetchGuldastaProducts, fetchGuldastaTotal } from '@/lib/store-providers/sellers/guldasta-stories';
 import type { ProviderFetchParams } from '@/lib/store-providers/types';
 
 const PER_PAGE_DEFAULT = 12;
@@ -49,6 +50,24 @@ export async function GET(
 
     const config = seller.config;
 
+    // Guldasta Stories: its data lives in the store's own Supabase project,
+    // so "how many?" is one one-row request whose Content-Range header
+    // carries the exact total (see fetchGuldastaTotal) — no need to download
+    // the catalogue just to count it. Checked first, ahead of the generic
+    // dispatch, for the same reason as the Anishka extractor below.
+    if (platform === 'guldasta-stories') {
+      const total = await fetchGuldastaTotal();
+      return NextResponse.json(
+        {
+          total,
+          totalPages: Math.max(1, Math.ceil(total / fetchParams.perPage)),
+          totalIsExact: true,
+          fetchedAt: new Date().toISOString(),
+        },
+        { headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     // JSON feeds can usually answer "how many?" with one tiny request (a
     // count endpoint, or the feed's own total on a 1-item page) instead of
     // downloading the whole catalogue just to count it.
@@ -76,6 +95,8 @@ export async function GET(
     const result =
       platform === 'anishka-creation'
         ? await fetchAnishkaCreationProducts(platform, seller.name, fetchParams)
+        : platform === 'guldasta-stories'
+        ? await fetchGuldastaProducts(platform, seller.name, fetchParams)
         : config.type === 'shopify'
         ? await fetchShopifyProducts(platform, config, seller.name, fetchParams)
         : config.type === 'woocommerce'
