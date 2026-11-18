@@ -17,6 +17,7 @@
 // Also returns the staff list (for the "Person" filter) and the entity types seen.
 
 import { NextResponse } from 'next/server'
+import { logAuditEvent } from '@/lib/audit-event'
 import { requireStaffRole, SUPER_ADMIN_ONLY } from '@/lib/supabase/admin-auth'
 
 export const runtime = 'nodejs'
@@ -54,6 +55,18 @@ export async function GET(req: Request) {
   const admin = auth.admin as any
 
   const p = new URL(req.url).searchParams
+
+  // Integrity check: ?verify=1 returns any entries that were altered or removed.
+  if (p.get('verify')) {
+    const { data, error } = await admin.rpc('audit_verify_chain')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ intact: (data ?? []).length === 0, problems: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
+  }
+
+  // Retention: entries older than 60 days are removed (also done daily by the
+  // database where pg_cron is on). Best effort, never blocks the page.
+  if (!p.get('before')) void admin.rpc('audit_purge').then(() => {}, () => {})
+
   const csv = p.get('format') === 'csv'
   const limit = csv ? 5000 : Math.min(200, Math.max(10, Number(p.get('limit')) || 50))
 
@@ -110,6 +123,7 @@ export async function GET(req: Request) {
   const rows = (data ?? []) as Row[]
 
   if (csv) {
+    await logAuditEvent({ entity: 'audit log', summary: `Audit log exported to CSV (${rows.length} rows)`, severity: 'warning', route: '/admin/super-admin/audit-log' })
     const header = ['time', 'person', 'role', 'action', 'area', 'record', 'severity', 'summary', 'page', 'changes']
     const lines = [header.join(',')].concat(
       rows.map((r) =>
