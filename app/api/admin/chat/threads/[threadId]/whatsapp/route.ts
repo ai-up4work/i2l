@@ -52,6 +52,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       name: profile?.full_name ?? '',
       firstName: firstNameOf(profile?.full_name),
       verifiedPhone: profile?.phone_verified && profile.phone ? profile.phone : null,
+      // Given by the customer (sign-up / chat box) but not verified yet.
+      givenPhone: !profile?.phone_verified && profile?.phone ? profile.phone : null,
+      userId: thread.user_id,
     },
     lastReminder: thread.last_whatsapp_reminder_at
       ? { at: thread.last_whatsapp_reminder_at, by: thread.last_whatsapp_reminder_by_name }

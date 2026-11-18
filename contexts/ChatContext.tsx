@@ -445,7 +445,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [messages, lastReadAt],
   )
 
-  const getWhatsAppLink = useCallback((prefillText?: string) => buildWhatsAppLink(handle, prefillText), [handle])
+  // Signed in: the opening WhatsApp message says who they are (name, handle,
+  // email), so staff reading it in WhatsApp can match the sender's number to
+  // the right account and attach/verify it. Signed out: the generic text.
+  const getWhatsAppLink = useCallback(
+    (prefillText?: string) => {
+      if (prefillText || !user) return buildWhatsAppLink(handle, prefillText)
+      const text = [
+        'Hi Wishdrop! I\u2019m continuing from the Wishdrop chat.',
+        '',
+        `Name: ${user.name}`,
+        ...(handle ? [`Chat handle: ${handle}`] : []),
+        `Email: ${user.email}`,
+      ].join('\n')
+      return buildWhatsAppLink(handle, text)
+    },
+    [handle, user],
+  )
 
   const value: ChatContextValue = {
     isOpen,

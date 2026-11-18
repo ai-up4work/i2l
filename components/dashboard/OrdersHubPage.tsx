@@ -87,7 +87,10 @@ function isAwaitingPayment(order: Order): boolean {
 
 function OrderStatusBadge({ order }: { order: Order }) {
   if (order.paymentStatus === 'refunded') {
-    return <span className="rounded-full bg-ink/[0.06] px-3 py-1 text-xs font-medium text-ink/70">Refunded</span>
+    return <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-200">Refunded</span>
+  }
+  if (order.status === 'Cancelled') {
+    return <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-200">Cancelled</span>
   }
   if (isAwaitingPayment(order) && order.priceReview) {
     return (
@@ -303,7 +306,19 @@ function OrderCard({
   // rather than fading back to the plain Shipped accent.
   const flaggedItems = order.items.filter((it) => it.id && qcIssuesByItemId.get(it.id) && isOpenQcIssue(qcIssuesByItemId.get(it.id)!))
   const hasQcIssue = flaggedItems.length > 0
-  const statusAccent = hasQcIssue ? 'border-l-rose-500' : STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
+  // Refunded / cancelled orders are closed: tint the card red, grey the
+  // photos and strike the total so they can't be mistaken for live orders.
+  const isClosed = order.paymentStatus === 'refunded' || order.status === 'Cancelled'
+  const statusAccent = isClosed
+    ? 'border-l-red-400'
+    : hasQcIssue
+      ? 'border-l-rose-500'
+      : STATUS_ACCENT[order.status] ?? DEFAULT_STATUS_ACCENT
+  const closedNote =
+    order.paymentStatus === 'refunded'
+      ? 'Refunded — this order is closed and is no longer active.'
+      : 'Cancelled — this order won’t be processed.'
+  const totalClass = isClosed ? 'font-medium text-ink/45 line-through' : 'font-medium'
 
   const goToTracking = () => router.push(`/account/orders/track?order=${order.id}`)
   const goToDetails = () => router.push(`/account/orders/track?order=${order.id}&tab=details`)
@@ -340,7 +355,11 @@ function OrderCard({
   }
 
   return (
-    <div className={`overflow-hidden rounded-2xl border border-ink/10 border-l-4 bg-card ${statusAccent}`}>
+    <div
+      className={`overflow-hidden rounded-2xl border border-l-4 ${statusAccent} ${
+        isClosed ? 'border-red-200 bg-red-50/50 [&_img]:opacity-50 [&_img]:grayscale' : 'border-ink/10 bg-card'
+      }`}
+    >
       {/* ---------------------------------------------------------------
           Mobile / tablet layout — image stack stays full-width above
           the qty/total row.
@@ -410,7 +429,7 @@ function OrderCard({
                 <div className="text-xs text-ink/60">{itemMeta(primary)}</div>
               </div>
               <div className="flex-none text-right">
-                <div className="font-medium">
+                <div className={totalClass}>
                   {order.currency} {orderTotal(order).toLocaleString()}
                 </div>
                 <BreakdownTrigger onClick={() => setShowBreakdown(true)} />
@@ -437,6 +456,10 @@ function OrderCard({
 
         {/* Shipping progress */}
         {order.status === 'Shipped' && <ShippingProgress currentStepIndex={currentStepIndex} />}
+
+        {isClosed && (
+          <div className="mt-4 rounded-lg bg-red-100/70 px-3.5 py-2.5 text-sm font-medium text-red-800">{closedNote}</div>
+        )}
 
         {/* Actions */}
         <div className="mt-5 flex gap-2">
@@ -503,7 +526,7 @@ function OrderCard({
               )}
             </div>
             <div className="flex-none text-right">
-              <div className="font-medium">
+              <div className={totalClass}>
                 {order.currency} {orderTotal(order).toLocaleString()}
               </div>
               <BreakdownTrigger onClick={() => setShowBreakdown(true)} />
@@ -526,6 +549,10 @@ function OrderCard({
 
           {/* Shipping progress */}
           {order.status === 'Shipped' && <ShippingProgress currentStepIndex={currentStepIndex} />}
+
+          {isClosed && (
+            <div className="mt-4 rounded-lg bg-red-100/70 px-3.5 py-2.5 text-sm font-medium text-red-800">{closedNote}</div>
+          )}
 
           {/* Actions — pinned to the bottom of the column */}
           <div className="mt-auto flex gap-2 pt-5">

@@ -147,6 +147,7 @@ export async function POST(req: NextRequest) {
     .from('profiles')
     .select('id')
     .eq('phone', phone)
+    .eq('phone_verified', true)
     .neq('id', user.id)
     .limit(1)
     .maybeSingle()

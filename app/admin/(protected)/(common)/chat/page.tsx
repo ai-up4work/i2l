@@ -30,6 +30,7 @@ import { groupIntoAlbums } from '@/lib/chat-albums'
 import WhatsAppHandoffDialog, { type HandoffSent } from '@/components/admin/chat/WhatsAppHandoffDialog'
 import { defaultTargets, type Context, type LinkTarget } from '@/lib/chat/whatsapp-handoff'
 import { formatPhone } from '@/lib/whatsapp/verification'
+import AttachNumberDialog from '@/components/admin/AttachNumberDialog'
 import { FaWhatsapp } from 'react-icons/fa'
 
 type ThreadRow = {
@@ -403,6 +404,7 @@ function AdminChatPageInner() {
   // request exists for it: staff create one on their behalf from the
   // message itself. Opens CreateRequestDialog with the customer, link and
   // message pre-filled.
+  const [attachNumberOpen, setAttachNumberOpen] = useState(false)
   const [createFrom, setCreateFrom] = useState<{ messageId: string; link: string } | null>(null)
   const openRetag = (members: ChatMessageRow[]) => {
     setRetagTarget(members[0])
@@ -413,7 +415,7 @@ function AdminChatPageInner() {
   // The customer's VERIFIED WhatsApp number + last reminder, per open
   // conversation. null while loading / when nothing is open.
   const [waInfo, setWaInfo] = useState<{
-    customer: { name: string; firstName: string | null; verifiedPhone: string | null }
+    customer: { name: string; firstName: string | null; verifiedPhone: string | null; givenPhone?: string | null; userId?: string }
     lastReminder: { at: string; by: string | null } | null
   } | null>(null)
   const [selectMode, setSelectMode] = useState(false)
@@ -1195,8 +1197,39 @@ function AdminChatPageInner() {
                     <FaWhatsapp size={11} /> {formatPhone(waInfo.customer.verifiedPhone)} verified
                   </span>
                 ) : (
-                  <span>WhatsApp not verified — can’t send to WhatsApp</span>
+                  <span>
+                    {waInfo.customer.givenPhone
+                      ? `${formatPhone(waInfo.customer.givenPhone)} given, not verified`
+                      : 'WhatsApp not verified — can’t send to WhatsApp'}
+                  </span>
                 )}
+                {waInfo?.customer.givenPhone && !waInfo.customer.verifiedPhone && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const phone = waInfo.customer.givenPhone
+                      if (!phone || !selectedThread) return
+                      const res = await fetch('/api/admin/customers/phone', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: selectedThread.user_id, phone, verified: true }),
+                      })
+                      if (res.ok) {
+                        const r = await fetch(`/api/admin/chat/threads/${selectedThread.id}/whatsapp`, { cache: 'no-store' })
+                        if (r.ok) setWaInfo(await r.json())
+                      } else {
+                        const d = await res.json().catch(() => ({}))
+                        window.alert(d.error ?? 'Could not verify the number.')
+                      }
+                    }}
+                    className="font-semibold text-teal-deep underline-offset-2 hover:underline"
+                  >
+                    Verify it
+                  </button>
+                )}
+                <button type="button" onClick={() => setAttachNumberOpen(true)} className="font-semibold text-teal-deep underline-offset-2 hover:underline">
+                  {waInfo?.customer.verifiedPhone ? 'Change number' : 'Add number'}
+                </button>
               </p>
               {waInfo?.lastReminder && (
                 <p className="mt-0.5 text-[11px] text-ink/50">
@@ -1458,6 +1491,25 @@ function AdminChatPageInner() {
           <WhatsAppHandoffDialog {...common} kind="reminder" waitingCount={waiting.length} />
         )
       })()}
+
+      {attachNumberOpen && selectedThread && (
+        <AttachNumberDialog
+          customer={{
+            id: selectedThread.user_id,
+            name: selectedThread.profiles?.full_name ?? '',
+            email: selectedThread.profiles?.email ?? '',
+            phone: null,
+            handle: selectedThread.profiles?.chat_handle ? displayHandle(selectedThread.profiles) : null,
+          }}
+          onClose={() => setAttachNumberOpen(false)}
+          onDone={() => {
+            fetch(`/api/admin/chat/threads/${selectedThread.id}/whatsapp`, { cache: 'no-store' })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => d && setWaInfo(d))
+              .catch(() => {})
+          }}
+        />
+      )}
 
       {createFrom && selectedThread && (
         <CreateRequestDialog

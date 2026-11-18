@@ -6,6 +6,7 @@ import { MessageCircle, Paperclip, Reply, Send, X } from 'lucide-react'
 import { FaWhatsapp } from 'react-icons/fa'
 import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatContext'
 import { useAuth } from '@/contexts/AuthContext'
+import ChatWhatsAppNumber from '@/components/shared/ChatWhatsAppNumber'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
 import { groupIntoAlbums } from '@/lib/chat-albums'
@@ -217,6 +218,7 @@ export default function ChatPanel({
           {/* Always-available WhatsApp handoff — visible whether logged
               in or locked out, per the requirement that this option
               isn't just a fallback for anonymous users. */}
+          {!isLocked && <ChatWhatsAppNumber />}
           <a
             href={getWhatsAppLink()}
             target="_blank"
