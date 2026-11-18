@@ -1,6 +1,7 @@
 // app/admin/orders/[orderId]/page.tsx
 "use client"
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
@@ -10,6 +11,7 @@ import { useAdminData, hoursSince, formatAge } from "@/contexts/AdminDataContext
 import { STAGE_ORDER, CHANNEL_LABEL, type Channel, type Order, type OrderStage } from "@/types/admin"
 import type { StatusTone } from "@/components/admin/warehouse/status-pill"
 import { AnimatedItemCardStack } from "@/components/admin/orders/AnimatedItemCardStack"
+import ItemPhotoEditor from "@/components/admin/orders/ItemPhotoEditor"
 import OrderPaymentCard from "@/components/admin/orders/OrderPaymentCard"
 import OrderPriceCheckCard from "@/components/admin/orders/OrderPriceCheckCard"
 import { fetchQcIssuesForItems, type CustomerVisibleQcIssue } from "@/lib/supabase/qc-issues"
@@ -218,6 +220,7 @@ export default function OrderDetailPage() {
     reassignSite,
     addInternalNote,
     deleteOrder,
+    refreshOrders,
     dataLoading,
     sendChatMessage,
     fetchMessagesForOrder,
@@ -659,10 +662,11 @@ export default function OrderDetailPage() {
                   return (
                     <li key={item.id} className="py-4 first:pt-0 last:pb-0">
                       <div className="flex gap-4">
-                        <img
+                        <ItemPhotoEditor
+                          itemId={item.id}
                           src={item.productImage ?? FALLBACK_PRODUCT_IMAGE}
                           alt={item.title}
-                          className="h-20 w-20 flex-none rounded-xl border border-ink/[0.06] bg-parchment/60 object-contain"
+                          onSaved={() => void refreshOrders()}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-3">
@@ -949,7 +953,7 @@ export default function OrderDetailPage() {
                     >
                       <input
                         type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        accept={IMAGE_ACCEPT}
                         disabled={uploadingAttachment}
                         onChange={(e) => {
                           const file = e.target.files?.[0]

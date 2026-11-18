@@ -1,5 +1,6 @@
 'use client'
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
@@ -873,7 +874,7 @@ function CustomerPhotoPicker({ photo }: { photo: CustomerPhoto }) {
   const input = (
     <input
       type="file"
-      accept="image/jpeg,image/png,image/webp,image/gif"
+      accept={IMAGE_ACCEPT}
       className="hidden"
       disabled={photo.uploading}
       onChange={(e) => {

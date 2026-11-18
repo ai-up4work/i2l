@@ -8,6 +8,7 @@
 // / avatar_url (what the rest of the app queries).
 'use client'
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -218,7 +219,7 @@ export default function AccountProfilePage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
+        accept={IMAGE_ACCEPT}
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]

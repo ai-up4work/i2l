@@ -7,6 +7,7 @@
 // Used by Admin → Coupons (new coupon, and each coupon's page).
 'use client'
 
+import { IMAGE_ACCEPT, resolveImageMime } from '@/lib/upload/image-types'
 import { useState } from 'react'
 import { Loader2, Shuffle, Upload, X } from 'lucide-react'
 import DealCoupon from '@/components/shared/DealCoupon-flex'
@@ -47,7 +48,7 @@ function ImagePicker({
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    if (!file.type.startsWith('image/')) return setError('Choose an image file.')
+    if (!resolveImageMime(file.name, file.type)) return setError('Choose an image file.')
     if (file.size > 5 * 1024 * 1024) return setError('Image must be under 5MB.')
     setBusy(true)
     setError(null)
@@ -79,7 +80,7 @@ function ImagePicker({
           <span className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink/20 px-2 py-1.5 text-[11px] font-semibold text-ink/60 hover:bg-ink/[0.03]">
             <Upload size={11} /> {value ? 'Replace' : 'Upload'}
           </span>
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={upload} />
+          <input type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={upload} />
         </label>
         {value && (
           <button

@@ -20,6 +20,7 @@
 // only photos uploaded from the computer go into our own Storage.
 'use client'
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -917,7 +918,7 @@ export default function ProductEditor({
                 {uploading ? 'Uploading…' : 'Upload from computer'}
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  accept={IMAGE_ACCEPT}
                   multiple
                   className="sr-only"
                   onChange={(e) => {

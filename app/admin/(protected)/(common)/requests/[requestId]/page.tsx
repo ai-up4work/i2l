@@ -1,6 +1,7 @@
 // app/admin/(common)/requests/[requestId]/page.tsx
 "use client"
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
@@ -1026,7 +1027,7 @@ export default function RequestDetailPage() {
                           >
                             <input
                               type="file"
-                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              accept={IMAGE_ACCEPT}
                               disabled={uploadingScreenshot}
                               onChange={(e) => {
                                 const file = e.target.files?.[0]
@@ -1066,7 +1067,7 @@ export default function RequestDetailPage() {
                           >
                             <input
                               type="file"
-                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              accept={IMAGE_ACCEPT}
                               disabled={uploadingScreenshot}
                               onChange={(e) => {
                                 const file = e.target.files?.[0]
@@ -1418,7 +1419,7 @@ export default function RequestDetailPage() {
                 >
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    accept={IMAGE_ACCEPT}
                     disabled={uploadingAttachment}
                     onChange={(e) => {
                       const file = e.target.files?.[0]

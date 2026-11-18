@@ -1,6 +1,7 @@
 // app/admin/qc/[id]/page.tsx
 "use client"
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
@@ -485,7 +486,7 @@ export default function QCDetailPage() {
                         >
                           <input
                             type="file"
-                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            accept={IMAGE_ACCEPT}
                             onChange={handlePhotoSelected}
                             disabled={!canAct || uploading}
                             className="hidden"

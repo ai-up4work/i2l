@@ -1,6 +1,7 @@
 // components/admin/seller/StoreBrandingEditor.tsx
 'use client'
 
+import { resolveImageMime } from '@/lib/upload/image-types'
 import { useRef, useState } from 'react'
 import { ImagePlus, Camera, Loader2, X, Pencil } from 'lucide-react'
 
@@ -27,7 +28,8 @@ import { ImagePlus, Camera, Loader2, X, Pencil } from 'lucide-react'
 const MAX_INPUT_BYTES = 8 * 1024 * 1024 // refuse absurdly large source files
 const COVER_MAX_WIDTH = 1600
 const LOGO_MAX_SIDE = 480
-const ACCEPT = 'image/png,image/jpeg,image/webp'
+// This editor crops in the browser, so only formats browsers can decode.
+const ACCEPT = 'image/png,image/jpeg,image/webp,image/avif,image/gif,.avif'
 
 interface Props {
   logo: string | null
@@ -145,8 +147,9 @@ export default function StoreBrandingEditor({
     if (!file) return
 
     setError(null)
-    if (!file.type.startsWith('image/')) {
-      setError('Please choose a PNG, JPG or WebP image.')
+    const mime = resolveImageMime(file.name, file.type)
+    if (!mime || ['image/heic', 'image/heif', 'image/tiff', 'image/bmp', 'image/x-ms-bmp'].includes(mime)) {
+      setError('Please choose a PNG, JPG, WebP or AVIF image.')
       return
     }
     if (file.size > MAX_INPUT_BYTES) {

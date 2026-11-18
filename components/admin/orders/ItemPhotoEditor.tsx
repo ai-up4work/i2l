@@ -7,6 +7,7 @@
 // store's own photo (if any) shows again. Saves through
 // PATCH /api/admin/order-items/[itemId].
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useState } from 'react'
 import { ImagePlus, Loader2, X } from 'lucide-react'
 import { useImageUpload } from '@/lib/upload/useImageUpload'
@@ -97,7 +98,7 @@ export default function ItemPhotoEditor({
               {uploading ? 'Uploading…' : 'Upload a photo'}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
+                accept={IMAGE_ACCEPT}
                 className="sr-only"
                 disabled={busy}
                 onChange={(e) => {

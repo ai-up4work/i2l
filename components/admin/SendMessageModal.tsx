@@ -1,6 +1,7 @@
 // components/admin/SendMessageModal.tsx
 'use client'
 
+import { IMAGE_ACCEPT } from '@/lib/upload/image-types'
 import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, Loader2, MessageSquare, X } from 'lucide-react'
 import { useImageUpload } from '@/lib/upload/useImageUpload'
@@ -127,7 +128,7 @@ export function SendMessageModal({ open, title, defaultMessage, defaultAttachmen
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0]
