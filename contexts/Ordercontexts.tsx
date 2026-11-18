@@ -44,7 +44,7 @@
  */
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from './AuthContext'
 import { createClient } from '@/lib/supabase/client'
 import { mapStageToCustomerStatus } from '@/lib/supabase/orders-admin'
@@ -919,6 +919,8 @@ type OrdersContextValue = {
   error: string | null
   getOrderById: (id: string) => Order | undefined
   filterOrders: (status: OrderStatus | 'All', query: string) => Order[]
+  /** Re-reads the customer's orders from the database (quietly, no loading flash). */
+  refresh: () => void
 }
 
 const OrdersContext = createContext<OrdersContextValue | undefined>(undefined)
@@ -936,18 +938,49 @@ export function OrdersProvider({
   const [orders, setOrders] = useState<Order[]>(initialOrders ?? [])
   const [loading, setLoading] = useState(initialOrders == null)
   const [error, setError] = useState<string | null>(null)
+  // Bumped to re-read orders. Orders used to be read once per sign-in, so an
+  // order staff deleted (or changed) stayed on a customer's screen until they
+  // reloaded the whole app. Now they are re-read when the customer comes back
+  // to the tab/app, and whenever an orders page opens (see `refresh`).
+  const [reloadKey, setReloadKey] = useState(0)
+  const loadedForUser = useRef<string | null>(null)
+  const lastReload = useRef(0)
+
+  useEffect(() => {
+    if (initialOrders != null) return
+    const reload = () => {
+      // At most every 10 s, so quick tab switching doesn't spam the database.
+      if (Date.now() - lastReload.current < 10_000) return
+      lastReload.current = Date.now()
+      setReloadKey((k) => k + 1)
+    }
+    const onVisible = () => document.visibilityState === 'visible' && reload()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', reload)
+    window.addEventListener('online', reload)
+    window.addEventListener('pageshow', reload)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', reload)
+      window.removeEventListener('online', reload)
+      window.removeEventListener('pageshow', reload)
+    }
+  }, [initialOrders])
 
   useEffect(() => {
     if (initialOrders != null) return // escape hatch in use — never fetches
     if (authLoading) return
     if (!user) {
+      loadedForUser.current = null
       setOrders([])
       setLoading(false)
       return
     }
 
     let cancelled = false
-    setLoading(true)
+    // Only show the loading state the first time for this customer; later
+    // re-reads swap the list in quietly.
+    if (loadedForUser.current !== user.id) setLoading(true)
     setError(null)
     const supabase = createClient()
 
@@ -974,6 +1007,7 @@ export function OrdersProvider({
         setOrders([])
       } else {
         setOrders(((data ?? []) as unknown as OrderRow[]).map(rowToOrder))
+        loadedForUser.current = user.id
       }
       setLoading(false)
     })()
@@ -990,9 +1024,9 @@ export function OrdersProvider({
     // Keying this effect on the whole object meant every tab-focus
     // event silently refetched every order from scratch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, authLoading, initialOrders])
+  }, [user?.id, authLoading, initialOrders, reloadKey])
 
-  const value = useMemo<OrdersContextValue>(
+  const value = useMemo<Omit<OrdersContextValue, 'refresh'>>(
     () => ({
       orders,
       loading,
@@ -1012,8 +1046,12 @@ export function OrdersProvider({
     }),
     [orders, loading, error],
   )
+  const valueWithRefresh = useMemo<OrdersContextValue>(
+    () => ({ ...value, refresh: () => setReloadKey((k) => k + 1) }),
+    [value],
+  )
 
-  return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>
+  return <OrdersContext.Provider value={valueWithRefresh}>{children}</OrdersContext.Provider>
 }
 
 export function useOrders() {

@@ -421,12 +421,18 @@ export default function OrderDetailPage() {
     const r = rollbackStage(order.id)
     setStageError(r.allowed ? null : r.reason ?? "This order can't roll back.")
   }
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmingDelete) {
       setConfirmingDelete(true)
       return
     }
-    deleteOrder(order.id)
+    // Only leave the page once the server confirms the order is really gone.
+    const r = await deleteOrder(order.id)
+    if (!r.ok) {
+      setConfirmingDelete(false)
+      setStageError(r.error ?? "The order could not be deleted.")
+      return
+    }
     router.push("/admin/orders")
   }
   const submitNote = () => {

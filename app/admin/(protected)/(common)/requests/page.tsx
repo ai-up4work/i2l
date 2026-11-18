@@ -4,11 +4,12 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, ChevronRight, Inbox, MessageCircle, Ruler, Search, SearchX } from "lucide-react"
+import { AlertTriangle, ChevronRight, Inbox, MessageCircle, Plus, Ruler, Search, SearchX } from "lucide-react"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { REQUEST_SLA_HOURS, REQUEST_STATUS_LABEL, type RequestStatus } from "@/types/admin"
 import { RequestSourceMark } from "@/components/admin/requests/RequestSourceMark"
+import CreateRequestDialog from "@/components/admin/requests/CreateRequestDialog"
 
 // Requests: the Channel 3 manual-review queue. Each request is a card, in the
 // same style as /admin/orders. The visual anchor is RequestSourceMark rather
@@ -58,6 +59,7 @@ export default function RequestsPage() {
   const router = useRouter()
   const { role, requestLines, markRequestReplied } = useAdminData()
   const [search, setSearch] = useState("")
+  const [creating, setCreating] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open")
 
   useEffect(() => {
@@ -123,6 +125,15 @@ export default function RequestsPage() {
             </div>
           </div>
 
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-indigo px-5 py-3 text-sm font-semibold text-parchment transition-colors hover:bg-indigo-deep active:scale-[0.98]"
+          >
+            <Plus size={16} strokeWidth={2.2} />
+            Create request for customer
+          </button>
           <dl className="flex divide-x divide-ink/10 overflow-x-auto rounded-2xl border border-ink/10 bg-card">
             <div className="px-5 py-3">
               <dt className="whitespace-nowrap text-xs font-medium text-ink/45">Open requests</dt>
@@ -137,6 +148,7 @@ export default function RequestsPage() {
               <dd className="mt-0.5 font-display text-xl text-ink">{requestLines.length}</dd>
             </div>
           </dl>
+          </div>
         </div>
 
         {/* ── Filters ── */}
@@ -298,6 +310,7 @@ export default function RequestsPage() {
           )}
         </div>
       </div>
+      {creating && <CreateRequestDialog onClose={() => setCreating(false)} />}
     </div>
   )
 }

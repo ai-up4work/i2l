@@ -110,7 +110,13 @@ function OrderStatusBadge({ order }: { order: Order }) {
 // order-tagging feature can also read it) — this just reads it directly,
 // same instance, no second wrap/fetch.
 export default function OrdersHubPage() {
-  const { orders, loading } = useOrders()
+  const { orders, loading, refresh } = useOrders()
+  // Opening this page re-reads the orders, so one staff deleted or changed
+  // disappears/updates without the customer reloading the app.
+  useEffect(() => {
+    refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All')
   const [page, setPage] = useState(1)

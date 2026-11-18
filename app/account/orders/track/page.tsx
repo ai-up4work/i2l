@@ -267,7 +267,13 @@ function TrackOrderContent() {
   const searchParams = useSearchParams()
   const orderId = searchParams.get('order')
   const initialTab = resolveInitialTab(searchParams.get('tab'))
-  const { orders, loading, getOrderById } = useOrders()
+  const { orders, loading, getOrderById, refresh } = useOrders()
+  // Opening this page re-reads the orders, so one staff deleted or changed
+  // disappears/updates without the customer reloading the app.
+  useEffect(() => {
+    refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [query, setQuery] = useState(orderId ?? '')
 
   if (loading) return <TrackOrderSkeleton />

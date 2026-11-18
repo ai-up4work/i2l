@@ -1138,8 +1138,8 @@ interface AdminDataContextValue {
   getShippedLine: (orderId: string) => ShippedLine | undefined
   canActOnShippedLine: (line: ShippedLine) => boolean
   markDelivered: (orderId: string) => void
-  /** Manager-only hard delete of an order (permissions.canDelete gates whether the UI even shows this). */
-  deleteOrder: (orderId: string) => void
+  /** Manager-only hard delete of an order (permissions.canDelete gates whether the UI even shows this). Resolves once the SERVER has confirmed the delete; on failure the order stays in the list and `error` says why. */
+  deleteOrder: (orderId: string) => Promise<{ ok: boolean; error?: string }>
 
   // -- Requests (Channel 3) --------------------------------------------
   requestLines: RequestLine[]
@@ -2749,15 +2749,30 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
    * renders this action at all for a Manager, same pattern as every
    * other role-gated control in this file.
    */
-  const deleteOrder = (orderId: string) => {
-    if (!permissions.canDelete) return
+  const deleteOrder = async (orderId: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!permissions.canDelete) return { ok: false, error: "You don't have permission to delete orders." }
     // Paid orders are kept and refunded instead (Payment card). The database
     // refuses the delete too (SQL section 13).
     const target = orders.find((o) => o.id === orderId)
-    if (target?.paymentStatus === "paid" || target?.paymentStatus === "refunded") return
-    setOrders((prev) => prev.filter((o) => o.id !== orderId))
+    if (target?.paymentStatus === "paid" || target?.paymentStatus === "refunded") {
+      return { ok: false, error: "Paid orders can't be deleted. Cancel and refund it instead." }
+    }
+    // Server first: the order only leaves this list once the database has
+    // really deleted it. (It used to vanish here immediately and the real
+    // delete ran unchecked, so a refused delete left the customer still
+    // seeing an order that staff could no longer find.)
     const realId = resolveRealId(orderId)
-    if (realId) deleteOrderReal(realId)
+    if (realId) {
+      try {
+        const res = await fetch(`/api/admin/orders/${realId}`, { method: "DELETE" })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) return { ok: false, error: data?.error ?? "The order could not be deleted." }
+      } catch {
+        return { ok: false, error: "Network problem. The order was not deleted." }
+      }
+    }
+    setOrders((prev) => prev.filter((o) => o.id !== orderId))
+    return { ok: true }
   }
 
   /** Shipped page's "Mark delivered": local delivery complete — final real enum change. */

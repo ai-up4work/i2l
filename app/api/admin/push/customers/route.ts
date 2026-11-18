@@ -1,7 +1,8 @@
 // app/api/admin/push/customers/route.ts
 //
 // GET ?q=… — find customers by name, email, phone or order number, for
-// picking specific recipients on /admin/broadcasts. Returns at most 10,
+// picking specific recipients on /admin/broadcasts, and the customer on
+// "Create request for customer" (so Sales can use it too). Returns at most 10,
 // with whether each one has push turned on on any device.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -11,7 +12,7 @@ import { formatHandle } from '@/lib/chat/waLink'
 export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest) {
-  const auth = await requireStaffRole(['manager', 'super_admin'])
+  const auth = await requireStaffRole(['manager', 'sales', 'super_admin'])
   if (!auth.ok) return auth.response
   const { admin } = auth
 

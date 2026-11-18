@@ -3,7 +3,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BellRing, CheckCheck, CheckSquare, ChevronDown, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
+import { BellRing, CheckCheck, CheckSquare, ChevronDown, FilePlus2, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import {
@@ -24,6 +24,7 @@ import {
 import { deriveHandle } from '@/contexts/ChatContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 import RetagMessageDialog, { type RetagResult } from '@/components/admin/chat/RetagMessageDialog'
+import CreateRequestDialog from '@/components/admin/requests/CreateRequestDialog'
 import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
 import { groupIntoAlbums } from '@/lib/chat-albums'
 import WhatsAppHandoffDialog, { type HandoffSent } from '@/components/admin/chat/WhatsAppHandoffDialog'
@@ -398,6 +399,11 @@ function AdminChatPageInner() {
   const [retagTarget, setRetagTarget] = useState<ChatMessageRow | null>(null)
   // The rest of the album when a photo album is re-tagged (tagged together).
   const [retagAlsoIds, setRetagAlsoIds] = useState<string[]>([])
+  // Customer sent a product link straight to us (chat or WhatsApp) and no
+  // request exists for it: staff create one on their behalf from the
+  // message itself. Opens CreateRequestDialog with the customer, link and
+  // message pre-filled.
+  const [createFrom, setCreateFrom] = useState<{ messageId: string; link: string } | null>(null)
   const openRetag = (members: ChatMessageRow[]) => {
     setRetagTarget(members[0])
     setRetagAlsoIds(members.slice(1).map((x) => x.id))
@@ -1012,6 +1018,22 @@ function AdminChatPageInner() {
 
                           {!isOps && (
                             <>
+                              {!m.request_id && !m.order_id && /https?:\/\/\S+/i.test(text || '') && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCreateFrom({
+                                      messageId: m.id,
+                                      link: (text || '').match(/https?:\/\/[^\s<>"')]+/i)?.[0] ?? '',
+                                    })
+                                  }
+                                  aria-label="Create a request for this customer from this link"
+                                  title="Preview this link and create a request"
+                                  className="flex-none rounded-full p-1.5 text-teal-deep opacity-70 transition-opacity hover:bg-teal/10 focus-visible:opacity-100 group-hover:opacity-100"
+                                >
+                                  <FilePlus2 size={14} />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setReplyingTo({ id: last.id, sender: m.sender, text: text || (isAlbum ? '📷 Photos' : '') })}
@@ -1436,6 +1458,22 @@ function AdminChatPageInner() {
           <WhatsAppHandoffDialog {...common} kind="reminder" waitingCount={waiting.length} />
         )
       })()}
+
+      {createFrom && selectedThread && (
+        <CreateRequestDialog
+          customer={{
+            id: selectedThread.user_id,
+            name: selectedThread.profiles?.full_name ?? '',
+            email: selectedThread.profiles?.email ?? '',
+            phone: null,
+            handle: selectedThread.profiles?.chat_handle ? displayHandle(selectedThread.profiles) : null,
+          }}
+          link={createFrom.link}
+          messageId={createFrom.messageId}
+          autoPreview
+          onClose={() => setCreateFrom(null)}
+        />
+      )}
 
       {retagTarget && (
         <RetagMessageDialog
