@@ -40,6 +40,7 @@ interface AuthContextValue {
     email: string,
     password: string,
     fullName: string,
+    whatsappNumber?: string,
   ) => Promise<{ error: string | null; sessionCreated: boolean }>
   logout: () => Promise<void>
   /** Sends a password-reset email. No dedicated /forgot-password route
@@ -133,6 +134,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       applyUser(toAuthUser(data.user))
       setLoading(false)
+      void claimWhatsApp(data.user)
     })
 
     const {
@@ -154,13 +156,36 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null }
   }
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  // Optional WhatsApp number given at sign-up: kept in the sign-up
+  // metadata, then saved (unverified) on the profile by claimWhatsApp
+  // once there is a session — straight away, or after email confirmation.
+  const claimWhatsApp = async (u: User | null | undefined) => {
+    const raw = u?.user_metadata?.whatsapp_number
+    if (!u || !raw || u.phone_confirmed_at) return
+    try {
+      if (sessionStorage.getItem(`wd:wa-claimed:${u.id}`)) return
+      sessionStorage.setItem(`wd:wa-claimed:${u.id}`, '1')
+      await fetch('/api/account/whatsapp/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: String(raw) }),
+      })
+    } catch {
+      /* optional, never blocks */
+    }
+  }
+
+  const signUp = async (email: string, password: string, fullName: string, whatsappNumber?: string) => {
+    const wa = whatsappNumber?.trim()
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: { data: { full_name: fullName, ...(wa ? { whatsapp_number: wa } : {}) } },
     })
-    if (!error && data.session) applyUser(toAuthUser(data.session.user))
+    if (!error && data.session) {
+      applyUser(toAuthUser(data.session.user))
+      void claimWhatsApp(data.session.user)
+    }
     // Supabase only returns a session immediately when email confirmation
     // is disabled in the project's auth settings. If confirmation is
     // required, data.session is null and the caller should show a

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Check, Copy, Loader2, X } from 'lucide-react'
 import { FaWhatsapp } from 'react-icons/fa'
 import { useCurrentStaff } from '@/hooks/useCurrentStaff'
+import AttachNumberDialog from '@/components/admin/AttachNumberDialog'
 import { formatPhone, REJECT_REASONS } from '@/lib/whatsapp/verification'
 
 interface Req {
@@ -49,6 +50,7 @@ export default function WhatsAppVerificationsPage() {
   const { staff, loading: staffLoading } = useCurrentStaff()
   const allowed = staff && ['manager', 'sales', 'super_admin'].includes(staff.role)
 
+  const [attachOpen, setAttachOpen] = useState(false)
   const [view, setView] = useState<'pending' | 'history'>('pending')
   const [rows, setRows] = useState<Req[] | null>(null)
   const [pendingCount, setPendingCount] = useState<number | null>(null)
@@ -109,6 +111,7 @@ export default function WhatsAppVerificationsPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-parchment font-body text-ink">
+      {attachOpen && <AttachNumberDialog onClose={() => setAttachOpen(false)} onDone={() => { setNotice('Number attached.'); void load() }} />}
       <div className="mx-auto max-w-8xl px-6 pb-24 pt-10 lg:px-10">
         <div className="flex items-center gap-3">
           <span className="grid size-10 place-items-center rounded-full bg-teal-deep text-parchment">
@@ -118,6 +121,13 @@ export default function WhatsAppVerificationsPage() {
             <h1 className="font-display text-3xl leading-tight">WhatsApp verification</h1>
             <p className="text-sm text-ink/60">Customers verify their number by sending us a WhatsApp message.</p>
           </div>
+          <button
+            type="button"
+            onClick={() => setAttachOpen(true)}
+            className="ml-auto rounded-full border border-ink/15 bg-card px-4 py-2 text-sm font-semibold text-ink hover:bg-parchment"
+          >
+            Attach a number to an account
+          </button>
         </div>
 
         <ol className="mt-6 grid gap-3 text-sm sm:grid-cols-3">

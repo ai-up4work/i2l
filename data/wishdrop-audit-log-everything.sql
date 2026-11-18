@@ -25,15 +25,29 @@ end $$;
 
 -- 1. Order items: add the photo, store link and variant.
 do $$
+declare lbl text := '';
 begin
   if to_regclass('public.order_items') is not null then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_items' and column_name='title') then
+      lbl := 'title';
+    end if;
     drop trigger if exists audit_order_items on public.order_items;
-    create trigger audit_order_items after insert or update or delete on public.order_items
+    execute format(
+      'create trigger audit_order_items after insert or update or delete on public.order_items for each row execute function public.audit_row_change(%L, %L, %L, %L)',
+      'order item', lbl,
+      'title,quantity,unit_price,variant_label,store_url,request_link,product_image_url,screenshot_url',
+      'quantity,unit_price,product_image_url');
+  end if;
+end $$;
+
+-- 1b. Customer profiles: number / verification / email / name changes, and deletes.
+do $$
+begin
+  if to_regclass('public.profiles') is not null then
+    drop trigger if exists audit_profiles on public.profiles;
+    create trigger audit_profiles after update or delete on public.profiles
       for each row execute function public.audit_row_change(
-        'order item',
-        case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_items' and column_name='title') then 'title' else '' end,
-        'title,quantity,unit_price,variant_label,store_url,request_link,product_image_url,screenshot_url',
-        'quantity,unit_price,product_image_url');
+        'customer', 'full_name', 'full_name,email,phone,phone_verified,chat_handle', 'phone,phone_verified,email');
   end if;
 end $$;
 

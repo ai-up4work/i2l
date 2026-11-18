@@ -1,12 +1,13 @@
 'use client'
 
 import { FormEvent, Suspense, useEffect, useState } from 'react'
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, User as UserIcon } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Phone, User as UserIcon } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import BrandMark from '@/components/shared/BrandMark'
 import AirmailStripe from '@/components/shared/AirmailStripe'
 import { useAuth } from '@/contexts/AuthContext'
+import { normalizeWhatsAppNumber } from '@/lib/whatsapp/verification'
 import { rememberReferralCode } from '@/lib/referrals/client'
 
 type Mode = 'login' | 'register'
@@ -39,6 +40,7 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
   )
 
   const [name, setName] = useState('')
+  const [whatsapp, setWhatsapp] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -84,7 +86,9 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
         router.refresh()
         router.push(redirect)
       } else {
-        const { error: signUpError, sessionCreated } = await signUp(email, password, name.trim())
+        const wa = whatsapp.trim()
+        if (wa && !normalizeWhatsAppNumber(wa)) throw new Error('That WhatsApp number doesn’t look right. Use 07X XXX XXXX or +country code, or leave it blank.')
+        const { error: signUpError, sessionCreated } = await signUp(email, password, name.trim(), wa || undefined)
         if (signUpError) throw new Error(signUpError)
         if (sessionCreated) {
           router.refresh()
@@ -266,6 +270,24 @@ function AccountAccessInner({ initialMode }: { initialMode?: Mode }) {
                 className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink/35 sm:text-sm"
               />
             </label>
+
+            {mode === 'register' && (
+              <div>
+                <label className="flex items-center gap-3 rounded-xl border border-ink/10 bg-parchment px-4 py-3.5 transition-colors focus-within:border-gold-deep/40 sm:py-3">
+                  <Phone size={17} className="shrink-0 text-ink/40" />
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={whatsapp}
+                    onChange={(e) => setWhatsapp(e.target.value)}
+                    placeholder="WhatsApp number (optional)"
+                    className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink/35 sm:text-sm"
+                  />
+                </label>
+                <p className="mt-1.5 px-1 text-xs text-ink/45">So we can message you about your orders. You can add or verify it later.</p>
+              </div>
+            )}
 
             <label className="flex items-center gap-3 rounded-xl border border-ink/10 bg-parchment px-4 py-3.5 transition-colors focus-within:border-gold-deep/40 sm:py-3">
               <LockKeyhole size={17} className="shrink-0 text-ink/40" />
