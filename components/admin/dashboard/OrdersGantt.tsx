@@ -20,8 +20,9 @@ const ORDER_COLORS: Record<string, string> = { ordered: '#EF9F27', quality: '#7F
 const REQUEST_COLORS: Record<string, string> = { review: '#EF9F27', quoted: '#378ADD' }
 const GREEN = '#1D9E75'
 const RED = '#E24B4A'
-const LABEL_W = 176
-const ROW_H = 30
+const LABEL_W = 220
+const ROW_H = 44
+const BAR_H = 20
 const PAGE = 40
 
 const RANGES = [
@@ -48,13 +49,13 @@ export default function OrdersGantt() {
   const [tip, setTip] = useState('Hover a bar for how long it spent in that state. Click a row to open it.')
 
   const now = Date.now()
-  const windowStart = now - days * DAY
+  const rangeStart = now - days * DAY
 
   const rows = useMemo(() => {
     const all = kind === 'orders' ? buildOrderRows(orders, now) : buildRequestRows(requests, now)
     return all
       // Keep a row if any part of its life falls in the window; open ones always stay.
-      .filter((r) => r.outcome === 'open' || r.end >= windowStart)
+      .filter((r) => r.outcome === 'open' || r.end >= rangeStart)
       .sort((a, b) => b.start - a.start)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, orders, requests, days])
@@ -68,6 +69,11 @@ export default function OrdersGantt() {
   )
   const shown = filtered.slice(0, limit)
 
+  // The axis fits the data: it starts at the earliest visible row (never
+  // earlier than the chosen range) so a few recent orders fill the chart
+  // instead of huddling at the right edge. At least 3 days wide.
+  const earliest = filtered.length ? Math.min(...filtered.map((r) => r.start)) : now - 3 * DAY
+  const windowStart = Math.min(Math.max(rangeStart, earliest - 0.25 * DAY), now - 3 * DAY)
   const span = now - windowStart
   const pct = (ms: number) => `${(Math.min(Math.max(ms - windowStart, 0), span) / span) * 100}%`
   const widthPct = (a: number, b: number) => {
@@ -77,7 +83,8 @@ export default function OrdersGantt() {
   }
 
   const colors = kind === 'orders' ? ORDER_COLORS : REQUEST_COLORS
-  const tickCount = days <= 7 ? 8 : 5
+  const spanDays = span / DAY
+  const tickCount = spanDays <= 10 ? Math.max(2, Math.round(spanDays) + 1) : 6
   const ticks = Array.from({ length: tickCount }, (_, i) => windowStart + (span * i) / (tickCount - 1))
 
   const filters: { id: Filter; label: string }[] =
@@ -143,6 +150,11 @@ export default function OrdersGantt() {
           </div>
 
           <div className="relative">
+            <div className="pointer-events-none absolute bottom-0 top-0" style={{ left: LABEL_W, right: 0 }} aria-hidden>
+              {ticks.slice(1, -1).map((_, i) => (
+                <span key={i} className="absolute bottom-0 top-0 border-l border-ink/[0.07]" style={{ left: `${((i + 1) / (ticks.length - 1)) * 100}%` }} />
+              ))}
+            </div>
             {shown.map((r) => (
               <div
                 key={r.id}
@@ -160,31 +172,36 @@ export default function OrdersGantt() {
                 <div className="relative h-full flex-1">
                   {r.segments.map((s, i) => {
                     if (s.end < windowStart) return null
+                    const w = (Math.max(Math.min(s.end, now) - Math.max(s.start, windowStart), 0) / span) * 100
+                    const showLabel = w > 11
                     return (
                       <div
                         key={i}
                         onMouseEnter={() => describe(r, s.label, s.start, s.end, s.late)}
-                        className="absolute"
+                        className="absolute flex items-center overflow-hidden whitespace-nowrap px-2 text-[11px] font-semibold text-white"
                         style={{
-                          top: 9,
-                          height: 12,
+                          top: (ROW_H - BAR_H) / 2,
+                          height: BAR_H,
                           left: pct(s.start),
-                          width: widthPct(s.start, s.end),
-                          minWidth: 3,
-                          background: colors[s.key],
-                          opacity: s.open ? 0.55 : 1,
-                          borderRadius: 2,
-                          outline: s.late ? `1.5px solid ${RED}` : undefined,
-                          outlineOffset: 1,
+                          width: `${w}%`,
+                          minWidth: 4,
+                          background: s.open
+                            ? `repeating-linear-gradient(135deg, rgba(255,255,255,.22) 0 5px, transparent 5px 10px), ${colors[s.key]}`
+                            : colors[s.key],
+                          borderRadius: 4,
+                          marginLeft: i === 0 ? 0 : 1,
+                          boxShadow: s.late ? `0 0 0 2px #fff, 0 0 0 3.5px ${RED}` : undefined,
                         }}
-                      />
+                      >
+                        {showLabel && `${s.label} · ${fmtDur(Math.min(s.end, now) - s.start)}`}
+                      </div>
                     )
                   })}
                   {r.outcome === 'done' && r.end >= windowStart && (
-                    <span className="absolute rounded-full" style={{ top: 10, width: 10, height: 10, left: `calc(${pct(r.end)} - 5px)`, background: GREEN }} />
+                    <span className="absolute rounded-full" style={{ top: (ROW_H - 14) / 2, width: 14, height: 14, left: `calc(${pct(r.end)} - 7px)`, background: GREEN, boxShadow: '0 0 0 2px #fff' }} />
                   )}
                   {r.outcome === 'closed' && r.end >= windowStart && (
-                    <span className="absolute text-[13px] font-semibold leading-none" style={{ top: 8, left: `calc(${pct(r.end)} - 4px)`, color: RED }}>
+                    <span className="absolute text-base font-semibold leading-none" style={{ top: (ROW_H - 16) / 2, left: `calc(${pct(r.end)} - 5px)`, color: RED }}>
                       ×
                     </span>
                   )}
@@ -212,8 +229,8 @@ export default function OrdersGantt() {
         ))}
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: GREEN }} />{kind === 'orders' ? 'Delivered' : 'Order created'}</span>
         <span className="inline-flex items-center gap-1.5"><b className="font-semibold leading-none" style={{ color: RED }}>×</b>{kind === 'orders' ? 'Refunded' : 'Declined'}</span>
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-ink/40 opacity-60" />Still in this state</span>
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ outline: `1.5px solid ${RED}` }} />Over SLA</span>
+        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-ink/40" style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,.5) 0 2px, transparent 2px 4px)' }} />Still in this state</span>
+        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-ink/10" style={{ boxShadow: `0 0 0 1.5px ${RED}` }} />Over SLA</span>
       </div>
       <p className="mt-2 min-h-[18px] text-xs text-ink/55" aria-live="polite">{tip}</p>
     </section>

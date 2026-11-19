@@ -45,6 +45,16 @@ const ORDER_SEG: Partial<Record<OrderStage, { key: OrderSegmentKey; label: strin
   Shipped: { key: 'shipped', label: 'Shipped' },
 }
 
+/** Item titles can be a raw pasted link: show just the site instead of the whole URL. */
+function tidy(text: string): string {
+  if (!/^https?:\/\//i.test(text)) return text
+  try {
+    return new URL(text).hostname.replace(/^www\./, '')
+  } catch {
+    return text
+  }
+}
+
 const ts = (iso: string | undefined | null) => (iso ? new Date(iso).getTime() : NaN)
 
 export function buildOrderRows(orders: Order[], now = Date.now()): TimelineRow[] {
@@ -102,7 +112,7 @@ export function buildOrderRows(orders: Order[], now = Date.now()): TimelineRow[]
       href: `/admin/orders/${o.id}`,
       title: o.id,
       customer: o.customerName,
-      subtitle: o.items[0] ? `${o.items[0].title}${o.items.length > 1 ? ` +${o.items.length - 1}` : ''}` : '',
+      subtitle: o.items[0] ? `${tidy(o.items[0].title)}${o.items.length > 1 ? ` +${o.items.length - 1}` : ''}` : '',
       start: placed,
       end: Math.max(end, placed),
       segments: merged,
@@ -150,7 +160,7 @@ export function buildRequestRows(requests: RequestLine[], now = Date.now()): Tim
       href: `/admin/requests/${r.id}`,
       title: r.displayId ?? r.id,
       customer: r.customerName,
-      subtitle: r.items[0]?.sourceDomain || r.items[0]?.link || '',
+      subtitle: tidy(r.items[0]?.sourceDomain || r.items[0]?.link || ''),
       start,
       end: last.end,
       segments,
