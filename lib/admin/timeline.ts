@@ -37,6 +37,9 @@ export interface TimelineRow {
   outcome: 'done' | 'closed' | 'open'
   late: boolean
   paymentStatus?: Order['paymentStatus']
+  /** request = not ordered yet (or declined); order = placed without a request;
+   *  request-order = a request that became an order (one continuous row). */
+  kind?: 'request' | 'order' | 'request-order'
 }
 
 const ORDER_SEG: Partial<Record<OrderStage, { key: OrderSegmentKey; label: string }>> = {
@@ -174,4 +177,40 @@ export function buildRequestRows(requests: RequestLine[], now = Date.now()): Tim
 export function dayKey(ms: number): string {
   const d = new Date(ms)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+
+/**
+ * One row per piece of work. An order is just a request that already has
+ * its quote and payment, so a request that became an order is ONE row
+ * running Sent for review → Quoted → Ordered → Quality check → Shipped →
+ * Delivered. Orders placed straight from the shop (no request) start at
+ * Ordered; requests that haven't become orders end at Quoted / Declined.
+ */
+export function buildUnifiedRows(orders: Order[], requests: RequestLine[], now = Date.now()): TimelineRow[] {
+  const orderRows = new Map(buildOrderRows(orders, now).map((r) => [r.id, r]))
+  const used = new Set<string>()
+  const out: TimelineRow[] = []
+
+  for (const req of buildRequestRows(requests, now)) {
+    const line = requests.find((l) => l.id === req.id)
+    const orderRow = line?.linkedOrderId ? orderRows.get(line.linkedOrderId) : undefined
+    if (!orderRow) {
+      out.push({ ...req, kind: 'request' })
+      continue
+    }
+    used.add(orderRow.id)
+    // The request part ends the moment the order was placed.
+    const head = req.segments.map((s) => ({ ...s, open: false, late: false, end: Math.min(s.end, Math.max(orderRow.start, s.start)) }))
+    if (head.length) head[head.length - 1].end = Math.max(orderRow.start, head[head.length - 1].start)
+    out.push({
+      ...orderRow,
+      title: `${req.title} → ${orderRow.title}`,
+      start: Math.min(req.start, orderRow.start),
+      segments: [...head, ...orderRow.segments],
+      kind: 'request-order',
+    })
+  }
+  for (const [id, row] of orderRows) if (!used.has(id)) out.push({ ...row, kind: 'order' })
+  return out
 }
