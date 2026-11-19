@@ -1399,7 +1399,7 @@ function AdminChatPageInner() {
                     onClick={() => askDeleteThread(selectedThread)}
                     className="ml-auto inline-flex items-center gap-1 font-semibold text-red-600 underline-offset-2 hover:underline"
                   >
-                    <Trash2 size={11} /> Delete chat
+                    <Trash2 size={11} /> 
                   </button>
                 )}
               </p>
