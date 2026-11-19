@@ -3,7 +3,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BellRing, CheckCheck, CheckSquare, ChevronDown, FilePlus2, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, X } from 'lucide-react'
+import { BellRing, CheckCheck, CheckSquare, ChevronDown, Copy, FilePlus2, MessageSquare, Paperclip, RefreshCw, Reply, Search, Send, Tag, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { triggerWhatsAppRelay } from '@/lib/chat/relay-client'
 import {
@@ -31,6 +31,7 @@ import WhatsAppHandoffDialog, { type HandoffSent } from '@/components/admin/chat
 import { defaultTargets, type Context, type LinkTarget } from '@/lib/chat/whatsapp-handoff'
 import { formatPhone } from '@/lib/whatsapp/verification'
 import AttachNumberDialog from '@/components/admin/AttachNumberDialog'
+import { ConfirmDialog, ContextMenu, type MenuItem } from '@/components/admin/chat/ContextMenu'
 import { FaWhatsapp } from 'react-icons/fa'
 
 type ThreadRow = {
@@ -158,6 +159,7 @@ function AdminChatPageInner() {
   const searchParams = useSearchParams()
 
   const [staffName, setStaffName] = useState('Support')
+  const [staffRole, setStaffRole] = useState<string | null>(null)
 
   const [threads, setThreads] = useState<ThreadListItem[]>([])
   const [threadsLoading, setThreadsLoading] = useState(true)
@@ -200,8 +202,9 @@ function AdminChatPageInner() {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return
-      const { data: staff } = await supabase.from('staff_accounts').select('name').eq('user_id', user.id).maybeSingle()
+      const { data: staff } = await supabase.from('staff_accounts').select('name, role').eq('user_id', user.id).maybeSingle()
       setStaffName(staff?.name ?? user.email ?? 'Support')
+      setStaffRole((staff?.role as string | undefined) ?? null)
     })()
   }, [])
 
@@ -421,6 +424,135 @@ function AdminChatPageInner() {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set())
   const [handoff, setHandoff] = useState<{ kind: 'messages'; ids: string[] } | { kind: 'reminder' } | null>(null)
+
+  // ── Message and conversation actions (WhatsApp-style menu) ──
+  // Hard deletes (a customer's message, a whole conversation) are Manager and
+  // Super Admin only — the same rule the server enforces.
+  const canHardDelete = staffRole === 'super_admin' || staffRole === 'manager'
+  const [menu, setMenu] = useState<{ x: number; y: number; title?: string; items: MenuItem[] } | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
+  const [confirmAction, setConfirmAction] = useState<
+    { kind: 'messages'; ids: string[]; fromCustomer: boolean } | { kind: 'thread'; id: string; name: string } | null
+  >(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+
+  const openMessageMenu = (at: { x: number; y: number }, members: ChatMessageRow[], text: string) => {
+    const m = members[0]
+    const last = members[members.length - 1]
+    const isOps = m.sender === 'ops'
+    const isAlbum = members.length > 1
+    const memberIds = members.map((x) => x.id)
+    const link = (text || '').match(/https?:\/\/[^\s<>"')]+/i)?.[0]
+    const items: MenuItem[] = [
+      {
+        key: 'reply',
+        label: 'Reply',
+        icon: <Reply size={16} />,
+        onSelect: () => setReplyingTo({ id: last.id, sender: m.sender, text: text || (isAlbum ? '📷 Photos' : '') }),
+      },
+    ]
+    if (text) {
+      items.push({
+        key: 'copy',
+        label: 'Copy text',
+        icon: <Copy size={16} />,
+        onSelect: () => void navigator.clipboard?.writeText(text),
+      })
+    }
+    items.push({ key: 'tag', label: 'Tag to order or request', icon: <Tag size={16} />, onSelect: () => openRetag(members) })
+    if (!isOps && link && !m.request_id && !m.order_id) {
+      items.push({
+        key: 'create',
+        label: 'Create request from link',
+        icon: <FilePlus2 size={16} />,
+        onSelect: () => setCreateFrom({ messageId: m.id, link }),
+      })
+    }
+    if (isOps && waInfo?.customer.verifiedPhone) {
+      items.push({
+        key: 'wa',
+        label: 'Send to WhatsApp',
+        icon: <FaWhatsapp size={16} />,
+        onSelect: () => setHandoff({ kind: 'messages', ids: memberIds }),
+      })
+      items.push({
+        key: 'select',
+        label: 'Select messages',
+        icon: <CheckSquare size={16} />,
+        onSelect: () => {
+          setSelectMode(true)
+          setSelectedMsgIds(new Set(memberIds))
+        },
+      })
+    }
+    items.push({
+      key: 'delete',
+      label: isAlbum ? `Delete ${members.length} photos` : 'Delete message',
+      icon: <Trash2 size={16} />,
+      danger: true,
+      separatorAbove: true,
+      disabledReason: !isOps && !canHardDelete ? 'Only a Manager or Super Admin can delete a customer’s message' : undefined,
+      onSelect: () => {
+        setConfirmError(null)
+        setConfirmAction({ kind: 'messages', ids: memberIds, fromCustomer: !isOps })
+      },
+    })
+    const who = isOps ? m.sender_name || 'Staff' : displayHandle(selectedThread?.profiles)
+    setMenu({ x: at.x, y: at.y, title: `${who} · ${formatTime(last.created_at)}`, items })
+  }
+
+  const threadNameOf = (t: ThreadListItem) =>
+    t.profiles?.full_name || t.profiles?.email || (t.profiles?.chat_handle ? `@${t.profiles.chat_handle.replace(/^@/, '')}` : 'this customer')
+
+  const askDeleteThread = (t: ThreadListItem) => {
+    setConfirmError(null)
+    setConfirmAction({ kind: 'thread', id: t.id, name: threadNameOf(t) })
+  }
+
+  const runConfirmedDelete = async () => {
+    if (!confirmAction) return
+    setConfirmBusy(true)
+    setConfirmError(null)
+    try {
+      if (confirmAction.kind === 'messages') {
+        const results = await Promise.all(
+          confirmAction.ids.map(async (id) => {
+            const r = await fetch(`/api/admin/chat/messages/${id}`, { method: 'DELETE' })
+            return r.ok ? null : ((await r.json().catch(() => ({}))).error as string | undefined) ?? 'Could not delete the message.'
+          }),
+        )
+        const failed = results.find(Boolean)
+        const gone = new Set(confirmAction.ids.filter((_, i) => !results[i]))
+        if (gone.size) setMessages((prev) => prev.filter((x) => !gone.has(x.id)))
+        if (failed) {
+          setConfirmError(failed)
+          return
+        }
+        void loadThreads()
+      } else {
+        const r = await fetch(`/api/admin/chat/threads/${confirmAction.id}`, { method: 'DELETE' })
+        if (!r.ok) {
+          setConfirmError(((await r.json().catch(() => ({}))).error as string | undefined) ?? 'Could not delete this conversation.')
+          return
+        }
+        setThreads((prev) => prev.filter((t) => t.id !== confirmAction.id))
+        if (selectedId === confirmAction.id) {
+          setSelectedId(null)
+          setMessages([])
+          setReplyingTo(null)
+          const params = new URLSearchParams(searchParams.toString())
+          params.delete(THREAD_QUERY_PARAM)
+          router.replace(params.toString() ? `?${params.toString()}` : '?', { scroll: false })
+        }
+      }
+      setConfirmAction(null)
+    } catch {
+      setConfirmError('Something went wrong. Check your connection and try again.')
+    } finally {
+      setConfirmBusy(false)
+    }
+  }
   useEffect(() => {
     setWaInfo(null)
     setSelectMode(false)
@@ -956,10 +1088,33 @@ function AdminChatPageInner() {
                             )}
                           </span>
                           <div
-                            onClick={isOps && selectMode ? () => toggleSelectedMany(memberIds) : undefined}
-                            className={`w-full rounded-lg px-2.5 py-[6px] text-[14.2px] shadow ${
+                            tabIndex={0}
+                            aria-haspopup="menu"
+                            title="Click for message actions"
+                            onClick={(e) => {
+                              if (selectMode) {
+                                if (isOps) toggleSelectedMany(memberIds)
+                                return
+                              }
+                              // Links, buttons and photos keep their own click; so does selecting text to copy.
+                              if ((e.target as HTMLElement).closest('a, button, video, audio, input, img')) return
+                              if (window.getSelection()?.toString()) return
+                              openMessageMenu({ x: e.clientX, y: e.clientY }, members, text)
+                            }}
+                            onContextMenu={(e) => {
+                              if (selectMode) return
+                              e.preventDefault()
+                              openMessageMenu({ x: e.clientX, y: e.clientY }, members, text)
+                            }}
+                            onKeyDown={(e) => {
+                              if (selectMode || (e.key !== 'Enter' && e.key !== 'ContextMenu')) return
+                              e.preventDefault()
+                              const r = e.currentTarget.getBoundingClientRect()
+                              openMessageMenu({ x: r.left + r.width / 2, y: r.bottom }, members, text)
+                            }}
+                            className={`w-full cursor-pointer rounded-lg px-2.5 py-[6px] text-[14.2px] shadow outline-none focus-visible:ring-2 focus-visible:ring-teal/50 ${
                               isOps ? 'bg-teal-deep text-white' : 'bg-card text-ink'
-                            } ${isOps && selectMode ? 'cursor-pointer' : ''} ${
+                            } ${
                               isOps && selectMode && albumSelected ? 'ring-2 ring-gold ring-offset-1' : ''
                             }`}
                           >
@@ -1243,6 +1398,15 @@ function AdminChatPageInner() {
                   {waInfo.lastReminder.by ? ` by ${waInfo.lastReminder.by}` : ''}
                 </p>
               )}
+              {canHardDelete && (
+                <button
+                  type="button"
+                  onClick={() => askDeleteThread(selectedThread)}
+                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
+                >
+                  <Trash2 size={13} /> Delete chat
+                </button>
+              )}
               {waInfo?.customer.verifiedPhone && (
                 <div className="mt-2.5 flex items-center gap-1.5">
                   <button
@@ -1375,6 +1539,16 @@ function AdminChatPageInner() {
                     key={t.id}
                     type="button"
                     onClick={() => handleSelect(t.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      const items: MenuItem[] = [
+                        { key: 'open', label: 'Open chat', icon: <MessageSquare size={16} />, onSelect: () => handleSelect(t.id) },
+                      ]
+                      if (canHardDelete) {
+                        items.push({ key: 'del', label: 'Delete chat', icon: <Trash2 size={16} />, danger: true, separatorAbove: true, onSelect: () => askDeleteThread(t) })
+                      }
+                      setMenu({ x: e.clientX, y: e.clientY, title: threadNameOf(t), items })
+                    }}
                     className={`flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
                       isSelected ? 'border-teal-deep bg-teal/10' : 'border-ink/10 bg-parchment/50 hover:bg-parchment/70'
                     }`}
@@ -1442,6 +1616,28 @@ function AdminChatPageInner() {
             </span>
           )}
         </button>
+      )}
+
+      {menu && <ContextMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onClose={closeMenu} />}
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction.kind === 'thread' ? `Delete the whole chat with ${confirmAction.name}?` : confirmAction.ids.length > 1 ? `Delete ${confirmAction.ids.length} photos?` : 'Delete this message?'}
+          body={
+            confirmAction.kind === 'thread' ? (
+              <>This permanently removes the conversation and every message in it. The customer will see an empty chat. A copy of each message is kept in the audit log for 60 days.</>
+            ) : (
+              <>
+                It is removed for everyone{confirmAction.fromCustomer ? ', including from the customer’s own chat history' : ', and the customer will no longer see it'}. A copy is kept in the audit log for 60 days.
+              </>
+            )
+          }
+          confirmLabel={confirmAction.kind === 'thread' ? 'Delete chat' : 'Delete'}
+          requireText={confirmAction.kind === 'thread' ? 'delete' : undefined}
+          busy={confirmBusy}
+          error={confirmError}
+          onConfirm={runConfirmedDelete}
+          onCancel={() => setConfirmAction(null)}
+        />
       )}
 
       {handoff && selectedThread && waInfo?.customer.verifiedPhone && (() => {

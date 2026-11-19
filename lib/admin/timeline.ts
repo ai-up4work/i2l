@@ -129,7 +129,7 @@ export function buildOrderRows(orders: Order[], now = Date.now()): TimelineRow[]
       facts: [
         { label: 'Items', value: o.items.slice(0, 3).map((i) => `${i.quantity > 1 ? `${i.quantity}× ` : ''}${tidy(i.title)}`).join(', ') + (o.items.length > 3 ? ` +${o.items.length - 3} more` : '') },
         { label: 'Order total', value: `Rs. ${Math.round(o.totalValue).toLocaleString('en-LK')}` },
-        { label: 'Payment', value: o.paymentStatus },
+        { label: 'Payment', value: o.paymentStatus ?? 'not recorded' },
         { label: 'Stage', value: o.stage },
       ],
     }
