@@ -40,6 +40,9 @@ export interface TimelineRow {
   /** request = not ordered yet (or declined); order = placed without a request;
    *  request-order = a request that became an order (one continuous row). */
   kind?: 'request' | 'order' | 'request-order'
+  /** Hover card: a picture and a few plain facts about this piece of work. */
+  image?: string
+  facts?: { label: string; value: string }[]
 }
 
 const ORDER_SEG: Partial<Record<OrderStage, { key: OrderSegmentKey; label: string }>> = {
@@ -122,6 +125,13 @@ export function buildOrderRows(orders: Order[], now = Date.now()): TimelineRow[]
       outcome,
       late: outcome === 'open' && merged.some((s) => s.late),
       paymentStatus: o.paymentStatus,
+      image: o.items.find((i) => i.productImage)?.productImage,
+      facts: [
+        { label: 'Items', value: o.items.slice(0, 3).map((i) => `${i.quantity > 1 ? `${i.quantity}× ` : ''}${tidy(i.title)}`).join(', ') + (o.items.length > 3 ? ` +${o.items.length - 3} more` : '') },
+        { label: 'Order total', value: `Rs. ${Math.round(o.totalValue).toLocaleString('en-LK')}` },
+        { label: 'Payment', value: o.paymentStatus },
+        { label: 'Stage', value: o.stage },
+      ],
     }
   })
 }
@@ -169,6 +179,13 @@ export function buildRequestRows(requests: RequestLine[], now = Date.now()): Tim
       segments,
       outcome: r.status === 'confirmed' ? 'done' : r.status === 'declined' ? 'closed' : 'open',
       late: open && segments.some((s) => s.late),
+      image: r.items.map((i) => i.screenshotUrl || i.productImageUrl).find(Boolean),
+      facts: [
+        { label: 'Link', value: r.items.slice(0, 2).map((i) => tidy(i.sourceDomain || i.link)).join(', ') + (r.items.length > 2 ? ` +${r.items.length - 2} more` : '') },
+        ...(r.items[0]?.note ? [{ label: 'Note', value: r.items[0].note.length > 90 ? `${r.items[0].note.slice(0, 90)}…` : r.items[0].note }] : []),
+        ...(r.totalQuote ? [{ label: 'Quote', value: `Rs. ${Math.round(r.totalQuote).toLocaleString('en-LK')}` }] : []),
+        { label: 'Status', value: r.status.replace(/_/g, ' ') },
+      ],
     }
   })
 }
@@ -208,6 +225,7 @@ export function buildUnifiedRows(orders: Order[], requests: RequestLine[], now =
       title: `${req.title} → ${orderRow.title}`,
       start: Math.min(req.start, orderRow.start),
       segments: [...head, ...orderRow.segments],
+      image: orderRow.image ?? req.image,
       kind: 'request-order',
     })
   }

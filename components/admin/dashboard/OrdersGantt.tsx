@@ -50,7 +50,7 @@ export default function OrdersGantt() {
   const [filter, setFilter] = useState<Filter>('all')
   const [range, setRange] = useState<Range>('auto')
   const [limit, setLimit] = useState(PAGE)
-  const [tip, setTip] = useState('Hover a bar for how long it spent in that state. Click a row to open it.')
+  const [hover, setHover] = useState<{ row: TimelineRow; seg: TimelineRow['segments'][number]; x: number; y: number } | null>(null)
 
   const now = Date.now()
   const rangeStart = now - (range === 'auto' ? MAX_AUTO_DAYS : range) * DAY
@@ -190,7 +190,8 @@ export default function OrdersGantt() {
                     return (
                       <div
                         key={i}
-                        onMouseEnter={() => setTip(`${r.title} (${r.customer}): ${s.label} for ${fmtDur(Math.min(s.end, now) - s.start)}${s.late ? ', over its SLA' : ''}`)}
+                        onMouseMove={(e) => setHover({ row: r, seg: s, x: e.clientX, y: e.clientY })}
+                        onMouseLeave={() => setHover(null)}
                         className="absolute flex items-center overflow-hidden whitespace-nowrap px-2 text-[11px] font-semibold text-white"
                         style={{
                           top: (ROW_H - BAR_H) / 2,
@@ -237,7 +238,41 @@ export default function OrdersGantt() {
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-ink/40" style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,.5) 0 2px, transparent 2px 4px)' }} />Still in this state</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-ink/10" style={{ boxShadow: `0 0 0 1.5px ${RED}` }} />Over SLA</span>
       </div>
-      <p className="mt-2 min-h-[18px] text-xs text-ink/55" aria-live="polite">{tip}</p>
+      <p className="mt-2 text-xs text-ink/55">Hover a bar for details. Click a row to open it.</p>
+      {hover && (() => {
+        const W = 300
+        const left = Math.min(hover.x + 16, (typeof window !== 'undefined' ? window.innerWidth : 1200) - W - 12)
+        const below = hover.y < 300
+        const { row, seg } = hover
+        const dur = fmtDur(Math.min(seg.end, now) - seg.start)
+        return (
+          <div className="pointer-events-none fixed z-50 rounded-xl border border-ink/10 bg-white p-3 shadow-xl" style={{ width: W, left, top: below ? hover.y + 18 : undefined, bottom: below ? undefined : (typeof window !== 'undefined' ? window.innerHeight : 800) - hover.y + 18 }}>
+            <div className="flex gap-3">
+              {row.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={row.image} alt="" className="h-16 w-16 flex-none rounded-lg bg-ink/[0.05] object-cover" />
+              ) : (
+                <div className="h-16 w-16 flex-none rounded-lg bg-ink/[0.05]" />
+              )}
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">{row.title}</div>
+                <div className="truncate text-xs text-ink/60">{row.customer}</div>
+                <div className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold">
+                  <span className="h-2 w-2 rounded-full" style={{ background: COLORS[seg.key] }} />
+                  {seg.label} · {dur}{seg.open ? ' so far' : ''}
+                </div>
+              </div>
+            </div>
+            {seg.late && <div className="mt-2 rounded-md bg-rose/10 px-2 py-1 text-[11px] font-semibold text-rose">Over its SLA, needs attention</div>}
+            <dl className="mt-2 space-y-1 border-t border-ink/[0.07] pt-2 text-[11px]">
+              <div className="flex gap-2"><dt className="w-16 flex-none text-ink/45">Started</dt><dd>{new Date(seg.start).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</dd></div>
+              {(row.facts ?? []).map((f) => (
+                <div key={f.label} className="flex gap-2"><dt className="w-16 flex-none text-ink/45">{f.label}</dt><dd className="min-w-0 break-words">{f.value}</dd></div>
+              ))}
+            </dl>
+          </div>
+        )
+      })()}
     </section>
   )
 }
