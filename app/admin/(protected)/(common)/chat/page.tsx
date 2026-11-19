@@ -18,6 +18,7 @@ import {
   parseReplyBody,
   removeMessageAttachment,
   sendChatMessage,
+  subscribeToMessageDeletes,
   subscribeToThreadMessages,
   uploadChatAttachment,
 } from '@/lib/supabase/chat'
@@ -31,7 +32,7 @@ import WhatsAppHandoffDialog, { type HandoffSent } from '@/components/admin/chat
 import { defaultTargets, type Context, type LinkTarget } from '@/lib/chat/whatsapp-handoff'
 import { formatPhone } from '@/lib/whatsapp/verification'
 import AttachNumberDialog from '@/components/admin/AttachNumberDialog'
-import { ConfirmDialog, ContextMenu, type MenuItem } from '@/components/admin/chat/ContextMenu'
+import { ConfirmDialog, ContextMenu, type MenuItem } from '@/components/shared/ContextMenu'
 import { FaWhatsapp } from 'react-icons/fa'
 
 type ThreadRow = {
@@ -701,6 +702,13 @@ function AdminChatPageInner() {
     })
     return unsubscribe
   }, [selectedId])
+
+  // A message deleted by the customer or another staff member disappears here live.
+  useEffect(() => {
+    return subscribeToMessageDeletes(supabaseRef.current, (id) => {
+      setMessages((prev) => (prev.some((m) => m.id === id) ? prev.filter((m) => m.id !== id) : prev))
+    })
+  }, [])
 
   useEffect(() => {
     const supabase = supabaseRef.current

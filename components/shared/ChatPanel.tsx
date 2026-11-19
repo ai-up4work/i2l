@@ -10,6 +10,7 @@ import ChatWhatsAppNumber from '@/components/shared/ChatWhatsAppNumber'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
 import { groupIntoAlbums } from '@/lib/chat-albums'
+import { useChatMessageMenu } from '@/components/shared/useChatMessageMenu'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
 
 function formatTime(ts: number) {
@@ -52,6 +53,7 @@ export default function ChatPanel({
   const { login } = useAuth()
   const [draft, setDraft] = useState('')
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null)
+  const { openMessageMenu, menuNode } = useChatMessageMenu({ onReply: setReplyingTo })
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [fileError, setFileError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -202,6 +204,7 @@ export default function ChatPanel({
       aria-modal="true"
       aria-label="Chat with WishFetch"
     >
+      {menuNode}
       <div className="flex items-center justify-between bg-indigo px-4 py-3.5">
         <div className="flex items-center gap-3">
           <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-teal-deep text-parchment">
@@ -366,7 +369,24 @@ export default function ChatPanel({
                         bubble's rounded corners.
                       */}
                       <div
-                        className={`min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2 font-body text-sm ${
+                        tabIndex={0}
+                        aria-haspopup="menu"
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest('a, button, video, audio, input, img')) return
+                          if (window.getSelection()?.toString()) return
+                          openMessageMenu({ x: e.clientX, y: e.clientY }, members, caption)
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          openMessageMenu({ x: e.clientX, y: e.clientY }, members, caption)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== 'ContextMenu') return
+                          e.preventDefault()
+                          const r = e.currentTarget.getBoundingClientRect()
+                          openMessageMenu({ x: r.left + r.width / 2, y: r.bottom }, members, caption)
+                        }}
+                        className={`min-w-0 max-w-full cursor-pointer overflow-hidden rounded-2xl px-3.5 py-2 font-body text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal/50 ${
                           isCustomer ? 'bg-teal-deep text-parchment' : 'bg-card text-ink border border-ink/10'
                         }`}
                       >

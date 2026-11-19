@@ -19,6 +19,7 @@ import {
   sendChatMessage,
   subscribeToThreadMessages,
   uploadChatAttachment,
+  subscribeToMessageDeletes,
 } from '@/lib/supabase/chat'
 
 // Real UI-facing message shape. `attachment` is singular (one URL,
@@ -125,6 +126,8 @@ interface ChatContextValue {
   sending: boolean
   sendError: string | null
   sendMessage: (text: string, options?: SendOptions) => Promise<void>
+  /** Deletes the customer's OWN messages (not ones tagged to an order or request). */
+  deleteMessages: (ids: string[]) => Promise<{ ok: boolean; error?: string }>
   unreadCount: number
   markRead: () => void
   isLocked: boolean
@@ -347,6 +350,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe
   }, [threadId])
 
+  // Realtime: a message deleted anywhere (staff removed it, or the whole
+  // conversation was deleted) disappears from this chat straight away.
+  useEffect(() => {
+    if (!threadId) return
+    return subscribeToMessageDeletes(supabaseRef.current, (id) => {
+      setMessages((prev) => (prev.some((m) => m.id === id) ? prev.filter((m) => m.id !== id) : prev))
+    })
+  }, [threadId])
+
+  const deleteMessages = useCallback(async (ids: string[]) => {
+    const failures: string[] = []
+    const removed = new Set<string>()
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const r = await fetch(`/api/account/chat/messages/${id}`, { method: 'DELETE' })
+          if (r.ok) removed.add(id)
+          else failures.push(((await r.json().catch(() => ({}))).error as string | undefined) ?? 'Could not delete the message.')
+        } catch {
+          failures.push('Something went wrong. Check your connection and try again.')
+        }
+      }),
+    )
+    if (removed.size) setMessages((prev) => prev.filter((m) => !removed.has(m.id)))
+    return failures.length ? { ok: false, error: failures[0] } : { ok: true }
+  }, [])
+
   const sendMessage = useCallback(
     async (text: string, options?: SendOptions) => {
       const trimmed = text.trim()
@@ -472,6 +502,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     sending,
     sendError,
     sendMessage,
+    deleteMessages,
     unreadCount,
     markRead,
     isLocked: !isAuthenticated,

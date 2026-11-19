@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import AttachmentMedia from '@/components/chat/AttachmentMedia'
 import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
 import { groupIntoAlbums } from '@/lib/chat-albums'
+import { useChatMessageMenu } from '@/components/shared/useChatMessageMenu'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
 import PushOptIn from '@/components/pwa/PushOptIn'
 
@@ -66,6 +67,7 @@ export default function AccountMessagesPage() {
 
   const [draft, setDraft] = useState('')
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null)
+  const { openMessageMenu, menuNode } = useChatMessageMenu({ onReply: setReplyingTo })
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [fileError, setFileError] = useState<string | null>(null)
 
@@ -188,6 +190,7 @@ export default function AccountMessagesPage() {
           obviously useful. Renders nothing once on, blocked, or dismissed. */}
       {!isLocked && <PushOptIn className="mt-4" />}
 
+      {menuNode}
       {isLocked ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <MessageCircle size={32} className="text-ink/20" strokeWidth={1.4} />
@@ -288,7 +291,24 @@ export default function AccountMessagesPage() {
                           </span>
                         )}
                         <div
-                          className={`w-full rounded-2xl px-3.5 py-2 font-body text-sm ${
+                          tabIndex={0}
+                          aria-haspopup="menu"
+                          onClick={(e) => {
+                            if ((e.target as HTMLElement).closest('a, button, video, audio, input, img')) return
+                            if (window.getSelection()?.toString()) return
+                            openMessageMenu({ x: e.clientX, y: e.clientY }, members, caption)
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            openMessageMenu({ x: e.clientX, y: e.clientY }, members, caption)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' && e.key !== 'ContextMenu') return
+                            e.preventDefault()
+                            const r = e.currentTarget.getBoundingClientRect()
+                            openMessageMenu({ x: r.left + r.width / 2, y: r.bottom }, members, caption)
+                          }}
+                          className={`w-full cursor-pointer rounded-2xl px-3.5 py-2 font-body text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal/50 ${
                             isMine ? 'bg-teal-deep text-parchment' : 'bg-card text-ink border border-ink/10'
                           }`}
                         >

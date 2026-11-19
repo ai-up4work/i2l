@@ -555,6 +555,34 @@ export function subscribeToThreadMessages(
   )
 }
 
+/** Realtime: tells you when ANY chat message is deleted (by staff, by the
+ * customer, or because a whole conversation was removed). Delete events carry
+ * only the row id, so this is unfiltered — callers just drop that id from what
+ * they are showing, and ignore ids they don't have. Nothing else about the
+ * message is sent. */
+export function subscribeToMessageDeletes(
+  supabase: SupabaseClient,
+  onDelete: (messageId: string) => void,
+  onStatus?: (status: RealtimeStatus) => void,
+): () => void {
+  return subscribeWithDiagnostics(
+    supabase,
+    'chat-message-deletes',
+    () => {
+      const topic = `chat_message_deletes:${Math.random().toString(36).slice(2)}`
+      return supabase.channel(topic).on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          const id = (payload.old as { id?: string } | null)?.id
+          if (id) onDelete(id)
+        },
+      )
+    },
+    onStatus,
+  )
+}
+
 /**
  * Every message TAGGED to an order, from any of the customer's threads.
  *
