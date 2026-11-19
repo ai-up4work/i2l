@@ -1393,6 +1393,15 @@ function AdminChatPageInner() {
                 <button type="button" onClick={() => setAttachNumberOpen(true)} className="font-semibold text-teal-deep underline-offset-2 hover:underline">
                   {waInfo?.customer.verifiedPhone ? 'Change number' : 'Add number'}
                 </button>
+                {canHardDelete && (
+                  <button
+                    type="button"
+                    onClick={() => askDeleteThread(selectedThread)}
+                    className="ml-auto inline-flex items-center gap-1 font-semibold text-red-600 underline-offset-2 hover:underline"
+                  >
+                    <Trash2 size={11} /> Delete chat
+                  </button>
+                )}
               </p>
               {waInfo?.lastReminder && (
                 <p className="mt-0.5 text-[11px] text-ink/50">
@@ -1405,15 +1414,6 @@ function AdminChatPageInner() {
                   })}
                   {waInfo.lastReminder.by ? ` by ${waInfo.lastReminder.by}` : ''}
                 </p>
-              )}
-              {canHardDelete && (
-                <button
-                  type="button"
-                  onClick={() => askDeleteThread(selectedThread)}
-                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
-                >
-                  <Trash2 size={13} /> Delete chat
-                </button>
               )}
               {waInfo?.customer.verifiedPhone && (
                 <div className="mt-2.5 flex items-center gap-1.5">
