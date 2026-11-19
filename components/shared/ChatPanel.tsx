@@ -197,7 +197,7 @@ export default function ChatPanel({
   return (
     <div
       ref={panelRef}
-      className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[40rem] w-[27rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
+      className={`fixed z-80 flex flex-col overflow-hidden border border-ink/10 bg-parchment shadow-lift h-[min(40rem,calc(100dvh-7rem))] w-[27rem] max-w-[calc(100vw-3rem)] rounded-3xl max-sm:!inset-x-0 max-sm:!top-[max(0.75rem,env(safe-area-inset-top))] max-sm:!bottom-0 max-sm:!h-auto max-sm:!w-auto max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 ${positionClassName}`}
       role="dialog"
       aria-modal="true"
       aria-label="Chat with WishFetch"
