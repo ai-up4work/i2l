@@ -20,6 +20,7 @@
 import type { ReactNode } from "react";
 import { AdminDataProvider } from "@/contexts/AdminDataContext";
 import { AdminSidebarProvider } from "@/contexts/AdminSidebarContext";
+import { MessageTemplatesProvider } from "@/contexts/MessageTemplatesContext";
 import { GlobalSearch } from "@/components/admin/GlobalSearch";
 import { AdminSignOutButton } from "@/components/admin/AdminSignOutButton";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
@@ -45,11 +46,12 @@ import { AdminContentShell } from "@/components/admin/admin-content-shell";
 export default function AdminProtectedLayout({ children }: { children: ReactNode }) {
   return (
     <AdminDataProvider>
+      <MessageTemplatesProvider>
       <AdminSidebarProvider>
         <div className="h-screen overflow-hidden bg-parchment">
           <AdminSidebar />
           <AdminContentShell>
-            <header className="flex flex-none items-center justify-end gap-3 border-b border-ink/10 bg-parchment px-6 py-3">              
+            <header className="flex flex-none items-center justify-end gap-3 border-b border-ink/10 bg-indigo px-6 py-3">              
                 <GlobalSearch />
                 <AdminSignOutButton />
             </header>
@@ -57,6 +59,7 @@ export default function AdminProtectedLayout({ children }: { children: ReactNode
           </AdminContentShell>
         </div>
       </AdminSidebarProvider>
+      </MessageTemplatesProvider>
     </AdminDataProvider>
   );
 }

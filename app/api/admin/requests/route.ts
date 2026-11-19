@@ -11,26 +11,34 @@
 //
 //   request (this route) → quote → record payment → Confirm → order + tracking
 //
-// Body:
-//   userId        required  the customer's auth user id (from CustomerPicker)
-//   link          required  the product link (http/https)
-//   itemName      optional  product title as it should appear on the order
-//   note          optional  internal / customer note (variant, size, colour…)
-//   quantity      optional  default 1
-//   imageUrl      optional  https photo of the item
-//   variant       optional  the size / colour etc. the customer chose, e.g.
-//                           "Size: M, Colour: Black". Saved as the request's
-//                           confirmed variant (it is put in front of the item
-//                           title on the order) and repeated in the note.
-//   quote         optional  total price in LKR. Sets the request to "quoted".
-//   payment       optional  { amount, method, reference? } — only with `quote`.
-//                           For when the customer has already paid. Staff then
-//                           only press Confirm on the request page.
-//   messageId     optional  an existing chat message (the one carrying the
-//                           link) to tag to the new request. Must belong to
-//                           this customer's own conversation.
-//   notifyCustomer optional default true — posts a short staff message in the
-//                           customer's chat, tagged to the request.
+// It accepts everything the request page itself lets staff set, so a request
+// can be created complete and only needs Confirm afterwards.
+//
+// Body (all optional unless marked):
+//   userId *            the customer's auth user id (from CustomerPicker)
+//   link *              the product link (http/https)
+//   --- the item (same as "Product details" on the request page) ---
+//   itemName            product title shown on the order
+//   productImageUrl     https product photo
+//   sellerName          seller / store name
+//   quantity            default 1
+//   variantOptions      [{ dimension, values[] }] — the choices for the customer
+//   variant             the choice that was agreed, e.g. "Size: M, Colour: Black"
+//   needsVariantConfirmation  true → the request is flagged until a variant is set
+//   --- what the customer sent ---
+//   note                the customer's note / anything agreed
+//   screenshotUrl       the customer's own screenshot / photo
+//   --- money ---
+//   quote               total price in LKR. Sets the request to "quoted".
+//   payment             { amount, method, reference? } — only with `quote`.
+//                       method: bank_transfer | cash | card | other
+//   --- handling ---
+//   assignedStaffId     who works it (default: you). Must be an active staff member.
+//   messageId           an existing chat message (the one carrying the link) to
+//                       tag to the new request; must be this customer's own.
+//   notifyCustomer      default true — posts a staff message in their chat,
+//                       tagged to the request.
+//   customerMessage     replaces the default message text when given.
 //
 // Manager, Sales and Super Admin — the roles that work the inbox and quote.
 //
@@ -42,23 +50,33 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireStaffRole } from '@/lib/supabase/admin-auth'
 import { staffName } from '@/lib/supabase/staff-name'
 import { getOrCreateGeneralThread, sendChatMessage } from '@/lib/supabase/chat'
+import { formatItemLabel, paymentConfirmedMessage, quoteMessage } from '@/lib/chat/customerMessageTemplates'
+import { ensureMessageTemplates } from '@/lib/chat/messageTemplates-server'
 
 export const runtime = 'nodejs'
 
 const ROLES = ['manager', 'sales', 'super_admin'] as const
+// Same keys the request page's payment form uses.
+const PAYMENT_METHODS = ['bank_transfer', 'cash', 'card', 'other'] as const
 
 type Body = {
   userId?: unknown
   link?: unknown
   itemName?: unknown
-  note?: unknown
+  productImageUrl?: unknown
+  sellerName?: unknown
   quantity?: unknown
-  imageUrl?: unknown
+  variantOptions?: unknown
   variant?: unknown
+  needsVariantConfirmation?: unknown
+  note?: unknown
+  screenshotUrl?: unknown
   quote?: unknown
   payment?: { amount?: unknown; method?: unknown; reference?: unknown } | null
+  assignedStaffId?: unknown
   messageId?: unknown
   notifyCustomer?: unknown
+  customerMessage?: unknown
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
@@ -74,6 +92,27 @@ function domainOf(url: string) {
   } catch {
     return 'unknown'
   }
+}
+
+/** [{dimension, values[]}] from whatever came in; drops empty rows. */
+function cleanVariantOptions(v: unknown): { dimension: string; values: string[] }[] {
+  if (!Array.isArray(v)) return []
+  const out: { dimension: string; values: string[] }[] = []
+  for (const row of v.slice(0, 6)) {
+    const dimension = str((row as { dimension?: unknown })?.dimension, 40)
+    const rawValues = (row as { values?: unknown })?.values
+    const values = (Array.isArray(rawValues) ? rawValues : [])
+      .map((x) => str(x, 60))
+      .filter(Boolean)
+      .slice(0, 40)
+    if (dimension && values.length) out.push({ dimension, values })
+  }
+  return out
+}
+
+function httpsOrEmpty(v: unknown): string {
+  const s = str(v, 2000)
+  return s && /^https:\/\//i.test(s) ? s : ''
 }
 
 export async function POST(req: NextRequest) {
@@ -104,17 +143,23 @@ export async function POST(req: NextRequest) {
   }
 
   const itemName = str(body.itemName, 200)
+  const sellerName = str(body.sellerName, 120)
   const note = str(body.note, 1000)
+  const variant = str(body.variant, 200)
+  const variantOptions = cleanVariantOptions(body.variantOptions)
+  const needsVariantConfirmation = body.needsVariantConfirmation === true && !variant
   const quantityRaw = Number(body.quantity ?? 1)
   const quantity = Number.isInteger(quantityRaw) && quantityRaw >= 1 && quantityRaw <= 99 ? quantityRaw : 1
-  const variant = str(body.variant, 200)
-  const imageUrl = str(body.imageUrl, 2000)
-  if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
-    return NextResponse.json({ error: 'The photo must be an https link.' }, { status: 400 })
+
+  const productImageUrl = httpsOrEmpty(body.productImageUrl)
+  const screenshotUrl = httpsOrEmpty(body.screenshotUrl)
+  if ((body.productImageUrl && !productImageUrl) || (body.screenshotUrl && !screenshotUrl)) {
+    return NextResponse.json({ error: 'Photos must be https links (or uploaded here).' }, { status: 400 })
   }
 
-  const quote = body.quote === undefined || body.quote === null || body.quote === '' ? null : money(body.quote)
-  if (body.quote !== undefined && body.quote !== null && body.quote !== '' && quote === null) {
+  const hasQuoteInput = body.quote !== undefined && body.quote !== null && body.quote !== ''
+  const quote = hasQuoteInput ? money(body.quote) : null
+  if (hasQuoteInput && quote === null) {
     return NextResponse.json({ error: 'Enter the quote as a number above 0.' }, { status: 400 })
   }
 
@@ -124,8 +169,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Add the quoted price before recording a payment.' }, { status: 400 })
     }
     const amount = money(body.payment.amount)
-    const method = str(body.payment.method, 60)
-    if (amount === null || !method) {
+    const method = str(body.payment.method, 40)
+    if (amount === null || !(PAYMENT_METHODS as readonly string[]).includes(method)) {
       return NextResponse.json({ error: 'Enter the payment amount and how it was paid.' }, { status: 400 })
     }
     payment = { amount, method, reference: str(body.payment.reference, 120) || null }
@@ -136,6 +181,21 @@ export async function POST(req: NextRequest) {
   if (!profile) return NextResponse.json({ error: 'That customer was not found.' }, { status: 404 })
   const { data: isStaff } = await admin.from('staff_accounts').select('id').eq('user_id', userId).maybeSingle()
   if (isStaff) return NextResponse.json({ error: 'That account belongs to a staff member, not a customer.' }, { status: 400 })
+
+  // ── Who works it: default you; another person must be active staff ─
+  let assignee = staffId
+  const wanted = str(body.assignedStaffId, 64)
+  if (wanted && wanted !== staffId) {
+    const { data: member } = await admin
+      .from('staff_accounts')
+      .select('id, role, status')
+      .eq('id', wanted)
+      .maybeSingle()
+    if (!member || member.status !== 'active' || !(ROLES as readonly string[]).includes(member.role as string)) {
+      return NextResponse.json({ error: 'That staff member cannot be assigned requests.' }, { status: 400 })
+    }
+    assignee = member.id as string
+  }
 
   // ── An optional chat message to tag must be this customer's own ───
   const messageId = str(body.messageId, 64)
@@ -162,14 +222,19 @@ export async function POST(req: NextRequest) {
       user_id: userId,
       link,
       // The chosen variant is always kept in the note too, so it is never
-      // lost on a database that doesn't have confirmed_variant yet.
+      // lost if someone reads only the note.
       note: [variant ? `Variant: ${variant}` : '', note].filter(Boolean).join('\n') || null,
       item_name: itemName || null,
+      product_image_url: productImageUrl || null,
+      seller_name: sellerName || null,
       quantity,
-      screenshot_url: imageUrl || null,
+      variant_options: variantOptions.length ? variantOptions : null,
+      confirmed_variant: variant || null,
+      needs_variant_confirmation: needsVariantConfirmation,
+      screenshot_url: screenshotUrl || null,
       source_domain: domainOf(link),
       chat_thread_id: threadId,
-      assigned_staff_id: staffId,
+      assigned_staff_id: assignee,
       status: quote !== null ? 'quoted' : 'sent_for_review',
       quote,
       // The customer will see this request, so a request staff created is
@@ -184,18 +249,16 @@ export async function POST(req: NextRequest) {
       fields.payment_confirmed_by = staffId
     }
 
-    const extras: Record<string, unknown> = { created_by_staff_id: staffId, created_via: 'staff' }
-    if (variant) extras.confirmed_variant = variant
+    const markers = { created_by_staff_id: staffId, created_via: 'staff' }
     // Cast: the generated DB types don't know the optional markers or some
     // of the later columns, same as other routes that insert request rows.
     let { data: created, error } = await admin
       .from('requests')
-      .insert({ ...fields, ...extras } as never)
+      .insert({ ...fields, ...markers } as never)
       .select('id, display_id')
       .single()
-    if (error && error.code === '42703') {
-      // An optional column isn't there yet (SQL not run): create without the
-      // extras. The variant is still in the note.
+    if (error && error.code === '42703' && /created_by_staff_id|created_via/.test(error.message)) {
+      // Marker columns not added yet (SQL not run) — create without them.
       ;({ data: created, error } = await admin.from('requests').insert(fields as never).select('id, display_id').single())
     }
     if (error || !created) {
@@ -219,19 +282,25 @@ export async function POST(req: NextRequest) {
     }
 
     // Tell the customer, in the same conversation, so it's visibly theirs.
+    // Uses the same wording as the request page's own quote / payment messages.
     if (body.notifyCustomer !== false) {
+      await ensureMessageTemplates()
+      const label = formatItemLabel(title, variant)
+      const custom = str(body.customerMessage, 1500)
+      const text =
+        custom ||
+        (payment
+          ? paymentConfirmedMessage(request.display_id, label, payment.amount, payment.method)
+          : quote !== null
+            ? quoteMessage(request.display_id, label, quote, false)
+            : `We've set up your request ${request.display_id} for "${label}". We're checking the price and will message you here.`)
       const name = (await staffName(admin, staffId)) ?? 'Wishdrop'
-      const lines = [
-        `We've set up your request ${request.display_id} for ${title}${variant ? ` (${variant})` : ''}.`,
-        quote !== null ? `Price: LKR ${quote.toLocaleString('en-LK')}.` : "We're checking the price and will message you here.",
-        payment ? 'Thank you, we have your payment. You can follow this order from My Orders.' : '',
-      ].filter(Boolean)
       try {
         await sendChatMessage(admin, {
           threadId,
           sender: 'ops',
           senderName: name,
-          text: lines.join('\n'),
+          text,
           attachmentUrl: null,
           requestId: request.id,
         })

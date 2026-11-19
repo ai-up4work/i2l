@@ -18,6 +18,15 @@
 // (confirmRequestReal only creates the order once the request is
 // actually confirmed), so there's genuinely no order id yet at that
 // point — they still name the item, just not an order.
+//
+// The WORDING of each message now lives in messageTemplateDefs.ts (the
+// built-in defaults) and can be overridden by Super Admin at Admin →
+// Settings → Templates. The functions below only prepare the values
+// (formatting amounts, optional bits) and call renderMessageTemplate,
+// which uses the saved wording when there is one and the built-in
+// wording otherwise. Call sites are unchanged.
+
+import { renderMessageTemplate } from './messageTemplateDefs'
 
 /**
  * Combines a title with its confirmed variant (size/color/etc.) into one
@@ -53,47 +62,58 @@ export function cleanRequestItemNote(note: string): string {
 }
 
 export function quoteMessage(requestDisplayId: string, itemLabel: string, amount: number, isRevision: boolean): string {
-  return isRevision
-    ? `We've updated the price for "${itemLabel}" (Request ${requestDisplayId}) to Rs. ${amount.toLocaleString()}. Let us know here once you're happy with it and we'll get it confirmed.`
-    : `Here's the price for "${itemLabel}" (Request ${requestDisplayId}): Rs. ${amount.toLocaleString()}. Reply here to let us know you'd like to go ahead, or if you have any questions first.`
+  return renderMessageTemplate(isRevision ? 'quote_revised' : 'quote_new', {
+    request: requestDisplayId,
+    item: itemLabel,
+    amount: amount.toLocaleString(),
+  })
 }
 
 export function paymentConfirmedMessage(requestDisplayId: string, itemLabel: string, amount: number, method?: string): string {
-  const methodLabel = method ? ` (${method.replace('_', ' ')})` : ''
-  return `We've received your payment of Rs. ${amount.toLocaleString()}${methodLabel} for "${itemLabel}" (Request ${requestDisplayId}). Thank you! We'll get your order confirmed shortly.`
+  return renderMessageTemplate('payment_confirmed', {
+    request: requestDisplayId,
+    item: itemLabel,
+    amount: amount.toLocaleString(),
+    method: method ? ` (${method.replace('_', ' ')})` : '',
+  })
 }
 
 export function orderConfirmedMessage(orderDisplayId: string, itemLabel: string, total: number, itemCount: number): string {
-  const itemsPart = itemCount > 1 ? `${itemCount} items` : `"${itemLabel}"`
-  return `Your order ${orderDisplayId} is confirmed — ${itemsPart}, total Rs. ${total.toLocaleString()}. You can track it from your Orders page.`
+  return renderMessageTemplate('order_confirmed', {
+    order: orderDisplayId,
+    items: itemCount > 1 ? `${itemCount} items` : `"${itemLabel}"`,
+    total: total.toLocaleString(),
+  })
 }
 
 export function requestDeclinedMessage(requestDisplayId: string, itemLabel: string): string {
-  return `We're sorry, but we're not able to fulfil your request for "${itemLabel}" (Request ${requestDisplayId}). Let us know here if you'd like to try a different item or have any questions.`
+  return renderMessageTemplate('request_declined', { request: requestDisplayId, item: itemLabel })
 }
 
 export function purchaseFailedMessage(orderDisplayId: string, itemLabel: string, reason: string): string {
-  const reasonNote = reason.trim() ? ` (${reason.trim()})` : ''
-  return `We weren't able to purchase "${itemLabel}" from order ${orderDisplayId}${reasonNote}. We'll be in touch shortly about a refund or an alternative — sorry for the trouble.`
+  return renderMessageTemplate('purchase_failed', {
+    order: orderDisplayId,
+    item: itemLabel,
+    reason: reason.trim() ? ` (${reason.trim()})` : '',
+  })
 }
 
 export function qcFlaggedMessage(orderDisplayId: string, itemLabel: string, customerNote: string): string {
-  const noteText = customerNote.trim() || 'there was an issue with the item during our quality check'
-  return `Quick update on order ${orderDisplayId}, "${itemLabel}": ${noteText}. We're sorting out a replacement — we'll keep you posted here.`
+  return renderMessageTemplate('qc_flagged', {
+    order: orderDisplayId,
+    item: itemLabel,
+    note: customerNote.trim() || 'there was an issue with the item during our quality check',
+  })
 }
 
 export function replacementPassedMessage(orderDisplayId: string, itemLabel: string): string {
-  return `Good news — the replacement for "${itemLabel}" (order ${orderDisplayId}) has passed our quality check! It's moving on to packing and shipping now.`
+  return renderMessageTemplate('replacement_passed', { order: orderDisplayId, item: itemLabel })
 }
 
 export function arrivedInSriLankaMessage(orderDisplayId: string): string {
-  return `Your order ${orderDisplayId} has arrived in Sri Lanka! It's being prepared for local delivery — we'll update you again once it's on its way to you.`
+  return renderMessageTemplate('arrived_sri_lanka', { order: orderDisplayId })
 }
 
-// Deliberately doesn't mention loyalty points — addOrderPoints exists in
-// the loyalty engine but has no call site wiring it to real orders yet
-// (see Wishdrop_STATUS.md), so promising "points are in your account"
-// here would just be false. Update this once that's actually wired up.
 export function deliveredMessage(orderDisplayId: string): string {
-  return `🎉 Your order ${orderDisplayId} has arrived — enjoy! We really hope it's exactly what you were after. If anything's not quite right, just reply here and we'll sort it out for you. And whenever you spot something else you'd like, send us the link or browse our catalogue — we're always ready for the next one!`
+  return renderMessageTemplate('delivered', { order: orderDisplayId })
 }
