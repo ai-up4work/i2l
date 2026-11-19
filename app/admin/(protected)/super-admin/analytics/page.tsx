@@ -38,6 +38,8 @@ import {
   Users,
 } from "lucide-react"
 
+import ActivityHeatmap from "@/components/admin/dashboard/ActivityHeatmap"
+import InsightPanels from "@/components/admin/analytics/InsightPanels"
 import { useAdminData } from "@/contexts/AdminDataContext"
 import { SummaryCard, TrendBarChart } from "@/components/admin/reports/shared"
 import {
@@ -228,7 +230,17 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* ── First chart: activity heatmap (own time span, 30 weeks) ── */}
+        <div className="mt-6">
+          <ActivityHeatmap />
+        </div>
+
+        {/* ── Decision panels: headline change, funnel, stage time vs SLA, problems, sellers ── */}
+        <div className="mt-4">
+          <InsightPanels days={range === "all" ? null : range === "7d" ? 7 : range === "30d" ? 30 : 90} />
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* ── How customers are ordering — the one breakdown Reports doesn't have ── */}
           <div className="rounded-2xl border border-ink/10 bg-card p-5 lg:col-span-1">
             <div className="flex items-center gap-2">

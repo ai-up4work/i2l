@@ -446,7 +446,10 @@ function mapRowToAdminOrder(
       // the customer's raw screenshot in this chain: a curated product
       // photo the admin picked is a better "real image" for the order
       // to show than whatever the customer happened to screenshot.
-      image: it.product_snapshots?.image_url ?? it.product_image_url ?? it.screenshot_url ?? FALLBACK_ITEM_IMAGE,
+      // product_image_url first: it is the photo staff set by hand (Change photo on the
+      // order page, or on the request), so it must win over a store image that is
+      // missing or has gone dead.
+      image: it.product_image_url ?? it.product_snapshots?.image_url ?? it.screenshot_url ?? FALLBACK_ITEM_IMAGE,
       sellerName: it.seller_name ?? undefined,
       sellerType: it.seller_type ?? undefined,
       storeUrl: it.store_url ?? undefined,
@@ -672,11 +675,18 @@ export async function setOrderStage(
   const supabase = createClient()
   const now = new Date().toISOString()
 
-  const { error: updateError } = await supabase
+  // .select('id') so a write that matched NO row (blocked by row-level
+  // security, or the order is gone) is reported, instead of "succeeding"
+  // silently and then snapping back on the next refresh.
+  const { data: updated, error: updateError } = await supabase
     .from('orders')
     .update({ stage, stage_entered_at: now })
     .eq('id', orderId)
+    .select('id')
   if (updateError) return { ok: false, error: updateError.message }
+  if (!updated || updated.length === 0) {
+    return { ok: false, error: 'The database did not change this order (blocked by permissions, or the order no longer exists).' }
+  }
 
   const { error: historyError } = await supabase
     .from('order_stage_history')

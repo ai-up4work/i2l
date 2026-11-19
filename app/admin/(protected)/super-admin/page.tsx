@@ -14,10 +14,13 @@
 // /admin/super-admin/analytics/*, which are still stubs.
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRight, History, LayoutDashboard, LineChart, ShieldCheck, SlidersHorizontal, Users } from "lucide-react"
+import { History, LayoutDashboard, LineChart, Plus, ShieldCheck, SlidersHorizontal, Users } from "lucide-react"
+
+import OrdersGantt from "@/components/admin/dashboard/OrdersGantt"
+import CreateRequestDialog from "@/components/admin/requests/CreateRequestDialog"
 
 import { useAdminData } from "@/contexts/AdminDataContext"
 
@@ -59,6 +62,7 @@ const AREAS: { href: string; icon: AreaIcon; title: string; description: string 
 export default function SuperAdminDashboardPage() {
   const router = useRouter()
   const { role, currentUser, staffDirectory, staffLoading, sites } = useAdminData()
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     // Reads the effective `role` (previewRole-aware), not currentUser.role, so
@@ -111,25 +115,43 @@ export default function SuperAdminDashboardPage() {
           </dl>
         </div>
 
-        {/* ── Super Admin areas ── */}
-        <nav aria-label="Super Admin areas" className="mt-9 overflow-clip rounded-2xl border border-ink/10 bg-card">
+        {/* ── Super Admin areas: compact buttons (the descriptions live in each page's own header) ── */}
+        <nav aria-label="Super Admin areas" className="mt-6 flex flex-wrap items-center gap-2">
           {AREAS.map(({ href, icon: Icon, title, description }) => (
             <Link
               key={href}
               href={href}
-              className="flex items-center gap-4 border-b border-ink/[0.06] px-5 py-4 outline-none transition-colors last:border-b-0 hover:bg-ink/[0.02] focus-visible:bg-teal/[0.06] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/40"
+              title={description}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-ink/10 bg-card px-3 text-xs font-semibold text-ink/80 outline-none transition-colors hover:bg-ink/[0.03] focus-visible:ring-2 focus-visible:ring-teal/40"
             >
-              <span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-teal/10 text-teal-deep">
-                <Icon size={18} strokeWidth={1.8} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">{title}</span>
-                <span className="mt-0.5 block text-xs text-ink/55">{description}</span>
-              </span>
-              <ChevronRight size={16} className="flex-none text-ink/25" aria-hidden />
+              <Icon size={14} strokeWidth={1.8} className="text-ink/45" />
+              {title}
             </Link>
           ))}
+          <span className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-deep px-3 text-xs font-semibold text-parchment outline-none transition-colors hover:bg-indigo-deep focus-visible:ring-2 focus-visible:ring-teal/40"
+          >
+            <Plus size={14} /> New request
+          </button>
         </nav>
+
+        {/* ── Every order and request, by state, over time ── */}
+        <div className="mt-6">
+          <OrdersGantt />
+        </div>
+
+        {creating && (
+          <CreateRequestDialog
+            onClose={() => setCreating(false)}
+            onCreated={(r) => {
+              setCreating(false)
+              router.push(`/admin/requests/${r.id}`)
+            }}
+          />
+        )}
       </div>
     </div>
   )

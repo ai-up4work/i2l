@@ -1100,6 +1100,9 @@ interface AdminDataContextValue {
   getPurchaseLine: (id: string) => PurchaseLine | undefined
   canActOnPurchaseLine: (line: PurchaseLine) => boolean
   markPurchased: (orderId: string, orderItemId: string, actualUnitPriceINR: number, purchaseReference?: string) => void
+  /** Why saving the last purchase failed (null when fine). */
+  purchaseError: string | null
+  clearPurchaseError: () => void
   /**
    * Resets one item's purchase record back to "needs_purchase" so it
    * reappears on the Purchases queue as its own actionable line — the
@@ -1140,6 +1143,8 @@ interface AdminDataContextValue {
   markDelivered: (orderId: string) => void
   /** Manager-only hard delete of an order (permissions.canDelete gates whether the UI even shows this). Resolves once the SERVER has confirmed the delete; on failure the order stays in the list and `error` says why. */
   deleteOrder: (orderId: string) => Promise<{ ok: boolean; error?: string }>
+  /** Quietly re-reads orders from the database (e.g. after changing an item's photo). */
+  refreshOrders: () => Promise<void>
 
   // -- Requests (Channel 3) --------------------------------------------
   requestLines: RequestLine[]
@@ -1288,6 +1293,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
   const [sites, setSites] = useState<Site[]>(INITIAL_SITES)
   const [purchases, setPurchases] = useState<Purchase[]>(INITIAL_PURCHASES)
+  // Set when saving a purchase / the move to QC fails; shown on the purchase page.
+  const [purchaseError, setPurchaseError] = useState<string | null>(null)
+  const persistingPurchaseOrders = useRef<Set<string>>(new Set())
   const [ordersLoading, setOrdersLoading] = useState(true)
   // Export bin hold/release races against the debounced real-time
   // refetch below: bulkSetExportHold fires several individual UPDATEs,
@@ -1686,7 +1694,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
 
     const scheduleOrdersRefetch = () => {
       if (ordersRefetchTimer.current) clearTimeout(ordersRefetchTimer.current)
-      ordersRefetchTimer.current = setTimeout(() => loadRealOrders({ silent: true }), 400)
+      ordersRefetchTimer.current = setTimeout(() => {
+        // Mid-way through saving a purchase, a refetch would read the half-written
+        // rows and flash the old stage. The save ends with its own refetch.
+        if (persistingPurchaseOrders.current.size > 0) return scheduleOrdersRefetch()
+        void loadRealOrders({ silent: true })
+      }, 400)
     }
     const scheduleRequestsRefetch = () => {
       if (requestsRefetchTimer.current) clearTimeout(requestsRefetchTimer.current)
@@ -2227,15 +2240,41 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
           // moment that record is worth writing — matches this function's
           // own auto-advance logic above exactly.
           const realId = resolveRealId(orderId)
-          if (realId) {
-            realUpsertPurchaseForOrder(realId, {
-              channel: order.channel,
-              sourceStore: order.items[0]?.sellerName ?? "Unknown store",
-              amount: order.totalValue,
-              status: "purchased",
-              receiptRef: purchaseReference,
-            })
-            realSetOrderStage(realId, "quality_check", currentUser.id, "All items purchased")
+          if (realId && !persistingPurchaseOrders.current.has(realId)) {
+            // Both writes are AWAITED now, in order, and their results are
+            // checked. They used to be fire-and-forget: when either one
+            // failed (a database rule, a permission, a trigger…) nothing
+            // said so, the screen showed "Quality check" for a moment, and
+            // the next refresh quietly restored the real, unchanged stage.
+            // Now a failure puts the order back and shows the real reason.
+            persistingPurchaseOrders.current.add(realId)
+            void (async () => {
+              let failure: string | null = null
+              try {
+                const p1 = await realUpsertPurchaseForOrder(realId, {
+                  channel: order.channel,
+                  sourceStore: order.items[0]?.sellerName ?? "Unknown store",
+                  amount: order.totalValue,
+                  status: "purchased",
+                  receiptRef: purchaseReference,
+                })
+                if (!p1.ok) failure = `Could not save the purchase: ${p1.error ?? "unknown error"}`
+                else {
+                  const p2 = await realSetOrderStage(realId, "quality_check", currentUser.id, "All items purchased")
+                  if (!p2.ok) failure = `Could not move the order to Quality check: ${p2.error ?? "unknown error"}`
+                }
+              } catch (err) {
+                failure = err instanceof Error ? err.message : "Network error while saving."
+              } finally {
+                persistingPurchaseOrders.current.delete(realId)
+              }
+              if (failure) {
+                console.error("[markPurchased]", failure)
+                setPurchaseError(failure)
+              }
+              // Success or failure, show what the database actually says.
+              void loadRealOrders({ silent: true })
+            })()
           }
         }
       }
@@ -3299,6 +3338,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     getPurchaseLine,
     canActOnPurchaseLine,
     markPurchased,
+    purchaseError,
+    clearPurchaseError: () => setPurchaseError(null),
     reorderFaultyItem,
     flagUnavailable,
     qcLines,
@@ -3330,6 +3371,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     canActOnShippedLine,
     markDelivered,
     deleteOrder,
+    refreshOrders: () => loadRealOrders({ silent: true }),
     requestLines,
     getRequestLine,
     canWorkRequestLine,
