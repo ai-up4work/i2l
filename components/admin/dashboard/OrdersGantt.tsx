@@ -143,7 +143,7 @@ export default function OrdersGantt() {
       </div>
 
       <div className="mt-4 overflow-x-auto">
-        <div style={{ minWidth: 700 }}>
+        <div style={{ minWidth: 640 }}>
           <div className="flex">
             <div style={{ width: LABEL_W }} className="flex-none" />
             <div className="relative h-5 flex-1 text-[11px] text-ink/45">
@@ -183,7 +183,7 @@ export default function OrdersGantt() {
                   </span>
                   <span className="block truncate text-[11px] leading-[14px] text-ink/50">{r.customer}{r.subtitle ? ` · ${r.subtitle}` : ''}</span>
                 </div>
-                <div className="relative h-full flex-1">
+                <div className="relative h-full min-w-0 flex-1 overflow-x-clip">
                   {r.segments.map((s, i) => {
                     if (s.end < windowStart) return null
                     const w = (Math.max(Math.min(s.end, now) - Math.max(s.start, windowStart), 0) / span) * 100
@@ -196,7 +196,7 @@ export default function OrdersGantt() {
                           top: (ROW_H - BAR_H) / 2,
                           height: BAR_H,
                           left: pct(s.start),
-                          width: `${w}%`,
+                          width: `min(${w}%, calc(100% - ${pct(s.start)} - 3px))`,
                           minWidth: 4,
                           background: s.open ? `repeating-linear-gradient(135deg, rgba(255,255,255,.22) 0 5px, transparent 5px 10px), ${COLORS[s.key]}` : COLORS[s.key],
                           borderRadius: 4,
@@ -208,10 +208,10 @@ export default function OrdersGantt() {
                     )
                   })}
                   {r.outcome === 'done' && r.end >= windowStart && (
-                    <span className="absolute rounded-full" style={{ top: (ROW_H - 14) / 2, width: 14, height: 14, left: `calc(${pct(r.end)} - 7px)`, background: GREEN, boxShadow: '0 0 0 2px #fff' }} />
+                    <span className="absolute rounded-full" style={{ top: (ROW_H - 14) / 2, width: 14, height: 14, left: `min(calc(${pct(r.end)} - 7px), calc(100% - 15px))`, background: GREEN, boxShadow: '0 0 0 2px #fff' }} />
                   )}
                   {r.outcome === 'closed' && r.end >= windowStart && (
-                    <span className="absolute text-base font-semibold leading-none" style={{ top: (ROW_H - 16) / 2, left: `calc(${pct(r.end)} - 5px)`, color: RED }}>×</span>
+                    <span className="absolute text-base font-semibold leading-none" style={{ top: (ROW_H - 16) / 2, left: `min(calc(${pct(r.end)} - 5px), calc(100% - 10px))`, color: RED }}>×</span>
                   )}
                 </div>
               </div>

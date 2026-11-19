@@ -13,8 +13,8 @@ import { dayKey, DAY } from '@/lib/admin/timeline'
 
 type Metric = 'orders' | 'requests' | 'value'
 const WEEKS = 30
-const CELL = 12
-const GAP = 3
+const CELL = 20
+const GAP = 4
 const TEAL = '29,158,117'
 
 const fmtLKR = (n: number) => (n >= 1_000_000 ? `Rs. ${(n / 1_000_000).toFixed(2)}M` : `Rs. ${Math.round(n).toLocaleString()}`)
@@ -91,9 +91,9 @@ export default function ActivityHeatmap() {
             display: 'grid',
             gridAutoFlow: 'column',
             gridTemplateRows: `repeat(7, ${CELL}px)`,
-            gridAutoColumns: `${CELL}px`,
+            gridTemplateColumns: `repeat(${WEEKS}, minmax(0, 1fr))`,
             gap: GAP,
-            width: 'max-content',
+            width: '100%',
           }}
         >
           {cells.map((c) => {
@@ -112,7 +112,7 @@ export default function ActivityHeatmap() {
                 onClick={() => setPicked(picked === c.key ? null : c.key)}
                 className="rounded-[2px] outline-none focus-visible:ring-2 focus-visible:ring-teal/60"
                 style={{
-                  width: CELL,
+                  width: '100%',
                   height: CELL,
                   background: c.future ? 'transparent' : l ? `rgba(${TEAL},${l})` : 'rgba(0,0,0,0.06)',
                   boxShadow: picked === c.key ? '0 0 0 1.5px currentColor' : undefined,
