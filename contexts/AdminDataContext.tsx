@@ -2148,6 +2148,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // has this same issue with its own real writes (pre-existing, not
     // introduced here) — not fixing that one now, out of scope, but not
     // repeating the same mistake in new code either.
+    setPurchaseError(null)
     const orderForNote = orders.find((o) => o.id === orderId)
     const isReorderForNote = orderForNote != null && orderForNote.stage !== "Ordered"
 
