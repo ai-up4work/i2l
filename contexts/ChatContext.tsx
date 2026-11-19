@@ -312,6 +312,34 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setMessages(rows.map(rowToMessage))
           setHasMoreMessages(hasMore)
         }
+
+        // A brand-new customer (nothing in the thread yet): ask the server to
+        // send the welcome. It decides whether they really are new and sends
+        // once; the remembered flag just saves a call on later visits.
+        if (!cancelled && rows.length === 0) {
+          const key = `Wishdrop:chat:welcomed:${user.id}`
+          let already = false
+          try {
+            already = localStorage.getItem(key) === '1'
+          } catch {
+            /* storage unavailable */
+          }
+          if (!already) {
+            const res = await fetch('/api/account/chat/welcome', { method: 'POST' }).catch(() => null)
+            if (res?.ok) {
+              try {
+                localStorage.setItem(key, '1')
+              } catch {
+                /* ignore */
+              }
+              const json = (await res.json().catch(() => null)) as { messages?: ChatMessageRow[] } | null
+              if (!cancelled && json?.messages?.length) {
+                const incoming = json.messages.map(rowToMessage)
+                setMessages((prev) => [...prev, ...incoming.filter((m) => !prev.some((p) => p.id === m.id))])
+              }
+            }
+          }
+        }
       } catch (err) {
         console.error('[chat] failed to load thread', err)
       }

@@ -117,3 +117,13 @@ export function arrivedInSriLankaMessage(orderDisplayId: string): string {
 export function deliveredMessage(orderDisplayId: string): string {
   return renderMessageTemplate('delivered', { order: orderDisplayId })
 }
+
+// New-customer chat welcome — sent by /api/account/chat/welcome, not by an
+// admin button. Both go out as "Wishdrop Support"; see that route.
+export function welcomeMessage(firstName?: string | null): string {
+  return renderMessageTemplate('welcome', { name: firstName?.trim() || 'there' })
+}
+
+export function welcomePhoneMessage(link: string): string {
+  return renderMessageTemplate('welcome_phone', { link })
+}

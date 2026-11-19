@@ -23,6 +23,8 @@ export type TemplateKey =
   | 'replacement_passed'
   | 'arrived_sri_lanka'
   | 'delivered'
+  | 'welcome'
+  | 'welcome_phone'
 
 export type TemplatePlaceholder = {
   name: string
@@ -138,6 +140,22 @@ export const TEMPLATE_DEFS: TemplateDef[] = [
     // in the loyalty engine but has no call site wiring it to real orders
     // yet (see Wishdrop_STATUS.md), so promising points would be false.
     defaultBody: `🎉 Your order {order} has arrived — enjoy! We really hope it's exactly what you were after. If anything's not quite right, just reply here and we'll sort it out for you. And whenever you spot something else you'd like, send us the link or browse our catalogue — we're always ready for the next one!`,
+  },
+  {
+    key: 'welcome',
+    label: 'Welcome — new customer',
+    when: 'First message a new customer sees when they open the chat. Sent once, as Wishdrop Support.',
+    placeholders: [{ name: 'name', help: 'Customer’s first name ("there" if we don’t have one)', example: 'Kavindi' }],
+    defaultBody:
+      `Hi {name}, welcome to Wishdrop.\n\nHere's how it works. Send us a link to anything you'd like from any store, or just tell us what you're looking for, and we'll reply with a price. Once you're happy, we buy it, check it, and ship it to you. You can follow every step under My Orders.\n\nIf you have any questions, ask here and we'll reply as soon as we can.`,
+  },
+  {
+    key: 'welcome_phone',
+    label: 'Welcome — ask for phone number',
+    when: 'Sent right after the welcome, only if the customer has no verified WhatsApp number.',
+    placeholders: [{ name: 'link', help: 'Link to the page where they add and verify their number', example: 'https://wishdrop.lk/account/profile' }],
+    defaultBody:
+      `One more thing. So we can reach you about prices, updates and delivery, and confirm it's really you, please add your WhatsApp number to your account: {link}\n\nIf you'd rather not, you can add it later from your account, and you can still use this chat as normal.`,
   },
 ]
 

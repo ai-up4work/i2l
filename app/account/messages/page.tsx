@@ -11,6 +11,7 @@ import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
 import { groupIntoAlbums } from '@/lib/chat-albums'
 import { useChatMessageMenu } from '@/components/shared/useChatMessageMenu'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
+import { LinkifiedText } from '@/components/shared/LinkifiedText'
 import PushOptIn from '@/components/pwa/PushOptIn'
 
 function formatTime(ts: number) {
@@ -342,7 +343,11 @@ export default function AccountMessagesPage() {
                             </div>
                           )}
 
-                          {caption && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{caption}</p>}
+                          {caption && (
+                            <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                              {isMine ? caption : <LinkifiedText text={caption} />}
+                            </p>
+                          )}
 
                           <div className="mt-1 flex items-center justify-end gap-1">
                             <span className={`text-[10px] ${isMine ? 'text-parchment/70' : 'text-ink/40'}`}>

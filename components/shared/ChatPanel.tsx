@@ -12,6 +12,7 @@ import AttachmentAlbum from '@/components/chat/AttachmentAlbum'
 import { groupIntoAlbums } from '@/lib/chat-albums'
 import { useChatMessageMenu } from '@/components/shared/useChatMessageMenu'
 import ChatOrderContextBar from '@/components/shared/Chatordercontextbar'
+import { LinkifiedText } from '@/components/shared/LinkifiedText'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -420,7 +421,11 @@ export default function ChatPanel({
                           max-w-[80%] and bleeding off the left edge under
                           the message list's overflow-x-hidden.
                         */}
-                        {caption && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{caption}</p>}
+                        {caption && (
+                          <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                            {isCustomer ? caption : <LinkifiedText text={caption} />}
+                          </p>
+                        )}
                         <p className={`mt-1 text-right text-[10px] ${isCustomer ? 'text-parchment/70' : 'text-ink/40'}`}>
                           {formatTime(last.createdAt)}
                         </p>
