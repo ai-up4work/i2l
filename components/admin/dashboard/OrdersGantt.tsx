@@ -34,7 +34,7 @@ const RED = '#E24B4A'
 const LABEL_W = 230
 const ROW_H = 44
 const BAR_H = 20
-const PAGE = 40
+const PAGE = 50
 const MAX_AUTO_DAYS = 90
 
 const KIND_TAG: Record<string, string> = { request: 'Request', 'request-order': 'Request → order', order: 'Direct order' }
@@ -49,7 +49,7 @@ export default function OrdersGantt() {
   const { orders, requestLines } = useAdminData()
   const [filter, setFilter] = useState<Filter>('all')
   const [range, setRange] = useState<Range>('auto')
-  const [limit, setLimit] = useState(PAGE)
+  const [page, setPage] = useState(0)
   const [hover, setHover] = useState<{ row: TimelineRow; seg: TimelineRow['segments'][number]; x: number; y: number } | null>(null)
 
   const now = Date.now()
@@ -87,7 +87,9 @@ export default function OrdersGantt() {
       ),
     [rows, filter],
   )
-  const shown = filtered.slice(0, limit)
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE))
+  const safePage = Math.min(page, pages - 1)
+  const shown = filtered.slice(safePage * PAGE, safePage * PAGE + PAGE)
 
   // Axis fits the data: from the earliest visible row (never before the range) to now, at least a day wide.
   const earliest = filtered.length ? Math.min(...filtered.map((r) => r.start)) : now - DAY
@@ -127,7 +129,7 @@ export default function OrdersGantt() {
         <h2 className="mr-2 text-sm font-semibold text-ink/80">Orders and requests</h2>
         <div className="flex flex-wrap gap-1">
           {filters.map((f) => (
-            <button key={f.id} type="button" className={chip(filter === f.id)} onClick={() => { setFilter(f.id); setLimit(PAGE) }}>
+            <button key={f.id} type="button" className={chip(filter === f.id)} onClick={() => { setFilter(f.id); setPage(0) }}>
               {f.label} <span className="opacity-60">{counts[f.id]}</span>
             </button>
           ))}
@@ -135,7 +137,7 @@ export default function OrdersGantt() {
         <span className="flex-1" />
         <div className="flex gap-1" role="radiogroup" aria-label="Time window">
           {ranges.map((r) => (
-            <button key={String(r.id)} type="button" role="radio" aria-checked={range === r.id} className={chip(range === r.id)} onClick={() => { setRange(r.id); setLimit(PAGE) }}>
+            <button key={String(r.id)} type="button" role="radio" aria-checked={range === r.id} className={chip(range === r.id)} onClick={() => { setRange(r.id); setPage(0) }}>
               {r.label}
             </button>
           ))}
@@ -223,10 +225,21 @@ export default function OrdersGantt() {
         </div>
       </div>
 
-      {filtered.length > limit && (
-        <button type="button" onClick={() => setLimit((l) => l + PAGE)} className="mt-3 text-xs font-semibold text-teal-deep hover:underline">
-          Show {Math.min(PAGE, filtered.length - limit)} more ({filtered.length - limit} remaining)
-        </button>
+      {filtered.length > PAGE && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-ink/60">
+          <span>
+            {safePage * PAGE + 1}–{Math.min(filtered.length, safePage * PAGE + PAGE)} of {filtered.length}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} className="rounded-full border border-ink/10 bg-card px-3 py-1 font-semibold hover:text-ink disabled:opacity-40">
+              Previous
+            </button>
+            <span className="px-1 tabular-nums">Page {safePage + 1} / {pages}</span>
+            <button type="button" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)} className="rounded-full border border-ink/10 bg-card px-3 py-1 font-semibold hover:text-ink disabled:opacity-40">
+              Next
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink/55">
