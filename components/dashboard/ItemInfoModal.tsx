@@ -26,6 +26,7 @@ import HopscotchProductView from '@/components/platforms/Hopscotchproductview'
 import WestsideProductView from '@/components/platforms/Westsideproductview'
 import SnapdealProductView from '@/components/platforms/SnapdealProductView'
 import ShopifyProductView from '@/components/platforms/Shopifyproductview'
+import OptionalChoices from '@/components/platforms/OptionalChoices'
 import WooCommerceProductView from '@/components/platforms/Woocommerceproductview'
 import LenskartProductView from '@/components/platforms/Lenskartproductview'
 import CromaProductView from '@/components/platforms/Cromaproductview'
@@ -108,7 +109,7 @@ type ItemOverlayProps = {
    * this prop at all.
    */
   /** `itemName` / `photoUrl`: optional name and photo the customer added for an item we couldn't read. */
-  onSubmitRequest?: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => Promise<{ ok: boolean; error?: string }>
+  onSubmitRequest?: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean; choices?: string }) => Promise<{ ok: boolean; error?: string }>
   onDeliveryChoiceChange?: (choice: DeliveryChoice) => void
   loading?: boolean
   onRetry?: () => void
@@ -1043,7 +1044,7 @@ function GenericProductView(
     submitError: string | null
   },
 ) {
-  const { result, qty, onQtyChange, onGoToChat, onRetry, loading, canAct, submitting, submitError } = props
+  const { result, qty, onQtyChange, onGoToChat, onRetry, loading, canAct, submitting, submitError, onSelectionChange } = props
   const hostname = hostnameFromUrl(result.url)
   // The store's own price, clearly labelled — this view isn't priced by us
   // (the team confirms the final price in chat), so no rupee conversion.
@@ -1065,11 +1066,16 @@ function GenericProductView(
       extra={
         // Indian stores only: hide it when the listing is priced in another
         // currency (e.g. a USD store) — the estimator takes rupees.
-        !result.currencyCode || result.currencyCode === 'INR' ? (
-          <UnreadPriceEstimate
-            initialPriceINR={result.currencyCode === 'INR' && result.price != null ? Number(String(result.price).replace(/[^0-9.]/g, '')) : null}
-          />
-        ) : undefined
+        <>
+          {/* A basic (Open-Graph) read has no variants: let the shopper say
+              which size / colour they want. Optional. */}
+          <OptionalChoices resetKey={result.url} onSelectionChange={onSelectionChange} />
+          {!result.currencyCode || result.currencyCode === 'INR' ? (
+            <UnreadPriceEstimate
+              initialPriceINR={result.currencyCode === 'INR' && result.price != null ? Number(String(result.price).replace(/[^0-9.]/g, '')) : null}
+            />
+          ) : null}
+        </>
       }
       qty={qty}
       onQtyChange={onQtyChange}
@@ -1559,7 +1565,7 @@ export default function ItemInfoModal({
     setSubmitError(null)
     setSubmitting(true)
     // `chat`: these buttons always open a chat with the team (see confirmRequest).
-    const res = await onSubmitRequest({ itemName: itemName.trim() || undefined, photoUrl: photoUrl ?? undefined, chat: true })
+    const res = await onSubmitRequest({ itemName: itemName.trim() || undefined, photoUrl: photoUrl ?? undefined, chat: true, choices: hasSelection ? formatSelection(selectedOptions) : undefined })
     setSubmitting(false)
     if (!res.ok) {
       setSubmitError(res.error ?? 'Something went wrong starting the chat. Please try again.')

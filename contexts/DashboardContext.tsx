@@ -116,7 +116,7 @@ type DashboardContextValue = {
   saveItemInfo: (event: FormEvent) => void
   /** `itemName`: optional name the customer typed for an item we couldn't
    *  read. Becomes the request's item_name (staff can keep or change it). */
-  confirmRequest: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => Promise<ConfirmResult>
+  confirmRequest: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean; choices?: string }) => Promise<ConfirmResult>
   setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
   /** "Try loading again": re-runs the whole lookup for the current link, skipping caches. */
@@ -386,7 +386,7 @@ export function DashboardProvider({
     setDraft((current) => ({ ...current, deliveryChoice: choice }))
   }, [])
 
-  const confirmRequest = useCallback(async (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }): Promise<ConfirmResult> => {
+  const confirmRequest = useCallback(async (opts?: { itemName?: string; photoUrl?: string; chat?: boolean; choices?: string }): Promise<ConfirmResult> => {
     // What the customer called it, if they typed a name (couldn't-read items).
     const customerItemName = (opts?.itemName ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)
     if (!user) {
@@ -437,6 +437,8 @@ export function DashboardProvider({
         const screenshotUrl = customerPhoto ?? (hasRealImage ? draft.image : (og?.image ?? undefined))
         const displayTitle = customerItemName || draft.name.trim() || og?.title || draft.url
 
+        // Size / colour / other the shopper typed on the item screen (optional).
+        const choicesNote = opts?.choices?.trim() ? `\nMy choices: ${opts.choices.trim().slice(0, 300)}` : ''
         const variantNote = draft.needsVariantConfirmation
           ? "\n\nNote: this item may come in different sizes/colors — please let us know which one you'd like when you get a chance."
           : ''
@@ -473,7 +475,7 @@ export function DashboardProvider({
           threadId,
           sender: 'customer',
           senderName: user.name,
-          text: `I want the price of: ${displayTitle}\n${draft.url}${variantNote}${estimateNote}`,
+          text: `I want the price of: ${displayTitle}\n${draft.url}${choicesNote}${variantNote}${estimateNote}`,
           attachmentUrl: screenshotUrl ?? null,
           requestId: newRequest.id,
         })
