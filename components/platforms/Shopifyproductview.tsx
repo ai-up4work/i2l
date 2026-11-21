@@ -10,6 +10,7 @@ import ProductInfoTabs, { type ProductInfoTabsData } from '@/components/stores/P
 import RequestActionButton from '../stores/RequestActionButton'
 import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import StoreBadge from './StoreBadge'
 import { PDP_GRID, PDP_REST, PDP_TITLE } from './pdp-styles'
 import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
 
@@ -533,13 +534,26 @@ export default function ShopifyProductView({
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
               {/* Brand logos get a taller box than Shopify's own small
                   wordmark; width follows the file's aspect ratio. */}
-              <Image
-                src={logo.src}
-                alt={logo.alt}
-                width={logo.isBrand ? 90 : 60}
-                height={logo.isBrand ? 28 : 12}
-                style={{ height: logo.isBrand ? 28 : 12, width: 'auto' }}
-              />
+              {logo.isBrand ? (
+                <Image
+                  src={logo.src}
+                  alt={logo.alt}
+                  width={90}
+                  height={28}
+                  style={{ height: 28, width: 'auto' }}
+                />
+              ) : (
+                // Plain Shopify store: its own name + favicon when found,
+                // the generic Shopify mark only as the last resort.
+                <StoreBadge
+                  storeName={result.storeName}
+                  storeFavicon={result.storeFavicon}
+                  fallbackLogoSrc={logo.src}
+                  fallbackAlt={logo.alt}
+                  fallbackWidth={60}
+                  fallbackHeight={12}
+                />
+              )}
             </a>
             {result.rating && (
               <>

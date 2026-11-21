@@ -7,8 +7,8 @@ import type { ScrapeResult } from '@/lib/scrape/parsers'
 import type { PlatformViewProps } from '@/lib/scrape/platform-view-props'
 import ProductGallery from '@/components/stores/ProductGallery'
 import RequestActionButton from '../stores/RequestActionButton'
-import Image from 'next/image'
 import { SITE_LOGOS } from '@/lib/platform-logos'
+import StoreBadge from './StoreBadge'
 import { PDP_GRID, PDP_REST, PDP_TITLE } from './pdp-styles'
 import PdpInfoTabs from './PdpInfoTabs'
 import { LandedPriceDetails, formatStorePrice, useLandedPrice } from './LandedPrice'
@@ -383,7 +383,14 @@ export default function WooCommerceProductView({
         <div className="min-w-0 [grid-area:info]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-ink/50">
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
-              <Image src={SITE_LOGOS.woocommerce!} alt="WooCommerce" width={100} height={20} />
+              <StoreBadge
+                storeName={result.storeName}
+                storeFavicon={result.storeFavicon}
+                fallbackLogoSrc={SITE_LOGOS.woocommerce!}
+                fallbackAlt="WooCommerce"
+                fallbackWidth={100}
+                fallbackHeight={20}
+              />
             </a>
             {result.rating && (
               <>

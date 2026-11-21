@@ -29,7 +29,7 @@ import { sharedRedis } from '@/lib/rate-limit'
 export const SCRAPE_CACHE_TTL_SECONDS = Number(process.env.SCRAPE_CACHE_TTL_SECONDS) || 60 * 60
 export const SCRAPE_STALE_TTL_SECONDS = Number(process.env.SCRAPE_STALE_TTL_SECONDS) || 24 * 60 * 60
 
-const VERSION = 'v1' // bump to drop every cached result after a parser change
+const VERSION = 'v2' // bump to drop every cached result after a parser change
 const MEMORY_MAX = 500
 
 // Query keys that never change which product a link points to.

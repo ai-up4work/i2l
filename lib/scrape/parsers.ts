@@ -149,6 +149,7 @@ import {
 import type { ShopifyProviderConfig, WooCommerceProviderConfig } from '@/lib/store-config'
 import type { StoreProduct } from '@/lib/store.types'
 import { withScrapeCache } from '@/lib/scrape/result-cache'
+import { getStoreIdentity } from '@/lib/scrape/store-identity'
 import { rememberedRoute, rememberRoute, forgetRoute, type FetchRoute } from '@/lib/scrape/route-memory'
 
 export type ScrapeResult = {
@@ -188,6 +189,11 @@ export type ScrapeResult = {
   //   - 'parsebot': Parse.bot hosted scraper API — structured JSON, not HTML scraping (Ajio, most preferred)
   source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
   unavailable?: boolean
+  /** Shopify / WooCommerce links only: the store's own name and favicon, read
+   *  from its homepage. The item screen shows these instead of the generic
+   *  Shopify / WooCommerce mark; that mark is only the last resort. */
+  storeName?: string | null
+  storeFavicon?: string | null
   /**
    * True when `site` is one of the OG-only platforms (see
    * extractors/og-only.ts) — meaning this result came ENTIRELY from the
@@ -1504,7 +1510,7 @@ function buildShopifyVariantSelectUrl(baseUrl: string, variantId: string): strin
   }
 }
 
-async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
+async function scrapeShopifyProduct(url: string, signal?: AbortSignal, withIdentity = true): Promise<ScrapeResult> {
   const parsedHandle = extractShopifyHandle(url)
   if (!parsedHandle) {
     return {
@@ -1588,6 +1594,12 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
 
   if (!(currentVariant ? currentVariant.available : product.inStock)) result.unavailable = true
 
+  if (withIdentity) {
+    const identity = await getStoreIdentity(origin, signal)
+    result.storeName = identity.name
+    result.storeFavicon = identity.favicon
+  }
+
   return result
 }
 
@@ -1599,7 +1611,7 @@ async function scrapeShopifyProduct(url: string): Promise<ScrapeResult> {
 // On failure this deliberately does NOT relabel — scrapeProduct()
 // discards the error result and falls back to the generic HTML pipeline.
 async function scrapeWestsideProduct(url: string): Promise<ScrapeResult> {
-  const result = await scrapeShopifyProduct(url)
+  const result = await scrapeShopifyProduct(url, undefined, false)
   if (result.error) return result
   return { ...result, site: 'westside' }
 }
@@ -1615,7 +1627,7 @@ async function scrapeWestsideProduct(url: string): Promise<ScrapeResult> {
 // the error result and falls back to the generic HTML pipeline (and
 // re-applies the boAt label via `displaySite`).
 async function scrapeBoatProduct(url: string): Promise<ScrapeResult> {
-  const result = await scrapeShopifyProduct(url)
+  const result = await scrapeShopifyProduct(url, undefined, false)
   if (result.error) return result
   return { ...result, site: 'boat' }
 }
@@ -1644,7 +1656,7 @@ function buildAdHocWooCommerceConfig(origin: string, domainHint: string | null):
   } as WooCommerceProviderConfig
 }
 
-async function scrapeWooCommerceProduct(url: string): Promise<ScrapeResult> {
+async function scrapeWooCommerceProduct(url: string, signal?: AbortSignal): Promise<ScrapeResult> {
   const parsedHandle = extractWooCommerceHandle(url)
   if (!parsedHandle) {
     return {
@@ -1707,6 +1719,10 @@ async function scrapeWooCommerceProduct(url: string): Promise<ScrapeResult> {
   }
 
   if (!product.inStock) result.unavailable = true
+
+  const identity = await getStoreIdentity(origin, signal)
+  result.storeName = identity.name
+  result.storeFavicon = identity.favicon
 
   return result
 }
@@ -2016,7 +2032,7 @@ async function scrapeProductUncached(url: string, options: ScrapeProductOptions 
   let displaySite: SiteId | null = null
 
   if (site === 'shopify') {
-    const shopifyResult = await scrapeShopifyProduct(url)
+    const shopifyResult = await scrapeShopifyProduct(url, signal)
     if (!shopifyResult.error) return shopifyResult
     site = 'generic'
     fellBackFromStorePlatform = true
@@ -2033,7 +2049,7 @@ async function scrapeProductUncached(url: string, options: ScrapeProductOptions 
     site = 'generic'
     fellBackFromStorePlatform = true
   } else if (site === 'woocommerce') {
-    const wooResult = await scrapeWooCommerceProduct(url)
+    const wooResult = await scrapeWooCommerceProduct(url, signal)
     if (!wooResult.error) return wooResult
     site = 'generic'
     fellBackFromStorePlatform = true
@@ -2098,6 +2114,12 @@ async function scrapeProductUncached(url: string, options: ScrapeProductOptions 
         const themeResult = normaliseShopifyThemeJsonProduct(themeProduct, url)
         // Keep the brand label (boAt / Westside) so the right logo shows.
         if (displaySite) themeResult.site = displaySite
+        else {
+          // Plain Shopify store: show its own name/favicon, not the generic mark.
+          const identity = await getStoreIdentity(new URL(url).origin, signal)
+          themeResult.storeName = identity.name
+          themeResult.storeFavicon = identity.favicon
+        }
         return themeResult
       }
     } catch {
