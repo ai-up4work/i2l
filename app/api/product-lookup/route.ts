@@ -10,6 +10,7 @@ import { isPublicHttpUrl } from '@/lib/url-safety'
 import { requireStaffRole } from '@/lib/supabase/admin-auth'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { recordPriceObservation } from '@/lib/checkout/server'
+import { fallbackWorthTrying, scrapeViaUniversalFallback, universalFallbackConfigured } from '@/lib/scrape/universal-fallback'
 
 // FIX: checkout prices a pasted link from what our scraper saw for that URL
 // in the last 24 h (price_observations). Only the old /api/scrape route —
@@ -19,7 +20,8 @@ import { recordPriceObservation } from '@/lib/checkout/server'
 // lookup now records what the customer was shown.
 function rememberPrice(urls: (string | undefined)[], result: ScrapeResult) {
   const price = result.price != null ? Number(String(result.price).replace(/[^0-9.]/g, '')) : NaN
-  if (result.error || result.ogOnly || !result.currencyCode || !Number.isFinite(price) || price <= 0) return
+  // A price from the backup (third-party) scraper is never stored as a trusted observation.
+  if (result.error || result.ogOnly || result.source === 'universal_fallback' || !result.currencyCode || !Number.isFinite(price) || price <= 0) return
   try {
     const admin = createServiceRoleClient()
     for (const url of new Set(urls.filter((u): u is string => !!u))) {
@@ -44,7 +46,11 @@ export const maxDuration = 90 // seconds
 // hard store like row.gymshark.com could run until Vercel killed it at
 // 300 s, and the browser then retried the whole thing. Now the lookup is
 // stopped here and the shopper gets the preview / chat screen instead.
-const LOOKUP_DEADLINE_MS = Number(process.env.PRODUCT_LOOKUP_DEADLINE_MS) || 70_000
+// CHANGED: 70 s -> 60 s. Past this, our own scraper is abandoned and the
+// last-resort universal scraper (lib/scrape/universal-fallback.ts) gets its
+// own short window (UNIVERSAL_SCRAPER_TIMEOUT_MS, 15 s) — so the worst case is
+// ~75 s (+ shortlink resolve), inside maxDuration (90 s) and the browser's 88 s wait.
+const LOOKUP_DEADLINE_MS = Number(process.env.PRODUCT_LOOKUP_DEADLINE_MS) || 60_000
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -171,13 +177,30 @@ export async function GET(request: Request) {
       })
     }, LOOKUP_DEADLINE_MS)
   })
-  const result = await Promise.race([
+  const scraped = await Promise.race([
     scrapeProduct(resolvedUrl, { needVariants, signal: stop.signal, fresh: freshRead, allowStale: allowStale && !freshRead }),
     deadline,
   ]).finally(() => {
     clearTimeout(deadlineTimer)
     request.signal.removeEventListener('abort', onClientGone)
   })
+
+  // LAST RESORT: our own scraper timed out (60 s) or failed — ask the
+  // universal scraper. Skipped for staff QA traffic (it must show what OUR
+  // scraper really does), when the client already hung up, and for errors no
+  // other scraper can fix (bad link, a store's own password wall).
+  let result = scraped
+  if (!isQaTraffic && !request.signal.aborted && universalFallbackConfigured() && fallbackWorthTrying(scraped)) {
+    const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal })
+    if (!backup.error) {
+      console.log(`[product-lookup] universal fallback OK site=${backup.site ?? 'unknown'} url=${resolvedUrl} (primary: ${scraped.error})`)
+      result = backup
+    } else {
+      console.error(`[product-lookup] universal fallback FAILED url=${resolvedUrl} — ${backup.error}`)
+      // Keep our own scraper's error (the useful one) and note the backup's.
+      result = { ...scraped, error: `${scraped.error} | Backup scraper also failed: ${backup.error}` }
+    }
+  }
   if (resolvedUrl !== url) result.resolvedFromShortlink = true
   // A cached copy is at most 1 h old, so it's fine to record too; an older
   // ("stale") copy isn't — the live read that follows will record.
@@ -208,15 +231,17 @@ export async function GET(request: Request) {
     // title/image/price through so ops can see an actual example of what
     // this domain's product pages look like. On a FAILURE, carries the
     // full error text through instead.
+    // Health tracks OUR scraper: a result rescued by the backup still counts
+    // as a failure here, or a broken store would look healthy.
     upsertScrapeHealth(
       resolvedUrl,
-      !result.error,
+      !scraped.error,
       {
-        title: result.title,
-        imageUrl: result.images?.[0],
-        price: result.price,
+        title: scraped.title,
+        imageUrl: scraped.images?.[0],
+        price: scraped.price,
       },
-      result.error,
+      scraped.error,
     )
   }
 

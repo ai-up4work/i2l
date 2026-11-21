@@ -187,7 +187,7 @@ export type ScrapeResult = {
   //   - 'scrapingdog': Scrapingdog hosted headless-render API, India-geo-targeted
   //   - 'scrape_do': scrape.do hosted headless-render API, India-geo-targeted
   //   - 'parsebot': Parse.bot hosted scraper API — structured JSON, not HTML scraping (Ajio, most preferred)
-  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api'
+  source?: 'direct' | 'scraperapi' | 'fingerprint_fetch' | 'scrapingdog' | 'scrape_do' | 'parsebot' | 'shopify_api' | 'woocommerce_api' | 'ebay_api' | 'universal_fallback'
   unavailable?: boolean
   /** Shopify / WooCommerce links only: the store's own name and favicon, read
    *  from its homepage. The item screen shows these instead of the generic
