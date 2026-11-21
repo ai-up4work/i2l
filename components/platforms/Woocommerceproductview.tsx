@@ -358,6 +358,7 @@ export default function WooCommerceProductView({
   // shopper picks or types is reported up for the cart line / quote.
   const isUniversal = result.source === 'universal_fallback'
   const [typed, setTyped] = useState<Record<string, string>>({})
+  const [choicesOpen, setChoicesOpen] = useState(false)
 
   useEffect(() => {
     const initial: Record<string, string> = {}
@@ -483,24 +484,32 @@ export default function WooCommerceProductView({
 
           {typedFields.length > 0 && (
             <div className="mt-4">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">
-                Your choices <span className="font-semibold normal-case tracking-normal text-ink/40">— optional, helps our team pick the right one</span>
-              </p>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                {typedFields.map((f) => (
-                  <label key={f.key} className={f.key === 'Other' ? 'sm:col-span-2' : ''}>
-                    <span className="mb-1 block text-xs font-semibold text-ink/55">{f.label}</span>
-                    <input
-                      value={typed[f.key] ?? ''}
-                      onChange={(e) => setTyped((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                      maxLength={80}
-                      placeholder={f.placeholder}
-                      autoComplete="off"
-                      className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink/35 focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
-                    />
-                  </label>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setChoicesOpen((v) => !v)}
+                aria-expanded={choicesOpen}
+                className="text-sm font-semibold text-teal-deep hover:underline"
+              >
+                {Object.values(typed).some((v) => v.trim()) ? 'Your notes' : 'Add size, colour or a note'}{' '}
+                <span className="font-medium text-ink/40">(optional)</span> {choicesOpen ? '▴' : '▾'}
+              </button>
+              {choicesOpen && (
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  {typedFields.map((f) => (
+                    <label key={f.key} className={f.key === 'Other' ? 'sm:col-span-2' : ''}>
+                      <span className="mb-1 block text-xs font-semibold text-ink/55">{f.label}</span>
+                      <input
+                        value={typed[f.key] ?? ''}
+                        onChange={(e) => setTyped((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                        maxLength={80}
+                        placeholder={f.placeholder}
+                        autoComplete="off"
+                        className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink/35 focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
