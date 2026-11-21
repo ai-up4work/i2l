@@ -12,7 +12,7 @@
 //   body: { "source": "from_url", "product_url": "<link>" }
 //
 // ENV (all server-side; nothing here ever reaches the browser):
-//   UNIVERSAL_SCRAPER_BASE_URL   e.g. https://goknock.lk
+//   UNIVERSAL_SCRAPER_BASE_URL   the provider origin, e.g. https://api.example.com
 //   UNIVERSAL_SCRAPER_APP_ID     the app id in the path / x-app-id header
 //   UNIVERSAL_SCRAPER_TOKEN      bearer token (never logged, never in errors)
 //   UNIVERSAL_SCRAPER_ORIGIN     optional; Origin/Referer the API expects.

@@ -203,8 +203,9 @@ export async function GET(request: Request) {
       result = backup
     } else if (failed) {
       console.error(`[product-lookup] universal fallback FAILED url=${resolvedUrl} — ${backup.error}`)
-      // Keep our own scraper's error (the useful one) and note the backup's.
-      result = { ...scraped, error: `${scraped.error} | Backup scraper also failed: ${backup.error}` }
+      // The backup's error stays in the server log only — this response goes
+      // to the browser, which must learn nothing about the backup service.
+      result = scraped
     } else if (priced) {
       console.log(`[product-lookup] universal fallback upgraded weak read site=${scraped.site} url=${resolvedUrl}`)
       result = mergeWeakRead(scraped, backup)

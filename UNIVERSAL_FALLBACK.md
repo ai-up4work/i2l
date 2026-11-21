@@ -7,7 +7,7 @@ Env (server only):
 
 | Var | Required | Notes |
 |---|---|---|
-| UNIVERSAL_SCRAPER_BASE_URL | yes | e.g. https://goknock.lk |
+| UNIVERSAL_SCRAPER_BASE_URL | yes | the provider origin, e.g. https://api.example.com |
 | UNIVERSAL_SCRAPER_APP_ID | yes | path + `x-app-id` header |
 | UNIVERSAL_SCRAPER_TOKEN | yes | bearer token; expires -> 401/403 shows in logs |
 | UNIVERSAL_SCRAPER_ORIGIN | no | Origin/Referer sent; defaults to BASE_URL |
