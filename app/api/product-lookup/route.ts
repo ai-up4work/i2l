@@ -206,6 +206,18 @@ export async function GET(request: Request) {
   // Settings are read only now, when the backup might actually be used (one
   // in-process cached read; Redis at most every ~15 s).
   const backupReady = wantsBackup && !isQaTraffic && !request.signal.aborted && (await universalFallbackConfigured())
+  // One line per lookup showing exactly how the backup decision was made.
+  console.log('[product-lookup] backup decision', {
+    site: scraped.site,
+    error: !!scraped.error,
+    ogOnly: !!scraped.ogOnly,
+    variants: scraped.variants?.length ?? 0,
+    failed,
+    weak: isWeakRead(scraped),
+    qa: isQaTraffic,
+    retry: isRetry,
+    configured: wantsBackup && !isQaTraffic ? backupReady : 'not checked',
+  })
   if (wantsBackup && !isQaTraffic) {
     if (!backupReady && !request.signal.aborted) {
       console.warn('[product-lookup] universal fallback skipped: not set up or switched off (Super Admin > Integrations, or UNIVERSAL_SCRAPER_* env)')
