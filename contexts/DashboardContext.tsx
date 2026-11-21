@@ -293,15 +293,11 @@ export function DashboardProvider({
       setOgPreview(null)
       setModalOpen(true)
 
-      fetchOgMetadataClient(url)
-        .then((og) => {
-          if (latestUrlRef.current !== url) return
-          if (og.title || og.image) {
-            setOgPreview({ url, title: og.title, image: og.image })
-          }
-        })
-        .catch(() => {})
-
+      // The Open Graph (og-lookup) read no longer runs alongside the lookup.
+      // Order is now: our scraper -> the universal scraper (both inside
+      // /api/product-lookup) -> og-lookup, which useProductLookup.lookup()
+      // calls only when both of those failed. Until the lookup answers, the
+      // skeleton shows plain placeholders.
       const product = await lookup(url, (live) => {
         if (latestUrlRef.current !== url || live.error) return
         setDraft((current) => applyScrapeResultToDraft(current, live))

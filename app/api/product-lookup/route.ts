@@ -10,7 +10,7 @@ import { isPublicHttpUrl } from '@/lib/url-safety'
 import { requireStaffRole } from '@/lib/supabase/admin-auth'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { recordPriceObservation } from '@/lib/checkout/server'
-import { fallbackWorthTrying, scrapeViaUniversalFallback, universalFallbackConfigured } from '@/lib/scrape/universal-fallback'
+import { fallbackWorthTrying, isWeakRead, mergeWeakRead, scrapeViaUniversalFallback, universalFallbackConfigured } from '@/lib/scrape/universal-fallback'
 
 // FIX: checkout prices a pasted link from what our scraper saw for that URL
 // in the last 24 h (price_observations). Only the old /api/scrape route —
@@ -186,20 +186,30 @@ export async function GET(request: Request) {
   })
 
   // LAST RESORT: our own scraper timed out (60 s) or failed — ask the
-  // universal scraper. Skipped for staff QA traffic (it must show what OUR
-  // scraper really does), when the client already hung up, and for errors no
-  // other scraper can fix (bad link, a store's own password wall).
+  // universal scraper. It is ALSO asked when our read "worked" but was only
+  // a generic Open-Graph-level one (an unrecognised store such as soch.com:
+  // no confirmed price breakdown, "needs a manual check") — its price and
+  // sizes/colours turn that into a normal priced listing. Skipped for staff
+  // QA traffic (it must show what OUR scraper really does), when the client
+  // already hung up, and for errors no other scraper can fix (bad link, a
+  // store's own password wall).
   let result = scraped
-  if (!isQaTraffic && !request.signal.aborted && universalFallbackConfigured() && fallbackWorthTrying(scraped)) {
+  const failed = fallbackWorthTrying(scraped)
+  if (!isQaTraffic && searchParams.get('retry') !== '1' && !request.signal.aborted && universalFallbackConfigured() && (failed || isWeakRead(scraped))) {
     const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal })
-    if (!backup.error) {
+    const priced = !backup.error && backup.price != null && Number(backup.price) > 0
+    if (failed && !backup.error) {
       console.log(`[product-lookup] universal fallback OK site=${backup.site ?? 'unknown'} url=${resolvedUrl} (primary: ${scraped.error})`)
       result = backup
-    } else {
+    } else if (failed) {
       console.error(`[product-lookup] universal fallback FAILED url=${resolvedUrl} — ${backup.error}`)
       // Keep our own scraper's error (the useful one) and note the backup's.
       result = { ...scraped, error: `${scraped.error} | Backup scraper also failed: ${backup.error}` }
+    } else if (priced) {
+      console.log(`[product-lookup] universal fallback upgraded weak read site=${scraped.site} url=${resolvedUrl}`)
+      result = mergeWeakRead(scraped, backup)
     }
+    // Weak read + backup had nothing better: keep our own result untouched.
   }
   if (resolvedUrl !== url) result.resolvedFromShortlink = true
   // A cached copy is at most 1 h old, so it's fine to record too; an older

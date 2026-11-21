@@ -1567,6 +1567,12 @@ export default function ItemInfoModal({
     // page with a buyable Rs. 0 — same rule as the scraper QA page.
     if (commerceProps.result.ogOnly || !canBuildBreakdown(commerceProps.result)) return <GenericProductView {...commerceProps} />
 
+    // Read by the universal (backup) scraper: its data is store-agnostic —
+    // title, price, sizes/colours — so it gets the generic store layout
+    // (header badge = the store's own name + favicon, delivered-price
+    // breakdown) instead of a brand view built for one store's own fields.
+    if (commerceProps.result.source === 'universal_fallback') return <WooCommerceProductView {...commerceProps} />
+
     switch (commerceProps.result.site) {
       case 'amazon':
         return <AmazonProductView {...commerceProps} />

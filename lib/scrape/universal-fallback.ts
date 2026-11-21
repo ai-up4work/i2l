@@ -18,22 +18,27 @@
 //   UNIVERSAL_SCRAPER_ORIGIN     optional; Origin/Referer the API expects.
 //                                Defaults to BASE_URL.
 //   UNIVERSAL_SCRAPER_TIMEOUT_MS optional; default 15000
-//   UNIVERSAL_SCRAPER_TRUST_PRICE=1  optional; see "Trust" below
+//   UNIVERSAL_SCRAPER_TRUST_PRICE=0  optional; turns OFF "Trust" below
 //   UNIVERSAL_SCRAPER_DEBUG=1    optional; logs the response's key names
 //                                (never values) to help tune the mapper
 //
-// Trust: this is third-party data, so by default the result is marked
-// `ogOnly` — the item screen shows it as a listing preview with "we'll
-// confirm the price with you", checkout never prices off it, and it is never
-// stored as a price observation. Set UNIVERSAL_SCRAPER_TRUST_PRICE=1 only if
-// you decide its price can be shown as a full priced listing.
+// Response (confirmed from real calls): { success, action, isCart, products: [{
+//   product_name, product_image_url, product_store, brand, product_url,
+//   unit_price_inr, original_price_inr, rating, review_count, seller,
+//   selected_size, selected_colour, available_sizes[], available_colours[],
+//   ...weight / category / pipeline_debug (not used — our own weight
+//   categories price the freight) }] }. Prices are always rupees.
 //
-// The response shape isn't documented in the collection, so the mapper below
-// is deliberately tolerant (common key names, nested `data` / `product` /
-// `result` wrappers, price as number | string | { amount, currency }).
+// Trust: a result with a price is shown as a normal priced listing (store
+// price + delivered-price breakdown, ItemInfoModal's universal view). It is
+// still third-party data, so it is NEVER stored as a price observation and
+// checkout never prices off it — checkout re-reads the link itself and flags
+// the order for staff when it can't confirm. Set UNIVERSAL_SCRAPER_TRUST_PRICE=0
+// to show backup results as a preview ("we'll confirm the price") instead.
 
 import { withScrapeCache } from '@/lib/scrape/result-cache'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import { getStoreIdentity } from '@/lib/scrape/store-identity'
 
 const DEFAULT_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_CHARS = 1_500_000
@@ -50,6 +55,27 @@ export function fallbackWorthTrying(result: Pick<ScrapeResult, 'site' | 'error'>
   return true
 }
 
+/** Our scraper "succeeded" but only with a generic Open-Graph-level read (an
+ *  unrecognised store: no variants, price unconfirmed) — worth asking the
+ *  universal scraper for a better one. */
+export function isWeakRead(result: ScrapeResult): boolean {
+  if (result.error || result.site === null) return false
+  return (result.site === 'generic' || !!result.ogOnly) && !result.variants?.length
+}
+
+/** Combine a weak read of our own with the universal scraper's: its price,
+ *  currency, sizes and colours win; our own title, description and photos
+ *  stay when we have them (usually richer). */
+export function mergeWeakRead(ours: ScrapeResult, backup: ScrapeResult): ScrapeResult {
+  return {
+    ...backup,
+    title: ours.title || backup.title,
+    description: ours.description || backup.description,
+    images: (ours.images?.length ?? 0) >= (backup.images?.length ?? 0) ? ours.images : backup.images,
+    brand: backup.brand ?? ours.brand,
+  }
+}
+
 // ── response mapping ──────────────────────────────────────────────────────
 
 type Json = Record<string, unknown>
@@ -57,6 +83,11 @@ const isObj = (v: unknown): v is Json => !!v && typeof v === 'object' && !Array.
 
 /** The object that actually holds the product: unwraps data / product / result / item. */
 function unwrap(root: unknown): Json {
+  // { products: [ {...} ] } — the real response shape.
+  if (isObj(root) && Array.isArray(root.products)) {
+    const first = root.products.find(isObj)
+    if (first) return first
+  }
   let cur: unknown = root
   for (let i = 0; i < 4; i++) {
     if (!isObj(cur)) break
@@ -90,7 +121,7 @@ function money(v: unknown): { amount: string | null; currency: string | null } {
 }
 
 function images(o: Json): string[] {
-  const raw = pick(o, ['images', 'image_urls', 'imageUrls', 'gallery', 'photos', 'image', 'image_url', 'imageUrl', 'thumbnail', 'main_image'])
+  const raw = pick(o, ['images', 'product_image_url', 'image_urls', 'imageUrls', 'gallery', 'photos', 'image', 'image_url', 'imageUrl', 'thumbnail', 'main_image'])
   const list = Array.isArray(raw) ? raw : raw != null ? [raw] : []
   const out: string[] = []
   for (const item of list) {
@@ -100,21 +131,55 @@ function images(o: Json): string[] {
   return out
 }
 
+function strList(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const x of v) {
+    const t = str(x)
+    if (t && !out.includes(t)) out.push(t)
+  }
+  return out
+}
+
+/** Size / colour tiles (informational — the universal API gives labels only). */
+function buildVariants(o: Json, currency: string | null): NonNullable<ScrapeResult['variants']> {
+  const dims: NonNullable<ScrapeResult['variants']> = []
+  const add = (dimension: string, labels: string[], selected: string | null) => {
+    if (!labels.length) return
+    dims.push({
+      dimension,
+      options: labels.map((label) => ({
+        label,
+        price: null,
+        currencyCode: currency,
+        image: null,
+        url: null,
+        selected: !!selected && label.toLowerCase() === selected.toLowerCase(),
+      })),
+    })
+  }
+  add('Size', strList(pick(o, ['available_sizes', 'sizes'])), str(pick(o, ['selected_size'])))
+  add('Color', strList(pick(o, ['available_colours', 'available_colors', 'colours', 'colors'])), str(pick(o, ['selected_colour', 'selected_color'])))
+  return dims
+}
+
 export function mapUniversalResponse(body: unknown, url: string, site: ScrapeResult['site']): ScrapeResult {
   const o = unwrap(body)
-  const title = str(pick(o, ['title', 'product_name', 'productName', 'name', 'product_title']))
-  const priceField = pick(o, ['price', 'selling_price', 'sellingPrice', 'sale_price', 'salePrice', 'final_price', 'current_price', 'price_inr'])
+  const title = str(pick(o, ['product_name', 'title', 'productName', 'name', 'product_title']))
+  const priceField = pick(o, ['unit_price_inr', 'price', 'selling_price', 'sellingPrice', 'sale_price', 'salePrice', 'final_price', 'current_price', 'price_inr'])
   const p = money(priceField)
-  const mrp = money(pick(o, ['mrp', 'original_price', 'originalPrice', 'list_price', 'compare_at_price', 'strike_price'])).amount
+  const mrp = money(pick(o, ['original_price_inr', 'mrp', 'original_price', 'originalPrice', 'list_price', 'compare_at_price', 'strike_price'])).amount
+  const inrField = pick(o, ['unit_price_inr']) != null
   const currency =
-    str(pick(o, ['currency', 'currencyCode', 'currency_code', 'price_currency'])) ?? p.currency ?? null
+    str(pick(o, ['currency', 'currencyCode', 'currency_code', 'price_currency'])) ?? p.currency ?? (inrField ? 'INR' : null)
   const imgs = images(o)
 
   if (!title && !p.amount && !imgs.length) {
     return { url, site, error: 'Universal scraper returned no usable product data' }
   }
 
-  const trust = process.env.UNIVERSAL_SCRAPER_TRUST_PRICE === '1'
+  const trust = process.env.UNIVERSAL_SCRAPER_TRUST_PRICE !== '0' && !!p.amount && !!currency
+  const variants = buildVariants(o, currency ? currency.toUpperCase() : null)
   const inStockRaw = pick(o, ['in_stock', 'inStock', 'available', 'availability'])
   const unavailable = inStockRaw === false || (typeof inStockRaw === 'string' && /out of stock|unavailable|sold out/i.test(inStockRaw))
 
@@ -130,11 +195,15 @@ export function mapUniversalResponse(body: unknown, url: string, site: ScrapeRes
     rating: str(pick(o, ['rating', 'average_rating', 'averageRating'])),
     review_count: str(pick(o, ['review_count', 'reviewCount', 'reviews_count', 'ratings_count'])),
     seller: str(pick(o, ['seller', 'store', 'store_name', 'site_name'])),
+    storeName: str(pick(o, ['product_store', 'store_name', 'site_name'])),
+    ...(variants.length ? { variants } : {}),
     description: str(pick(o, ['description', 'short_description', 'summary'])),
     images: imgs,
     ...(unavailable ? { unavailable: true } : {}),
     ...(trust ? {} : { ogOnly: true }),
-    warning: "We couldn't read this listing directly — details come from a backup source, so we'll confirm the price and options with you.",
+    warning: trust
+      ? 'Price read from a backup source — our team double-checks it before anything is charged.'
+      : "We couldn't read this listing directly — details come from a backup source, so we'll confirm the price and options with you.",
   }
   return result
 }
@@ -201,7 +270,26 @@ async function callUniversal(url: string, site: ScrapeResult['site'], signal?: A
       return { url, site, error: `Universal scraper error: ${String(json.error ?? json.message ?? 'unknown').slice(0, 200)}` }
     }
 
-    return mapUniversalResponse(json, url, site)
+    const mapped = mapUniversalResponse(json, url, site)
+    if (mapped.error) return mapped
+
+    // The store's own favicon (and a name when the API gave none) for the
+    // item screen's header badge — same helper the Shopify/WooCommerce views use.
+    const host = (() => {
+      try {
+        return new URL(url).hostname.replace(/^www\./, '')
+      } catch {
+        return null
+      }
+    })()
+    try {
+      const identity = await getStoreIdentity(new URL(url).origin, signal)
+      mapped.storeFavicon = identity.favicon
+      mapped.storeName = mapped.storeName || identity.name || host
+    } catch {
+      mapped.storeName = mapped.storeName || host
+    }
+    return mapped
   } catch (e) {
     const aborted = e instanceof Error && e.name === 'AbortError'
     if (aborted && signal?.aborted) return { url, site, error: 'Client disconnected' }

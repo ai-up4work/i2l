@@ -26,10 +26,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchProductLookup(url: string, refresh = false, fresh = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
+async function fetchProductLookup(url: string, refresh = false, fresh = false, retry = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
   try {
     // `fresh`: the scraper QA page only (staff) — skip the server cache.
-    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}${fresh ? '&fresh=1' : ''}`, {
+    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}${fresh ? '&fresh=1' : ''}${retry ? '&retry=1' : ''}`, {
       signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
     })
     const data = (await res.json().catch(() => null)) as ScrapeResult | null
@@ -146,7 +146,9 @@ export function useProductLookup(options: { fresh?: boolean } = {}) {
     if (!attempt.ok && Date.now() - startedAt < QUICK_FAILURE_MS) {
       await sleep(RETRY_DELAY_MS)
       if (generation.current !== myGeneration) return null
-      attempt = await fetchProductLookup(url, false, freshRef.current)
+      // retry=1: the server skips the universal scraper this time — the first
+      // attempt already asked it, and a failed backup read isn't cached.
+      attempt = await fetchProductLookup(url, false, freshRef.current, true)
     }
     if (generation.current !== myGeneration) return null
 
