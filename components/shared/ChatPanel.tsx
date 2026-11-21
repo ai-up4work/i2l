@@ -1,7 +1,7 @@
 // components/shared/ChatPanel.tsx
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MessageCircle, Paperclip, Reply, Send, X } from 'lucide-react'
 import { FaWhatsapp } from 'react-icons/fa'
 import { useChat, type ChatMessage, type ReplyPreview } from '@/contexts/ChatContext'
@@ -66,6 +66,71 @@ export default function ChatPanel({
   // messages in view vs. jump to the newest one).
   const isLoadingOlderRef = useRef(false)
   const prevScrollHeightRef = useRef(0)
+  // The header's small WhatsApp button. While the chip from the chat bubble
+  // is still flying over to it, it stays invisible (`waLanded` false).
+  const waAnchorRef = useRef<HTMLAnchorElement>(null)
+  const [waLanded, setWaLanded] = useState(true)
+
+  // When the chat opens, a copy of the green WhatsApp chip (left of the chat
+  // bubble) flies along a small arc into its place in this header, so people
+  // see where the WhatsApp option went. Skipped for reduced motion, or when
+  // the chip isn't on screen (then the header button just appears).
+  useLayoutEffect(() => {
+    if (!isOpen || hidden) return
+    const chip = document.querySelector<HTMLElement>('[data-wa-chip]')
+    const anchor = waAnchorRef.current
+    if (!chip || !anchor || typeof anchor.animate !== 'function') return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    const from = chip.getBoundingClientRect()
+    const to = anchor.getBoundingClientRect()
+    if (!from.width || !to.width) return
+
+    setWaLanded(false)
+    const flyer = document.createElement('span')
+    Object.assign(flyer.style, {
+      position: 'fixed',
+      left: `${from.left}px`,
+      top: `${from.top}px`,
+      width: `${from.width}px`,
+      height: `${from.height}px`,
+      borderRadius: '9999px',
+      background: '#25D366',
+      color: '#fff',
+      display: 'grid',
+      placeItems: 'center',
+      zIndex: '90',
+      pointerEvents: 'none',
+      boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+      transformOrigin: 'center',
+    })
+    const icon = chip.querySelector('svg')?.cloneNode(true)
+    if (icon) flyer.appendChild(icon)
+    document.body.appendChild(flyer)
+
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2)
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2)
+    const k = to.width / from.width
+    const animation = flyer.animate(
+      [
+        { transform: 'translate(0,0) scale(1)' },
+        { transform: `translate(${dx * 0.55}px, ${dy * 0.55 - 36}px) scale(${(1 + k) / 2 + 0.1})`, offset: 0.55 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${k})` },
+      ],
+      { duration: 700, easing: 'cubic-bezier(0.22, 0.8, 0.2, 1)', fill: 'forwards' },
+    )
+    const done = () => {
+      flyer.remove()
+      setWaLanded(true)
+    }
+    animation.onfinish = done
+    animation.oncancel = done
+    return () => {
+      animation.onfinish = null
+      animation.oncancel = null
+      flyer.remove()
+      setWaLanded(true)
+    }
+  }, [isOpen, hidden])
 
   useEffect(() => {
     if (isOpen && !isLocked) markRead()
@@ -224,14 +289,18 @@ export default function ChatPanel({
               isn't just a fallback for anonymous users. */}
           {!isLocked && <ChatWhatsAppNumber />}
           <a
+            ref={waAnchorRef}
+            data-wa-anchor
             href={getWhatsAppLink()}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Continue on WhatsApp"
             title="Continue on WhatsApp"
-            className="rounded-full p-1.5 text-parchment/70 transition-colors hover:bg-parchment/10 hover:text-parchment"
+            className={`mr-1 grid h-8 w-8 place-items-center rounded-full bg-[#25D366] text-white shadow-sm transition-colors hover:bg-[#1ebe5a] ${
+              waLanded ? 'opacity-100' : 'opacity-0'
+            }`}
           >
-            <FaWhatsapp size={16} />
+            <FaWhatsapp size={18} />
           </a>
           <button
             type="button"

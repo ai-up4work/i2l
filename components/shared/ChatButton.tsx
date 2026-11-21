@@ -2,6 +2,7 @@
 'use client'
 
 import { MessageCircle, X } from 'lucide-react'
+import { FaWhatsapp } from 'react-icons/fa'
 import { useChat } from '@/contexts/ChatContext'
 
 export default function ChatButton({
@@ -18,7 +19,7 @@ export default function ChatButton({
   positionClassName?: string
   hidden?: boolean
 }) {
-  const { isOpen, toggleChat, unreadCount } = useChat()
+  const { isOpen, toggleChat, unreadCount, getWhatsAppLink, isLocked } = useChat()
 
   if (hidden) return null
 
@@ -44,14 +45,36 @@ export default function ChatButton({
           recognises this button as "not outside". Without it, pressing
           the bubble while the panel is open would close the panel on
           pointerdown and then toggleChat would re-open it on click. */}
+      {/* One fixed row: the WhatsApp chip sits to the LEFT of the chat bubble,
+          and moves left on its own when the bubble widens on hover.
+          Opening the chat hides the chip here and ChatPanel flies a copy of it
+          into the panel's header (see data-wa-chip / data-wa-anchor). */}
+      <div
+        // Product pages lift the bubble above their floating buy bar (StickyBuyBar).
+        style={{ translate: '0 calc(-1 * var(--wd-fab-lift, 0px))' }}
+        className={`fixed z-40 flex items-center gap-3 ${positionClassName}`}
+      >
+      <a
+        data-wa-chip
+        href={getWhatsAppLink()}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Chat on WhatsApp"
+        title={isLocked ? 'Chat on WhatsApp' : 'Chat on WhatsApp — we’ll send your name, handle and email so we know it’s you'}
+        aria-hidden={isOpen}
+        tabIndex={isOpen ? -1 : 0}
+        className={`grid h-12 w-12 flex-none place-items-center rounded-full bg-[#25D366] text-white shadow-lift ring-2 ring-white/80 transition-[opacity,transform,background-color] duration-200 hover:scale-105 hover:bg-[#1ebe5a] ${
+          isOpen ? 'pointer-events-none opacity-0' : 'opacity-100'
+        }`}
+      >
+        <FaWhatsapp size={26} />
+      </a>
       <button
         type="button"
         data-chat-bubble
         aria-label={isOpen ? 'Close chat' : 'Chat with support'}
         onClick={toggleChat}
-        // Product pages lift the bubble above their floating buy bar (StickyBuyBar).
-        style={{ translate: '0 calc(-1 * var(--wd-fab-lift, 0px))' }}
-        className={`group fixed z-40 flex h-14 items-center gap-2.5 rounded-full bg-teal-deep pl-4 pr-4 text-parchment shadow-lift transition-all duration-300 ease-out hover:bg-indigo-deep hover:pl-5 hover:pr-6 ${positionClassName} ${
+        className={`group relative flex h-14 items-center gap-2.5 rounded-full bg-teal-deep pl-4 pr-4 text-parchment shadow-lift transition-all duration-300 ease-out hover:bg-indigo-deep hover:pl-5 hover:pr-6 ${
           isOpen ? '' : 'chat-fab'
         }`}
       >
@@ -82,6 +105,7 @@ export default function ChatButton({
           </span>
         )}
       </button>
+      </div>
     </>
   )
 }
