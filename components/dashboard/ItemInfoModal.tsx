@@ -1099,18 +1099,21 @@ function readAge(cachedAt?: string): string | null {
 // had. Hidden once there's nothing to say.
 function ListingStatus({
   loading,
+  upgrading,
   stale,
   cachedAt,
 }: {
   loading: boolean
+  /** Quick read is on screen; the backup reader is fetching sizes and the exact price. */
+  upgrading: boolean
   stale: boolean
   cachedAt?: string
 }) {
   const stage = useLoadingStage(loading)
-  const age = !loading && !stale ? readAge(cachedAt) : null
-  const busy = loading || stale
+  const age = !loading && !stale && !upgrading ? readAge(cachedAt) : null
+  const busy = loading || stale || upgrading
   if (!busy && !age) return null
-  const text = loading ? stage.text : stale ? 'Updating price…' : `Price checked ${age}`
+  const text = loading ? stage.text : upgrading ? 'Checking sizes and exact price…' : stale ? 'Updating price…' : `Price checked ${age}`
   // Zero-height and pulling back the column gap, so it floats over the
   // empty strip above the listing and nothing jumps when it disappears.
   return (
@@ -1693,6 +1696,7 @@ export default function ItemInfoModal({
         >
           <ListingStatus
             loading={showLoading}
+            upgrading={!showLoading && !failedRead && !!result?.upgradePending}
             stale={!showLoading && !failedRead && !!result?.stale}
             cachedAt={!showLoading && !failedRead ? result?.cachedAt : undefined}
           />
