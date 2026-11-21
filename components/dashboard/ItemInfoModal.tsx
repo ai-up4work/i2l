@@ -1071,6 +1071,7 @@ const LOADING_STAGES: { at: number; text: string; bar: number }[] = [
   { at: 8000, text: 'This store is slow — trying another way…', bar: 70 },
   { at: 20000, text: 'Almost there — some stores take up to a minute…', bar: 85 },
   { at: 45000, text: 'Still trying — hang tight…', bar: 92 },
+  { at: 75000, text: 'Asking our backup reader — almost there…', bar: 96 },
 ]
 
 function useLoadingStage(active: boolean) {

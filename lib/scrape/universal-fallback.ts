@@ -324,7 +324,19 @@ export async function scrapeViaUniversalFallback(
     // Never wait longer than the caller has left (maxMs), but at least 3 s.
     const cfg = { ...loaded, timeoutMs: Math.max(3_000, Math.min(loaded.timeoutMs, opts.maxMs ?? loaded.timeoutMs)) }
     if (!isComplete(cfg)) return { url, site, error: 'Universal scraper is not configured' }
-    return await withScrapeCache<ScrapeResult>(url, { kind: 'universal', signal: opts.signal, fresh: opts.fresh }, () => callUniversal(url, site, cfg, opts.signal))
+    const run = withScrapeCache<ScrapeResult>(url, { kind: 'universal', signal: opts.signal, fresh: opts.fresh }, () => callUniversal(url, site, cfg, opts.signal))
+    // Hard stop: whatever happens inside (a stuck DNS lookup, a shared
+    // in-flight call that never settles...), the caller gets an answer
+    // shortly after the time limit instead of waiting forever.
+    let hard: ReturnType<typeof setTimeout> | undefined
+    const stop = new Promise<ScrapeResult>((resolve) => {
+      hard = setTimeout(() => resolve({ url, site, error: `Universal scraper gave no answer within ${Math.round(cfg.timeoutMs / 1000) + 6}s` }), cfg.timeoutMs + 6_000)
+    })
+    try {
+      return await Promise.race([run, stop])
+    } finally {
+      clearTimeout(hard)
+    }
   } catch {
     return { url, site, error: 'Universal scraper request failed' }
   }

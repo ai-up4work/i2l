@@ -38,7 +38,7 @@ function rememberPrice(urls: (string | undefined)[], result: ScrapeResult) {
 // finished but nobody was listening" problem this whole fix is for.
 // Was 300. With LOOKUP_DEADLINE_MS below the lookup always answers well
 // before this; it only needs room for the deadline plus the reply.
-export const maxDuration = 90 // seconds
+export const maxDuration = 150 // seconds: our scraper (60 s) + the universal scraper (60 s) + slack
 
 // FIX: nothing capped a lookup as a whole. Each method (store feed,
 // headless-store check, page fetch, headless browser, paid scrapers) had
@@ -48,11 +48,12 @@ export const maxDuration = 90 // seconds
 // stopped here and the shopper gets the preview / chat screen instead.
 // CHANGED: 70 s -> 60 s. Past this, our own scraper is abandoned and the
 // last-resort universal scraper (lib/scrape/universal-fallback.ts) gets its
-// own short window (UNIVERSAL_SCRAPER_TIMEOUT_MS, default 40 s, always capped to the ~82 s left in the request) — so the worst case is
-// ~75 s (+ shortlink resolve), inside maxDuration (90 s) and the browser's 88 s wait.
-// The whole request (our scraper + the backup) must answer inside this, under
-// maxDuration (90 s) and the browser's 88 s wait.
-const LOOKUP_TOTAL_BUDGET_MS = 82_000
+// own window of up to 1 minute (set in Super Admin > Integrations, capped to
+// what is left of the 135 s request budget) — so the worst case is ~2 min,
+// inside maxDuration (150 s) and the browser's 145 s wait.
+// The whole request (our scraper 60 s + the backup up to 60 s) must answer
+// inside this, under maxDuration (150 s) and the browser's 145 s wait.
+const LOOKUP_TOTAL_BUDGET_MS = 135_000
 const LOOKUP_DEADLINE_MS = Number(process.env.PRODUCT_LOOKUP_DEADLINE_MS) || 60_000
 
 export async function GET(request: Request) {
@@ -230,14 +231,17 @@ export async function GET(request: Request) {
     }
   }
   if (backupReady && !isRetry) {
+    const backupStarted = Date.now()
+    console.log(`[product-lookup] calling universal scraper url=${resolvedUrl} (budget ${Math.round((LOOKUP_TOTAL_BUDGET_MS - (backupStarted - startedAt)) / 1000)}s)`)
     const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), {
       signal: request.signal,
       fresh: rescrape,
-      // Whatever is left of the ~82 s budget (maxDuration is 90 s), so a slow
+      // Whatever is left of the 135 s budget (maxDuration is 150 s), so a slow
       // store read can't push the whole request past the platform limit.
       maxMs: LOOKUP_TOTAL_BUDGET_MS - (Date.now() - startedAt),
     })
     const priced = !backup.error && backup.price != null && Number(backup.price) > 0
+    console.log(`[product-lookup] universal scraper answered in ${Date.now() - backupStarted}ms ${backup.error ? `(error: ${backup.error})` : `(price ${backup.price ?? 'none'}, sizes ${backup.variants?.find((v) => v.dimension === 'Size')?.options.length ?? 0})`}`)
     if (failed && !backup.error) {
       console.log(`[product-lookup] universal fallback OK site=${backup.site ?? 'unknown'} url=${resolvedUrl} (primary: ${scraped.error})`)
       result = backup

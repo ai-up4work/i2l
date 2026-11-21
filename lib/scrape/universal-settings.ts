@@ -47,9 +47,9 @@ export type UniversalSettingsRecord = {
   updatedBy: string | null
 }
 
-export const DEFAULT_TIMEOUT_MS = 40_000
-// The lookup route also caps this to whatever is left of its ~82 s budget
-// (see product-lookup/route.ts), so a high value is safe.
+export const DEFAULT_TIMEOUT_MS = 60_000 // the backup gets one minute
+// The lookup route also caps this to whatever is left of its overall budget
+// (see product-lookup/route.ts).
 export const TIMEOUT_LIMITS = { min: 3_000, max: 60_000 } as const
 
 const EMPTY: UniversalSettings = {
