@@ -195,6 +195,15 @@ export async function GET(request: Request) {
   // store's own password wall).
   let result = scraped
   const failed = fallbackWorthTrying(scraped)
+  // Say WHY the backup didn't run — otherwise a missing env var looks like
+  // "the fallback does nothing".
+  if (failed && !isQaTraffic) {
+    if (!universalFallbackConfigured()) {
+      console.warn('[product-lookup] universal fallback skipped: UNIVERSAL_SCRAPER_BASE_URL / _APP_ID / _TOKEN not set on this server')
+    } else if (searchParams.get('retry') === '1') {
+      console.log('[product-lookup] universal fallback skipped: this is the silent retry (the first attempt already asked it)')
+    }
+  }
   if (!isQaTraffic && searchParams.get('retry') !== '1' && !request.signal.aborted && universalFallbackConfigured() && (failed || isWeakRead(scraped))) {
     const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal })
     const priced = !backup.error && backup.price != null && Number(backup.price) > 0
