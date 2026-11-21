@@ -589,8 +589,8 @@ function HomeItemModal() {
     <div
       className="contents"
       style={{
-        ['--account-header-h-mobile' as string]: `${HEADER_BAR_HEIGHT_MOBILE}px`,
-        ['--account-header-h-desktop' as string]: `${HEADER_BAR_HEIGHT_DESKTOP}px`,
+        ['--account-header-h-mobile' as string]: `calc(${HEADER_BAR_HEIGHT_MOBILE}px + env(titlebar-area-height, 0px))`,
+        ['--account-header-h-desktop' as string]: `calc(${HEADER_BAR_HEIGHT_DESKTOP}px + env(titlebar-area-height, 0px))`,
       }}
     >
       <ItemInfoModal

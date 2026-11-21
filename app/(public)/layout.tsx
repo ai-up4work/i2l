@@ -56,7 +56,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
 
       {/* paddingTop is measured live from the actual <header> element above,
           so this stays correct regardless of Header's internal height. */}
-      <div style={{ paddingTop: headerOffset || undefined }}>{children}</div>
+      <div style={{ paddingTop: headerOffset ? `calc(${headerOffset}px + env(titlebar-area-height, 0px))` : undefined }}>{children}</div>
 
       <Footer />
 

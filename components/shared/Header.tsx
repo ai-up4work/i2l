@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, type CSSProperties } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { revealChrome, useHideOnScroll } from "@/hooks/useHideOnScroll"
 import {
@@ -372,8 +372,18 @@ export default function Header({
 
   return (
     <>
+      {/* Installed app with the title bar merged into the page (window-controls
+          overlay): a full-width blue bar fills that strip — the window buttons
+          sit on it — and the header (envelope stripe first) starts right below.
+          Zero height everywhere else. Dragging it moves the window. */}
+      <div
+        aria-hidden="true"
+        className="fixed left-0 top-0 z-[60] w-full bg-indigo"
+        style={{ height: "env(titlebar-area-height, 0px)", WebkitAppRegion: "drag", appRegion: "drag" } as CSSProperties}
+      />
       <header
-        className={`fixed top-0 left-0 w-full z-50 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+        style={{ top: "env(titlebar-area-height, 0px)" }}
+        className={`fixed left-0 w-full z-50 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
           chromeHidden ? "max-lg:-translate-y-full" : ""
         }`}
       >

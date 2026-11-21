@@ -179,8 +179,8 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           chromeHidden ? 'pt-0' : 'pt-[var(--account-header-h-mobile)]'
         }`}
         style={{
-          ['--account-header-h-mobile' as string]: `${effectiveHeaderHeightMobile}px`,
-          ['--account-header-h-desktop' as string]: `${effectiveHeaderHeightDesktop}px`,
+          ['--account-header-h-mobile' as string]: `calc(${effectiveHeaderHeightMobile}px + env(titlebar-area-height, 0px))`,
+          ['--account-header-h-desktop' as string]: `calc(${effectiveHeaderHeightDesktop}px + env(titlebar-area-height, 0px))`,
         }}
       >
         <Sidebar
