@@ -197,14 +197,19 @@ export async function GET(request: Request) {
   const failed = fallbackWorthTrying(scraped)
   // Say WHY the backup didn't run — otherwise a missing env var looks like
   // "the fallback does nothing".
+  const wantsBackup = failed || isWeakRead(scraped)
+  const isRetry = searchParams.get('retry') === '1'
+  // Settings are read only now, when the backup might actually be used (one
+  // in-process cached read; Redis at most every ~15 s).
+  const backupReady = wantsBackup && !isQaTraffic && !request.signal.aborted && (await universalFallbackConfigured())
   if (failed && !isQaTraffic) {
-    if (!universalFallbackConfigured()) {
-      console.warn('[product-lookup] universal fallback skipped: UNIVERSAL_SCRAPER_BASE_URL / _APP_ID / _TOKEN not set on this server')
-    } else if (searchParams.get('retry') === '1') {
+    if (!backupReady && !request.signal.aborted) {
+      console.warn('[product-lookup] universal fallback skipped: not set up or switched off (Super Admin > Integrations, or UNIVERSAL_SCRAPER_* env)')
+    } else if (isRetry) {
       console.log('[product-lookup] universal fallback skipped: this is the silent retry (the first attempt already asked it)')
     }
   }
-  if (!isQaTraffic && searchParams.get('retry') !== '1' && !request.signal.aborted && universalFallbackConfigured() && (failed || isWeakRead(scraped))) {
+  if (backupReady && !isRetry) {
     const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal })
     const priced = !backup.error && backup.price != null && Number(backup.price) > 0
     if (failed && !backup.error) {

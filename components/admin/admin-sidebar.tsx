@@ -219,7 +219,6 @@ function getGroups(role: Role): Group[] {
           href: "/admin/super-admin/settings/integrations",
           icon: Plug,
           roles: ["super_admin"],
-          locked: true,
         },
         {
           label: "Payment gateway",

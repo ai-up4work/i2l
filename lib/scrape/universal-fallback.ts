@@ -11,16 +11,11 @@
 //   x-app-id: {UNIVERSAL_SCRAPER_APP_ID}
 //   body: { "source": "from_url", "product_url": "<link>" }
 //
-// ENV (all server-side; nothing here ever reaches the browser):
-//   UNIVERSAL_SCRAPER_BASE_URL   the provider origin, e.g. https://api.example.com
-//   UNIVERSAL_SCRAPER_APP_ID     the app id in the path / x-app-id header
-//   UNIVERSAL_SCRAPER_TOKEN      bearer token (never logged, never in errors)
-//   UNIVERSAL_SCRAPER_ORIGIN     optional; Origin/Referer the API expects.
-//                                Defaults to BASE_URL.
-//   UNIVERSAL_SCRAPER_TIMEOUT_MS optional; default 15000
-//   UNIVERSAL_SCRAPER_TRUST_PRICE=0  optional; turns OFF "Trust" below
-//   UNIVERSAL_SCRAPER_DEBUG=1    optional; logs the response's key names
-//                                (never values) to help tune the mapper
+// SETTINGS: saved by a Super Admin at /admin/super-admin/settings/integrations
+// and kept in Redis (lib/scrape/universal-settings.ts); the old
+// UNIVERSAL_SCRAPER_* environment variables still work as a fallback.
+// Nothing here ever reaches the browser. Optional env:
+//   UNIVERSAL_SCRAPER_DEBUG=1    logs the response's key names (never values)
 //
 // Response (confirmed from real calls): { success, action, isCart, products: [{
 //   product_name, product_image_url, product_store, brand, product_url,
@@ -33,18 +28,21 @@
 // price + delivered-price breakdown, ItemInfoModal's universal view). It is
 // still third-party data, so it is NEVER stored as a price observation and
 // checkout never prices off it — checkout re-reads the link itself and flags
-// the order for staff when it can't confirm. Set UNIVERSAL_SCRAPER_TRUST_PRICE=0
-// to show backup results as a preview ("we'll confirm the price") instead.
+// the order for staff when it can't confirm. Turn "trust price" off in the
+// settings page to show backup results as a preview ("we'll confirm the
+// price") instead.
 
 import { withScrapeCache } from '@/lib/scrape/result-cache'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
 import { getStoreIdentity } from '@/lib/scrape/store-identity'
+import { isComplete, loadUniversalSettings, type UniversalSettings } from '@/lib/scrape/universal-settings'
 
-const DEFAULT_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_CHARS = 1_500_000
 
-export const universalFallbackConfigured = () =>
-  !!(process.env.UNIVERSAL_SCRAPER_BASE_URL && process.env.UNIVERSAL_SCRAPER_APP_ID && process.env.UNIVERSAL_SCRAPER_TOKEN)
+/** True when the backup is switched on and fully set up (Redis, else env). */
+export async function universalFallbackConfigured(): Promise<boolean> {
+  return isComplete((await loadUniversalSettings()).settings)
+}
 
 /** Errors where asking another scraper can't help (bad link, merchant's own
  *  password wall, client hung up). */
@@ -163,7 +161,7 @@ function buildVariants(o: Json, currency: string | null): NonNullable<ScrapeResu
   return dims
 }
 
-export function mapUniversalResponse(body: unknown, url: string, site: ScrapeResult['site']): ScrapeResult {
+export function mapUniversalResponse(body: unknown, url: string, site: ScrapeResult['site'], trustPrice = true): ScrapeResult {
   const o = unwrap(body)
   const title = str(pick(o, ['product_name', 'title', 'productName', 'name', 'product_title']))
   const priceField = pick(o, ['unit_price_inr', 'price', 'selling_price', 'sellingPrice', 'sale_price', 'salePrice', 'final_price', 'current_price', 'price_inr'])
@@ -178,7 +176,7 @@ export function mapUniversalResponse(body: unknown, url: string, site: ScrapeRes
     return { url, site, error: 'Universal scraper returned no usable product data' }
   }
 
-  const trust = process.env.UNIVERSAL_SCRAPER_TRUST_PRICE !== '0' && !!p.amount && !!currency
+  const trust = trustPrice && !!p.amount && !!currency
   const variants = buildVariants(o, currency ? currency.toUpperCase() : null)
   const inStockRaw = pick(o, ['in_stock', 'inStock', 'available', 'availability'])
   const unavailable = inStockRaw === false || (typeof inStockRaw === 'string' && /out of stock|unavailable|sold out/i.test(inStockRaw))
@@ -210,14 +208,20 @@ export function mapUniversalResponse(body: unknown, url: string, site: ScrapeRes
 
 // ── the call ──────────────────────────────────────────────────────────────
 
-async function callUniversal(url: string, site: ScrapeResult['site'], signal?: AbortSignal): Promise<ScrapeResult> {
-  const base = (process.env.UNIVERSAL_SCRAPER_BASE_URL ?? '').replace(/\/+$/, '')
-  const appId = process.env.UNIVERSAL_SCRAPER_APP_ID ?? ''
-  const token = process.env.UNIVERSAL_SCRAPER_TOKEN ?? ''
+async function callUniversal(
+  url: string,
+  site: ScrapeResult['site'],
+  cfg: UniversalSettings,
+  signal?: AbortSignal,
+  opts: { skipIdentity?: boolean } = {},
+): Promise<ScrapeResult> {
+  const base = cfg.baseUrl.replace(/\/+$/, '')
+  const appId = cfg.appId
+  const token = cfg.token
   if (!base || !appId || !token) return { url, site, error: 'Universal scraper is not configured' }
 
-  const origin = (process.env.UNIVERSAL_SCRAPER_ORIGIN || base).replace(/\/+$/, '')
-  const timeoutMs = Number(process.env.UNIVERSAL_SCRAPER_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
+  const origin = (cfg.origin || base).replace(/\/+$/, '')
+  const timeoutMs = cfg.timeoutMs
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -270,7 +274,8 @@ async function callUniversal(url: string, site: ScrapeResult['site'], signal?: A
       return { url, site, error: `Universal scraper error: ${String(json.error ?? json.message ?? 'unknown').slice(0, 200)}` }
     }
 
-    const mapped = mapUniversalResponse(json, url, site)
+    const mapped = mapUniversalResponse(json, url, site, cfg.trustPrice)
+    if (opts.skipIdentity) return mapped
     if (mapped.error) return mapped
 
     // The store's own favicon (and a name when the API gave none) for the
@@ -314,10 +319,24 @@ export async function scrapeViaUniversalFallback(
   site: ScrapeResult['site'],
   opts: { signal?: AbortSignal } = {},
 ): Promise<ScrapeResult> {
-  if (!universalFallbackConfigured()) return { url, site, error: 'Universal scraper is not configured' }
   try {
-    return await withScrapeCache<ScrapeResult>(url, { kind: 'universal', signal: opts.signal }, () => callUniversal(url, site, opts.signal))
+    const cfg = (await loadUniversalSettings()).settings
+    if (!isComplete(cfg)) return { url, site, error: 'Universal scraper is not configured' }
+    return await withScrapeCache<ScrapeResult>(url, { kind: 'universal', signal: opts.signal }, () => callUniversal(url, site, cfg, opts.signal))
   } catch {
     return { url, site, error: 'Universal scraper request failed' }
+  }
+}
+
+/**
+ * Admin "Test connection": one uncached call with exactly these settings
+ * (possibly not yet saved). Returns what the API said, including the HTTP
+ * status — only ever shown to a Super Admin.
+ */
+export async function testUniversalConnection(cfg: UniversalSettings, url: string): Promise<ScrapeResult> {
+  try {
+    return await callUniversal(url, null, { ...cfg, enabled: true }, undefined, { skipIdentity: true })
+  } catch {
+    return { url, site: null, error: 'Universal scraper request failed' }
   }
 }

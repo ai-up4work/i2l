@@ -3,18 +3,16 @@
 When our own scraper times out (60 s) or fails in `/api/product-lookup`, the link is sent to an external
 "kkEnrichQuote" API (lib/scrape/universal-fallback.ts). Not configured = feature is off.
 
-Env (server only):
+## Settings (Super Admin -> Integrations)
 
-| Var | Required | Notes |
-|---|---|---|
-| UNIVERSAL_SCRAPER_BASE_URL | yes | the provider origin, e.g. https://api.example.com |
-| UNIVERSAL_SCRAPER_APP_ID | yes | path + `x-app-id` header |
-| UNIVERSAL_SCRAPER_TOKEN | yes | bearer token; expires -> 401/403 shows in logs |
-| UNIVERSAL_SCRAPER_ORIGIN | no | Origin/Referer sent; defaults to BASE_URL |
-| UNIVERSAL_SCRAPER_TIMEOUT_MS | no | default 15000 |
-| UNIVERSAL_SCRAPER_TRUST_PRICE | no | default on: a backup result with a price shows as a normal priced listing. `0` = preview only ("we will confirm the price") |
-| UNIVERSAL_SCRAPER_DEBUG | no | `1` logs response key names to tune the mapper |
-| PRODUCT_LOOKUP_DEADLINE_MS | no | our scraper's budget, default 60000 |
+`/admin/super-admin/settings/integrations` (Super Admin only). Saved in **Redis** (`WISH_DROP_REDIS_URL`) under
+`wd:settings:universal-scraper`; a change applies to new lookups within ~15 s, no redeploy.
+
+- Fields: on/off, base URL (https), app ID, bearer token, optional origin, time limit (3-20 s), trust price.
+- The token is encrypted (AES-256-GCM, key derived from `SUPABASE_SERVICE_ROLE_KEY`) before it goes into Redis and is never sent to the browser (the page only shows "ends ...1234"). If the service-role key is rotated, the saved token reads as "not set" - just enter it again.
+- "Test connection" makes one live call with the form's values, nothing stored.
+- Saves and clears are written to the audit log (never the token).
+- Env fallback (used only when nothing is saved in Redis): `UNIVERSAL_SCRAPER_BASE_URL`, `_APP_ID`, `_TOKEN`, `_ORIGIN`, `_TIMEOUT_MS`, `_TRUST_PRICE=0`. `UNIVERSAL_SCRAPER_DEBUG=1` logs response key names.
 
 Backup results are never stored as price observations, never used by checkout pricing, and never counted as a scrape-health success.
 
