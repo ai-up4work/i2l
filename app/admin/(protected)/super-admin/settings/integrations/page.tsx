@@ -63,7 +63,7 @@ export default function IntegrationsPage() {
   const [appId, setAppId] = useState('')
   const [token, setToken] = useState('')
   const [origin, setOrigin] = useState('')
-  const [timeoutSec, setTimeoutSec] = useState(15)
+  const [timeoutSec, setTimeoutSec] = useState(40)
   const [trustPrice, setTrustPrice] = useState(true)
   const [testUrl, setTestUrl] = useState('')
 
@@ -247,7 +247,7 @@ export default function IntegrationsPage() {
             <FieldLabel label="Origin (optional)" hint="Sent as Origin / Referer. Leave empty to use the base URL.">
               <input className={input} value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="https://…" autoComplete="off" spellCheck={false} />
             </FieldLabel>
-            <FieldLabel label="Time limit (seconds)" hint={`${view.timeoutLimits.min / 1000}–${view.timeoutLimits.max / 1000} s. Our own scraper gets 60 s first.`}>
+            <FieldLabel label="Time limit (seconds)" hint={`${view.timeoutLimits.min / 1000}–${view.timeoutLimits.max / 1000} s. A whole lookup is capped at about 82 s, so after a slow scrape of our own it gets whatever is left.`}>
               <input
                 className={input}
                 type="number"

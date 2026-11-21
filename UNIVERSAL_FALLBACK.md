@@ -8,7 +8,7 @@ When our own scraper times out (60 s) or fails in `/api/product-lookup`, the lin
 `/admin/super-admin/settings/integrations` (Super Admin only). Saved in **Redis** (`WISH_DROP_REDIS_URL`) under
 `wd:settings:universal-scraper`; a change applies to new lookups within ~15 s, no redeploy.
 
-- Fields: on/off, base URL (https), app ID, bearer token, optional origin, time limit (3-20 s), trust price.
+- Fields: on/off, base URL (https), app ID, bearer token, optional origin, time limit (3-60 s, default 40; capped to what is left of the ~82 s request budget), trust price.
 - The token is encrypted (AES-256-GCM, key derived from `SUPABASE_SERVICE_ROLE_KEY`) before it goes into Redis and is never sent to the browser (the page only shows "ends ...1234"). If the service-role key is rotated, the saved token reads as "not set" - just enter it again.
 - "Test connection" makes one live call with the form's values, nothing stored.
 - Saves and clears are written to the audit log (never the token).

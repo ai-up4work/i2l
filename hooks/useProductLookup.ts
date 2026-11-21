@@ -17,7 +17,7 @@ const RETRY_DELAY_MS = 5000
 const QUICK_FAILURE_MS = 15_000
 // The server answers within ~75-80 s: our scraper gets 60 s
 // (PRODUCT_LOOKUP_DEADLINE_MS in app/api/product-lookup/route.ts), then the
-// universal fallback up to 15 s. If nothing has come back by this point
+// universal fallback for whatever is left (default up to 40 s). If nothing has come back by this point
 // (just under the route's 90 s maxDuration), stop waiting and show the
 // preview / chat screen.
 const CLIENT_TIMEOUT_MS = 88_000

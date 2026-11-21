@@ -317,10 +317,12 @@ async function callUniversal(
 export async function scrapeViaUniversalFallback(
   url: string,
   site: ScrapeResult['site'],
-  opts: { signal?: AbortSignal; fresh?: boolean } = {},
+  opts: { signal?: AbortSignal; fresh?: boolean; maxMs?: number } = {},
 ): Promise<ScrapeResult> {
   try {
-    const cfg = (await loadUniversalSettings()).settings
+    const loaded = (await loadUniversalSettings()).settings
+    // Never wait longer than the caller has left (maxMs), but at least 3 s.
+    const cfg = { ...loaded, timeoutMs: Math.max(3_000, Math.min(loaded.timeoutMs, opts.maxMs ?? loaded.timeoutMs)) }
     if (!isComplete(cfg)) return { url, site, error: 'Universal scraper is not configured' }
     return await withScrapeCache<ScrapeResult>(url, { kind: 'universal', signal: opts.signal, fresh: opts.fresh }, () => callUniversal(url, site, cfg, opts.signal))
   } catch {

@@ -48,11 +48,15 @@ export const maxDuration = 90 // seconds
 // stopped here and the shopper gets the preview / chat screen instead.
 // CHANGED: 70 s -> 60 s. Past this, our own scraper is abandoned and the
 // last-resort universal scraper (lib/scrape/universal-fallback.ts) gets its
-// own short window (UNIVERSAL_SCRAPER_TIMEOUT_MS, 15 s) — so the worst case is
+// own short window (UNIVERSAL_SCRAPER_TIMEOUT_MS, default 40 s, always capped to the ~82 s left in the request) — so the worst case is
 // ~75 s (+ shortlink resolve), inside maxDuration (90 s) and the browser's 88 s wait.
+// The whole request (our scraper + the backup) must answer inside this, under
+// maxDuration (90 s) and the browser's 88 s wait.
+const LOOKUP_TOTAL_BUDGET_MS = 82_000
 const LOOKUP_DEADLINE_MS = Number(process.env.PRODUCT_LOOKUP_DEADLINE_MS) || 60_000
 
 export async function GET(request: Request) {
+  const startedAt = Date.now()
   const { searchParams } = new URL(request.url)
   const url = searchParams.get('url')
   const needVariants = searchParams.get('needVariants') === 'true'
@@ -226,7 +230,13 @@ export async function GET(request: Request) {
     }
   }
   if (backupReady && !isRetry) {
-    const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal, fresh: rescrape })
+    const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), {
+      signal: request.signal,
+      fresh: rescrape,
+      // Whatever is left of the ~82 s budget (maxDuration is 90 s), so a slow
+      // store read can't push the whole request past the platform limit.
+      maxMs: LOOKUP_TOTAL_BUDGET_MS - (Date.now() - startedAt),
+    })
     const priced = !backup.error && backup.price != null && Number(backup.price) > 0
     if (failed && !backup.error) {
       console.log(`[product-lookup] universal fallback OK site=${backup.site ?? 'unknown'} url=${resolvedUrl} (primary: ${scraped.error})`)
