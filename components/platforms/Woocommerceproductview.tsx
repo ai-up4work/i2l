@@ -348,9 +348,16 @@ export default function WooCommerceProductView({
   onRequestReview,
   loading,
   canAct,
+  onSelectionChange,
 }: PlatformViewProps) {
   const images = result.images ?? []
   const [selectedByDimension, setSelectedByDimension] = useState<Record<string, string>>({})
+  // Read by the backup (universal) scraper: its sizes / colours are often
+  // missing, so every choice here is OPTIONAL — tiles when it gave options
+  // (tap again to clear), a free-text box when it didn't — and whatever the
+  // shopper picks or types is reported up for the cart line / quote.
+  const isUniversal = result.source === 'universal_fallback'
+  const [typed, setTyped] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const initial: Record<string, string> = {}
@@ -359,7 +366,29 @@ export default function WooCommerceProductView({
       if (selectedOpt) initial[dim.dimension] = selectedOpt.label
     }
     setSelectedByDimension(initial)
+    setTyped({})
   }, [result.url, result.variants])
+
+  const hasDim = (re: RegExp) => !!result.variants?.some((d) => re.test(d.dimension))
+  const typedFields = isUniversal
+    ? [
+        ...(hasDim(/size/i) ? [] : [{ key: 'Size', label: 'Size', placeholder: 'e.g. M, XL, 32' }]),
+        ...(hasDim(/colou?r/i) ? [] : [{ key: 'Color', label: 'Colour', placeholder: 'e.g. Navy blue' }]),
+        { key: 'Other', label: 'Anything else', placeholder: 'e.g. style, pack of 2, left/right' },
+      ]
+    : []
+
+  const selectionKey = JSON.stringify([selectedByDimension, typed])
+  useEffect(() => {
+    if (!isUniversal || !onSelectionChange) return
+    const merged: Record<string, string> = {}
+    for (const [k, v] of Object.entries({ ...selectedByDimension, ...typed })) {
+      const t = v.trim().slice(0, 80)
+      if (t) merged[k] = t
+    }
+    onSelectionChange(merged)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUniversal, selectionKey])
 
   // Delivered price (freight, clearance, delivery, weight) — see LandedPrice.tsx.
   const { price, mrp } = useLandedPrice(result)
@@ -437,9 +466,41 @@ export default function WooCommerceProductView({
                   key={dim.dimension}
                   dim={dim}
                   selectedLabel={selectedByDimension[dim.dimension] ?? null}
-                  onPick={(label) => setSelectedByDimension((prev) => ({ ...prev, [dim.dimension]: label }))}
+                  onPick={(label) =>
+                    setSelectedByDimension((prev) => {
+                      // Backup-scraper options are optional: tap again to clear.
+                      if (isUniversal && prev[dim.dimension] === label) {
+                        const { [dim.dimension]: _drop, ...rest } = prev
+                        return rest
+                      }
+                      return { ...prev, [dim.dimension]: label }
+                    })
+                  }
                 />
               ))}
+            </div>
+          )}
+
+          {typedFields.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-ink/45">
+                Your choices <span className="font-semibold normal-case tracking-normal text-ink/40">— optional, helps our team pick the right one</span>
+              </p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {typedFields.map((f) => (
+                  <label key={f.key} className={f.key === 'Other' ? 'sm:col-span-2' : ''}>
+                    <span className="mb-1 block text-xs font-semibold text-ink/55">{f.label}</span>
+                    <input
+                      value={typed[f.key] ?? ''}
+                      onChange={(e) => setTyped((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      maxLength={80}
+                      placeholder={f.placeholder}
+                      autoComplete="off"
+                      className="w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink/35 focus:border-teal/60 focus:ring-2 focus:ring-teal/10"
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
           )}
 
