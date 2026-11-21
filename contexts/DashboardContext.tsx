@@ -119,6 +119,8 @@ type DashboardContextValue = {
   confirmRequest: (opts?: { itemName?: string; photoUrl?: string; chat?: boolean }) => Promise<ConfirmResult>
   setDeliveryChoice: (choice: 'economy' | 'express') => void
   selectVariant: (url: string) => Promise<void>
+  /** "Try loading again": re-runs the whole lookup for the current link, skipping caches. */
+  rescrape: () => Promise<void>
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null)
@@ -321,6 +323,31 @@ export function DashboardProvider({
     },
     [lookup, onInternalRedirect, router],
   )
+
+  const rescrape = useCallback(async () => {
+    const url = (latestUrlRef.current || draft.url || '').trim()
+    if (!url) return
+    latestUrlRef.current = url
+    const product = await lookup(
+      url,
+      (live) => {
+        if (latestUrlRef.current !== url || live.error) return
+        setDraft((current) => applyScrapeResultToDraft(current, live))
+      },
+      { rescrape: true },
+    )
+    if (product?.internalRedirect && latestUrlRef.current === url) {
+      if (onInternalRedirect) onInternalRedirect(product.internalRedirect)
+      else {
+        setModalOpen(false)
+        router.push(product.internalRedirect)
+      }
+      return
+    }
+    if (!product || product.error) return
+    setDraft((current) => applyScrapeResultToDraft(current, product))
+    setAutoFilled(true)
+  }, [lookup, draft.url, onInternalRedirect, router])
 
   const startItemInfo = useCallback(
     async (event: FormEvent) => {
@@ -537,6 +564,7 @@ export function DashboardProvider({
       confirmRequest,
       setDeliveryChoice,
       selectVariant,
+      rescrape,
     }),
     [
       draft,
@@ -555,6 +583,7 @@ export function DashboardProvider({
       confirmRequest,
       setDeliveryChoice,
       selectVariant,
+      rescrape,
     ],
   )
 

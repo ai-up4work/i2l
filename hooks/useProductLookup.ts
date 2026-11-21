@@ -26,10 +26,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchProductLookup(url: string, refresh = false, fresh = false, retry = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
+async function fetchProductLookup(url: string, refresh = false, fresh = false, retry = false, rescrape = false): Promise<{ ok: boolean; data: ScrapeResult | null }> {
   try {
     // `fresh`: the scraper QA page only (staff) — skip the server cache.
-    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}${fresh ? '&fresh=1' : ''}${retry ? '&retry=1' : ''}`, {
+    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}${refresh ? '&refresh=1' : ''}${fresh ? '&fresh=1' : ''}${retry ? '&retry=1' : ''}${rescrape ? '&rescrape=1' : ''}`, {
       signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
     })
     const data = (await res.json().catch(() => null)) as ScrapeResult | null
@@ -117,7 +117,10 @@ export function useProductLookup(options: { fresh?: boolean } = {}) {
    * `result`) — callers use it to update anything they filled in from the
    * older copy.
    */
-  const lookup = useCallback(async (url: string, onRefreshed?: (fresh: ScrapeResult) => void): Promise<ScrapeResult | null> => {
+  const lookup = useCallback(async (url: string, onRefreshed?: (fresh: ScrapeResult) => void, opts: { rescrape?: boolean } = {}): Promise<ScrapeResult | null> => {
+    // rescrape: the shopper pressed "Try loading again" — skip every cache
+    // and run the whole chain (our scraper, then the universal one) again.
+    const rescrape = !!opts.rescrape
     const myGeneration = ++generation.current
     setLoading(true)
     setError(null)
@@ -138,12 +141,12 @@ export function useProductLookup(options: { fresh?: boolean } = {}) {
     setResult(null)
 
     const startedAt = Date.now()
-    let attempt = await fetchProductLookup(url, false, freshRef.current)
+    let attempt = await fetchProductLookup(url, false, freshRef.current, false, rescrape)
     // FIX: this used to retry whenever the reply had no body, however long
     // it took. When Vercel cut a lookup off at its 300 s limit the reply
     // wasn't JSON, so the whole 300 s chain ran a second time — the
     // 5–10 minute waits. Only a failure that came back quickly is retried.
-    if (!attempt.ok && Date.now() - startedAt < QUICK_FAILURE_MS) {
+    if (!rescrape && !attempt.ok && Date.now() - startedAt < QUICK_FAILURE_MS) {
       await sleep(RETRY_DELAY_MS)
       if (generation.current !== myGeneration) return null
       // retry=1: the server skips the universal scraper this time — the first
@@ -154,7 +157,7 @@ export function useProductLookup(options: { fresh?: boolean } = {}) {
 
     if (attempt.ok && attempt.data) {
       const data = attempt.data
-      if (data.stale) {
+      if (data.stale && !rescrape) {
         // FAST: an older copy (1–24h) — show it now, get the live one
         // behind it. The item screen shows "Updating price…" meanwhile.
         void fetchProductLookup(url, true, freshRef.current).then((live) => {

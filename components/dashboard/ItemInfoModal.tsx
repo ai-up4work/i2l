@@ -1014,11 +1014,12 @@ function UnreadPriceEstimate({ initialPriceINR }: { initialPriceINR?: number | n
 function GenericProductView(
   props: Parameters<typeof AmazonProductView>[0] & {
     onGoToChat: () => void
+    onRetry?: () => void
     submitting: boolean
     submitError: string | null
   },
 ) {
-  const { result, qty, onQtyChange, onGoToChat, loading, canAct, submitting, submitError } = props
+  const { result, qty, onQtyChange, onGoToChat, onRetry, loading, canAct, submitting, submitError } = props
   const hostname = hostnameFromUrl(result.url)
   // The store's own price, clearly labelled — this view isn't priced by us
   // (the team confirms the final price in chat), so no rupee conversion.
@@ -1053,6 +1054,10 @@ function GenericProductView(
       loadingLabel={submitting ? 'STARTING CHAT…' : 'LOADING…'}
       unavailable={result.unavailable}
       submitError={submitError}
+      // A partial read (title/photo only, price unconfirmed): let the
+      // shopper try the full lookup again.
+      onRetry={onRetry}
+      retryDisabled={!!submitting || !!loading}
     />
   )
 }
@@ -1313,7 +1318,7 @@ function UnreadableListingFallback({
       unavailable={false}
       submitError={submitError}
       onRetry={onRetry}
-      retryDisabled={!!submitting}
+      retryDisabled={!!submitting || !!loading}
     />
   )
 }
@@ -1552,6 +1557,7 @@ export default function ItemInfoModal({
         // Every named/branded view below ignores these three, same as
         // it already ignores any other prop it doesn't destructure.
         onGoToChat: handleStartChat,
+        onRetry,
         submitting,
         submitError,
         loading,

@@ -50,6 +50,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
     autoFilled,
     scrapeResult,
     selectVariant,
+    rescrape,
     resetDraft,
     pastedLink: link,
     setPastedLink: setLink,
@@ -267,6 +268,7 @@ function AccountShell({ children }: { children: React.ReactNode }) {
           onSelectVariant={(url) => {
             if (url) selectVariant(url)
           }}
+          onRetry={() => void rescrape()}
         />
 
         {/* Support chat — same widget as the public site (PublicLayout),

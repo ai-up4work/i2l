@@ -566,6 +566,7 @@ function HomeItemModal() {
     lookupLoading,
     scrapeResult,
     selectVariant,
+    rescrape,
   } = useDashboard()
 
   // FIX: this used to be `if (!modalOpen) return null`, which unmounted
@@ -604,6 +605,7 @@ function HomeItemModal() {
         onSelectVariant={(url) => {
           if (url) selectVariant(url)
         }}
+        onRetry={() => void rescrape()}
       />
     </div>
   )

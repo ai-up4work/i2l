@@ -26,6 +26,7 @@ export default function ProductRequestOverlay({
     lookupLoading,
     scrapeResult,
     selectVariant,
+    rescrape,
     beginRequestForUrl,
   } = useDashboard()
 
@@ -53,12 +54,9 @@ export default function ProductRequestOverlay({
       onSelectVariant={(url) => {
         if (url) selectVariant(url)
       }}
-      // Re-runs the whole lookup (retry-after-5s + OG fallback) for the
-      // same URL — only shown once that chain already ran once and came
-      // up completely empty (see UnreadableListingFallback).
-      onRetry={() => {
-        if (draft.url) beginRequestForUrl(draft.url)
-      }}
+      // "Try loading again": re-runs the whole lookup (our scraper, then the
+      // universal one) for the same link, skipping caches.
+      onRetry={() => void rescrape()}
     />
   )
-}
+}

@@ -161,7 +161,11 @@ export async function GET(request: Request) {
   // there to receive the result.
   // `refresh=1` is the item screen asking for the live result after it was
   // shown an older copy (see `allowStale` in lib/scrape/result-cache.ts).
-  const allowStale = !isQaTraffic && searchParams.get('refresh') !== '1'
+  // rescrape=1: the shopper pressed "Try loading again" — bypass the 1-hour
+  // cache (ours and the backup's) and never serve an older copy. Open to
+  // everyone (unlike fresh=1); the per-IP rate limit above caps the cost.
+  const rescrape = searchParams.get('rescrape') === '1'
+  const allowStale = !isQaTraffic && !rescrape && searchParams.get('refresh') !== '1'
   const stop = new AbortController()
   const onClientGone = () => stop.abort()
   if (request.signal.aborted) stop.abort()
@@ -178,7 +182,7 @@ export async function GET(request: Request) {
     }, LOOKUP_DEADLINE_MS)
   })
   const scraped = await Promise.race([
-    scrapeProduct(resolvedUrl, { needVariants, signal: stop.signal, fresh: freshRead, allowStale: allowStale && !freshRead }),
+    scrapeProduct(resolvedUrl, { needVariants, signal: stop.signal, fresh: freshRead || rescrape, allowStale: allowStale && !freshRead }),
     deadline,
   ]).finally(() => {
     clearTimeout(deadlineTimer)
@@ -202,7 +206,7 @@ export async function GET(request: Request) {
   // Settings are read only now, when the backup might actually be used (one
   // in-process cached read; Redis at most every ~15 s).
   const backupReady = wantsBackup && !isQaTraffic && !request.signal.aborted && (await universalFallbackConfigured())
-  if (failed && !isQaTraffic) {
+  if (wantsBackup && !isQaTraffic) {
     if (!backupReady && !request.signal.aborted) {
       console.warn('[product-lookup] universal fallback skipped: not set up or switched off (Super Admin > Integrations, or UNIVERSAL_SCRAPER_* env)')
     } else if (isRetry) {
@@ -210,7 +214,7 @@ export async function GET(request: Request) {
     }
   }
   if (backupReady && !isRetry) {
-    const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal })
+    const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), { signal: request.signal, fresh: rescrape })
     const priced = !backup.error && backup.price != null && Number(backup.price) > 0
     if (failed && !backup.error) {
       console.log(`[product-lookup] universal fallback OK site=${backup.site ?? 'unknown'} url=${resolvedUrl} (primary: ${scraped.error})`)
@@ -223,6 +227,10 @@ export async function GET(request: Request) {
     } else if (priced) {
       console.log(`[product-lookup] universal fallback upgraded weak read site=${scraped.site} url=${resolvedUrl}`)
       result = mergeWeakRead(scraped, backup)
+    } else {
+      // A weak read the backup couldn't improve: say why, or it looks like
+      // the backup did nothing (expired token, no price in its answer, ...).
+      console.warn(`[product-lookup] universal fallback could not upgrade weak read url=${resolvedUrl} — ${backup.error ?? 'its answer had no price'}`)
     }
     // Weak read + backup had nothing better: keep our own result untouched.
   }
