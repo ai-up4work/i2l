@@ -78,6 +78,29 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'That link can’t be looked up.' }, { status: 400 })
   }
 
+  // upgrade=1: the browser already has our quick (weak) read on screen and is
+  // asking the backup reader for sizes and an exact price in the background.
+  // Backup only — our own scraper is not run again. Answers
+  // { upgrade: <priced result> } or { upgrade: null }; the reason it failed
+  // stays in the server log (the browser must learn nothing about the backup).
+  if (searchParams.get('upgrade') === '1') {
+    if (await isRateLimited(request, 'product-upgrade', 40, 10 * 60)) {
+      return NextResponse.json({ upgrade: null }, { status: 429, headers: { 'Retry-After': '600' } })
+    }
+    if (!(await universalFallbackConfigured())) return NextResponse.json({ upgrade: null })
+    const target = looksLikeShortlink(url) ? await resolveFinalUrl(url) : url
+    if (target !== url && !(await isPublicHttpUrl(target))) return NextResponse.json({ upgrade: null })
+    const upStarted = Date.now()
+    const backup = await scrapeViaUniversalFallback(target, detectSite(target), {
+      signal: request.signal,
+      fresh: searchParams.get('rescrape') === '1',
+      maxMs: LOOKUP_TOTAL_BUDGET_MS,
+    })
+    const priced = !backup.error && backup.price != null && Number(backup.price) > 0
+    console.log(`[product-lookup] background upgrade answered in ${Date.now() - upStarted}ms url=${target} ${backup.error ? `(error: ${backup.error})` : `(price ${backup.price ?? 'none'})`}`)
+    return NextResponse.json({ upgrade: priced ? backup : null })
+  }
+
   // Internal QA testing traffic (app/demo/scraper-qa) sends this header
   // (see ScraperQaClient's attemptLookup). It is excluded from Scrape
   // health, AND it must never take the affiliated-seller shortcut below:
@@ -230,7 +253,17 @@ export async function GET(request: Request) {
       console.log('[product-lookup] universal fallback skipped: this is the silent retry (the first attempt already asked it)')
     }
   }
-  if (backupReady && !isRetry) {
+  // A WEAK read (not a failure) is shown straight away; the backup reader is
+  // asked by the browser in the background (upgrade=1 above) so the shopper
+  // isn't kept waiting up to a minute for sizes. Failures stay blocking — the
+  // backup is the only way to get anything on screen then. Staff QA/fresh
+  // traffic stays blocking too so its timings are real.
+  const deferUpgrade = backupReady && !failed && !freshRead && !isQaTraffic
+  if (deferUpgrade) {
+    console.log(`[product-lookup] weak read returned immediately; backup upgrade left to the browser url=${resolvedUrl}`)
+    result = { ...scraped, upgradePending: true }
+  }
+  if (backupReady && !isRetry && !deferUpgrade) {
     const backupStarted = Date.now()
     console.log(`[product-lookup] calling universal scraper url=${resolvedUrl} (budget ${Math.round((LOOKUP_TOTAL_BUDGET_MS - (backupStarted - startedAt)) / 1000)}s)`)
     const backup = await scrapeViaUniversalFallback(resolvedUrl, scraped.site ?? detectSite(resolvedUrl), {

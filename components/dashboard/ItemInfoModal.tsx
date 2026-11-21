@@ -631,6 +631,7 @@ function QuoteModal({
 function ChatListingView({
   site,
   siteLabel,
+  siteIcon,
   siteUrl,
   showShortlink,
   title,
@@ -657,6 +658,8 @@ function ChatListingView({
    * platform's own product view would show nothing too. */
   site?: string | null
   siteLabel: string
+  /** The store's own favicon (when known) — shown instead of the generic bolt. */
+  siteIcon?: string | null
   siteUrl?: string | null
   showShortlink?: boolean
   title?: string | null
@@ -717,13 +720,13 @@ function ChatListingView({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 ring-1 ring-inset ring-ink/10 transition-colors hover:text-ink"
               >
-                <Zap size={11} className="text-teal-deep" strokeWidth={2} />
+                <SiteIcon src={siteIcon} />
                 {siteLabel}
                 <ExternalLink size={11} />
               </a>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-0.5 ring-1 ring-inset ring-ink/10">
-                <Zap size={11} className="text-teal-deep" strokeWidth={2} />
+                <SiteIcon src={siteIcon} />
                 {siteLabel}
               </span>
             )}
@@ -1003,6 +1006,27 @@ function UnreadPriceEstimate({ initialPriceINR }: { initialPriceINR?: number | n
   )
 }
 
+// The store's own favicon in the small source pill; falls back to the bolt
+// when there is none or it fails to load.
+function SiteIcon({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) return <Zap size={11} className="text-teal-deep" strokeWidth={2} />
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt="" width={14} height={14} referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-3.5 w-3.5 flex-none rounded-sm object-contain" />
+  )
+}
+
+/** Favicon to try for a store: the scraper's own find, else the site's /favicon.ico. */
+function faviconFor(url?: string | null, found?: string | null): string | null {
+  if (found) return found
+  try {
+    return url ? `${new URL(url).origin}/favicon.ico` : null
+  } catch {
+    return null
+  }
+}
+
 // CHANNEL 3 fallback for an unrecognized/ogOnly result.site — this is
 // the generic Open Graph/JSON-LD path (see ScrapeResult.ogOnly's doc
 // comment): no confirmed size/color options, and no price that's been
@@ -1029,7 +1053,8 @@ function GenericProductView(
   return (
     <ChatListingView
       site={result.site}
-      siteLabel={hostname ?? result.site ?? 'Online store'}
+      siteLabel={result.storeName?.trim() || hostname || result.site || 'Online store'}
+      siteIcon={faviconFor(result.url, result.storeFavicon)}
       siteUrl={hostname ? result.url : null}
       showShortlink={!!result.resolvedFromShortlink}
       title={result.title}
@@ -1300,6 +1325,7 @@ function UnreadableListingFallback({
     <ChatListingView
       site={site}
       siteLabel={hostname ?? 'Online store'}
+      siteIcon={faviconFor(url)}
       siteUrl={hostname ? url : null}
       title={title}
       emptyTitle="We couldn’t load this listing automatically"

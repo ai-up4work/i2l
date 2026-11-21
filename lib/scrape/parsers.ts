@@ -177,6 +177,8 @@ export type ScrapeResult = {
   /** An older copy (1–24 hours) returned straight away so the shopper isn't
    *  kept waiting; the item screen fetches the live result right after. */
   stale?: boolean
+  /** Weak read returned straight away; the browser is asking the backup reader for sizes/exact price in the background. */
+  upgradePending?: boolean
   description?: string | null
   // 'fingerprint_fetch' and 'parsebot' sit alongside 'scraperapi',
   // 'scrapingdog', and 'scrape_do' — all are non-'direct' tiers reached

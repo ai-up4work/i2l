@@ -2,6 +2,7 @@
 'use client'
 import { useCallback, useRef, useState } from 'react'
 import type { ScrapeResult } from '@/lib/scrape/parsers'
+import { mergeWeakRead } from '@/lib/scrape/merge-weak-read'
 
 // A failed scrape (captcha, rate-limit, a proxy tier timing out, a
 // momentary block) is very often just transient — retrying the exact
@@ -21,6 +22,21 @@ const QUICK_FAILURE_MS = 15_000
 // (just under the route's 150 s maxDuration), stop waiting and show the
 // preview / chat screen.
 const CLIENT_TIMEOUT_MS = 145_000
+
+/** Background ask for the backup reader's sizes/exact price (route: upgrade=1).
+ *  Never throws; null = nothing better. */
+async function fetchUpgrade(url: string, rescrape: boolean): Promise<ScrapeResult | null> {
+  try {
+    const res = await fetch(`/api/product-lookup?url=${encodeURIComponent(url)}&upgrade=1${rescrape ? '&rescrape=1' : ''}`, {
+      signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => null)) as { upgrade?: ScrapeResult | null } | null
+    return body?.upgrade && !body.upgrade.error ? body.upgrade : null
+  } catch {
+    return null
+  }
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -170,6 +186,21 @@ export function useProductLookup(options: { fresh?: boolean } = {}) {
             // Couldn't get a live read right now: keep the older copy,
             // shown as "price from N hours ago" instead of "updating".
             setResult({ ...data, stale: false })
+          }
+        })
+      }
+      if (data.upgradePending) {
+        // Weak read shown now; the backup reader fills in sizes/exact price.
+        void fetchUpgrade(data.url || url, rescrape).then((up) => {
+          if (generation.current !== myGeneration) return
+          if (up) {
+            const merged = mergeWeakRead(data, up)
+            setError(merged.warning ?? null)
+            setResult(merged)
+            onRefreshed?.(merged)
+          } else {
+            // Nothing better came back: keep our read, drop the "checking" note.
+            setResult({ ...data, upgradePending: false })
           }
         })
       }
