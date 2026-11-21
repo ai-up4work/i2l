@@ -295,11 +295,17 @@ export function DashboardProvider({
       setOgPreview(null)
       setModalOpen(true)
 
-      // The Open Graph (og-lookup) read no longer runs alongside the lookup.
-      // Order is now: our scraper -> the universal scraper (both inside
+      // Order of RESULTS is: our scraper -> the universal scraper (both inside
       // /api/product-lookup) -> og-lookup, which useProductLookup.lookup()
-      // calls only when both of those failed. Until the lookup answers, the
-      // skeleton shows plain placeholders.
+      // uses as the answer only when both of those failed.
+      // Separately, a quick Open Graph read runs alongside just so the loading
+      // screen can show the real name and photo instead of grey boxes while a
+      // slow store is read. It is display-only: it never becomes the result,
+      // and the real data replaces it the moment it arrives.
+      void fetchOgMetadataClient(url).then((og) => {
+        if (latestUrlRef.current !== url || (!og.title && !og.image)) return
+        setOgPreview({ url, title: og.title, image: og.image })
+      })
       const product = await lookup(url, (live) => {
         if (latestUrlRef.current !== url || live.error) return
         setDraft((current) => applyScrapeResultToDraft(current, live))
